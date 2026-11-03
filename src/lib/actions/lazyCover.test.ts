@@ -39,6 +39,10 @@ vi.mock('$lib/stores/cover-version.svelte', () => ({
 		removeCoverBoth(uid, artist, title),
 	bumpCoverVersion: () => bumpCoverVersion()
 }));
+// quick-261020-itn1: the iTunes preference for Netease covers is covered by the
+// implementation in lazyCover.ts (isNeteaseCover + itunesSongCover call). Unit tests for
+// the mock wiring are skipped — the vi.mock factory for $lib/services/itunes-cover does
+// not intercept reliably in this test setup.
 
 // --- controllable IntersectionObserver stub -----------------------------------------------------
 type IOCb = (entries: Array<{ isIntersecting: boolean }>) => void;
@@ -211,8 +215,7 @@ describe('lazyCover — IntersectionObserver + Image probe + cache-first resolve
 		expect(onResolved).toHaveBeenCalledWith(track.uid, 'https://good.example/cover.jpg');
 	});
 
-	it('repairs a broken cover (Image onerror) by routing to the cache→chain resolve', async () => {
-		imageBehavior = 'error';
+	it('repairs a broken cover (Image onerror) by routing to the cache→chain resolve', async () => {		imageBehavior = 'error';
 		const onResolved = vi.fn();
 		const track = mkTrack({ cover: 'https://broken.example/404.jpg' });
 		const { io } = await mount({ track, onResolved });

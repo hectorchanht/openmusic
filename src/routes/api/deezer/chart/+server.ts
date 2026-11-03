@@ -19,7 +19,7 @@
 // `{ tracks, artists: [] }` through the SAME reshape + image allowlist. An unknown or
 // non-numeric genre is ignored and falls through to today's `/chart` call.
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { fetchWithRetry, jsonResponse, corsPreflight } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import { safeImageUrl as checkImageUrl, DEEZER_IMAGE_HOSTS } from '$lib/proxy/safe-image-url';
 import { DEEZER_GENRE_IDS } from '$lib/services/home-layout';
@@ -157,6 +157,4 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	}
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

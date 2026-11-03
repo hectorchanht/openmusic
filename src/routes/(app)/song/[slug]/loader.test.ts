@@ -164,3 +164,18 @@ describe('legacy song share page — visible text follows the script lock (quick
 		expect(src.split(key).length - 1).toBe(2);
 	});
 });
+
+// ---------------------------------------------------------------------------------------------
+// quick-261102-covgate — the legacy hero ADOPTS the app's unified cover too (one cover
+// everywhere, both route shapes)
+// ---------------------------------------------------------------------------------------------
+describe('legacy song share page — hero adopts the unified cover (quick-261102-covgate)', () => {
+	const src = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+
+	it('hero src = the unified read over the carried image, probed lazily (SSR stays store-free)', () => {
+		expect(src).toContain('unifiedCover ?? data.og.image');
+		expect(src).toContain("import('$lib/stores/cover-version.svelte')");
+		expect(src).toContain('readCoverByUidOrName');
+		expect(src).not.toMatch(/^\s*import\s[^(]*from '\$lib\/stores\//m);
+	});
+});

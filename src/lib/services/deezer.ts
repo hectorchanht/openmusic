@@ -52,23 +52,13 @@ const TTL_RELATED = 6 * 60 * 60 * 1000;
 // Phase 17 — artist/album info is stable (mirror TTL_COVER's 7d posture).
 const TTL_ARTIST = 7 * 24 * 60 * 60 * 1000;
 
-/** The proxy's client-facing reshape (mirrors the +server.ts DeezerCover interface). */
-interface DeezerCover {
-	cover: string | null;
-	artistPicture: string | null;
-	/** Top-N reshaped hits when the proxy was called with `&limit=N>1` (quick-260607-jau). */
-	results?: DeezerHit[];
-}
-
-/** One reshaped Deezer search hit (jau). Mirrors the +server.ts DeezerHit interface. */
-export interface DeezerHit {
-	id: string;
-	title: string;
-	artist: string;
-	album: string;
-	cover: string | null;
-	preview: string | null;
-}
+/** quick-261020-batch4: single-homed — these mirrored the proxy's interfaces (drift-prone by
+ *  admission). The canonical declarations live in $lib/proxy/deezer-cover; this module re-exports
+ *  DeezerHit (imported by autocomplete + search page) and uses DeezerCover internally.
+ *  quick-261101-chk: the re-export alone never brought the names into THIS module's scope —
+ *  the internal annotations below need the matching `import type` (svelte-check baseline fix). */
+import type { DeezerCover, DeezerHit } from '$lib/proxy/deezer-cover';
+export type { DeezerCover, DeezerHit } from '$lib/proxy/deezer-cover';
 
 /** Chart item shapes (mirror the /api/deezer/chart +server.ts reshape + lastfm Discovery* shapes). */
 export interface DeezerChartTrack {
@@ -365,6 +355,43 @@ export async function deezerArtist(
 		if (!res.ok) throw new Error(String(res.status));
 		return (await res.json()) as DeezerArtistInfo;
 	}).catch(() => null); // never throws → caller leaves section absent (D-14)
+}
+
+/**
+ * deezerArtist with NAME-FORM fallbacks (2026-11-02, sunkis hero fix).
+ *
+ * WHY: the proxy's `alias` params only RE-RANK the candidates one search returns — they
+ * cannot rescue a search that returns nothing. A combined credited name is exactly such
+ * a dead search: Deezer finds sunkis under "sunkis" and under "宋秉勤" (same profile,
+ * real picture) but returns ZERO candidates for "sunkis 宋秉勤", so the artist page's
+ * hero lost its artist photo entirely and fell back to a track cover. So when the
+ * primary lookup yields no picture, retry the search under each alternate known form
+ * (MusicBrainz canonical + aliases) until one produces a picture. A result WITH a
+ * picture always wins; otherwise the first non-null result survives (fan/album counts
+ * still render). Every leg is the cached deezerArtist, so repeat visits are free.
+ * Never throws; a total miss returns null exactly like deezerArtist.
+ */
+export async function deezerArtistWithFallbacks(
+	name: string,
+	forms: string[] = [],
+	signal?: AbortSignal
+): Promise<DeezerArtistInfo | null> {
+	if (signal?.aborted) return null;
+	const clean = (name ?? '').trim();
+	if (!clean) return null;
+	const alternates = [...new Set((forms ?? []).map((f) => (f ?? '').trim()).filter(Boolean))]
+		.filter((f) => f !== clean)
+		.slice(0, 4);
+	const primary = await deezerArtist(clean, signal, alternates);
+	if (primary?.picture) return primary;
+	let best: DeezerArtistInfo | null = primary;
+	for (const form of alternates) {
+		if (signal?.aborted) break;
+		const info = await deezerArtist(form, signal);
+		if (info?.picture) return info;
+		if (!best && info) best = info;
+	}
+	return best;
 }
 
 /**

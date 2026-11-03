@@ -42,6 +42,34 @@
 			"binding": "ANALYTICS_DB",
 			"database_name": "openmusic-analytics",
 			"database_id": "0c644f30-410a-4658-b184-9582077750e6"
+		},
+		// ACCOUNTS (quick-261020-acct): magic-link auth + cross-device sync store.
+		// Holds PII (email addresses) + session/magic token hashes + the per-user
+		// backup envelope — deliberately a SEPARATE database from the no-PII
+		// openmusic-analytics above. Written/read by the /api/auth/* and
+		// /api/me/sync routes via the ACCOUNTS_DB binding; the Pages secret is
+		// RESEND_API_KEY (`wrangler pages secret put`, never a var).
+		{
+			"binding": "ACCOUNTS_DB",
+			"database_name": "openmusic-accounts",
+			"database_id": "16b53d6d-5ec1-46b9-97ec-69671b5f42fe"
+		},
+		// SUPPORTERS WALL (2026-10-24): public opt-in wall store. Holds ONLY what a
+		// verified tipper chose to publish (display name + a short message), keyed by
+		// the SHA-256 of their license key — the raw key and any email are NEVER
+		// stored, so this is deliberately a SEPARATE database from both the PII
+		// openmusic-accounts and the anonymous openmusic-analytics. Written by
+		// POST /api/sponsored/verify (only on an explicit public_wall opt-in) and
+		// read by GET /api/sponsored/supporters.
+		{
+			"binding": "SUPPORTERS_DB",
+			"database_name": "openmusic-supporters",
+			"database_id": "ee3b5e33-65af-4aae-852c-1c5423728096"
 		}
-	]
+	],
+	// WORKERS AI (quick-261020-wai): translation backend for /api/translate (m2m100-1.2b).
+	// Bound as `AI`; the server reads it via platform.env.AI. $5/day budget guard in code.
+	"ai": {
+		"binding": "AI"
+	}
 }

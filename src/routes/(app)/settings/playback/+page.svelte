@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { Music, Radio, Zap, Maximize2, BadgeCheck, Download, Sliders, ListMusic, SquareActivity, Mic2, RotateCcw } from '@lucide/svelte';
+	import { Music, Radio, Zap, Maximize2, BadgeCheck, Download, Sliders, ListMusic, SquareActivity, Mic2, RotateCcw, Clapperboard, MonitorPlay } from '@lucide/svelte';
 	import { settings, type DefaultQuality, type DefaultSource } from '$lib/stores/settings.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingPicker from '$lib/components/SettingPicker.svelte';
 	import SettingHint from '$lib/components/SettingHint.svelte';
-	import type { UpnextMode, QueueContext } from '$lib/config/defaults';
+	import { PACK_CONTEXTS, VIDEO_QUALITIES } from '$lib/config/defaults';
+	import type { UpnextMode, UpnextSettingKey, VideoQuality } from '$lib/config/defaults';
 	import { SOURCES } from '$lib/sources/registry';
 	import type { SourceId } from '$lib/sources/types';
 	import { names } from '$lib/stores/names.svelte';
@@ -33,17 +34,29 @@
 		{ v: 'netease', literal: 'NetEase' },
 		{ v: 'qq', literal: 'QQ' },
 		{ v: 'kuwo', literal: 'Kuwo' },
+		{ v: 'kugou', literal: 'Kugou' },
+		{ v: 'migu', literal: 'Migu' },
 		{ v: 'joox', literal: 'JOOX' }
 	];
 
 	function setQuality(v: DefaultQuality) { settings.defaultQuality = v; settings.save(); }
 	function setDownloadQuality(v: DefaultQuality) { settings.downloadQuality = v; settings.save(); }
 	function setSource(v: DefaultSource) { settings.defaultSource = v; settings.save(); }
+	// quick-261024-vid1: the MV layer — master switch + height cap. The NP quality menu
+	// writes settings.videoQuality too (one setting, two surfaces).
+	function toggleVideos(v: 'off' | 'on') { settings.videoEnabled = v === 'on'; settings.save(); }
+	function setVideoQuality(v: string) {
+		const n = Number(v);
+		if ((VIDEO_QUALITIES as readonly number[]).includes(n)) { settings.videoQuality = n as VideoQuality; settings.save(); }
+	}
 	// quick-260919-ebi: the preview picker hands back the PICKED state ('off'|'on'), so tapping the
 	// card that is already selected must be a no-op — a bare `!x` flip would toggle it off again.
 	function toggleExpand(v: 'off' | 'on') { settings.autoExpandOnPlay = v === 'on'; settings.save(); }
 	// quick-260831-k5y: opt-in quality tag on the Now-Playing page.
 	function toggleQualityTag(v: 'off' | 'on') { settings.showQualityTag = v === 'on'; settings.save(); }
+	// quick-261102-srcpill: the Now-Playing source pill, rendered before the quality tag —
+	// ON by default; this is the opt-out, same off/on picker idiom as its neighbour.
+	function toggleSourceTag(v: 'off' | 'on') { settings.showSourceTag = v === 'on'; settings.save(); }
 	// quick-260919-1we (D-7): opt-in lyric line in the docked mini player.
 	function toggleNowbarLyrics(v: 'off' | 'on') { settings.nowbarLyrics = v === 'on'; settings.save(); }
 	// ii6: per-source enable/disable. Precedence in getEnabledAdapters: explicit prefs >
@@ -63,7 +76,10 @@
 	// effective mode and writes a per-context override, mirroring the setSource handler.
 	// Labels reuse existing surface keys where they exist (liked/playlists/downloads/history/
 	// album) and use the Phase-17 ctx* keys for the rest.
-	const upnextContexts: { ctx: Exclude<QueueContext, null>; key: TranslationKey }[] = [
+	// quick-261024-sets (Hector 2026-10-24): the six chart-pack contexts join the list — pack
+	// pages install their pack unpinned now, so their sourcing is governed here like every
+	// other surface; the pack rows reuse the packs' own title keys.
+	const upnextContexts: { ctx: UpnextSettingKey; key: TranslationKey }[] = [
 		{ ctx: 'liked', key: 'library.liked' },
 		{ ctx: 'search', key: 'settings.ctxSearch' },
 		{ ctx: 'downloads', key: 'library.downloads' },
@@ -71,10 +87,22 @@
 		{ ctx: 'album', key: 'settings.ctxAlbum' },
 		{ ctx: 'artist', key: 'settings.ctxArtist' },
 		{ ctx: 'home-discovery', key: 'settings.ctxHomeDiscovery' },
-		{ ctx: 'history', key: 'history.heading' }
+		{ ctx: 'history', key: 'history.heading' },
+		// quick-261024-sets4: ONE row for every country pack — the 'pack' family key.
+		{ ctx: 'pack', key: 'settings.ctxPack' },
+		{ ctx: 'songs-of-year', key: 'home.songsOfYear' }
 	];
-	function setUpnext(ctx: Exclude<QueueContext, null>, v: UpnextMode) {
-		settings.upnextPerContext = { ...settings.upnextPerContext, [ctx]: v };
+	function setUpnext(ctx: UpnextSettingKey, v: UpnextMode) {
+		if (ctx === 'pack') {
+			// quick-261024-sets4: writing the family key clears any per-pack leftovers, so the
+			// one pack value truly governs every country pack from this tap on.
+			const next = { ...settings.upnextPerContext };
+			for (const p of PACK_CONTEXTS) delete next[p];
+			next.pack = v;
+			settings.upnextPerContext = next;
+		} else {
+			settings.upnextPerContext = { ...settings.upnextPerContext, [ctx]: v };
+		}
 		settings.save();
 	}
 
@@ -97,6 +125,8 @@
 	]);
 	/** A boolean setting rendered as a two-card preview picker: 'off' | 'on' <-> false | true. */
 	const boolValue = (b: boolean) => (b ? 'on' : 'off');
+	// quick-261024-vid1: MV height caps — numerals need no i18n.
+	const videoQualityOptions = VIDEO_QUALITIES.map((q) => ({ v: String(q), label: `${q}p` }));
 </script>
 
 <svelte:head><title>{t('settings.title')}</title></svelte:head>
@@ -130,6 +160,16 @@
 	<!-- quick-260919-ebi: kept beside defaultQuality (not moved to Downloads) precisely so the two
 	     read as an identical control the user can compare. Same reason it gets no preview. -->
 	<SettingPicker label={t('settings.downloadQuality')} options={qualityOptions} value={settings.downloadQuality} onpick={setDownloadQuality} />
+</section>
+
+<section>
+	<h2><Clapperboard size={15} /> {t('settings.musicVideos')}<SettingHint label={t('settings.musicVideos')} text={t('settings.musicVideosDesc')} /></h2>
+	<SettingPicker label={t('settings.musicVideos')} options={offOn} value={boolValue(settings.videoEnabled)} onpick={toggleVideos} />
+</section>
+
+<section>
+	<h2><MonitorPlay size={15} /> {t('settings.videoQuality')}</h2>
+	<SettingPicker label={t('settings.videoQuality')} options={videoQualityOptions} value={String(settings.videoQuality)} onpick={setVideoQuality} />
 </section>
 
 <section>
@@ -212,6 +252,39 @@
 	</span>
 {/snippet}
 
+<!-- showSourceTag (quick-261102-srcpill) — the same title line with just the quality
+     badge vs with the SOURCE badge added immediately BEFORE it, exactly as the pills
+     render on Now Playing. `JOOX` is a brand name, not chrome, so it needs no i18n key. -->
+{#snippet srcTagOff()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-row">
+			<span class="mock-tile" style:width="16px"></span>
+			<span class="mock-col">
+				<span class="mock-row">
+					<span class="mock-text">Stargazing</span>
+					<span class="mock-badge">FLAC</span>
+				</span>
+				<span class="mock-line dim" style:width="50%"></span>
+			</span>
+		</span>
+	</span>
+{/snippet}
+{#snippet srcTagOn()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-row">
+			<span class="mock-tile" style:width="16px"></span>
+			<span class="mock-col">
+				<span class="mock-row">
+					<span class="mock-text">Stargazing</span>
+					<span class="mock-badge">JOOX</span>
+					<span class="mock-badge">FLAC</span>
+				</span>
+				<span class="mock-line dim" style:width="50%"></span>
+			</span>
+		</span>
+	</span>
+{/snippet}
+
 <!-- nowbarLyrics — the mini bar showing the artist name vs showing a lyric line. The demo text
      is the same static fallback the Appearance demos use (Stargazing / Myles Smith), and the
      lyric is a generic stand-in rather than an invented lyric string, so nothing needs
@@ -266,6 +339,18 @@
 		onpick={toggleQualityTag}
 	/>
 
+	<h3 class="sub"><Music size={14} /> {t('settings.showSourceTag')}<SettingHint label={t('settings.showSourceTag')} text={t('settings.showSourceTagDesc')} /></h3>
+	<SettingPicker
+		variant="preview"
+		label={t('settings.showSourceTag')}
+		options={[
+			{ ...offOn[0], preview: srcTagOff },
+			{ ...offOn[1], preview: srcTagOn }
+		]}
+		value={boolValue(settings.showSourceTag)}
+		onpick={toggleSourceTag}
+	/>
+
 	<h3 class="sub"><Mic2 size={14} /> {t('settings.nowbarLyrics')}</h3>
 	<!-- quick-260919-ebi: no hint here — the two mini bars ARE the sentence this used to carry
 	     ("shows the current lyric line instead of the artist name"), word for word. -->
@@ -290,6 +375,9 @@
 			<Radio size={14} />	
 			{t('settings.upnextGenerated')}
 		</span>
+	<!-- quick-261024-sets: visible explainer (Hector) — what the two modes DO and which
+	     surfaces default to which, so the rows below need no guessing. -->
+	<p class="upnext-desc">{t('settings.upnextSourcingDesc')}</p>
 
 	{#each upnextContexts as c (c.ctx)}
 		<div class="upnext-row">
@@ -299,7 +387,7 @@
 			<SettingPicker
 				label={`${t(c.key)} · ${t('settings.upnextSourcing')}`}
 				options={upnextOptions}
-				value={settings.effectiveUpnextMode(c.ctx)}
+				value={settings.upnextModeForKey(c.ctx)}
 				onpick={(v) => setUpnext(c.ctx, v)}
 				iconOnly
 			/>
@@ -308,7 +396,7 @@
 </section>
 
 <!-- ii6: Advanced > Sources — tucked behind a <details> accordion so the Playback tab
-	   stays speed/quality-first. Lets a user opt INTO 5sing (enabledByDefault:false). -->
+	   stays speed/quality-first. Per-source enable/disable chips (5sing ships enabled by default). -->
 <details class="advanced">
 	<summary><Sliders size={15} /> {t('settings.sourcesAdvanced')}<SettingHint label={t('settings.sourcesAdvanced')} text={t('settings.sourcesAdvancedNote')} /></summary>
 	<div class="chips">
@@ -347,10 +435,11 @@
 		white-space: nowrap;
 	}
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
-	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.chip.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	/* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte; .row-toggle/.sw went with the
 	   three toggle rows the previews replaced. */
 	.sub { display: flex; align-items: center; gap: 6px; font-size: 0.8125rem; font-weight: 600; margin: 16px 0 8px; position: relative; }
+	.upnext-desc { color: var(--color-text-muted); font-size: 0.8125rem; line-height: 1.5; margin: 8px 0 4px; }
 	.upnext-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; }
 	.upnext-row .ctx-label { font-size: 0.875rem; color: var(--color-text); }
 	.advanced { margin: 22px 0; padding: 10px 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; }

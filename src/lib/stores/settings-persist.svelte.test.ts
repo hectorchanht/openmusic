@@ -82,6 +82,49 @@ describe('settings persistence round-trip — shareIncludeTitle (quick-260808-vz
 	});
 });
 
+// quick-261102-srcpill: the Now-Playing source pill's toggle. Default is TRUE (Hector
+// asked for the pill; hiding it is the opt-out) — the exact inverse of shareIncludeTitle's
+// default, which is why every case below asserts the TRUE resting value explicitly.
+describe('settings persistence round-trip — showSourceTag (quick-261102-srcpill)', () => {
+	beforeEach(() => memStore.clear());
+
+	it('defaults to true when nothing is persisted', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.showSourceTag).toBe(true);
+	});
+
+	it('an explicitly persisted `false` wins on load', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', showSourceTag: false }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.showSourceTag).toBe(false);
+	});
+
+	it('a corrupt non-boolean falls back to the default (true)', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', showSourceTag: 'no' }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.showSourceTag).toBe(true);
+	});
+
+	it('save() writes the field into the persisted blob', async () => {
+		const settings = await freshSettings();
+		settings.showSourceTag = false;
+		settings.save();
+		expect(JSON.parse(localStorage.getItem(KEY) as string).showSourceTag).toBe(false);
+	});
+
+	it('resetPlayback() reverts the field AND the persisted blob', async () => {
+		const settings = await freshSettings();
+		settings.showSourceTag = false;
+		settings.save();
+		settings.resetPlayback();
+		expect(settings.showSourceTag).toBe(true);
+		expect(JSON.parse(localStorage.getItem(KEY) as string).showSourceTag).toBe(true);
+	});
+});
+
 // quick-260919-l9e. ORDER IS LOAD-BEARING here in a way shareIncludeTitle's boolean is not: this
 // array is the left-to-right layout of the inline row buttons, so a round-trip that preserved the
 // MEMBERS but not the ORDER would silently rearrange every song row on the next app open.
@@ -487,5 +530,81 @@ describe('settings persistence — zhScript survives load (quick-260925-vtg)', (
 
 	it("a garbage value ('bogus') loads the default 'zh-Hant'", async () => {
 		expect((await loadWith({ zhScript: 'bogus' })).zhScript).toBe('zh-Hant');
+	});
+});
+
+describe('settings persistence round-trip — syncItems (quick-261020-sync)', () => {
+	beforeEach(() => memStore.clear());
+
+	it('a pre-picker blob (no syncItems) loads all-true', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en' }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.syncItems).toEqual({
+			settings: true,
+			library: true,
+			history: true,
+			searchHistory: true,
+			nameTr: true
+		});
+	});
+
+	it('honours persisted booleans per key and falls back per key on tampering', async () => {
+		memStore.set(
+			KEY,
+			JSON.stringify({
+				appLang: 'en',
+				syncItems: { settings: false, library: true, history: 'yes', searchHistory: 0, nameTr: null, extra: true }
+			})
+		);
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.syncItems).toEqual({
+			settings: false,
+			library: true,
+			history: true,
+			searchHistory: true,
+			nameTr: true
+		});
+	});
+
+	it('a non-object syncItems falls back to all-true', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', syncItems: ['settings'] }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.syncItems).toEqual({
+			settings: true,
+			library: true,
+			history: true,
+			searchHistory: true,
+			nameTr: true
+		});
+	});
+
+	it('round-trips through save()', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		settings.syncItems = { ...settings.syncItems, library: false };
+		settings.save();
+		const blob = JSON.parse(memStore.get(KEY) as string) as { syncItems: unknown };
+		expect(blob.syncItems).toEqual({
+			settings: true,
+			library: false,
+			history: true,
+			searchHistory: true,
+			nameTr: true
+		});
+	});
+
+	it('reset-group methods never touch syncItems', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		settings.syncItems = { ...settings.syncItems, library: false };
+		settings.resetAppearance();
+		settings.resetGeneral();
+		settings.resetTranslation();
+		settings.resetPlayback();
+		settings.resetHome();
+		expect(settings.syncItems.library).toBe(false);
 	});
 });

@@ -446,7 +446,9 @@ describe('og-cover — per-tier host allow-lists (T-wv8-05, one per tier)', () =
 			it: JSON.stringify({ results: [{ artworkUrl100: KW_PIC }] }),
 			kw: KW_HIT
 		});
-		const out = await resolveCoverTiered('song', 'A', 'B', fresh());
+		// quick-261102-covgate: the request names the KW_HIT song — a cover candidate must now
+		// BE the requested song, so this test's terms match its fixture's identity.
+		const out = await resolveCoverTiered('song', '周杰倫', '稻香', fresh());
 		expect(out).toBe(KW_PIC);
 		expect(calls).toHaveLength(3);
 	});
@@ -533,7 +535,14 @@ describe('og-cover — Last.fm tier (key-gated, song only) — quick-260809-38i'
 	it('a Last.fm miss still lets convert-first run for the keyless tiers below it', async () => {
 		// The tier sits ABOVE the conversion but must not disable it: on a miss the CN chain still gets
 		// the Simplified query it needs (quick-260807-vl1 stays intact).
-		const { calls } = stubTiers({ lf: LF_MISS, dz: DZ_MISS, it: IT_MISS, kw: KW_HIT });
+		// quick-261102-covgate: the kuwo reply is the REQUESTED song (止戰之殤) — under the
+		// identity gate a reply naming a different song （稻香） is a miss by design now.
+		const KW_HIT_ZHIZHAN = JSON.stringify({
+			abslist: [
+				{ MUSICRID: 'MUSIC_440613', SONGNAME: '止戰之殤', ARTIST: '周杰伦', web_albumpic_short: '120/s4s0/93/1794217775.jpg' }
+			]
+		});
+		const { calls } = stubTiers({ lf: LF_MISS, dz: DZ_MISS, it: IT_MISS, kw: KW_HIT_ZHIZHAN });
 		const out = await resolveCoverTiered('song', '周傑倫', '止戰之殤', fresh(), KEY);
 		expect(out).toBe(KW_PIC);
 		expect(calls[0]).toContain(encodeURIComponent('止戰之殤')); // Last.fm: original
@@ -542,7 +551,9 @@ describe('og-cover — Last.fm tier (key-gated, song only) — quick-260809-38i'
 
 	it('picks the LARGEST image by Last.fm size rank, not array order', async () => {
 		stubTiers({ lf: lfHit() });
-		const out = await resolveCoverTiered('song', 'A', 'B', fresh(), KEY);
+		// quick-261102-covgate: the request names the lfHit song — the returned track's own
+		// name/artist are validated now, so the terms must be the fixture's identity.
+		const out = await resolveCoverTiered('song', '方大同', '紅豆', fresh(), KEY);
 		expect(out).toBe(LF_IMG); // extralarge, even though `small` came first in the array
 	});
 
@@ -573,7 +584,8 @@ describe('og-cover — Last.fm tier (key-gated, song only) — quick-260809-38i'
 
 	it('a clean MISS (no image) falls through to the unchanged Deezer → iTunes → kuwo chain', async () => {
 		const { calls } = stubTiers({ lf: LF_MISS, dz: DZ_MISS, it: IT_MISS, kw: KW_HIT });
-		const out = await resolveCoverTiered('song', 'A', 'B', fresh(), KEY);
+		// quick-261102-covgate: request names the KW_HIT song (see the allow-list case above).
+		const out = await resolveCoverTiered('song', '周杰倫', '稻香', fresh(), KEY);
 		expect(out).toBe(KW_PIC);
 		expect(calls[0]).toContain('audioscrobbler');
 		expect(calls[1]).toContain('api.deezer.com');
@@ -646,7 +658,16 @@ describe('og-cover — Last.fm tier (key-gated, song only) — quick-260809-38i'
 	});
 
 	it('/api/og threads platform.env.LASTFM_KEY into the tier (edge-side only)', async () => {
-		const { calls } = stubRoute({ lf: lfHit() });
+		// quick-261102-covgate: the Last.fm body names the SONG request (Nirvana) — the tier
+		// validates the returned track's identity now, so the fixture echoes the request.
+		const LF_NIRVANA = JSON.stringify({
+			track: {
+				name: 'Come As You Are',
+				artist: { name: 'Nirvana' },
+				album: { image: [{ '#text': LF_IMG, size: 'extralarge' }] }
+			}
+		});
+		const { calls } = stubRoute({ lf: LF_NIRVANA });
 		const res = await callGET(fakeEvent(SONG, 'https://openmusic.lol', { LASTFM_KEY: KEY }));
 		expect(res.status).toBe(200);
 		expect(res.headers.get('content-type')).toBe('image/jpeg');
@@ -1269,5 +1290,161 @@ describe('/api/og — the `ci` carrier short-circuits the resolve chain (quick-2
 		const res = await callGET(fakeEvent({ type: 'song', ci: TOK_D }));
 		expect(res.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
 		expect(calls).toHaveLength(0);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// quick-261102-covgate — the CANDIDATE IDENTITY GATE (the red-hoodie incident)
+// ---------------------------------------------------------------------------------------------
+// THE INCIDENT (2026-11-02, Hector's screenshot): the song page for 高爾宣 OSN
+// 《Without You (Explicit)》 (uid qq:003OVf2Y349s0Z) showed a photo of a stranger in a red
+// hoodie while the nowbar on the same screen showed the real album art. The hero's bytes were
+// proven md5-identical to Deezer cover 1a18a3631eb049dbd2fbd2fc4afae088 — 'Without you
+// explicit' by Lilcory_offical, a DIFFERENT artist: Fallback B (a title-only Deezer search)
+// returned it as data[0] and the chain trusted first results outright. Every tier now
+// validates a candidate's own (artist, title) against the request before its cover can win;
+// a mismatch is a MISS, never a hit — at worst the chain serves the branded card.
+describe('og-cover — candidate identity gate (quick-261102-covgate)', () => {
+	const LIL_COVER =
+		'https://cdn-images.dzcdn.net/images/cover/1a18a3631eb049dbd2fbd2fc4afae088/500x500-000000-80-0-0.jpg';
+	const LIL_BODY = JSON.stringify({
+		data: [
+			{
+				id: 3388515483,
+				title: 'Without you explicit',
+				artist: { name: 'Lilcory_offical' },
+				album: { title: 'Lost reality', cover_big: LIL_COVER }
+			}
+		],
+		total: 1
+	});
+	const OSN_KW_PIC = 'https://img2.kuwo.cn/star/albumcover/500/54/40/1789045318.jpg';
+	const OSN_KW = JSON.stringify({
+		abslist: [
+			{
+				MUSICRID: 'MUSIC_5212317',
+				SONGNAME: 'Without You (Explicit)',
+				ARTIST: '高尔宣 OSN',
+				web_albumpic_short: '120/54/40/1789045318.jpg'
+			}
+		]
+	});
+	// Probed shape: iTunes' top hits for this song are OTHER OSN songs, never the right title.
+	const IT_OSN_WRONG = JSON.stringify({
+		results: [
+			{ trackName: '最後一次', artistName: 'Osn', artworkUrl100: IT_ART_100 },
+			{ trackName: 'Why You Gonna Lie', artistName: 'Osn', artworkUrl100: IT_ART_100 }
+		]
+	});
+
+	/**
+	 * The incident's Deezer, URL-aware: full-term queries (either script) find NOTHING (probed
+	 * total 0); only the title-only Fallback B query finds the Lilcory track. stubTiers cannot
+	 * express per-query replies, hence this dedicated stub.
+	 */
+	function stubIncident(opts: { it?: TierReply; kw?: TierReply }) {
+		const calls: string[] = [];
+		const spy = vi.fn(async (input: RequestInfo | URL) => {
+			const u = String(input);
+			calls.push(u);
+			if (u.includes('api.deezer.com')) {
+				const q = new URL(u).searchParams.get('q') ?? '';
+				return new Response(q === 'Without You (Explicit)' ? LIL_BODY : DZ_MISS, {
+					status: 200,
+					headers: { 'content-type': 'application/json' }
+				});
+			}
+			const reply = u.includes('itunes.apple.com') ? opts.it : opts.kw;
+			if (reply === undefined || reply === 'THROW') throw new Error('network down');
+			if (reply === 'NOTOK') return new Response('upstream error', { status: 500 });
+			return new Response(reply, { status: 200, headers: { 'content-type': 'application/json' } });
+		});
+		vi.stubGlobal('fetch', spy);
+		return { calls, spy };
+	}
+
+	it('the incident shape: kuwo’s identity-matching row wins; the title-only Deezer stranger never does', async () => {
+		const { calls } = stubIncident({ it: IT_OSN_WRONG, kw: OSN_KW });
+		const out = await resolveCoverTiered('song', '高爾宣 OSN', 'Without You (Explicit)', fresh());
+		expect(out).toBe(OSN_KW_PIC);
+		expect(out).not.toBe(LIL_COVER);
+		expect(calls.some((c) => c.includes('search.kuwo.cn'))).toBe(true);
+	});
+
+	it('only mismatched covers everywhere → null (branded card), never the wrong image', async () => {
+		// kuwo answers with a DIFFERENT song; iTunes with the right artist’s wrong songs; and
+		// Fallback B still finds Lilcory. Pre-gate, this exact shape returned LIL_COVER.
+		const KW_OTHER = JSON.stringify({
+			abslist: [
+				{ MUSICRID: 'MUSIC_9', SONGNAME: 'Without You', ARTIST: 'Mariah Carey', web_albumpic_short: '120/1/2/3.jpg' }
+			]
+		});
+		const { calls } = stubIncident({ it: IT_OSN_WRONG, kw: KW_OTHER });
+		const out = await resolveCoverTiered('song', '高爾宣 OSN', 'Without You (Explicit)', fresh());
+		expect(out).toBeNull();
+		// The title-only fallback really ran — and its stranger was gated out, not trusted.
+		expect(
+			calls.some(
+				(c) => c.includes('api.deezer.com') && new URL(c).searchParams.get('q') === 'Without You (Explicit)'
+			)
+		).toBe(true);
+	});
+
+	it('iTunes: a wrong-title first result is skipped for the identity-matching second', async () => {
+		const IT_RIGHT_100 = 'https://is1-ssl.mzstatic.com/image/thumb/Music/right/100x100bb.jpg';
+		const it = JSON.stringify({
+			results: [
+				{ trackName: '最後一次', artistName: 'Osn', artworkUrl100: IT_ART_100 },
+				{ trackName: 'Without You (Explicit)', artistName: 'Osn', artworkUrl100: IT_RIGHT_100 }
+			]
+		});
+		stubTiers({ dz: DZ_MISS, it });
+		const out = await resolveCoverTiered('song', '高爾宣 OSN', 'Without You (Explicit)', fresh());
+		expect(out).toBe(IT_RIGHT_100.replace('100x100bb', '600x600bb'));
+	});
+
+	it('Deezer: a wrong-artist first hit is skipped within the SAME subrequest (limit=5)', async () => {
+		const OSN_DZ = 'https://cdn-images.dzcdn.net/images/cover/osn500/500x500-000000-80-0-0.jpg';
+		const dz = JSON.stringify({
+			data: [
+				{ id: 1, title: 'Without You (Explicit)', artist: { name: 'Lilcory_offical' }, album: { cover_big: LIL_COVER } },
+				{ id: 2, title: 'Without You (Explicit)', artist: { name: '高爾宣 OSN' }, album: { cover_big: OSN_DZ } }
+			],
+			total: 2
+		});
+		const { calls } = stubTiers({ dz });
+		const out = await resolveCoverTiered('song', '高爾宣 OSN', 'Without You (Explicit)', fresh());
+		expect(out).toBe(OSN_DZ);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toContain('limit=5');
+	});
+
+	it('a Simplified request accepts a Traditional-credited iTunes row (s2t wants widening)', async () => {
+		// Probed live 2026-11-02: iTunes credits 陳奕迅 in Traditional. With wants limited to
+		// the Simplified pair, the artist's OWN row was gated out and only kuwo could ever win
+		// a Simplified CJK request. The widened wants accept either script's echo.
+		const it = JSON.stringify({
+			results: [{ trackName: '孤勇者', artistName: '陳奕迅', artworkUrl100: IT_ART_100 }]
+		});
+		stubTiers({ dz: DZ_MISS, it });
+		const out = await resolveCoverTiered('song', '陈奕迅', '孤勇者', fresh());
+		expect(out).toBe(IT_ART_600);
+	});
+
+	it('Last.fm: an autocorrect SUBSTITUTION (right title, wrong artist) is a miss, not a hit', async () => {
+		// 紅豆 is famously 王菲's song and 方大同's cover of it — exactly the substitution
+		// autocorrect=1 can hand back. Its art must not dress the other artist's card.
+		const lf = JSON.stringify({
+			track: {
+				name: '紅豆',
+				artist: { name: '王菲' },
+				album: { image: [{ '#text': 'https://lastfm-img.freetls.fastly.net/i/u/300x300/sub.png', size: 'extralarge' }] }
+			}
+		});
+		const { calls } = stubTiers({ lf, dz: DZ_HIT });
+		const out = await resolveCoverTiered('song', '方大同', '紅豆', fresh(), 'test-lastfm-key');
+		expect(out).toBe(DZ_COVER);
+		expect(calls).toHaveLength(2);
+		expect(calls[0]).toContain('audioscrobbler');
 	});
 });

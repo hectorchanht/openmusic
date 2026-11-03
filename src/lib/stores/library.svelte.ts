@@ -2,13 +2,24 @@
 // "downloads" reference list. Persisted to localStorage `openmusic:library:v1`,
 // SSR-guarded. This is a demo-scoped slice of the planned Phase-3 Library.
 import { browser } from '$app/environment';
+import { trackLike } from '$lib/analytics';
 import { blobStore } from '$lib/services/blob-store';
 import { setCachedCover } from '$lib/services/cover-cache';
 import { hasHttpsScheme } from '$lib/services/url-safety';
 import { matchKey, versionedMatchKey } from '$lib/services/match-key';
 import { isDeviceUid } from '$lib/services/device-track';
-import { sameSongStrings, songKey } from '$lib/services/dedupe';
-import { isChineseLine, t2sConvertLineSync, warmScript } from '$lib/services/zh-convert';
+import { dedupeShelfList, isSameShelfSong, sameSongStrings, songKey } from '$lib/services/dedupe';
+import { isChineseLine, warmScript } from '$lib/services/zh-convert';
+// quick-261023-syncmerge: tombstone helpers — the `deleted` set lives on the library blob
+// and rides the synced library key (merge-logic.ts owns the namespaces).
+import {
+	addTombstones as unionTombstones,
+	clearTombstones as dropTombstones,
+	foldArtistName,
+	tombFav,
+	tombPlaylist,
+	tombTrack
+} from '$lib/sync/merge-logic';
 import type { Track } from '$lib/sources/types';
 
 const KEY = 'openmusic:library:v1';
@@ -41,6 +52,11 @@ interface LibShape {
 	 *  downloadProgress) because a missing file is still missing after a relaunch and the badge must
 	 *  not lie until the user taps it again. Optional in storage for non-destructive migration. */
 	unavailable?: string[];
+	/** quick-261023-syncmerge: namespaced tombstones (u:/f:/p:/h:/q:) — deletions that must
+	 *  survive the next cross-device merge. Synced inside the library key (never stripped);
+	 *  downloads/unavailable are the opposite (never synced). Optional in storage for
+	 *  non-destructive migration. */
+	deleted?: string[];
 }
 
 class Library {
@@ -72,8 +88,7 @@ class Library {
 	 *  as `downloading` above — transient, never in LibShape, never persisted — and deliberately a
 	 *  SEPARATE map rather than a richer `downloading` value: an absent entry means INDETERMINATE
 	 *  (no Content-Length), which is a real state the UI renders differently (spinner, not 0%), and
-	 *  folding it into the busy set would force every existing `downloading.has(uid)` reader to care. */
-	downloadProgress = $state<Record<string, number>>({});
+	 *  folding it into the busy set would force every existing `downloading.has(uid)` reader to care. */	downloadProgress = $state<Record<string, number>>({});
 	/** quick-260926-hze: bumped once when the t2s fold dict lands. Read by isFavArtist so the
 	 *  landing repaints every heart and favourites list (the first render ran on a cold fold). */
 	private foldRev = $state(0);
@@ -81,6 +96,28 @@ class Library {
 	 *  guards): the UI never reads it. */
 	private foldWarmed = false;
 	private loaded = false;
+	/** quick-261023-syncmerge: namespaced tombstones (u:/f:/p:/h:/q:). PLAIN field — the UI
+	 *  never reads it (house rule); mutated only via tombstone()/untombstone(), persisted
+	 *  by save(), synced inside the library key. */
+	private deleted: string[] = [];
+
+	/** Union tombstones in (FIFO-capped) + persist. Called on every explicit removal so the
+	 *  delete survives the next cross-device merge instead of being resurrected. */
+	tombstone(keys: string[]): void {
+		const next = unionTombstones(this.deleted, keys);
+		if (next.length === this.deleted.length && next.every((k, i) => k === this.deleted[i])) return;
+		this.deleted = next;
+		this.save();
+	}
+
+	/** Drop tombstones + persist. Called on re-add — a re-added item wins over its delete. */
+	untombstone(keys: string[]): void {
+		if (keys.length === 0) return;
+		const next = dropTombstones(this.deleted, keys);
+		if (next.length === this.deleted.length) return;
+		this.deleted = next;
+		this.save();
+	}
 
 	/** Hydrate from localStorage once, in the browser. Call from a layout onMount. */
 	load() {
@@ -97,11 +134,55 @@ class Library {
 				this.downloads = v.downloads ?? [];
 				this.favArtists = Array.isArray(v.favArtists) ? v.favArtists : [];
 				this.unavailable = new Set(Array.isArray(v.unavailable) ? v.unavailable : []);
+				// quick-261023-syncmerge: tolerate foreign shapes — a hostile blob must never
+				// poison the set the merge trusts.
+				this.deleted = Array.isArray(v.deleted)
+					? v.deleted.filter((x): x is string => typeof x === 'string')
+					: [];
 			}
 		} catch {
 			/* corrupt/unavailable — start empty */
 		}
+		this.healDupes(); // quick-261031-dedup: collapse same-song rows already persisted
 		this.warmFold(); // quick-260926-hze: after hydration, so it sees the saved favourites
+	}
+
+	/**
+	 * quick-261031-dedup (Hector 2026-10-31: songs duplicated in Library → Downloads): the lists
+	 * historically keyed adds on UID ONLY, so the same song saved from two sources (or merged in
+	 * from another device by the sync union, which also keys on uid) sat as two rows — two
+	 * Downloads rows, two blobs. Heal = dedupeShelfList on every list (one row per
+	 * song+rendition, best quality wins, device imports untouched); dropped download rows also
+	 * drop their blob (blobStore.del refuses device uids itself) and their unavailable marks.
+	 * Runs at load() and again when the t2s fold lands (warmFold) so Traditional/Simplified
+	 * twins that keyed differently on a cold dict still merge. One save() when anything changed.
+	 */
+	private healDupes() {
+		const liked = dedupeShelfList(this.liked);
+		const downloads = dedupeShelfList(this.downloads);
+		let playlistsChanged = false;
+		const playlists = this.playlists.map((p) => {
+			const tracks = dedupeShelfList(p.tracks);
+			if (tracks.length === p.tracks.length) return p;
+			playlistsChanged = true;
+			return { ...p, tracks };
+		});
+		const changed =
+			liked.length !== this.liked.length ||
+			downloads.length !== this.downloads.length ||
+			playlistsChanged;
+		if (!changed) return;
+		if (downloads.length !== this.downloads.length) {
+			const kept = new Set(downloads.map((t) => t.uid));
+			for (const t of this.downloads) {
+				if (!kept.has(t.uid)) void blobStore.del(t.uid);
+			}
+			this.unavailable = new Set([...this.unavailable].filter((uid) => kept.has(uid)));
+		}
+		this.liked = liked;
+		this.downloads = downloads;
+		this.playlists = playlists;
+		this.save();
 	}
 
 	private save() {
@@ -117,7 +198,9 @@ class Library {
 					playlists: this.playlists.map((p) => ({ ...p, tracks: p.tracks.map(stripInlineCover) })),
 					downloads: this.downloads.map(stripInlineCover),
 					favArtists: this.favArtists,
-					unavailable: [...this.unavailable]
+					unavailable: [...this.unavailable],
+					// quick-261023-syncmerge: tombstones persist + sync (inside the library key).
+					deleted: this.deleted
 				})
 			);
 		} catch {
@@ -135,8 +218,23 @@ class Library {
 	}
 	toggleLike(t: Track) {
 		if (!t.uid) return; // like-state-wrong-track-menu: nothing to key on — refuse, never poison the list
-		this.liked = this.isLiked(t.uid) ? this.liked.filter((x) => x.uid !== t.uid) : [t, ...this.liked];
+		const wasLiked = this.isLiked(t.uid);
+		if (wasLiked) {
+			this.liked = this.liked.filter((x) => x.uid !== t.uid);
+			// quick-261023-syncmerge: the unlike must survive the next cross-device merge.
+			this.tombstone([tombTrack(t.uid)]);
+		} else if (this.liked.some((x) => isSameShelfSong(x, t))) {
+			// quick-261031-dedup: the same song+rendition is already liked under another
+			// source's uid — it IS liked; a second row is the duplicate Hector reported.
+			// Deliberately NOT an unlike (the uid heart was off, the song heart is on).
+		} else {
+			this.liked = [t, ...this.liked];
+			this.untombstone([tombTrack(t.uid)]);
+		}
 		this.save();
+		// quick-261023-like-dl: identity-linked like/unlike ping — the single convergence
+		// point for every like UI. Fire-and-forget; never affects the toggle.
+		trackLike(t, wasLiked ? 'unlike' : 'like');
 	}
 
 	/**
@@ -239,19 +337,28 @@ class Library {
 		return pl;
 	}
 	addToPlaylist(id: string, t: Track) {
+		// quick-261031-dedup: the per-playlist guard is song+rendition, not just uid — the same
+		// song from another source is already IN this playlist.
 		this.playlists = this.playlists.map((p) =>
-			p.id === id && !p.tracks.some((x) => x.uid === t.uid) ? { ...p, tracks: [...p.tracks, t] } : p
+			p.id === id && !p.tracks.some((x) => isSameShelfSong(x, t)) ? { ...p, tracks: [...p.tracks, t] } : p
 		);
+		// quick-261023-syncmerge: re-adding clears the tombstone (re-add wins).
+		if (t.uid) this.untombstone([tombTrack(t.uid)]);
 		this.save();
 	}
 	removeFromPlaylist(id: string, uid: string) {
 		this.playlists = this.playlists.map((p) =>
 			p.id === id ? { ...p, tracks: p.tracks.filter((x) => x.uid !== uid) } : p
 		);
+		// quick-261023-syncmerge: the removal must survive the next cross-device merge.
+		if (uid) this.tombstone([tombTrack(uid)]);
 		this.save();
 	}
 	deletePlaylist(id: string) {
 		this.playlists = this.playlists.filter((p) => p.id !== id);
+		// quick-261023-syncmerge: tombstone the playlist id ONLY — never the track uids
+		// (a liked copy of a song from a deleted playlist must survive the merge).
+		if (id) this.tombstone([tombPlaylist(id)]);
 		this.save();
 	}
 
@@ -268,11 +375,12 @@ class Library {
 	 *  quick-260926-hze: the fold now warms ITSELF, lock-independent: warmFold() runs after load()
 	 *  and after a favourite toggle, and foldRev repaints once t2s lands, so a favourite saved
 	 *  under the other script matches even with the lock OFF. library still must not import names. */
+	// quick-261023-syncmerge: the fold lives in merge-logic.ts (foldArtistName) — one source
+	// of truth shared with the sync merge, so the store and the merge can never drift apart.
+	// (ponytail: a user with ANY Chinese favourite downloads the ~22 KB gzip t2s dict even with
+	// the lock off; a Latin-only library never does. quick-260926-hze/hl9 notes live there.)
 	private favKey(name: string): string {
-		// ponytail: a user with ANY Chinese favourite downloads the ~22 KB gzip t2s dict even with
-		// the lock off; a Latin-only library never does.
-		const k = (name ?? '').trim().toLowerCase();
-		return isChineseLine(k) ? (t2sConvertLineSync(k) ?? k) : k;
+		return foldArtistName(name);
 	}
 	isFavArtist(name: string): boolean {
 		void this.foldRev; // quick-260926-hze: reactive dependency — the fold-dict landing repaints
@@ -284,9 +392,14 @@ class Library {
 		const clean = (name ?? '').trim();
 		if (!clean) return;
 		const k = this.favKey(clean);
-		this.favArtists = this.isFavArtist(clean)
-			? this.favArtists.filter((n) => this.favKey(n) !== k)
-			: [clean, ...this.favArtists];
+		if (this.isFavArtist(clean)) {
+			this.favArtists = this.favArtists.filter((n) => this.favKey(n) !== k);
+			// quick-261023-syncmerge: the unfavourite must survive the next cross-device merge.
+			if (k) this.tombstone([tombFav(k)]);
+		} else {
+			this.favArtists = [clean, ...this.favArtists];
+			if (k) this.untombstone([tombFav(k)]);
+		}
 		this.save();
 		this.warmFold(); // quick-260926-hze: a first Chinese favourite warms the fold too
 	}
@@ -309,6 +422,9 @@ class Library {
 		this.foldWarmed = true;
 		void warmScript('zh-Hans').then(() => {
 			this.foldRev++;
+			// quick-261031-dedup: keys fold properly only now — re-heal so Traditional/Simplified
+			// twin rows that survived the cold load() pass still collapse to one.
+			this.healDupes();
 		});
 	}
 
@@ -378,6 +494,44 @@ class Library {
 		this.albumJobs = new Set(this.albumJobs).add(key);
 		return true;
 	}
+	/** quick-261031-dlpersist (Hector 2026-10-31): discography "Download all" runs, keyed by
+	 *  artist route name — the run's progress (albums done/total + per-album song progress)
+	 *  lives HERE, not on the albums page, for the same reason albumJobs does: the page
+	 *  unmounts when the user navigates away, and the indicator (the header "9/13" + the
+	 *  per-album bars) must still be there when they come back. The run itself is the page's
+	 *  async loop; its store writes keep landing after unmount, and a remount re-reads them.
+	 *  Transient like albumJobs — never persisted (a reload starts clean). The whole-run
+	 *  claim also makes a re-click after a page change a no-op, complementing the per-album
+	 *  beginAlbumJob claims inside the run. */
+	packJobs = $state<Record<string, { done: number; total: number; albums: Record<string, { done: number; total: number }> }>>({});
+	/** Claim a whole discography run for an artist. False when one is already running. */
+	beginPackJob(artist: string, total: number): boolean {
+		if (this.packJobs[artist]) return false;
+		this.packJobs = { ...this.packJobs, [artist]: { done: 0, total, albums: {} } };
+		return true;
+	}
+	/** Record one more finished album in a running pack job. Absent job = no-op. */
+	bumpPackProgress(artist: string) {
+		const job = this.packJobs[artist];
+		if (!job) return;
+		this.packJobs = { ...this.packJobs, [artist]: { ...job, done: job.done + 1 } };
+	}
+	/** Set (or clear, with null) one album's song progress inside a running pack job. */
+	setPackAlbumProgress(artist: string, key: string, prog: { done: number; total: number } | null) {
+		const job = this.packJobs[artist];
+		if (!job) return;
+		const albums = { ...job.albums };
+		if (prog) albums[key] = prog;
+		else delete albums[key];
+		this.packJobs = { ...this.packJobs, [artist]: { ...job, albums } };
+	}
+	/** Release a discography run (the page's loop calls this in its `finally`). */
+	endPackJob(artist: string) {
+		if (!this.packJobs[artist]) return;
+		const next = { ...this.packJobs };
+		delete next[artist];
+		this.packJobs = next;
+	}
 	/** Release an album job (run in the orchestrator's `finally`). Absent key is a no-op. */
 	endAlbumJob(key: string) {
 		if (!this.albumJobs.has(key)) return;
@@ -433,10 +587,21 @@ class Library {
 		return this.downloads.some((t) => t.uid === uid);
 	}
 	addDownload(t: Track) {
-		if (!this.isDownloaded(t.uid)) {
-			this.downloads = [t, ...this.downloads];
-			this.save();
-		}
+		if (this.isDownloaded(t.uid)) return;
+		// quick-261031-dedup: the same song+rendition already downloaded under another source's
+		// uid — that record (and its blob) IS this song's download; downloadTrack's own
+		// early-out normally catches this first, this is the guard for direct callers.
+		if (this.downloads.some((d) => isSameShelfSong(d, t))) return;
+		this.downloads = [t, ...this.downloads];
+		this.save();
+	}
+	/** quick-261031-dedup: the download record for this song+rendition under a DIFFERENT uid
+	 *  (another source's copy), or null. downloadTrack's early-out reads this — and checks
+	 *  the record's blob actually exists — so the duplicate never fetches a second file,
+	 *  while a record whose file is gone (a failed download kept in the list, DL-BUG-01)
+	 *  still repairs through a real fetch. Same-uid is isDownloaded's question. */
+	otherDownloadOf(t: Track): Track | null {
+		return this.downloads.find((d) => d.uid !== t.uid && isSameShelfSong(d, t)) ?? null;
 	}
 	/**
 	 * quick-261007-abq — "auto best quality": refresh a download record's quality
@@ -559,6 +724,8 @@ class Library {
 	// Scoped deliberately — clearAll() nukes everything, these only touch the tab the user is on.
 
 	clearLiked() {
+		// quick-261023-syncmerge: tombstone everything removed, or the next merge resurrects it.
+		this.tombstone(this.liked.map((t) => t.uid).filter((u) => !!u).map(tombTrack));
 		this.liked = [];
 		this.save();
 	}
@@ -577,6 +744,10 @@ class Library {
 	}
 
 	clearFavArtists() {
+		// quick-261023-syncmerge: tombstone everything removed, or the next merge resurrects it.
+		this.tombstone(
+			this.favArtists.map((n) => this.favKey(n)).filter((k) => !!k).map(tombFav)
+		);
 		this.favArtists = [];
 		this.save();
 	}
@@ -584,11 +755,22 @@ class Library {
 	/** quick-260915-vb9: empty ONE playlist without deleting it (same immutable-map shape as
 	 *  removeFromPlaylist). An unknown id maps to an unchanged list — a no-op, never a throw. */
 	clearPlaylistTracks(id: string) {
+		const pl = this.playlists.find((p) => p.id === id);
+		// quick-261023-syncmerge: tombstone the removed tracks, or the next merge resurrects them.
+		if (pl) this.tombstone(pl.tracks.map((t) => t.uid).filter((u) => !!u).map(tombTrack));
 		this.playlists = this.playlists.map((p) => (p.id === id ? { ...p, tracks: [] } : p));
 		this.save();
 	}
 
 	clearAll() {
+		// quick-261023-syncmerge: tombstone every synced removal (downloads are device-local —
+		// they never sync, so they need no tombstone).
+		this.tombstone([
+			...this.liked.map((t) => t.uid).filter((u) => !!u).map(tombTrack),
+			...this.playlists.flatMap((p) => p.tracks.map((t) => t.uid)).filter((u) => !!u).map(tombTrack),
+			...this.playlists.map((p) => p.id).filter((i) => !!i).map(tombPlaylist),
+			...this.favArtists.map((n) => this.favKey(n)).filter((k) => !!k).map(tombFav)
+		]);
 		this.liked = [];
 		this.playlists = [];
 		this.downloads = [];

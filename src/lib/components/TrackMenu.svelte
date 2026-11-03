@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { tick, untrack } from 'svelte';
+	import { tick, untrack, onDestroy } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
-	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff, Timer, Pencil, Disc3, Radio, MessageCircle, ListMusic, ArrowDownToLine } from '@lucide/svelte';
+	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff, Pencil, Disc3, Radio, MessageCircle, ListMusic, ArrowDownToLine, RotateCcw } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -16,6 +16,8 @@
 	import { longpress } from '$lib/actions/longpress';
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { tapBounce } from '$lib/actions/tapBounce';
+	// quick-261102-menudrag: the shared spring pump drives the edit-grid drop settle.
+	import { createSpringSnap } from '$lib/gestures/springSnap';
 	import { marquee } from '$lib/actions/marquee';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
@@ -23,12 +25,12 @@
 	import { t } from '$lib/i18n';
 	import type { TranslationKey } from '$lib/i18n';
 	import type { Component } from 'svelte';
-	import { flip } from 'svelte/animate';
 	import { settings } from '$lib/stores/settings.svelte';
 	// quick-261006-mnu: the customizable menu's action catalog + order normalizer. PURE —
 	// settings.svelte.ts (a LEAF store) is its other consumer; this component never imports
-	// the store THROUGH here.
-	import { MENU_ACTIONS, MENU_GRID_SLOTS, type MenuActionId } from '$lib/services/track-menu-order';
+	// the store THROUGH here. quick-261102-menudrag: the edit grid's drop geometry
+	// (menuDropIndex / menuSlotForIndex) lives there too, node-tested beside the normalizer.
+	import { MENU_ACTIONS, MENU_GRID_SLOTS, menuDropIndex, menuSlotForIndex, type MenuActionId } from '$lib/services/track-menu-order';
 	import { buildSimilarQueue } from '$lib/services/similar';
 	import { requestNpTab } from '$lib/stores/np-tab.svelte';
 	import { ensureTrackDetails, collectLyricCandidates, type LyricCandidate } from '$lib/services/catalog';
@@ -42,6 +44,8 @@
 	import { SOURCES } from '$lib/sources/registry';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import DownloadRing from '$lib/components/DownloadRing.svelte';
+	import LyricsTimingToggle from '$lib/components/LyricsTimingToggle.svelte';
+	import MenuActionButton from '$lib/components/MenuActionButton.svelte';
 	// quick-260919-1eh: the tag-edit sheet. Same co-mount arrangement as VersionPicker above — it
 	// owns its own overlay lifecycle under a DISTINCT overlayId.
 	import MetadataEditor from '$lib/components/MetadataEditor.svelte';
@@ -51,13 +55,16 @@
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
 	import { downloadTrack, pickedFileAlreadyOnDisk } from '$lib/services/download-track';
 	import { downloadLabel } from '$lib/services/download-label';
+	// quick-261102-qtruth: the Detail sheet's quality merge + label read through the ONE
+	// shared derivation (services/display-quality) — the same one the Now-Playing pill uses.
+	import { trackQualityLabel, withDownloadQuality } from '$lib/services/display-quality';
 	// quick-260915-26g: the shared probe + the shared label formatter. TrackMenu cannot mount
 	// DownloadControl (its Check state is blob-backed and its rows are full-width text buttons, not
 	// 40x40 icons), so it consumes the same SERVICE instead — one implementation, two surfaces.
 	// quick-260919-3j1 (F2): `localFileMeta` is the SIBLING of probeDownload — same module, same
 	// formatter, opposite question. probeDownload asks the CDN "what WOULD I get"; localFileMeta
 	// reads the bytes on the device and answers "what DO I have", with no network at all.
-	import { probeDownload, localFileMeta, formatDownloadMeta, type DownloadProbe } from '$lib/services/download-probe';
+	import { probeDownload, localFileMeta, formatDownloadMeta, isLosslessContainer, type DownloadProbe } from '$lib/services/download-probe';
 	// quick-260913-jq4: the Check state is backed by the offline copy, not the downloads list.
 	import { blobStore } from '$lib/services/blob-store';
 	// quick-260919-3j1: the app-wide SERIALIZER in front of retagOne — the ONE tag-write path
@@ -66,7 +73,7 @@
 	import { syncFileTags } from '$lib/services/file-tag-sync';
 	import type { RetagEntry } from '$lib/services/retag';
 	import { browser } from '$app/environment';
-	import { songShareUrl, coverToken } from '$lib/services/share';
+	import { songShareUrl, coverToken, encodePathSegment } from '$lib/services/share';
 	// quick-260809-3uo: the share card now carries the cover the user is looking at — read from the
 	// SAME shared reactive cache every other surface reads, plus the retained iTunes id.
 	import { readCoverByUidOrName, readChosenCover, pinCover } from '$lib/stores/cover-version.svelte';
@@ -85,7 +92,7 @@
 	// posture as the cover picker one line up — the parallel walk fires ONLY on the Fix-lyrics tap
 	// (T-1we-03), never on menu open. `readLyrics` is D-4's single read (pin → track.lrc → null).
 	import { readLyrics, pinLyrics, unpinLyrics } from '$lib/stores/lyric-pins.svelte';
-	import { lyricSyncOpen, toggleLyricSyncOpen } from '$lib/stores/lyric-offset.svelte';
+	// quick-261021-menu7: lyric-offset imports moved to LyricsTimingToggle.svelte (shared component).
 	import { parseLyrics } from '$lib/stores/lyric-script.svelte';
 	import { combinedSignal } from '$lib/services/abort-signal';
 	import { recallItunesId } from '$lib/services/itunes-cover';
@@ -126,8 +133,8 @@
 	// `{#if !isDevice}` tri-state gate together with the non-current gate that wrapped the
 	// noImport/removeDownload pair. The live grid renders
 	// `settings.trackMenuOrder.filter(canShow)` row-major, 4 columns, capped at
-	// MENU_GRID_SLOTS (quick-261006-44g: the menu is ALWAYS a 4x4 grid — no blank
-	// placeholders, no dangling 5th row; extras stay in the edit pool).
+	// MENU_GRID_SLOTS (quick-261006-44g: the menu grid is 4 columns x 5 rows since
+	// user 2026-11-02 (was 4x4) — no blank placeholders; extras stay in the edit pool).
 	function canShow(id: MenuActionId): boolean {
 		switch (id) {
 			case 'download':
@@ -140,11 +147,12 @@
 				return nonCurrent;
 			// quick-261006-44s: playNext lives HERE now, not as an empty render inside its
 			// snippet — the old inner {#if} consumed a grid slot while rendering nothing for
-			// the current track (15 visible cells instead of 16). The gate is identical.
+			// the current track (19 visible cells instead of 20). The gate is identical.
 			case 'playNext':
 				return nonCurrent;
-			case 'lyricsTiming':
-				return !!track && player.current?.uid === track.uid && !!readLyrics(player.current);
+			// quick-261101-chk: the 'lyricsTiming' case is gone with its catalog entry
+			// (quick-261021-menu7 removed it from MenuActionId / EDIT_META) — the case was
+			// unreachable, since trackMenuOrder is normalized to catalog ids at load.
 			// quick-261006-44u: the Comments / Related panes are NowPlaying tabs bound to the
 			// CURRENT track (the comments store + NowPlaying's load trigger are current-track
 			// scoped), so these shortcuts only make sense — and only appear — for it.
@@ -170,7 +178,7 @@
 	}
 	// quick-261006-44r: the customize cell is PINNED visible — with the header pencil
 	// retired it is the only way into edit mode, so it can never be capped out or
-	// hidden. It keeps its ordered position inside the first 16; if the user drags it
+	// hidden. It keeps its ordered position inside the first MENU_GRID_SLOTS; if the user drags it
 	// beyond the cap it is pulled into the last visible slot instead (no edit-mode
 	// trap). canShow('customize') is unconditionally true.
 	const visibleIds = $derived.by(() => {
@@ -188,7 +196,7 @@
 	// components the live cells use, so the preview reads as the menu it configures
 	// (the RowActionsConfig precedent).
 	const EDIT_META: Record<MenuActionId, { icon: Component; label: TranslationKey }> = {
-		remix: { icon: Sparkles, label: 'menu.remix' },
+		remix: { icon: Sparkles, label: 'menu.autoplay' },
 		playNext: { icon: ListStart, label: 'menu.playNext' },
 		download: { icon: Download, label: 'menu.download' },
 		like: { icon: Heart, label: 'menu.like' },
@@ -196,10 +204,10 @@
 		startRadio: { icon: Radio, label: 'menu.startRadio' },
 		versions: { icon: Layers, label: 'menu.versions' },
 		changeCover: { icon: ImageIcon, label: 'menu.changeCover' },
-		changeLyrics: { icon: Mic2, label: 'menu.changeLyrics' },
+		changeLyrics: { icon: Mic2, label: 'menu.fixLyrics' },
 		viewComments: { icon: MessageCircle, label: 'menu.viewComments' },
 		viewRelated: { icon: ListMusic, label: 'menu.viewRelated' },
-		lyricsTiming: { icon: Timer, label: 'menu.lyricsTiming' },
+		// quick-261021-menu7: lyricsTiming removed from EDIT_META — no longer a menu item.
 		editTags: { icon: Tags, label: 'menu.editTags' },
 		addToPlaylist: { icon: ListPlus, label: 'menu.addToPlaylist' },
 		customize: { icon: Pencil, label: 'menu.customize' },
@@ -210,8 +218,8 @@
 		goToArtist: { icon: User, label: 'menu.goToArtist' },
 		goToAlbum: { icon: Disc3, label: 'menu.goToAlbum' },
 		share: { icon: Share2, label: 'menu.share' },
-		detail: { icon: Info, label: 'menu.detail' },
-		downloadSource: { icon: ArrowDownToLine, label: 'menu.downloadSource' }
+		detail: { icon: Info, label: 'menu.details' },
+		downloadSource: { icon: ArrowDownToLine, label: 'menu.downloadFromSource' }
 	};
 
 	// quick-261006-mnu — EDIT MODE. `editing` is per-open component state (reset in close()).
@@ -229,6 +237,17 @@
 		settings.trackMenuOrder = [...editOrder];
 		settings.save();
 	}
+	// quick-261021-menu4 (user): explicit Done — exits edit mode (commits via the live
+	// commit-on-tap/drop, so no separate save needed).
+	function exitEdit() {
+		commitEdit();
+		editing = false;
+	}
+	// quick-261021-menu4 (user): Reset — restores the shipping default order.
+	function resetMenuOrder() {
+		editOrder = [...MENU_ACTIONS];
+		commitEdit();
+	}
 	// Enabled (in the user's order) first, then the switched-off remainder dimmed — the
 	// RowActionsConfig shape: an off action keeps a stable, visible place to be switched
 	// back on from, without a second persisted order for things that do not render.
@@ -240,90 +259,335 @@
 	// disambiguated the swipeAction WR-01 way — a gesture that never passes SLOP is a TAP
 	// and the click stands; one that does is a DRAG and the trailing click is suppressed.
 	// Enabled cells are a CONTIGUOUS PREFIX of the grid (editIds), so the drop target is an
-	// insertion index into editOrder: nearest enabled-cell center excluding the dragged one
-	// (its own transformed rect would win its own contest), with a past-the-end rule so the
-	// last slot is reachable.
+	// insertion index into editOrder (menuDropIndex in track-menu-order.ts).
+	//
+	// quick-261102-menudrag — WHY THIS WAS REBUILT (Hector 2026-11-02: the reorder felt
+	// 唔貼手 — not glued to the pointer — and 唔會自然放低去適當位置 — no natural landing).
+	// The quick-261006-mnu original LIVE-REORDERED editOrder on every pointermove: the
+	// keyed {#each} re-laid the dragged cell at its new slot while its transform stayed
+	// the raw delta from the drag START, so each reorder displaced the cell a whole slot
+	// relative to the pointer and the target hunted against the already-shifted DOM; on
+	// release the transform simply vanished, teleporting the cell back by the full drag
+	// distance; and pointercancel ran the same mUp commit path, so a cancelled drag
+	// PERSISTED its half-finished order. The rebuild ports the proven quick-261102-chipflip
+	// architecture (chipReorder.ts), adapted to this 2D grid:
+	//  1. Geometry is measured ONCE at drag start (true layout slots); editOrder does NOT
+	//     change mid-drag, so no re-render can race the gesture.
+	//  2. The dragged cell's transform is ALWAYS the raw pointer delta, written straight
+	//     to the DOM node (no $state churn) with transition:none — glued 1:1.
+	//  3. Siblings GLIDE to their post-move slots (menuSlotForIndex transforms) so the
+	//     landing gap is visible while dragging.
+	//  4. Release SPRINGS the cell (shared springSnap, one pump per axis) from its live
+	//     offset into the target slot's offset, and only THEN commits the order — the
+	//     re-render lands exactly on the visual state, so there is no jump.
+	//  5. Cancel (pointercancel / lost capture / window blur / button-less move) springs
+	//     the cell back to its ORIGINAL slot and never commits — the quick-261102-settle
+	//     discipline: every gesture ends in exactly one of drop/commit or home.
+	// animate:flip is GONE from the edit cells: it existed to animate the old live
+	// reorder; with the drag owning every transform, a flip on the settle commit would
+	// measure the already-landed cell and replay the landing. Tap toggles (which also
+	// reorder editIds) now re-layout instantly, like the chip surface's taps.
 	const MNU_SLOP = 6;
+	const MNU_GLIDE = 'transform 180ms ease'; // sibling reflow glide while dragging
 	let editGridEl = $state<HTMLElement | null>(null);
-	let mDragFrom = $state(-1); // index within editOrder while dragging (-1 = idle)
-	let mDragDx = $state(0);
-	let mDragDy = $state(0);
+	let mDragFrom = $state(-1); // index within editOrder of the pressed/dragged cell (-1 = idle)
+	let mDragging = $state(false); // past SLOP and not yet settled — drives class:lifted
 	// Plain fields, NOT $state — nothing reads them reactively, and the click suppressor
 	// must be readable from the click handler that fires immediately after pointerup.
 	let mDragStartX = 0;
 	let mDragStartY = 0;
 	let mDragMoved = false;
 	let mSuppressClick = false;
+	let mPointerId = -1;
+	let mPointerActive = false; // the pointer phase (down → up/cancel) is live
+	let mLastMoveEvent: PointerEvent | null = null;
+	// Drag geometry, measured ONCE at drag start (before any transform is written, so
+	// the rects are true layout slots). Sorted by editOrder index; only ENABLED cells
+	// participate (the contiguous prefix), so mSlots[i] is editOrder index i's slot.
+	interface MnuSlot {
+		el: HTMLElement;
+		index: number;
+		left: number;
+		top: number;
+		width: number;
+		height: number;
+	}
+	let mSlots: MnuSlot[] = [];
+	let mDragEl: HTMLElement | null = null;
+	let mTarget = -1; // live insertion index (post-removal) the drop would commit
+	let mCurX = 0; // the dragged cell's live translate — also the settle's start point
+	let mCurY = 0;
+	// --- drop settle (springSnap per axis; BOTH axes settled → finish) ---
+	let mSettling = false;
+	let mSettleCell: HTMLElement | null = null;
+	let mAxesSettled = 0;
+	let mPendingOrder: MenuActionId[] | null = null;
 
-	/** Insertion index into editOrder AFTER removing the dragged item (0..n-1). */
-	function mTargetIndex(x: number, y: number): number {
-		if (!editGridEl) return mDragFrom;
-		const cells = editGridEl.querySelectorAll<HTMLElement>('.edit-cell.on');
-		const n = cells.length;
-		if (n === 0) return 0;
-		// Past-the-end: the pointer is clearly beyond the final enabled slot in reading
-		// order → append. (Without this the last slot is unreachable — nearest-center
-		// alone always resolves to the last cell itself.)
-		let lastIdx = n - 1;
-		if (lastIdx === mDragFrom) lastIdx--;
-		if (lastIdx >= 0) {
-			const r = cells[lastIdx].getBoundingClientRect();
-			if ((x > r.left + r.width / 2 && y > r.top) || y > r.bottom) return n - 1;
+	function mWriteSettle() {
+		if (mSettleCell) mSettleCell.style.transform = `translate(${mCurX}px, ${mCurY}px)`;
+	}
+	function mAxisSettled() {
+		mAxesSettled += 1;
+		if (mAxesSettled >= 2) mFinishSettle();
+	}
+	const mSnapX = createSpringSnap(
+		(v) => {
+			mCurX = v;
+			mWriteSettle();
+		},
+		{ onSettled: mAxisSettled }
+	);
+	const mSnapY = createSpringSnap(
+		(v) => {
+			mCurY = v;
+			mWriteSettle();
+		},
+		{ onSettled: mAxisSettled }
+	);
+
+	function mClearDragVisuals() {
+		for (const s of mSlots) {
+			s.el.style.transform = '';
+			s.el.style.transition = '';
 		}
-		let best = mDragFrom;
-		let bestD = Infinity;
-		for (let i = 0; i < n; i++) {
-			if (i === mDragFrom) continue;
-			const r = cells[i].getBoundingClientRect();
-			const dx = x - (r.left + r.width / 2);
-			const dy = y - (r.top + r.height / 2);
-			const d = dx * dx + dy * dy;
-			if (d < bestD) {
-				bestD = d;
-				best = i;
-			}
+		if (mSettleCell) {
+			mSettleCell.style.transform = '';
+			mSettleCell.style.transition = '';
+			mSettleCell = null;
 		}
-		// `best` is a pre-removal index; convert to the post-removal insertion index.
-		return best > mDragFrom ? best - 1 : best;
+		if (mDragEl) {
+			mDragEl.style.transform = '';
+			mDragEl.style.transition = '';
+		}
 	}
 
+	function mFinishSettle() {
+		if (!mSettling) return;
+		mSettling = false;
+		mSnapX.cancel();
+		mSnapY.cancel();
+		mClearDragVisuals();
+		mDragEl = null;
+		mSlots = [];
+		mTarget = -1;
+		mDragFrom = -1;
+		mDragging = false;
+		// Fire the commit only NOW: the re-render puts the cell in the slot the spring
+		// just landed it on, so data and visuals change in the same frame — no teleport.
+		const p = mPendingOrder;
+		mPendingOrder = null;
+		if (p) {
+			editOrder = p;
+			commitEdit();
+		}
+	}
+
+	function mStartSettle(landX: number, landY: number, order: MenuActionId[] | null) {
+		mSettling = true;
+		mSettleCell = mDragEl;
+		mPendingOrder = order;
+		mAxesSettled = 0;
+		// mCurX/mCurY still hold the live drag offset; each spring seeds from there.
+		mSnapX.snap(mCurX, landX);
+		mSnapY.snap(mCurY, landY);
+	}
+
+	/** Hard-stop any drag/settle WITHOUT committing (sheet closing, component going away). */
+	function mAbortDrag() {
+		mDisarmWindow();
+		mSnapX.cancel();
+		mSnapY.cancel();
+		mSettling = false;
+		mPendingOrder = null; // dropped, not fired — the sheet is gone
+		mPointerActive = false;
+		mClearDragVisuals();
+		mDragEl = null;
+		mSlots = [];
+		mTarget = -1;
+		mDragFrom = -1;
+		mDragging = false;
+		mPointerId = -1;
+	}
+
+	// Window safety net (quick-261102-settle parity): capture is taken on the CELL at
+	// pointerdown, and if it is lost or refused the cell stops hearing the gesture —
+	// these listeners keep tracking/releasing it. pointerId-filtered; cell+window
+	// copies of one event are deduped in mMove.
+	const mWinMove = (e: PointerEvent) => {
+		if (e.pointerId === mPointerId) mMove(e);
+	};
+	const mWinUp = (e: PointerEvent) => {
+		if (e.pointerId === mPointerId) mUp();
+	};
+	const mWinCancel = (e: PointerEvent) => {
+		if (e.pointerId === mPointerId) mCancelDrag();
+	};
+	const mWinBlur = () => mCancelDrag();
+	function mArmWindow() {
+		window.addEventListener('pointermove', mWinMove);
+		window.addEventListener('pointerup', mWinUp);
+		window.addEventListener('pointercancel', mWinCancel);
+		window.addEventListener('blur', mWinBlur);
+	}
+	function mDisarmWindow() {
+		window.removeEventListener('pointermove', mWinMove);
+		window.removeEventListener('pointerup', mWinUp);
+		window.removeEventListener('pointercancel', mWinCancel);
+		window.removeEventListener('blur', mWinBlur);
+	}
+	onDestroy(mAbortDrag);
+
 	function mDown(e: PointerEvent, id: MenuActionId) {
+		// A press during a drop settle commits the landed order instantly, so the
+		// geometry measured for the new gesture is clean (no half-sprung transforms).
+		if (mSettling) mFinishSettle();
+		if (mPointerActive) return; // one pointer owns the gesture (multi-touch: first wins)
 		const i = editOrder.indexOf(id);
 		if (i < 0) return; // a dimmed cell is not draggable — its tap re-adds it instead
 		mDragFrom = i;
-		mDragDx = 0;
-		mDragDy = 0;
 		mDragStartX = e.clientX;
 		mDragStartY = e.clientY;
 		mDragMoved = false;
-		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		mPointerId = e.pointerId;
+		mPointerActive = true;
+		mLastMoveEvent = null;
+		mCurX = 0;
+		mCurY = 0;
+		// Capture on the CELL from pointerdown (the quick-261006-mnu idiom): move/up keep
+		// arriving on the cell however far the pointer strays, and the trailing click is
+		// retargeted to this same cell, where mClick consumes the drag suppressor. The
+		// call can throw for an inactive pointer — the window net (armed at drag start)
+		// and the lost-capture cancel cover that case.
+		try {
+			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		} catch {
+			/* non-fatal — window listeners keep tracking */
+		}
 	}
+
+	/** First move past SLOP: freeze the gesture's geometry and switch visuals on. */
+	function mBeginDrag() {
+		mDragMoved = true;
+		mDragging = true;
+		// Measure slots BEFORE the first transform write (rects are layout truth here).
+		// The index comes from data-id (editOrder membership), NOT DOM position — the
+		// divider and the CSS `order` split make DOM order and editOrder order differ
+		// past slot 20; enabled cells are the contiguous editOrder prefix throughout.
+		mSlots = [...(editGridEl?.querySelectorAll<HTMLElement>('.edit-cell.on') ?? [])]
+			.map((el) => {
+				const r = el.getBoundingClientRect();
+				return {
+					el,
+					index: editOrder.indexOf(el.dataset.id as MenuActionId),
+					left: r.left,
+					top: r.top,
+					width: r.width,
+					height: r.height
+				};
+			})
+			.filter((s) => s.index >= 0)
+			.sort((a, b) => a.index - b.index);
+		mTarget = mDragFrom;
+		mDragEl = mSlots.find((s) => s.index === mDragFrom)?.el ?? null;
+		// The dragged cell tracks the pointer with NO transition (glued, 1:1); siblings
+		// get the glide so reflow slides instead of jumping (dropped under reduce-motion).
+		if (mDragEl) mDragEl.style.transition = 'none';
+		for (const s of mSlots) {
+			if (s.el !== mDragEl) s.el.style.transition = settings.reduceMotion ? 'none' : MNU_GLIDE;
+		}
+		mArmWindow();
+	}
+
+	/** Glide every sibling to the slot it will occupy if the drag drops at mTarget. */
+	function mApplyReflow() {
+		for (const s of mSlots) {
+			if (s.el === mDragEl) continue;
+			const dest = menuSlotForIndex(s.index, mDragFrom, mTarget);
+			const ox = mSlots[dest].left - s.left;
+			const oy = mSlots[dest].top - s.top;
+			s.el.style.transform = ox !== 0 || oy !== 0 ? `translate(${ox}px, ${oy}px)` : '';
+		}
+	}
+
 	function mMove(e: PointerEvent) {
-		if (mDragFrom < 0) return;
+		if (!mPointerActive || e.pointerId !== mPointerId) return;
+		if (e === mLastMoveEvent) return; // cell + window copies of one event — process once
+		mLastMoveEvent = e;
+		// A button-less move means the press ended somewhere we never saw — cancel home.
+		if (mDragMoved && e.buttons === 0) {
+			mCancelDrag();
+			return;
+		}
 		const dx = e.clientX - mDragStartX;
 		const dy = e.clientY - mDragStartY;
-		if (!mDragMoved && Math.hypot(dx, dy) < MNU_SLOP) return; // still a tap
-		mDragMoved = true;
-		mDragDx = dx;
-		mDragDy = dy;
-		const over = mTargetIndex(e.clientX, e.clientY);
-		if (over !== mDragFrom && over >= 0) {
-			const next = [...editOrder];
-			const [moved] = next.splice(mDragFrom, 1);
-			next.splice(over, 0, moved);
-			editOrder = next;
-			mDragFrom = over;
+		if (!mDragMoved) {
+			if (Math.hypot(dx, dy) < MNU_SLOP) return; // still a tap
+			mBeginDrag();
+		}
+		e.preventDefault();
+		mCurX = dx;
+		mCurY = dy;
+		if (mDragEl) mDragEl.style.transform = `translate(${dx}px, ${dy}px)`;
+		const t = menuDropIndex(e.clientX, e.clientY, mSlots, mDragFrom);
+		if (t !== mTarget) {
+			mTarget = t;
+			mApplyReflow();
 		}
 	}
-	function mUp() {
-		if (mDragFrom < 0) return;
-		if (mDragMoved) {
-			mSuppressClick = true; // WR-01: the trailing click must not also toggle the cell
-			commitEdit();
+
+	/** End the pointer phase: spring the cell into its landing slot (or home, when cancelled). */
+	function mEndDrag(commit: boolean) {
+		mDisarmWindow();
+		mPointerActive = false;
+		if (commit && mSlots.length > 0 && mTarget !== mDragFrom && mTarget >= 0) {
+			// Compute the committed order NOW (splice-move on the untouched snapshot) but
+			// only ASSIGN it when the spring lands (mFinishSettle) — data and visuals
+			// change in the same frame.
+			const next = [...editOrder];
+			const [moved] = next.splice(mDragFrom, 1);
+			next.splice(mTarget, 0, moved);
+			mStartSettle(
+				mSlots[mTarget].left - mSlots[mDragFrom].left,
+				mSlots[mTarget].top - mSlots[mDragFrom].top,
+				next
+			);
+		} else {
+			mStartSettle(0, 0, null);
 		}
-		mDragFrom = -1;
-		mDragDx = 0;
-		mDragDy = 0;
+	}
+
+	function mUp() {
+		if (!mPointerActive) return;
+		if (!mDragMoved) {
+			// Plain tap — leave the click to mClick (tap-to-toggle).
+			mPointerActive = false;
+			mDragFrom = -1;
+			mPointerId = -1;
+			return;
+		}
+		mSuppressClick = true; // WR-01: the trailing click must not also toggle the cell
+		mEndDrag(true);
+	}
+
+	function mCancelDrag() {
+		if (!mPointerActive) return;
+		if (!mDragMoved) {
+			mPointerActive = false;
+			mDragFrom = -1;
+			mPointerId = -1;
+			return;
+		}
+		// Cancel NEVER reorders: the cell springs back to its original slot, and
+		// editOrder keeps the order the drag started with — it was never mutated
+		// mid-drag, so there is nothing to restore.
+		mEndDrag(false);
+	}
+
+	function mLostCapture() {
+		// Fires after every normal pointerup too (the capture release) — mUp has
+		// already ended the pointer phase by then, so this only acts when capture
+		// was lost mid-gesture.
+		if (mPointerActive) mCancelDrag();
 	}
 	function mClick(id: MenuActionId) {
 		if (mSuppressClick) {
@@ -337,8 +601,8 @@
 		if (id === 'customize') return;
 		const i = editOrder.indexOf(id);
 		// quick-261006-44t (user 2026-10-06): NO cap on enabling — the user can enable and
-		// reorder more than 16 actions freely; the live grid simply renders the first 16
-		// (see visibleIds). The Done button never counts against anyone's 16.
+		// reorder more than 20 actions freely; the live grid simply renders the first 20
+		// (see visibleIds). The Done button never counts against anyone's 20.
 		editOrder = i >= 0 ? editOrder.filter((x) => x !== id) : [...editOrder, id];
 		commitEdit();
 	}
@@ -410,12 +674,15 @@
 	// the same opt-in way (T-26-10-02 posture), except the trigger is a LONG-PRESS on the Download row
 	// rather than a row of its own: one tap must keep doing exactly what it does today.
 	// `dlPickProbes` is uid → probe; ABSENT means still probing (skeleton), a probe whose `track` is
-	// null means that source refused (disabled "Unavailable" row). dlPickGen / dlPickAc are PLAIN
+	// null means that source refused (disabled "Unavailable" row). `dlPickExtra` is the sibling map
+	// for the quick-261020-dl320 second row: uid → the 320k-tier probe of a source whose main probe
+	// landed lossless, rendered as its own row under the source's row. dlPickGen / dlPickAc are PLAIN
 	// fields — supersedence guards the UI never reads reactively (house convention).
 	let dlPickOpen = $state(false);
 	let dlPickLoading = $state(false);
 	let dlPickList = $state<Track[]>([]);
 	let dlPickProbes = $state<Record<string, DownloadProbe | undefined>>({});
+	let dlPickExtra = $state<Record<string, DownloadProbe | undefined>>({});
 	let dlPickGen = 0;
 	let dlPickAc: AbortController | null = null;
 
@@ -554,10 +821,15 @@
 		// quick-261006-mnu: edit mode is per-open — the grid unmounts with the menu, so a
 		// half-finished customize never leaks into the next open. (Taps and drops commit to
 		// settings immediately; only a mid-drag reorder is dropped here.)
+		// quick-261102-menudrag: a live drag is aborted in place (editOrder was never
+		// mutated mid-drag, so the origin order simply stands); a drop already released
+		// is finished instantly so its commit lands before the sheet goes away — no
+		// spring or pending commit may outlive the menu.
+		if (mSettling) mFinishSettle();
+		else if (mPointerActive || mDragging) mAbortDrag();
 		editing = false;
 		mDragFrom = -1;
-		mDragDx = 0;
-		mDragDy = 0;
+		mDragging = false;
 		pickerOpen = false;
 		tagsOpen = false; // quick-260919-1eh: reset alongside the other sheet flags
 		rmOpen = false; // quick-260919-vrq: same — a confirm must never outlive the menu that raised it
@@ -762,7 +1034,19 @@
 		let similar: Track[] = [];
 		try { similar = await buildSimilarQueue(tr); } catch { similar = []; }
 		if (!similar.length) { toast.show(t('toast.radioEmpty')); close(); return; }
-		const played = await player.playStub(tr.artist, tr.title, tr.cover, 'radio');
+		// quick-261019-mau: a DOWNLOADED seed plays from its local blob — playStub() would
+		// re-resolve it from the network (slow, and a null miss when offline kills the whole
+		// radio even though the song is on the device). Play the seed as-is through the normal
+		// play path instead (the remix download fast-path, quick-261019-rmx), then build the
+		// station around it exactly like the network path below.
+		let played: Track | null;
+		if (library.isDownloaded(tr.uid)) {
+			player.setQueue([tr], 'radio');
+			void player.play(tr, { fresh: true });
+			played = tr;
+		} else {
+			played = await player.playStub(tr.artist, tr.title, tr.cover, 'radio');
+		}
 		if (!played) { if (player.pendingTrack == null) toast.show(t('home.unplayable')); close(); return; }
 		player.setListQueue([tr, ...similar], 'radio');
 		toast.show(t('toast.radioStarted'));
@@ -787,7 +1071,8 @@
 	// [current] is a no-op, so the item is gated to queue.length > 1 in the template.
 	function clearQueue() { player.clearQueue(); close(); }
 	// quick-260926-qat: show / hide the lyrics pane's timing row, then close (Repeat-row shape).
-	function toggleLyricsTiming() { toggleLyricSyncOpen(); close(); }
+	// quick-261021-menu7: toggleLyricsTiming REMOVED — the standalone menu item is gone.
+	// Use the shared LyricsTimingToggle component instead.
 	function like() {
 		if (!track) return;
 		hapticTick();
@@ -816,30 +1101,45 @@
 		overlays.navigateAway(() => goto(dest));
 	}
 	// quick-261006-44g — Go to album is UNCONDITIONAL in the grid now (user 2026-10-06:
-	// some songs showed the cell, some didn't — the 4x4 grid must not come and go).
+	// some songs showed the cell, some didn't — the grid must not come and go).
 	// Mirrors gotoArtist: same navigateAway single dismiss path, same script-lock rule —
 	// `names.zhLock` (re-script only), NEVER the display-language dn* strings
-	// (quick-260926-hl9). The album route keys off params.name + ?artist= (the
-	// discography albumHref shape). The album name usually arrives with the resolved
+	// (quick-260926-hl9). The album route is the 2-segment /album/{artist}/{name} shape
+	// (quick-261023-albumurl — same as the discography albumHref). The album name usually
 	// track; for a stub without one, gated() resolves details first (the Detail/Remix
 	// resolve-then-act idiom) and only toasts when there is still nothing to go to.
 	function gotoAlbum() {
+		// quick-261019-mau: the album NAME is all this action needs — a track that already
+		// carries one (downloads always do) navigates directly instead of demanding a network
+		// resolve first, which would toast "no audio" on failure for an action that needs no
+		// audio at all. Only a stub without an album name still goes through the gate.
+		if (track && track.album.trim()) {
+			const dest =
+				'/album/' +
+				encodeURIComponent(names.zhLock(track.album.trim())) +
+				'?artist=' +
+				encodeURIComponent(names.zhLock(track.artist));
+			overlays.navigateAway(() => goto(dest));
+			return;
+		}
 		gated('goToAlbum', (rt) => {
 			const album = rt.album.trim();
 			if (!album) {
 				toast.show(t('toast.noAlbum'));
 				return;
 			}
+			// quick-261023-albumurl: 2-segment album URL (same shape as albumHref).
 			const dest =
 				'/album/' +
-				encodeURIComponent(names.zhLock(album)) +
-				'?artist=' +
-				encodeURIComponent(names.zhLock(rt.artist));
+				encodePathSegment(names.zhLock(rt.artist)) +
+				'/' +
+				encodePathSegment(names.zhLock(album));
 			overlays.navigateAway(() => goto(dest));
 		});
 	}
 
-	// Gated run callback (D-02): invoked by gated('download', …) with the resolved track. Thin delegate
+	// startDownload's save path (was a gated('download', …) run callback pre-jq4; quick-260913-jq4
+	// de-gated it — downloadTrack does its own resolve at settings.downloadQuality). Thin delegate
 	// to the SHARED downloadTrack (29-03) — the ONE isolation-safe, never-throws, never-navigates save
 	// path. The bespoke fetch → offline-blob → save-picker → anchor → new-tab-stream fallback that used
 	// to live here is DELETED (DL-BUG-01: a failed save can no longer open a media page); its logic
@@ -854,8 +1154,11 @@
 	// D-12: we deliberately do NOT onclose() first — the Download row reflects its per-uid state
 	// (library.downloading / isDownloaded) inline whether or not the menu stays open. The result
 	// sentinel is localized to a toast here (the service is i18n-free by contract).
-	// quick-260913-jq4: Download DOES NOT go through gated() any more (D-02 still stands for Remix
-	// and Detail — they genuinely need a resolved audioUrl in hand before they can run).
+	// quick-260913-jq4: Download DOES NOT go through gated() any more (D-02 still stands for
+	// Detail and Go-to-album — they genuinely need resolved metadata in hand before they can
+	// run; quick-261019-rmx/mau: Autoplay skips the gate for downloaded tracks, and Detail/Go-to-album
+	// take a download fast-path that opens with the track's known metadata instead of demanding
+	// a network audioUrl first).
 	//
 	// gated() pre-resolved the stub and then vetoed on `!resolved.audioUrl` with toast.noAudio
 	// BEFORE doDownload ever ran. That veto was both redundant and wrong here:
@@ -877,6 +1180,9 @@
 		// saves the exact file the row just measured instead of re-resolving a third time.
 		const picked = dlProbe?.track && dlProbe.track.uid === track.uid ? dlProbe.track : track;
 		const res = await downloadTrack(picked);
+		// quick-261020-hqswitch: if THIS song is the one playing and the saved file is a
+		// higher tier than the stream, the player hot-swaps to the local file in place.
+		if (res === 'saved') void player.adoptDownloadedCurrent(track.uid);
 		toast.show(
 			res === 'saved'
 				? t('toast.downloaded', { label })
@@ -1086,6 +1392,7 @@
 		// quick-261004-o9t: `dlProbe` is the song's OWN probe for every source now (ytmusic included), so
 		// this seeds the song's own row by its uid.
 		dlPickProbes = dlProbe?.track ? { [dlProbe.track.uid]: dlProbe } : {};
+		dlPickExtra = {};
 		// quick-261004-o9t: the YouTube Music row is offered again (own track or donor) — the
 		// quick-260930-uia filter left with the rule it enforced.
 		dlPickList = versionsIncludingOwn(target, []);
@@ -1099,12 +1406,30 @@
 		// whole sheet unblanking at the end. untrack: probeDownload reads settings/player internally
 		// and this runs inside a user handler, not an effect \u2014 the guard matches the dlProbe effect's.
 		await mapWithConcurrency(
-			dlPickList.filter((v) => !(v.uid in dlPickProbes)),
+			dlPickList,
 			2,
 			async (v) => {
-				const p = await untrack(() => probeDownload(v, ac.signal));
-				if (gen !== dlPickGen || ac.signal.aborted) return;
-				dlPickProbes = { ...dlPickProbes, [v.uid]: p };
+				// The own-source row arrives pre-seeded (the zero-network seed above); every other row
+				// probes at the download tier first. Sequential per item, so the 2-in-flight cap the
+				// api-fetch-flood-freeze rule demands still holds.
+				let p = dlPickProbes[v.uid];
+				if (!p) {
+					p = await untrack(() => probeDownload(v, ac.signal));
+					if (gen !== dlPickGen || ac.signal.aborted) return;
+					dlPickProbes = { ...dlPickProbes, [v.uid]: p };
+				}
+				// quick-261020-dl320: a lossless probe proves this source HAS a full quality ladder —
+				// FLAC sits at its top, so the 320k rung below is near-certainly present too. Probe it
+				// as a second, cheaper row for the same source. Only stored when the probe lands a REAL
+				// 320k file: a ladder that falls through to its own FLAC at the 320 tier must not
+				// produce a duplicate row.
+				if (p?.track?.audioUrl && isLosslessContainer(p.container) && !(v.uid in dlPickExtra)) {
+					const p320 = await untrack(() => probeDownload(v, ac.signal, '320'));
+					if (gen !== dlPickGen || ac.signal.aborted) return;
+					if (p320?.track?.audioUrl && !isLosslessContainer(p320.container)) {
+						dlPickExtra = { ...dlPickExtra, [v.uid]: p320 };
+					}
+				}
 			}
 		);
 	}
@@ -1118,9 +1443,11 @@
 	// `library.isDownloaded(track.uid)` true and `player.play(track)` take the offline-blob branch and
 	// play the source the user actually chose. It also skips the re-resolve, so the bytes saved are the
 	// bytes the row promised (never a larger re-resolved file \u2014 the 52 MB-FLAC-on-cellular incident).
-	async function pickDownload(v: Track) {
+	// quick-261020-dl320: the sheet's second (320k) row passes its own probe — the tapped row's
+	// MEASURED audio is what downloadTrack saves, so the label and the bytes always agree.
+	async function pickDownload(v: Track, probe?: DownloadProbe) {
 		if (!track) return;
-		const p = dlPickProbes[v.uid];
+		const p = probe ?? dlPickProbes[v.uid];
 		if (!p?.track?.audioUrl) return; // the row is disabled in that state anyway
 		if (library.downloading.has(track.uid)) return; // D-03 equivalent: a second tap while busy is a no-op
 		// quick-261001-grb: label by the ORIGINAL track (the identity, quick-260916-0d9), display-language.
@@ -1147,6 +1474,9 @@
 		closeDownloadPicker();
 		toast.show(t('toast.downloading', { label }));
 		const res = await downloadTrack(track, { audioFrom: p.track });
+		// quick-261020-hqswitch: a picked higher-tier version of the PLAYING song swaps
+		// the live stream to the downloaded file (the picker's raison d'être).
+		if (res === 'saved') void player.adoptDownloadedCurrent(track.uid);
 		toast.show(
 			res === 'saved'
 				? t('toast.downloaded', { label })
@@ -1253,18 +1583,48 @@
 	function doDetail(resolved: Track) {
 		const dlUid = library.downloadUidFor(resolved);
 		const q = dlUid ? library.qualityForDownload(dlUid) : null;
-		detailTrack = q ? { ...resolved, ...q } : resolved;
+		// quick-261102-qtruth: the merge itself is services/display-quality's
+		// withDownloadQuality now — shared with every other quality surface, not a
+		// menu-local spread, so the precedence can never drift between surfaces again.
+		detailTrack = withDownloadQuality(resolved, q);
+	}
+	// quick-261019-mau: a DOWNLOADED track's metadata is already known (the library row, plus
+	// the download quality doDetail merges in) — gated()'s network resolve is unnecessary, and
+	// when it fails the menu toasts "no audio" and the sheet never opens, for a sheet that
+	// already renders a graceful "not resolved" for a missing audioUrl. Open it with the
+	// track as-is.
+	function onDetailTap() {
+		if (track && library.isDownloaded(track.uid)) {
+			doDetail(track);
+			return;
+		}
+		gated('detail', doDetail);
 	}
 	// Remix (QUEUE-04 / D-04..D-07): play the seed first, then seed a force-generated up-next from
 	// it via the existing fresh-play regenerate path — NO new queue mechanism. setQueue([seed],
 	// 'remix') records the 'remix' QueueContext (effectiveUpnextMode('remix') === 'generated', from
 	// 19-01); play(seed,{fresh:true}) → regenerate → dedupeBest([seed, ...manualEntries, ...auto])
-	// preserves manual pins (D-05) and discards the prior generated tail. Gated → seed has audioUrl.
+	// preserves manual pins (D-05) and discards the prior generated tail. The seed arrives via
+	// gated() (network tracks — guarantees an audioUrl) or via onRemixTap's download fast-path
+	// (downloaded tracks — played as-is from the local blob by play()'s offline-first branch).
 	function doRemix(seed: Track) {
-		toast.show(t('toast.remixing'));
+		toast.show(t('toast.autoplaying'));
 		player.setQueue([seed], 'remix');
 		void player.play(seed, { fresh: true });
 		close();
+	}
+	// quick-261019-rmx: a DOWNLOADED song plays from its local blob — play() is offline-first
+	// (library.isDownloaded → blobStore, no network resolve needed). Routing it through gated()
+	// would first demand a fresh network audioUrl: when that resolve fails the menu toasts
+	// "no audio" and doRemix never runs, even though the song is sitting on the device. So
+	// downloads skip the gate and play the seed as-is through the normal play path; the fresh
+	// play then regenerates the up-next list exactly like the network path. That's it.
+	function onRemixTap() {
+		if (track && library.isDownloaded(track.uid)) {
+			doRemix(track);
+			return;
+		}
+		gated('remix', doRemix);
 	}
 	function addToPlaylist(id: string) { if (track) library.addToPlaylist(id, track); pickerOpen = false; toast.show(t('toast.addedToPlaylist')); }
 	function newPlaylist() {
@@ -1424,13 +1784,13 @@
 		     snippet keeps its original markup, handlers and inner conditions verbatim. -->
 		<!-- Remix: GATED (needs audioUrl to play the seed) — Sparkles + the inline spinner. -->
 		{#snippet cellRemix(tr: Track)}
-			<button class="gi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={() => gated('remix', doRemix)} use:tapBounce>
-				{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}<span class="gi-label">{t('menu.remix')}</span>
+			<button class="gi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={onRemixTap} use:tapBounce>
+				{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}<span class="gi-label">{t('menu.autoplay')}</span>
 			</button>
 		{/snippet}
 		<!-- Play next — non-current tracks only. quick-261006-44s: the gate lives in
 	     canShow now (the old inner {#if} consumed a grid slot while rendering nothing
-	     for the current track — 15 visible cells instead of 16). -->
+	     for the current track — 19 visible cells instead of 20). -->
 		{#snippet cellPlayNext(tr: Track)}
 			<button class="gi" onclick={playNext} use:tapBounce><ListStart size={22} /><span class="gi-label">{t('menu.playNext')}</span></button>
 		{/snippet}
@@ -1470,7 +1830,7 @@
 					<span class="gi-label">{t('menu.download')}</span>
 					{#if frac !== undefined}<span class="gi-sub">{Math.round(frac * 100)}%</span>{/if}
 				</button>
-			{:else if nonCurrent && (blobPresent === true || library.isDownloaded(tr.uid))}
+			{:else if nonCurrent && (blobPresent === true || library.isDownloaded(tr.uid)) && !library.isUnavailable(tr.uid)}
 				<!-- quick-261006-mnu: the remove-download face now carries the localMeta sub-label
 				     (F2 parity — a song that IS downloaded says what it is, in the same slot the
 				     probed `FLAC · 38.2 MB` label occupies). localMeta is null for a list-only row.
@@ -1547,7 +1907,7 @@
 		     fires on THIS tap only (T-1we-03). `disabled` mirrors the Like / Change-cover rows: a
 		     uid-less stub has no identity to pin against (D-1). -->
 		{#snippet cellChangeLyrics(tr: Track)}
-			<button class="gi" disabled={!tr.uid} onclick={openLyricsPicker} use:tapBounce><Mic2 size={22} /><span class="gi-label">{t('menu.changeLyrics')}</span></button>
+			<button class="gi" disabled={!tr.uid} onclick={openLyricsPicker} use:tapBounce><Mic2 size={22} /><span class="gi-label">{t('menu.fixLyrics')}</span></button>
 		{/snippet}
 		{#snippet cellViewComments(tr: Track)}
 			<button class="gi" onclick={viewComments} use:tapBounce><MessageCircle size={22} /><span class="gi-label">{t('menu.viewComments')}</span></button>
@@ -1559,12 +1919,9 @@
 		     actually has lyrics — the row it reveals lives in the Now Playing lyrics pane of
 		     player.current, so for any other track it would toggle something the user cannot see.
 		     readLyrics(player.current) is D-4's single read (pin → track.lrc → null) and takes the
-		     lyricVersion dependency, so a Fix-lyrics pick that lands lyrics makes this row appear live.
-		     Repeat-row idiom (class:on + aria-pressed + swapping label): the menu closes on tap, so the
-		     label must show the state before the tap. -->
-		{#snippet cellLyricsTiming(tr: Track)}
-			<button class="gi" class:on={lyricSyncOpen()} aria-pressed={lyricSyncOpen()} onclick={toggleLyricsTiming} use:tapBounce><Timer size={22} /><span class="gi-label">{lyricSyncOpen() ? t('menu.lyricsTimingHide') : t('menu.lyricsTiming')}</span></button>
-		{/snippet}
+		<!-- quick-261021-menu7: cellLyricsTiming REMOVED — the standalone menu item is gone.
+		     The shared LyricsTimingToggle component (in the Fix lyrics picker) is the only
+		     UI for this now. -->
 		<!-- quick-260919-1eh: Edit metadata. Shown ONLY for a file the app actually holds bytes for.
 		     `blobPresent` is the blob-backed probe, NOT library.isDownloaded — quick-260913-jq4
 		     explains why the reference list lies (it is populated BEFORE the fetch, and the web save
@@ -1618,7 +1975,7 @@
 			<button class="gi" onclick={gotoArtist} use:tapBounce><User size={22} /><span class="gi-label">{t('menu.goToArtist')}</span></button>
 		{/snippet}
 		<!-- quick-261006-mnu: Go to album — the menu finally answers "which album is this from",
-		     grouped after Go to artist. quick-261006-44g: always rendered now (the 4x4 grid
+		     grouped after Go to artist. quick-261006-44g: always rendered now (the grid
 		     must not come and go); gotoAlbum() resolves details first when the stub carries
 		     no album and toasts only when there is still nothing to navigate to. The route
 		     takes the script-locked names like gotoArtist. -->
@@ -1637,15 +1994,15 @@
 		{/snippet}
 		<!-- Detail: GATED — resolves details to populate the detail sheet's audioUrl/quality rows. -->
 		{#snippet cellDetail(tr: Track)}
-			<button class="gi" aria-busy={inFlight.has('detail')} aria-label={inFlight.has('detail') ? t('menu.preparing') : undefined} onclick={() => gated('detail', doDetail)} use:tapBounce>
-				{#if inFlight.has('detail')}<span class="row-spinner motion-always"></span>{:else}<Info size={22} />{/if}<span class="gi-label">{t('menu.detail')}</span>
+			<button class="gi" aria-busy={inFlight.has('detail')} aria-label={inFlight.has('detail') ? t('menu.preparing') : undefined} onclick={onDetailTap} use:tapBounce>
+				{#if inFlight.has('detail')}<span class="row-spinner motion-always"></span>{:else}<Info size={22} />{/if}<span class="gi-label">{t('menu.details')}</span>
 			</button>
 		{/snippet}
 		<!-- quick-261006-44w (user 2026-10-06): "Download from…" as a first-class menu item
 		     at the end — opens the same all-sources picker as the download button's
 		     long-press (openDownloadPicker). -->
 		{#snippet cellDownloadSource(tr: Track)}
-			<button class="gi" onclick={openDownloadPicker} use:tapBounce><ArrowDownToLine size={22} /><span class="gi-label">{t('menu.downloadSource')}</span></button>
+			<button class="gi" onclick={openDownloadPicker} use:tapBounce><ArrowDownToLine size={22} /><span class="gi-label">{t('menu.downloadFromSource')}</span></button>
 		{/snippet}
 		{#if editing}
 			<!-- quick-261006-mnu — EDIT MODE replaces the live grid: every catalog action as a
@@ -1655,45 +2012,57 @@
 			     (quick-261006-44v: no Done button — closing the menu via X / scrim / back
 			     auto-applies, since taps and drops commit live). dragClose is disabled while
 			     editing (see the menu node above) so a reorder gesture can never dismiss
-			     the sheet. -->
+			     the sheet.
+			     quick-261021-menu4 (user): explicit Reset + Done buttons in a fixed header —
+			     users need to SEE where to exit and reset, not guess X/scrim. -->
+			<div class="menu-head row edit-head">
+				<button class="hd-btn" onclick={resetMenuOrder} use:tapBounce><RotateCcw size={18} /><span>{t('menu.resetMenu')}</span></button>
+				<button class="hd-btn done" onclick={exitEdit} use:tapBounce><Check size={18} /><span>{t('menu.done')}</span></button>
+			</div>
 			<div class="acts edit" bind:this={editGridEl}>
 				{#each editIds as id, i (id)}
 					{@const on = editOrder.includes(id)}
 					{@const Icon = EDIT_META[id].icon}
-					{@const draggingThis = i === mDragFrom}
-					{@const isCustomize = id === 'customize'}
-					<!-- quick-261006-44v (user 2026-10-06): no Done button — the customize cell
-					     stays a pencil and is INERT in edit mode (not draggable, not toggleable,
-					     not keyboard-movable; it keeps .edit-cell.on so the drag math for the
-					     other cells stays consistent). The user finishes by closing the menu
-					     (X / scrim / back) — taps and drops already commit live, so closing
-					     auto-applies. Single button element (conditional attrs) because
-					     animate:flip requires the only child of the keyed each. -->
+					{@const draggingThis = mDragging && i === mDragFrom}
+					<!-- quick-261021-menu6 (user): the customize cell is now draggable like the
+					     others — no longer inert. Single button element: the keyed each's only
+					     child. quick-261102-menudrag: no style:transform binding and no
+					     animate:flip here any more — the drag writes transforms imperatively
+					     (see the drag block above) and Svelte must never fight them. -->
 					<button
 						class="gi edit-cell"
 						class:on
 						class:off={!on}
 						class:lifted={draggingThis}
 						data-id={id}
-						disabled={isCustomize}
-						aria-pressed={isCustomize ? undefined : on}
+						aria-pressed={on}
 						aria-label={t(EDIT_META[id].label)}
 						title={t(EDIT_META[id].label)}
-						style:transform={draggingThis && (mDragDx || mDragDy) ? `translate(${mDragDx}px, ${mDragDy}px)` : undefined}
-						onpointerdown={isCustomize ? undefined : (e) => mDown(e, id)}
-						onpointermove={isCustomize ? undefined : mMove}
-						onpointerup={isCustomize ? undefined : mUp}
-						onpointercancel={isCustomize ? undefined : mUp}
-						onclick={isCustomize ? undefined : () => mClick(id)}
-						onkeydown={isCustomize ? undefined : (e) => mKey(e, id)}
-						animate:flip={{ duration: draggingThis || settings.reduceMotion ? 0 : 180 }}
+						style:order={i < MENU_GRID_SLOTS ? 0 : 2}
+						onpointerdown={(e) => mDown(e, id)}
+						onpointermove={mMove}
+						onpointerup={mUp}
+						onpointercancel={mCancelDrag}
+						onlostpointercapture={mLostCapture}
+						onclick={() => mClick(id)}
+						onkeydown={(e) => mKey(e, id)}
 					><Icon size={22} /><span class="gi-label">{t(EDIT_META[id].label)}</span></button>
 				{/each}
+				<!-- quick-261021-menu5 (user): divider after the 20 visible slots — rows 6+
+				     are the hidden pool, still reorderable via drag. Moved OUT of the keyed
+				     each (originally for animate:flip's only-child rule, which broke the
+				     Pages build 6x; flip is retired since quick-261102-menudrag but the
+				     placement still serves the drag: slot measurement reads only
+				     .edit-cell.on, never this divider). Placed back into position via
+				     order:1; cells use order 0 (first 20) / 2 (rest). -->
+				{#if editIds.length >= MENU_GRID_SLOTS}
+					<div class="edit-divider" style="order: 1"><span>{t('menu.hiddenItems')}</span></div>
+				{/if}
 			</div>
 		{:else}
 			<div class="acts">
 				{#each visibleIds as id (id)}
-					{@const cellSnippets = { remix: cellRemix, playNext: cellPlayNext, download: cellDownload, like: cellLike, addQueue: cellAddQueue, startRadio: cellStartRadio, versions: cellVersions, changeCover: cellChangeCover, changeLyrics: cellChangeLyrics, viewComments: cellViewComments, viewRelated: cellViewRelated, lyricsTiming: cellLyricsTiming, editTags: cellEditTags, addToPlaylist: cellAddToPlaylist, customize: cellCustomize, repeat: cellRepeat, shuffleQueue: cellShuffleQueue, clearQueue: cellClearQueue, sleepTimer: cellSleepTimer, goToArtist: cellGoToArtist, goToAlbum: cellGoToAlbum, share: cellShare, detail: cellDetail, downloadSource: cellDownloadSource }}
+					{@const cellSnippets = { remix: cellRemix, playNext: cellPlayNext, download: cellDownload, like: cellLike, addQueue: cellAddQueue, startRadio: cellStartRadio, versions: cellVersions, changeCover: cellChangeCover, changeLyrics: cellChangeLyrics, viewComments: cellViewComments, viewRelated: cellViewRelated, editTags: cellEditTags, addToPlaylist: cellAddToPlaylist, customize: cellCustomize, repeat: cellRepeat, shuffleQueue: cellShuffleQueue, clearQueue: cellClearQueue, sleepTimer: cellSleepTimer, goToArtist: cellGoToArtist, goToAlbum: cellGoToAlbum, share: cellShare, detail: cellDetail, downloadSource: cellDownloadSource }}
 					{@render cellSnippets[id](track)}
 				{/each}
 			</div><!-- /quick-261006-grd .acts grid -->
@@ -1706,7 +2075,7 @@
 	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (pickerOpen = false) }} use:focusTrap>
 		<div class="menu-head">{t('menu.addToPlaylist')}</div>
 		{#each library.playlists as pl (pl.id)}
-			<button class="mi" onclick={() => addToPlaylist(pl.id)} use:tapBounce><ListPlus size={18} /> {pl.name} <span class="count">{pl.tracks.length}</span></button>
+			<MenuActionButton icon={ListPlus} onclick={() => addToPlaylist(pl.id)}>{pl.name} <span class="count">{pl.tracks.length}</span></MenuActionButton>
 		{/each}
 		<button class="mi accent" onclick={newPlaylist} use:tapBounce><Plus size={18} /> {t('menu.newPlaylist')}</button>
 	</div>
@@ -1726,7 +2095,7 @@
 		<p class="hint">{t('menu.removeDownloadBody')}</p>
 		<SettingToggle label={t('menu.removeDownloadDeleteFile')} checked={rmDeleteFile} onchange={() => (rmDeleteFile = !rmDeleteFile)} />
 		<div class="actions">
-			<button class="mi" onclick={() => (rmOpen = false)} use:tapBounce>{t('tags.cancel')}</button>
+			<MenuActionButton onclick={() => (rmOpen = false)}>{t('tags.cancel')}</MenuActionButton>
 			<button class="mi danger" onclick={confirmRemoveDownload} use:tapBounce><Trash2 size={18} /> {t('menu.removeDownloadAction')}</button>
 		</div>
 	</div>
@@ -1740,7 +2109,7 @@
 			<dt>{t('menu.detailTitle')}</dt><dd>{names.dnTitle(detailTrack.title, detailTrack.artist)}</dd>
 			<dt>{t('menu.detailArtist')}</dt><dd>{names.dnArtist(detailTrack.artist)}</dd>
 			<dt>{t('menu.detailAlbum')}</dt><dd>{detailTrack.album ? names.dnTitle(detailTrack.album) : '—'}</dd>
-			<dt>{t('menu.detailQuality')}</dt><dd>{detailTrack.qualityLabel || detailTrack.quality || t('menu.detailUnknown')}</dd>
+			<dt>{t('menu.detailQuality')}</dt><dd>{trackQualityLabel(detailTrack) ?? t('menu.detailUnknown')}</dd>
 			<!-- quick-260919-3j1 (F2): the file this app actually holds — container + real size, read
 			     from the local bytes. ASYMMETRY WORTH RECORDING: this lane also works for an imported
 			     `device:` song, which the Downloaded row above does NOT render for (it sits inside
@@ -1749,7 +2118,34 @@
 			<dt>{t('menu.detailFile')}</dt><dd>{localMeta ?? t('menu.detailUnknown')}</dd>
 			<dt>{t('menu.detailSource')}</dt><dd>{detailTrack.source}</dd>
 			<dt>{t('menu.detailUid')}</dt><dd class="mono">{detailTrack.uid}</dd>
+			<dt>{t('menu.detailSongId')}</dt><dd class="mono">{detailTrack.songid || '—'}</dd>
+			{#if detailTrack.songMid || detailTrack.jooxSongMid || detailTrack.qqId || detailTrack.jooxSongId}
+				<dt>{t('menu.detailSourceId')}</dt><dd class="mono break">{detailTrack.songMid || detailTrack.jooxSongMid || detailTrack.qqId || detailTrack.jooxSongId}</dd>
+			{/if}
+			{#if detailTrack.duration}
+				<dt>{t('menu.detailDuration')}</dt><dd class="mono">{Math.floor(detailTrack.duration / 60)}:{String(Math.floor(detailTrack.duration % 60)).padStart(2, '0')}</dd>
+			{/if}
+			<dt>{t('menu.detailLyrics')}</dt><dd>{detailTrack.lrc ? t('menu.detailHasLyrics') : t('menu.detailNoLyrics')}</dd>
+			{#if detailTrack.lrcUrl}
+				<dt>{t('menu.detailLyricsUrl')}</dt><dd class="mono break">{detailTrack.lrcUrl}</dd>
+			{/if}
+			{#if detailTrack.pay}
+				<dt>{t('menu.detailPaywall')}</dt><dd class="mono">{detailTrack.pay}</dd>
+			{/if}
+			{#if detailTrack.tags?.length}
+				<dt>{t('menu.detailTags')}</dt><dd>{detailTrack.tags.join(', ')}</dd>
+			{/if}
+			{#if detailTrack.keyword}
+				<dt>{t('menu.detailKeyword')}</dt><dd class="mono break">{detailTrack.keyword}</dd>
+			{/if}
+			{#if detailTrack.resolvedAt}
+				<dt>{t('menu.detailResolvedAt')}</dt><dd class="mono">{new Date(detailTrack.resolvedAt).toLocaleString()}</dd>
+			{/if}
 			<dt>{t('menu.detailAudioUrl')}</dt><dd class="mono break">{detailTrack.audioUrl || t('menu.detailNotResolved')}</dd>
+			{#if detailTrack.proxyUrl}
+				<dt>{t('menu.detailProxyUrl')}</dt><dd class="mono break">{detailTrack.proxyUrl}</dd>
+			{/if}
+			<dt>{t('menu.detailCoverUrl')}</dt><dd class="mono break">{detailTrack.cover || t('menu.detailNotResolved')}</dd>
 		</dl>
 	</div>
 {/if}
@@ -1792,14 +2188,14 @@
 	{@const pinnedNow = readLyrics(track)}
 	<button class="scrim" aria-label={t('menu.close')} onclick={closeLyricsPicker}></button>
 	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: closeLyricsPicker }} use:focusTrap>
-		<div class="menu-head row"><span>{t('menu.changeLyrics')}</span><button class="x" aria-label={t('menu.close')} onclick={closeLyricsPicker} use:tapBounce><X size={18} /></button></div>
+		<div class="menu-head row"><span>{t('menu.fixLyrics')}</span><button class="x" aria-label={t('menu.close')} onclick={closeLyricsPicker} use:tapBounce><X size={18} /></button></div>
 		{#if lyricsLoading && !lyricCandidates.length}
 			<div class="cover-wait"><span class="row-spinner motion-always"></span></div>
 		{:else if !lyricCandidates.length}
 			<p class="cover-none">{t('menu.lyricsPickerNone')}</p>
 			<!-- D-6: Retry is shown ONLY on a dry walk — the one affordance that is not redundant with
 			     re-opening the sheet, because the sheet is already open. -->
-			<button class="mi" onclick={openLyricsPicker} use:tapBounce><Mic2 size={18} /> {t('menu.lyricsRetry')}</button>
+			<MenuActionButton icon={Mic2} onclick={openLyricsPicker}>{t('menu.lyricsRetry')}</MenuActionButton>
 		{:else}
 			{#each lyricCandidates as c (c.source)}
 				<!-- quick-260919-2jo: the preview is script-locked, the CANDIDATE is not. `pickLyrics(c.lrc)`
@@ -1824,15 +2220,18 @@
 					     after dragClose's native listener has already armed — measured in E2E.)
 					     role+aria-label = the NpLyrics precedent. -->
 					<div class="lyr-body" role="group" aria-label={t('nowplaying.lyrics')} data-no-drag>{text}</div>
-					<button class="mi" onclick={() => pickLyrics(c.lrc)} use:tapBounce><Mic2 size={18} /> {t('menu.useTheseLyrics')}</button>
+					<MenuActionButton icon={Mic2} onclick={() => pickLyrics(c.lrc)}>{t('menu.useTheseLyrics')}</MenuActionButton>
 				</div>
 			{/each}
 		{/if}
 		<!-- D-6: Use-automatic is shown ONLY when a pin exists. `readLyrics` leads with the pin and falls
 		     back to track.lrc, so "the read differs from the track's own lrc" IS "a pin exists". -->
 		{#if pinnedNow !== (track.lrc ?? null)}
-			<button class="mi" onclick={resetLyrics} use:tapBounce><Sparkles size={18} /> {t('menu.lyricsAuto')}</button>
+			<MenuActionButton icon={Sparkles} onclick={resetLyrics}>{t('menu.lyricsAuto')}</MenuActionButton>
 		{/if}
+		<!-- quick-261021-menu7 (user): shared LyricsTimingToggle — same component reused
+		     everywhere the toggle appears, not a duplicate button. -->
+		<LyricsTimingToggle />
 	</div>
 {/if}
 
@@ -1849,14 +2248,23 @@
 			{@const p = dlPickProbes[v.uid]}
 			{@const meta = p ? formatDownloadMeta(p) : null}
 			{@const unavailable = p !== undefined && !p.track?.audioUrl}
-			<button class="mi" disabled={unavailable} aria-disabled={unavailable} onclick={() => pickDownload(v)} use:tapBounce>
-				<Download size={18} />
+			<MenuActionButton icon={Download} disabled={unavailable} onclick={() => pickDownload(v)}>
 				<!-- quick-261006-zh: source labels ride the tongwentang script lock like all page content. -->
 				<span class="dl-src">{names.zhLock(SOURCES[v.source]?.label ?? v.source)}</span>
 				{#if p === undefined}<span class="count skel" aria-hidden="true"></span>
 				{:else if unavailable}<span class="count">{t('menu.downloadUnavailable')}</span>
 				{:else if meta}<span class="count">{meta}</span>{/if}
-			</button>
+			</MenuActionButton>
+			<!-- quick-261020-dl320: the cheaper second row — this source's real 320k file, probed only
+			     because the main row proved the ladder exists. Tapping it downloads the 320k file. -->
+			{@const p320 = dlPickExtra[v.uid]}
+			{#if p320?.track?.audioUrl}
+				{@const meta320 = formatDownloadMeta(p320)}
+				<MenuActionButton icon={Download} onclick={() => pickDownload(v, p320)}>
+					<span class="dl-src">{names.zhLock(SOURCES[v.source]?.label ?? v.source)}</span>
+					{#if meta320}<span class="count">{meta320}</span>{/if}
+				</MenuActionButton>
+			{/if}
 		{/each}
 		{#if dlPickLoading}
 			<p class="dl-wait" aria-busy="true"><span class="row-spinner motion-always"></span>{t('versions.loading')}</p>
@@ -1916,6 +2324,16 @@
 	.menu-head { font-size: calc(0.8125rem * var(--fs-title, 1)); color: var(--color-text-muted); padding: 8px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.menu-head.row { display: flex; align-items: center; justify-content: space-between; }
 	.x { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; }
+	/* quick-261021-menu4: edit-mode header buttons — Reset (left) and Done (right),
+	   always visible so users know where to exit and reset.
+	   quick-261021-menu5: Done is subtle (not sharp green) — matches the dark theme. */
+	.edit-head { justify-content: space-between; padding: 12px 16px; }
+	.hd-btn { display: inline-flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--color-border, #444); border-radius: 8px; color: var(--color-text); padding: 8px 16px; font-size: 0.875rem; cursor: pointer; }
+	.hd-btn.done { border-color: var(--color-text-muted, #888); color: var(--color-text); }
+	.hd-btn.done:active { background: rgba(255,255,255,0.08); }
+	/* quick-261021-menu5: divider between the 20 visible slots and the hidden pool. */
+	.edit-divider { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding: 12px 4px 4px; color: var(--color-text-muted); font-size: 0.75rem; }
+	.edit-divider::before, .edit-divider::after { content: ''; flex: 1; height: 1px; background: var(--color-border, #333); }
 	/* D-08/D-09/D-10: two-row marquee header + top-right action/Close cluster (quick-260913-je8:
 	   the action slot is Download, was Like). Left text column flexes (min-width:0 so the clips can
 	   shrink-and-ellipsis); right cluster is fixed-width.
@@ -2035,15 +2453,17 @@
 	@media (hover: hover) { .gi-caret:hover { background: var(--color-surface); color: var(--color-text); } }
 	/* quick-261006-mnu — EDIT MODE. Cells are 2D drag targets: `touch-action: none` so the
 	   finger owns the gesture (the sheet's dragClose is disabled while editing, and the grid
-	   is short enough to need no scroll). A dragged cell follows 1:1 with no transition
-	   (direct manipulation, not decoration); the OTHERS glide aside via animate:flip,
-	   duration 0 under reduceMotion. Dimmed cells are tappable to re-add — they keep a
+	   is short enough to need no scroll). quick-261102-menudrag: the dragged cell follows
+	   the pointer 1:1 (inline transform, transition:none — direct manipulation, not
+	   decoration); siblings glide aside via inline transforms toward the landing gap
+	   (180ms, dropped under reduceMotion) and the release springs the cell into its slot
+	   via the shared springSnap. Dimmed cells are tappable to re-add — they keep a
 	   stable, visible place to come back from (the RowActionsConfig shape). */
 	.edit-cell { touch-action: none; cursor: grab; }
 	.edit-cell.off { opacity: 0.45; }
 	.edit-cell.off .gi-label { color: var(--color-text-muted); }
 	.edit-cell.lifted { opacity: 0.9; z-index: 2; cursor: grabbing; }
-	.edit-cell:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+	.edit-cell:focus-visible { /* quick-261102-s0k: focus token, >=3:1 on every theme */ outline: 2px solid var(--color-focus); outline-offset: 2px; }
 	/* Grid progress: a thin determinate bar along the cell's bottom edge. The list row's
 	   full-bleed ::after tint would swallow a 72px cell, so the bar lives at the bottom instead.
 	   The indeterminate slide reuses the same dl-slide keyframes (translateX %, layout-free). */

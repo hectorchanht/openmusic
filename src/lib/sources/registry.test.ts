@@ -13,12 +13,19 @@ import { makeUid, type SourceId } from './types';
 // registry at #3 so restoring it is a one-literal move if the cert is renewed.
 const EXPECTED_KEYS: SourceId[] = [
 	'qq',
-	'netease',
-	'kuwo',
 	'joox',
+	'netease',
+	'gdnetease',
+	'kuwo',
+	'suyin',
+	'kugou',
+	'migu',
 	'fivesing',
 	'jamendo',
 	'audius',
+	'archive',
+	'ccmixter',
+	'bilibili',
 	'ytmusic'
 ];
 
@@ -29,7 +36,14 @@ describe('SOURCES registry (DATA-04 — single enumeration point)', () => {
 	// 0zn: audius (Western/indie/UGC) added with enabledByDefault:true.
 	// 27-01: ytmusic (YouTube Music) appended LAST, enabledByDefault:true but autoResolveEligible:false
 	// (searchable, off the resolve floor).
-	it('enumerates exactly qq,netease,kuwo,joox,fivesing,jamendo,audius,ytmusic (qq-first floor; ytmusic last)', () => {
+	// quick-261020-kugo: kugou inserted after joox (mainstream, resolve-floor eligible).
+	// quick-261020-migu: migu inserted after kugou (mainstream, resolve-floor eligible).
+	// quick-261020-bili: bilibili sits just before ytmusic (search-only); ytmusic stays last.
+	// quick-261020-arch: archive sits just before bilibili (off-floor legal catalog).
+	// quick-261101-ccm: ccmixter sits right after archive (off-floor legal catalog).
+	// quick-261020-suyin: suyin (second Kuwo pipe) sits right after kuwo.
+	// quick-261020-gdnt: gdnetease (second Netease pipe) sits right after netease.
+	it('enumerates exactly qq,netease,kuwo,joox,kugou,migu,fivesing,jamendo,audius,archive,bilibili,ytmusic (qq-first floor; ytmusic last)', () => {
 		expect(Object.keys(SOURCES)).toEqual(EXPECTED_KEYS);
 	});
 
@@ -68,12 +82,19 @@ describe('getEnabledAdapters', () => {
 		// (jamendo + audius + ytmusic default to true, so an incomplete prefs map would let them through).
 		const onlyNetease = getEnabledAdapters({
 			netease: true,
+			gdnetease: false,
 			qq: false,
 			kuwo: false,
+			suyin: false,
 			joox: false,
+			kugou: false,
+			migu: false,
 			fivesing: false,
 			jamendo: false,
 			audius: false,
+			archive: false,
+			ccmixter: false,
+			bilibili: false,
 			ytmusic: false
 		});
 		expect(onlyNetease.map((a) => a.id)).toEqual(['netease']);
@@ -106,7 +127,7 @@ describe('ytmusic registry placement (27-01, YT-SRC-01)', () => {
 
 	it('mainstream sources stay auto-resolve eligible (undefined flag)', () => {
 		// The kuwo→qq→netease→joox resolve floor must NOT be flagged off — only ytmusic is.
-		for (const id of ['kuwo', 'qq', 'netease', 'joox'] as SourceId[]) {
+		for (const id of ['kuwo', 'qq', 'netease', 'joox', 'kugou', 'migu'] as SourceId[]) {
 			expect(SOURCES[id].autoResolveEligible).toBeUndefined();
 		}
 	});
@@ -156,9 +177,33 @@ describe('isAutoResolveEligible (quick-260926-c69)', () => {
 		expect(isAutoResolveEligible('ytmusic')).toBe(false);
 	});
 
+	// quick-261020-bili: bilibili is search-only — off the floor like ytmusic.
+	it('bilibili is off the auto-resolve floor (search-only)', () => {
+		expect(isAutoResolveEligible('bilibili')).toBe(false);
+		expect(SOURCES.bilibili.autoResolveEligible).toBe(false);
+		expect(SOURCES.bilibili.enabledByDefault).toBe(true);
+	});
+
+	// quick-261020-arch: archive is a legal-catalog source — searchable, off the floor.
+	it('archive is off the auto-resolve floor (legal catalog)', () => {
+		expect(isAutoResolveEligible('archive')).toBe(false);
+		expect(SOURCES.archive.autoResolveEligible).toBe(false);
+		expect(SOURCES.archive.enabledByDefault).toBe(true);
+	});
+
+	// quick-261101-ccm: ccmixter is a legal-catalog source — searchable, off the floor.
+	it('ccmixter is off the auto-resolve floor (legal catalog)', () => {
+		expect(isAutoResolveEligible('ccmixter')).toBe(false);
+		expect(SOURCES.ccmixter.autoResolveEligible).toBe(false);
+		expect(SOURCES.ccmixter.enabledByDefault).toBe(true);
+		expect(SOURCES.ccmixter.label).toBe('CCMixter');
+	});
+
 	it('every other source is eligible (undefined flag = eligible)', () => {
 		for (const id of Object.keys(SOURCES) as SourceId[]) {
-			if (id !== 'ytmusic') expect(isAutoResolveEligible(id)).toBe(true);
+			if (id !== 'ytmusic' && id !== 'bilibili' && id !== 'archive' && id !== 'ccmixter') {
+				expect(isAutoResolveEligible(id)).toBe(true);
+			}
 		}
 	});
 });

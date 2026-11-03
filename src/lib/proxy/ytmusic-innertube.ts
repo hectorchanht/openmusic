@@ -107,6 +107,50 @@ export function playerBody(videoId: string, visitorData: string | null) {
 	return { context: { client }, videoId, contentCheckOk: true, racyCheckOk: true };
 }
 
+/**
+ * quick-261029-meta1 — METADATA-ONLY alternate player clients. Description text and
+ * caption-track metadata do NOT need a streamable format, so clients that are useless
+ * for googlevideo bytes (WEB / WEB_REMIX / ANDROID — byte-walled or PoToken-gated for
+ * streaming) are perfectly good metadata sources. Hector's layNDqkZQnQ case proved the
+ * point: on a PoP where the VISIONOS player was bot-gated (LOGIN_REQUIRED), the SAME
+ * video's description/lyrics 503'd even though other clients could have answered.
+ * These bodies are used ONLY by callPlayerForMetadata — never for media bytes.
+ */
+export const METADATA_PLAYER_CLIENTS = ['WEB_REMIX', 'WEB', 'ANDROID'] as const;
+export type MetadataPlayerClient = (typeof METADATA_PLAYER_CLIENTS)[number];
+
+/** Build a metadata player body for an alternate client (see METADATA_PLAYER_CLIENTS). */
+export function metadataPlayerBody(videoId: string, client: MetadataPlayerClient) {
+	const base: Record<string, unknown> =
+		client === 'WEB_REMIX'
+			? { clientName: 'WEB_REMIX', clientVersion: WEB_REMIX_CONTEXT.client.clientVersion, hl: 'en', gl: 'US' }
+			: client === 'WEB'
+				? { clientName: 'WEB', clientVersion: '2.20240726.00.00', hl: 'en', gl: 'US' }
+				: {
+						clientName: 'ANDROID',
+						clientVersion: '19.44.38',
+						androidSdkVersion: 30,
+						deviceModel: 'Pixel 8',
+						hl: 'en',
+						gl: 'US'
+					};
+	return { context: { client: base }, videoId, contentCheckOk: true, racyCheckOk: true };
+}
+
+/**
+ * quick-261029-meta1 — a player response carries USABLE metadata when it is playable
+ * (a definitive answer, description possibly empty) OR it carries a non-empty
+ * description OR at least one caption track — even when its playability is gated,
+ * because the metadata fields ride in the same envelope a gate may still return.
+ */
+export function hasUsableMetadata(playerJson: unknown): boolean {
+	return (
+		isPlayable(playerJson) ||
+		extractDescription(playerJson).length > 0 ||
+		extractCaptionTracks(playerJson).length > 0
+	);
+}
+
 /** Pull the anonymous visitor token out of ANY InnerTube response envelope. One copy of the walk —
  *  the edge getVisitorData() and the native resolver both call it (quick-260915-3ng). */
 export function extractVisitorData(json: unknown): string | null {
@@ -128,6 +172,9 @@ export interface YtAdaptiveFormat {
 	itag?: number;
 	mimeType?: string;
 	bitrate?: number;
+	/** Pixel dimensions — present on video formats, absent on audio (quick-261024-vid1). */
+	width?: number;
+	height?: number;
 	/** Direct googlevideo URL — present for itag 140 (spike 006: no signatureCipher, no n-throttle). */
 	url?: string;
 	/** A ciphered format has this INSTEAD of `url`; we ignore it (we solve no signature cipher). */
@@ -136,14 +183,38 @@ export interface YtAdaptiveFormat {
 export interface YtPlayerJson {
 	playabilityStatus?: { status?: string; reason?: string };
 	streamingData?: { adaptiveFormats?: YtAdaptiveFormat[] };
+	/** quick-261024-lyr: the lyrics-fallback fields (captions + description). */
+	videoDetails?: { shortDescription?: string };
+	captions?: {
+		playerCaptionsTracklistRenderer?: {
+			captionTracks?: { baseUrl?: string; languageCode?: string; kind?: string }[];
+		};
+	};
 }
 
 /**
  * True only when `playabilityStatus.status === 'OK'`. LOGIN_REQUIRED / UNPLAYABLE / a bot challenge
- * are all false — the caller refreshes visitorData once then gives up. Pure (spike 006).
+ * are all false — the caller retries with a fresh visitorData before giving up (quick-261024-ytg).
+ * Pure (spike 006).
  */
 export function isPlayable(playerJson: unknown): boolean {
 	return (playerJson as YtPlayerJson)?.playabilityStatus?.status === 'OK';
+}
+
+/**
+ * quick-261024-ytg — the playability status + reason of a player response, for DIAGNOSTICS ONLY
+ * (the stream route surfaces them as `x-ytmusic-*` response headers on a 503 so a gated play is
+ * debuggable from the outside instead of a bare "player not OK"). Reason is header-sanitized:
+ * printable ASCII only, single line, ≤120 chars — a reason can never smuggle a second header.
+ * Nulls when the body carries no playabilityStatus at all (a throw / malformed body upstream).
+ */
+export function playabilityInfo(playerJson: unknown): { status: string | null; reason: string | null } {
+	const ps = (playerJson as YtPlayerJson)?.playabilityStatus;
+	const clean = (v: unknown): string | null =>
+		typeof v === 'string' && v.length > 0
+			? v.replace(/[^\x20-\x7E]/g, '?').slice(0, 120)
+			: null;
+	return { status: clean(ps?.status), reason: clean(ps?.reason) };
 }
 
 /**
@@ -174,4 +245,118 @@ export function selectAudioFormat(playerJson: unknown): string | null {
 		.sort((a, b) => (b?.bitrate ?? 0) - (a?.bitrate ?? 0));
 
 	return mp4[0]?.url ?? null;
+}
+
+/** The video pick for the Now Playing video layer (quick-261024-vid1). */
+export interface YtVideoPick {
+	url: string;
+	itag: number;
+	height: number;
+	/** Full mimeType incl. codecs — the client hands it verbatim to `SourceBuffer`. */
+	mimeType: string;
+}
+
+/**
+ * quick-261024-vid1 — pick the video format for the muted MSE video layer. The VISIONOS
+ * player response is DASH-only (verified live 2026-10-24 on 7 MVs: NO progressive itag
+ * 18/22 exists), so the layer must mux a video-only format itself. Policy:
+ *  - direct `url` only (never a ciphered format);
+ *  - `video/mp4` + avc1 ONLY — vp9/av01 break Safari's MSE, and the layer must degrade to
+ *    the cover there, not to a black rectangle;
+ *  - video-only (carries a height; audio formats never do);
+ *  - prefer the highest rung at or below 720p (data + decode sanity), tie-break bitrate;
+ *    if every avc rung is above 720p, take the smallest of them rather than nothing.
+ * Returns the full pick (the client needs the exact codec string for its SourceBuffer).
+ */
+/** One caption track from the player response (quick-261024-lyr). */
+export interface YtCaptionTrack {
+	baseUrl: string;
+	languageCode: string;
+	/** 'asr' for auto-generated; absent for a human-uploaded track. */
+	kind?: string;
+}
+
+/**
+ * quick-261024-lyr — the caption tracks of a player response, validated: the timedtext
+ * URL must be YouTube's own endpoint (the route fetches it — never fetch an arbitrary URL
+ * a response handed us).
+ */
+export function extractCaptionTracks(playerJson: unknown): YtCaptionTrack[] {
+	const tracks = (playerJson as YtPlayerJson)?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+	return tracks.filter(
+		(c): c is YtCaptionTrack =>
+			typeof c?.baseUrl === 'string' &&
+			c.baseUrl.startsWith('https://www.youtube.com/api/timedtext') &&
+			typeof c?.languageCode === 'string'
+	);
+}
+
+/**
+ * quick-261024-lyr — which caption track serves as lyrics: a HUMAN track beats ASR at any
+ * language; within a class, Traditional Chinese (Hant/HK/TW) > Simplified > other zh >
+ * English > anything. Null for an empty list.
+ */
+export function pickCaptionTrack(tracks: YtCaptionTrack[]): YtCaptionTrack | null {
+	if (tracks.length === 0) return null;
+	const langRank = (code: string): number => {
+		const c = code.toLowerCase();
+		if (c === 'zh-hant' || c.startsWith('zh-hk') || c.startsWith('zh-tw')) return 0;
+		if (c === 'zh-hans' || c.startsWith('zh-cn') || c.startsWith('zh-sg')) return 1;
+		if (c.startsWith('zh')) return 2;
+		if (c.startsWith('en')) return 3;
+		return 4;
+	};
+	const score = (c: YtCaptionTrack) => (c.kind === 'asr' ? 10 : 0) + langRank(c.languageCode);
+	return [...tracks].sort((a, b) => score(a) - score(b))[0];
+}
+
+/** quick-261024-lyr — the video description (videoDetails.shortDescription), trimmed. */
+export function extractDescription(playerJson: unknown): string {
+	return ((playerJson as YtPlayerJson)?.videoDetails?.shortDescription ?? '').trim();
+}
+
+interface CaptionJson3 {
+	events?: { tStartMs?: number; segs?: { utf8?: string }[] }[];
+}
+
+/**
+ * quick-261024-lyr — timedtext `fmt=json3` → LRC text for the lyrics tab. Events without
+ * segments (window/style definitions) and blank lines drop out; consecutive duplicate
+ * lines collapse (ASR roll-up repeats itself); a `\n` inside an event flattens to a
+ * space. Returns null when fewer than 4 usable lines survive — a track with a couple of
+ * caption fragments is not lyrics, and the caller falls through to the description.
+ */
+export function captionsToLrc(json3: unknown): string | null {
+	const events = (json3 as CaptionJson3)?.events ?? [];
+	const pad = (n: number) => String(n).padStart(2, '0');
+	const lines: string[] = [];
+	for (const e of events) {
+		const text = (e?.segs ?? []).map((seg) => seg?.utf8 ?? '').join('').replace(/\s*\n\s*/g, ' ').trim();
+		if (!text) continue;
+		if (lines.length > 0 && lines[lines.length - 1].endsWith(text)) continue;
+		const ms = typeof e?.tStartMs === 'number' ? e.tStartMs : 0;
+		const stamp = `[${pad(Math.floor(ms / 60000))}:${pad(Math.floor(ms / 1000) % 60)}.${pad(Math.floor(ms / 10) % 100)}]`;
+		lines.push(`${stamp}${text}`);
+	}
+	return lines.length >= 4 ? lines.join('\n') : null;
+}
+
+export function selectVideoFormat(playerJson: unknown, maxHeight = 720): YtVideoPick | null {
+	const formats = (playerJson as YtPlayerJson)?.streamingData?.adaptiveFormats ?? [];
+	const candidates = formats.filter(
+		(f) =>
+			typeof f?.url === 'string' &&
+			f.url.length > 0 &&
+			typeof f?.itag === 'number' &&
+			typeof f?.height === 'number' &&
+			f.height > 0 &&
+			(f?.mimeType ?? '').startsWith('video/mp4') &&
+			(f?.mimeType ?? '').includes('avc1')
+	) as (YtAdaptiveFormat & { url: string; itag: number; height: number })[];
+	if (candidates.length === 0) return null;
+	const byHeightThenBitrate = (a: (typeof candidates)[number], b: (typeof candidates)[number]) =>
+		a.height - b.height || (a.bitrate ?? 0) - (b.bitrate ?? 0);
+	const atOrBelowCap = candidates.filter((f) => f.height <= maxHeight).sort(byHeightThenBitrate);
+	const pick = atOrBelowCap.length > 0 ? atOrBelowCap[atOrBelowCap.length - 1] : candidates.sort(byHeightThenBitrate)[0];
+	return { url: pick.url, itag: pick.itag, height: pick.height, mimeType: pick.mimeType ?? 'video/mp4' };
 }

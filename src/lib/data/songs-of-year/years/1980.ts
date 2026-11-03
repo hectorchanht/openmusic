@@ -1,6 +1,7 @@
-// 1980 年選 — year-end charts (United States、United Kingdom).
+// 1980 年選 — year-end charts (United States、United Kingdom、Hong Kong).
 // - United States: Billboard Year-End Hot 100 (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 香港電台 十大中文金曲獎 (rank order = published 十大中文金曲 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -14,6 +15,16 @@ export const PACK_META_SOY_1980_US = {
   free: true,
   year: 1980,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_1980_HK = {
+  id: 'soy-1980-hk',
+  title: '1980 香港年選',
+  titleEn: 'Hong Kong 1980',
+  description: '香港電台 十大中文金曲獎',
+  free: true,
+  year: 1980,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_1980: Record<string, PackSong[]> = {
@@ -120,10 +131,24 @@ export const SOY_1980: Record<string, PackSong[]> = {
     { artist: "Blondie", title: "Call Me", note: "#48 Official Charts 年終" },
     { artist: "Leo Sayer", title: "More Than I Can Say", note: "#49 Official Charts 年終" },
     { artist: "Madness", title: "Embarrassment", note: "#50 Official Charts 年終" },
-  ]
+  ],
+  'Hong Kong': [
+    { artist: "關正傑、雷安娜", title: "人在旅途灑淚時", note: "#1 十大中文金曲第1位" },
+    { artist: "葉麗儀", title: "上海灘", note: "#2 十大中文金曲第2位" },
+    { artist: "林子祥", title: "分分鐘需要你", note: "#3 十大中文金曲第3位" },
+    { artist: "區瑞強", title: "水霞", note: "#4 十大中文金曲第4位" },
+    { artist: "林子祥", title: "在水中央", note: "#5 十大中文金曲第5位" },
+    { artist: "汪明荃", title: "京華春夢", note: "#6 十大中文金曲第6位" },
+    { artist: "關正傑", title: "殘夢", note: "#7 十大中文金曲第7位" },
+    { artist: "鄭少秋", title: "輪流轉", note: "#8 十大中文金曲第8位" },
+    { artist: "羅文", title: "親情", note: "#9 十大中文金曲第9位" },
+    { artist: "葉振棠", title: "戲劇人生", note: "#10 十大中文金曲第10位" },
+  ],
+
 };
 
 export const SOY_SOURCES_1980: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "香港電台 十大中文金曲獎", url: "https://zh.wikipedia.org/wiki/十大中文金曲頒獎音樂會十大中文金曲獎" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1980" },
   'United Kingdom': { name: "Official Charts Company End of Year Singles Chart", url: "https://en.wikipedia.org/wiki/1980_in_British_music" }
 };

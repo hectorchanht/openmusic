@@ -124,6 +124,74 @@ export function storageKeys(store: Pick<Storage, 'length' | 'key'>): string[] {
 }
 
 /**
+ * quick-261020-slimsync — the synced library ballooned to ~1.7MB because every track
+ * carried its full resolved payload: `lrc` (whole lyrics text) alone was 75% of it, plus
+ * ephemeral/derivable fields (`audioUrl`/`proxyUrl` expire, `lrc`/`lrcUrl` re-fetch on
+ * demand, `keyword`/`songMid`/per-source ids are resolve inputs, not state). Uploading
+ * that every 30s over a marginal uplink 504'd ~1 in 3 sync pushes.
+ *
+ * The sync keeps IDENTITY + display fields + the tiny per-source resolve extras (qq's
+ * resolve reads qqId/songMid — catalog.ts:433; joox/qq search keys are the same class).
+ * A restored library is just stubs — the player already re-resolves stubs on demand
+ * (ensureTrackDetails) and covers via the cover chain, so it behaves exactly like fresh
+ * search results. `cover` stays (tiny, and library rows render it immediately);
+ * everything heavy or ephemeral is dropped.
+ */
+const SYNC_TRACK_FIELDS = [
+	'uid',
+	'source',
+	'songid',
+	'title',
+	'artist',
+	'album',
+	'cover',
+	'quality',
+	'duration',
+	// Resolve extras (a few KB total; dropping them would force a cold re-lookup per track).
+	'songMid',
+	'qqId',
+	'qqSearchKey',
+	'jooxSongMid',
+	'jooxSongId'
+] as const;
+
+export function slimTrackForSync(t: unknown): unknown {
+	if (!isPlainObject(t)) return t;
+	const out: Record<string, unknown> = {};
+	for (const f of SYNC_TRACK_FIELDS) {
+		if (t[f] !== undefined) out[f] = t[f];
+	}
+	return out;
+}
+
+/**
+ * PURE: slim every track array inside a library payload (liked + tracks nested in playlists).
+ *
+ * `stripDeviceLocal` (quick-261023-syncmerge) ALSO drops `downloads` + `unavailable`: they
+ * are DEVICE-LOCAL — they describe this device's files ("real and authentic to device
+ * files") and must never travel in a SYNC push. It defaults OFF so the manual
+ * export/import path and the 35-D-09 undo snapshot stay byte-faithful backups (an undo
+ * snapshot that silently dropped downloads could never restore them). The tombstone
+ * `deleted` array is never stripped — it MUST travel, or deletes stop propagating.
+ */
+export function slimLibraryForSync(lib: unknown, stripDeviceLocal = false): unknown {
+	if (!isPlainObject(lib)) return lib;
+	const out: Record<string, unknown> = { ...lib };
+	if (Array.isArray(out['liked'])) out['liked'] = (out['liked'] as unknown[]).map(slimTrackForSync);
+	if (Array.isArray(out['playlists'])) {
+		out['playlists'] = (out['playlists'] as unknown[]).map((p) => {
+			if (!isPlainObject(p) || !Array.isArray(p['tracks'])) return p;
+			return { ...p, tracks: (p['tracks'] as unknown[]).map(slimTrackForSync) };
+		});
+	}
+	if (stripDeviceLocal) {
+		delete out['downloads'];
+		delete out['unavailable'];
+	}
+	return out;
+}
+
+/**
  * Build the export payload. SYNCHRONOUS on purpose: the web export runs inside the click
  * handler, and iOS Safari discards the user gesture across an await (35-RESEARCH Pitfall 5).
  *
@@ -131,7 +199,12 @@ export function storageKeys(store: Pick<Storage, 'length' | 'key'>): string[] {
  * lookup) — the saveBlobToDisk(doc) precedent. A key that is absent is omitted entirely, and a
  * key whose stored value is corrupt is SKIPPED: a local mess must never abort an export.
  */
-export function buildEnvelope(read: (k: string) => string | null, allKeys: readonly string[], now: Date = new Date()): BackupEnvelope {
+export function buildEnvelope(
+	read: (k: string) => string | null,
+	allKeys: readonly string[],
+	now: Date = new Date(),
+	opts?: { stripDeviceLocal?: boolean }
+): BackupEnvelope {
 	const keys: Record<string, unknown> = {};
 	// 35-D-01: the four exact keys, then the name-tr PREFIX FAMILY enumerated from the store.
 	const wanted = [...BACKUP_EXACT_KEYS, ...allKeys.filter((k) => k.startsWith(NAME_TR_PREFIX))];
@@ -144,7 +217,12 @@ export function buildEnvelope(read: (k: string) => string | null, allKeys: reado
 		}
 		if (raw == null) continue;
 		try {
-			keys[k] = JSON.parse(raw);
+			let parsed: unknown = JSON.parse(raw);
+			// quick-261020-slimsync: the library key carries full resolved tracks (lrc text
+			// was 75% of a 1.7MB payload); slim to identity+display fields before export so
+			// neither sync pushes nor manual backups haul lyrics/ephemeral URLs.
+			if (k === LIBRARY_KEY) parsed = slimLibraryForSync(parsed, opts?.stripDeviceLocal ?? false);
+			keys[k] = parsed;
 		} catch {
 			/* corrupt local value — skip this key, never abort the export */
 		}
@@ -173,6 +251,8 @@ function isStringRecord(v: unknown): boolean {
  *    casts the first three with only a `?? []` fallback (Pitfall 7 / T-35-02), so a hostile
  *    `{"liked": 5}` would land in the store and the home shelves would `.map()` over a number.
  *    THIS is the last line of defence for that key.
+ *    quick-261023-syncmerge: `deleted` (the tombstone set) must be an array of strings when
+ *    present — the merge trusts it to suppress, so non-strings are refused outright.
  *  - history / search-history: a bare array, matching parseHistory / parseSearchHistory.
  *  - settings: a non-null, non-array object AND NOTHING MORE. Every field is individually guarded
  *    by settings.load() (WR-10 / T-vzu-01); duplicating ~150 lines of per-field defence here
@@ -185,10 +265,26 @@ function shapeOk(key: string, v: unknown): boolean {
 			const got = v[field];
 			if (got !== undefined && !Array.isArray(got)) return false;
 		}
+		const deleted = v['deleted'];
+		if (deleted !== undefined && (!Array.isArray(deleted) || !deleted.every((x) => typeof x === 'string')))
+			return false;
 		return true;
 	}
 	if (key === HISTORY_KEY || key === SEARCH_HISTORY_KEY) return Array.isArray(v);
 	if (key === SETTINGS_KEY) return isPlainObject(v);
+	return false;
+}
+
+/**
+ * quick-261020-incsync — per-key incremental sync. The server accepts PARTIAL key sets
+ * (only what changed) and can no longer run validateEnvelope over a whole envelope, so
+ * each pushed key is validated on its own. The accept set mirrors validateEnvelope
+ * exactly: the four exact keys via shapeOk, the name-tr prefix family via isStringRecord.
+ * Anything else (player state, diag tokens, unknown domains) is refused.
+ */
+export function validateSyncKey(key: string, value: unknown): boolean {
+	if ((BACKUP_EXACT_KEYS as readonly string[]).includes(key)) return shapeOk(key, value);
+	if (key.startsWith(NAME_TR_PREFIX)) return isStringRecord(value);
 	return false;
 }
 

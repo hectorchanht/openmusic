@@ -6,8 +6,18 @@ import {
 	coverAgeByUidOrName
 } from '$lib/services/cover-cache';
 import { resolveCoverForTrack } from '$lib/services/cover-backfill';
+import { itunesSongCover, DISPLAY_ARTWORK_SIZE } from '$lib/services/itunes-cover';
 import { removeCoverBoth, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
 import { hasHttpsScheme, isRenderableCover } from '$lib/services/url-safety';
+
+// quick-261020-itn1: Netease covers come via the meting pic proxy and are frequently
+// placeholders (text-on-dark) rather than real album art. Per Hector 2026-10-20, a Netease
+// cover NEVER wins outright — iTunes is tried first and replaces it on any hit; the Netease
+// URL is kept only when iTunes misses.
+const NETEASE_PIC_RE = /api\.qijieya\.cn\/meting\/\?server=netease&type=pic/;
+function isNeteaseCover(url: string | null | undefined): boolean {
+	return !!url && NETEASE_PIC_RE.test(url);
+}
 
 // use:lazyCover — resolve a track-row cover ONLY when the row scrolls into view (COVER-02).
 //
@@ -144,7 +154,32 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 		}
 
 		// (2) An existing non-empty https cover → probe it; keep on load, repair on error (D-15).
+		// quick-261020-itn1 (amended): a Netease meting-pic cover is LAST resort — it never wins
+		// outright. iTunes is tried first; on an iTunes miss the FULL chain runs (QQ → Deezer →
+		// CN → YTM); the Netease URL is kept only when the chain also misses.
 		if (hasHttpsScheme(track.cover)) {
+			if (isNeteaseCover(track.cover)) {
+				const itunes = await itunesSongCover(
+					track.artist ?? '',
+					track.title ?? '',
+					// quick-261101-chk: this chain carries no AbortSignal (resolveCoverForRow is
+					// fire-and-forget per row) — the param is optional and stays undefined; a bare
+					// `signal` identifier here was an out-of-scope name that threw at runtime.
+					undefined,
+					DISPLAY_ARTWORK_SIZE
+				);
+				if (hasHttpsScheme(itunes)) {
+					onResolved(track.uid, itunes);
+					return;
+				}
+				// iTunes miss → run the full chain; Netease is the fallback below.
+				const chained = await resolveCoverForTrack(track);
+				if (hasHttpsScheme(chained)) {
+					onResolved(track.uid, chained);
+					return;
+				}
+				// Chain also missed → probe the Netease URL as last resort.
+			}
 			const keep = await probeImage(track.cover);
 			if (keep) {
 				onResolved(track.uid, track.cover);

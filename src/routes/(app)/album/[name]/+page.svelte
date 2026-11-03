@@ -26,10 +26,13 @@
 	import { goto } from '$app/navigation';
 	import { resolveStub } from '$lib/services/discovery';
 	import { nameStub } from '$lib/services/similar';
-	import { sameSongKey } from '$lib/services/dedupe';
+	import { sameSongKey, sameSongStrings } from '$lib/services/dedupe';
 	import { shuffle } from '$lib/services/shuffle';
 	import { downloadAlbum as downloadAlbumTracks } from '$lib/services/download-album';
 	import { downloadLabel } from '$lib/services/download-label';
+	// quick-261023-bulklock: bulk ZIP downloads are a supporter perk.
+	import { isSupporter } from '$lib/config/sponsored';
+	import { support } from '$lib/stores/support.svelte';
 	import { enrichAlbum, getAlbumTracklist, type EnrichResult } from '$lib/services/lastfm';
 	import { deezerAlbum, deezerAlbumTracks, type DeezerAlbumInfo } from '$lib/services/deezer';
 	import { mbTracks } from '$lib/services/musicbrainz';
@@ -59,7 +62,13 @@
 	// NOT derived from tracks[0] (the stubs have no resolved artist until tap, and the
 	// album.getInfo query NEEDS the artist up front). Absent param (deep link) → '' → the
 	// page still renders the hero + a graceful empty state instead of crashing.
-	const albumArtist = $derived(page.url.searchParams.get('artist') ?? '');
+	// quick-261023-albumurl: on the 2-segment route (/album/{artist}/{name}) the artist rides
+	// path segment 1 — already dash-decoded by that route's loader into `data.artist`
+	// (page.params.artist still carries the raw dashes, so it is NOT read directly). The legacy
+	// `?artist=` carrier keeps working for old links, which still land on this route.
+	const albumArtist = $derived(
+		(data as { artist?: string }).artist || page.url.searchParams.get('artist') || ''
+	);
 	// quick-260831-qkx: the Deezer album id, carried by the artist page / discography page. When
 	// present it is the AUTHORITATIVE tracklist source — `album/{id}/tracks` returns the real
 	// ordered list. Absent (deep link, Last.fm-sourced album) → the old name-keyed Last.fm path.
@@ -75,6 +84,18 @@
 	let tracks = $state<AlbumStub[]>([]);
 	let loading = $state(true);
 	let loadedFor = '';
+
+	// quick-261031-dedup: an album tracklist is a shelf too — a source listing that repeats a
+	// song (deluxe/standard merge, a duplicated row upstream) must not render or queue it
+	// twice. Pairwise on the stub identity (sameSongStrings — script-folded, alias-aware);
+	// album lists are short, so the O(n²) scan is nothing.
+	function dedupeStubs(rows: AlbumStub[]): AlbumStub[] {
+		const out: AlbumStub[] = [];
+		for (const r of rows) {
+			if (!out.some((o) => sameSongStrings(o.artist, o.title, r.artist, r.title))) out.push(r);
+		}
+		return out;
+	}
 
 	// ---- Last.fm enrichment (Phase 8, ENRICH-01/02 · D-01c/D-03/D-04) ----
 	// Best-effort, AUGMENTS the page — never blocks/replaces the tracklist load. A SEPARATE
@@ -177,7 +198,7 @@
 						const rows = await mbTracks(mbid, artist);
 						if (loadedFor !== key) return; // race guard
 						if (rows.length) {
-							tracks = rows.map((tr) => ({ artist: tr.artist, title: tr.title }));
+							tracks = dedupeStubs(rows.map((tr) => ({ artist: tr.artist, title: tr.title })));
 							return;
 						}
 					}
@@ -187,13 +208,13 @@
 						if (dzTracks.length) {
 							// Same {artist,title} STUB contract the Last.fm path produces — resolve-on-tap
 							// via resolveStub is unchanged; only the source of the ordered list moved.
-							tracks = dzTracks.map((tr) => ({ artist: tr.artist, title: tr.title }));
+							tracks = dedupeStubs(dzTracks.map((tr) => ({ artist: tr.artist, title: tr.title })));
 							return;
 						}
 					}
 					if (!artist) return; // both id paths empty and no name to fall back on
 					const lf = await getAlbumTracklist(n, artist).catch(() => []);
-					if (loadedFor === key) tracks = lf;
+					if (loadedFor === key) tracks = dedupeStubs(lf);
 				} finally {
 					if (loadedFor === key) loading = false;
 				}
@@ -563,6 +584,18 @@
 		}
 	}
 
+	// quick-261023-bulklock: bulk ZIP downloads are a supporter perk — per-song
+	// download stays free for everyone. Non-supporters get the tip sheet instead
+	// (re-locks what quick-261020-nogate opened; Hector 2026-10-23).
+	function onDownloadTap() {
+		if (!isSupporter()) {
+			globalToast.show(t('support.bulkLocked'));
+			support.openSheet();
+			return;
+		}
+		void downloadAlbum();
+	}
+
 	// Like the album → resolve all + apply idempotent like-all (gte: AskUserQuestion):
 	// if any track is unliked → like the missing ones; if EVERY track is already liked →
 	// unlike them all (so the user has an undo). The resolveAll fan-out can take ~10s for a
@@ -772,7 +805,8 @@
 		<!-- debug download-state-lost-on-page-return: busy = the STORE's album job (survives leaving and
 		     coming back), shown with the same DownloadRing the rows use so "still downloading" reads the
 		     same everywhere. -->
-		<button class="act" aria-label={t('menu.download')} aria-busy={albumDownloading} disabled={albumDownloading} onclick={downloadAlbum} use:tapBounce>
+		<!-- quick-261020-nogate: the album download — free for everyone now, no supporter dot. -->
+		<button class="act" aria-label={t('support.downloadAlbum')} aria-busy={albumDownloading} disabled={albumDownloading} onclick={onDownloadTap} use:tapBounce>
 			{#if albumDownloading}<DownloadRing><Download size={20} /></DownloadRing>{:else}<Download size={20} />{/if}
 		</button>
 		<!-- <button class="act" aria-label={albumLiked ? t('menu.liked') : t('menu.like')} disabled={busyAction === 'like'} onclick={likeAlbum} use:tapBounce><Heart size={20} fill={albumLiked ? 'currentColor' : 'none'} /></button> -->
@@ -877,7 +911,7 @@
 	.offline-title { font-size: 0.9375rem; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
 	.offline-body { font-size: 0.8125rem; margin: 0 0 16px; }
 	.offline-cta {
-		background: var(--color-primary); border: none; color: #fff; border-radius: 999px;
+		background: var(--color-primary); border: none; color: var(--color-on-primary); /* quick-261102-rrb */ border-radius: 999px;
 		padding: 9px 18px; font-size: 0.8125rem; font-weight: 600; cursor: pointer;
 	}
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -921,7 +955,7 @@
 	   (use:tapBounce supplies the one-shot touch press feedback). */
 	@media (hover: hover) { .act:active { transform: scale(0.92); } }
 	.act:disabled { opacity: 0.4; cursor: default; }
-	.act.play { width: 56px; height: 56px; background: var(--color-primary); border-color: transparent; color: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); }
+	.act.play { width: 56px; height: 56px; background: var(--color-primary); border-color: transparent; color: var(--color-on-primary); /* quick-261102-rrb */ box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); }
 	/* ---- add-to-playlist picker (mirrors the track menu sheet) ---- */
 	.scrim { position: fixed; inset: 0; z-index: 80; background: rgba(0, 0, 0, 0.45); border: none; }
 	.picker { position: fixed; left: 12px; right: 12px; bottom: 16px; z-index: 81; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 16px; padding: 8px; max-width: 680px; margin: 0 auto; box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5); max-height: 70vh; overflow-y: auto; }

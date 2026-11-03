@@ -167,20 +167,22 @@
 				     holds. The coverless rows are filled by the ONE capped, tab-gated backfillCovers
 				     effect above. Must sit directly under the {#each} ({@const} is block-child only).
 				     Phase 40 D-14: rung 0 is readChosenCover — the pin, then the crowd pick. -->
-				{@const rArt = sizedCover(pickRowCover(readChosenCover(track.uid, track.artist, track.title), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title)), ROW_COVER_PX)}
+				{@const rArt = sizedCover(pickRowCover(readChosenCover(track.uid, track.artist, track.title), undefined, resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title)), ROW_COVER_PX)}
 				<!-- quick-260625-pzs-02: reveal layers sit BEHIND the row; the row translateX
 				     (use:swipeAction) slides to expose them. Right-drag → queue, left-drag → play
 				     next. aria-hidden (the same actions stay reachable via the long-press menu). -->
 				<li class="swipe-wrap related-swipe">
 					<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
 					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-					<button class="row rel-row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); onMenu(track); }} onclick={() => relatedTapPlay(track)} use:swipeAction={{ onSwipeRight: () => relatedSwipeQueue(track), onSwipeLeft: () => relatedSwipeNext(track) }}><span class="q-art" style:background-image={rArt ? `url(${rArt})` : coverGradient(track.uid)}></span><span class="r-meta"><span class="r-title">{names.dnTitle(track.title, track.artist)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></span><RowBadges uid={track.uid} /></button>
+					<button class="row rel-row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); onMenu(track); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); onMenu(track); }} onclick={() => relatedTapPlay(track)} use:swipeAction={{ onSwipeRight: () => relatedSwipeQueue(track), onSwipeLeft: () => relatedSwipeNext(track) }}><span class="q-art" style:background-image={rArt ? `url(${rArt})` : coverGradient(track.uid)}></span><span class="r-meta"><span class="r-title">{names.dnTitle(track.title, track.artist)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></span><RowBadges uid={track.uid} /></button>
 				</li>
 			{/each}
 		</ul>
 	{:else if relatedLoading}
 		<ul class="list" aria-label={t('nowplaying.loadingRelated')}>
 			<span class="vh">{t('nowplaying.loadingRelated')}</span>
+			<!-- quick-261029-xor1: skeleton ONLY for this long list (standing XOR rule —
+			     spinner + skeleton together are banned; see LoadingState.svelte). -->
 			{#each Array(8) as _, i (i)}
 				<li><span class="row skel" aria-hidden="true"><span class="r-title sk"></span><span class="r-artist sk"></span></span></li>
 			{/each}

@@ -33,6 +33,7 @@
 	// SvelteKit never observes) onto goto(), so `page.url` stays truthful for the rail. tabHref
 	// still owns the D-5 default-stripping rule, and the helper stays in url-tab.ts for
 	// /artist/[name]/albums, whose URL no rail entry reads.
+	import { dedupeShelfList } from '$lib/services/dedupe';
 	import { pickTab, tabHref } from '$lib/services/url-tab';
 	import { LIBRARY_TAB_SET, DEFAULT_LIBRARY_TAB, type LibraryTab } from '$lib/services/library-tabs';
 
@@ -266,11 +267,22 @@
 	 * its own Play button, and flattening every playlist into one queue is not something anyone
 	 * asked for. Also empty on fav-artists — artists are not tracks.
 	 */
+	// quick-261031-dedup (Hector 2026-10-31: "every shelf should be dedup"): the RENDERED lists
+	// are dedupeShelfList views of the store lists — one row per song+rendition even if a
+	// sync merge or an older build persisted uid-keyed duplicates the store heal hasn't
+	// reached (the heal runs at load; these views are the guarantee at paint time). The
+	// store lists themselves stay the edit-mode / clear source of truth.
+	const likedList = $derived(dedupeShelfList(library.liked));
+	const downloadsList = $derived(dedupeShelfList(library.downloads));
+	const historyList = $derived(dedupeShelfList(history.entries) as Track[]);
+	const playlistLists = $derived(
+		new Map(library.playlists.map((p) => [p.id, dedupeShelfList(p.tracks)] as const))
+	);
 	const tabList = $derived<Track[]>(
-		tab === 'liked' ? library.liked
-			: tab === 'downloads' ? library.downloads
-			: tab === 'history' ? (history.entries as Track[])
-			: tab === 'playlists' ? (detailPlaylist?.tracks ?? [])
+		tab === 'liked' ? likedList
+			: tab === 'downloads' ? downloadsList
+			: tab === 'history' ? historyList
+			: tab === 'playlists' ? (detailPlaylistId ? (playlistLists.get(detailPlaylistId) ?? []) : [])
 			// quick-260927-2cy: radio is deliberately [] (no Play-all/Shuffle/queue actions and, via
 			// listMenuHasItems, no ⋯/Clear) — its rows are lazy name stubs that must only play
 			// through playStub, never playList → player.play (quick-260924-pgu: a raw stub play
@@ -336,14 +348,16 @@
 	});
 
 	/**
-	 * quick-260915-vb9: `wholeList` marks the caller as an explicit "play this entire list" button
-	 * (the action row's Play/Shuffle, and each playlist folder's own Play) rather than a row tap.
-	 * It pins player.play's same-list branch so the list the user pressed Play ON is what Up Next
-	 * shows — every library context resolves to the 'generated' up-next mode by default, which
-	 * would otherwise replace the tail with genre-similar songs and drop the list entirely.
-	 * A plain row tap passes nothing and keeps the user's per-context sourcing setting.
+	 * quick-261031-scope (Hector 2026-10-31) SUPERSEDES quick-261024-sets for the ACTION
+	 * BUTTONS: a shelf's own Play / Shuffle buttons are scoped to THAT shelf — Play installs
+	 * the shelf as Up Next in order, Shuffle installs it shuffled — regardless of the
+	 * per-context Up-next sourcing setting (his report: Shuffle on Downloads generated
+	 * Up Next from the first song instead of shuffling Downloads). Callers that are action
+	 * buttons pass `{ sameList: true }` (the quick-260915-vb9 pin, restored for buttons).
+	 * ROW TAPS stay unpinned exactly as sets left them: a tap means "play this song" and the
+	 * context's sourcing setting decides its tail.
 	 */
-	function playList(list: Track[], t: Track, opts?: { wholeList?: boolean }) {
+	function playList(list: Track[], t: Track, opts?: { sameList?: boolean }) {
 		// Phase 17 (QUEUE-03): pass the active tab's queue context so per-context sourcing
 		// resolves. 'playlists' tab → the 'playlist' context (singular QueueContext token).
 		// quick-260915-vb9: 'history' added so this one function serves every tab and playEntry
@@ -355,25 +369,27 @@
 		// Set queue+context FIRST, then fresh-play so the per-context up-next mode resolves
 		// (a 'generated' context regenerates up-next from the seed instead of using `list`).
 		player.setListQueue(list, ctx);
-		player.play(t, { fresh: true, sameList: opts?.wholeList });
+		player.play(t, { fresh: true, sameList: opts?.sameList });
 	}
 	// Listen history: replay slice (audioUrl re-resolves on play), moved here from settings.
 	function playEntry(track: Track) {
-		playList(history.entries as Track[], track);
+		playList(historyList, track);
 	}
-	// quick-260915-vb9: the action row's Play — the whole tab, from the top.
+	// The action row's Play — the tab IS the queue (quick-261031-scope): starts the tab from
+	// the top and Up Next is the rest of the tab, in order.
 	function playAll() {
-		if (tabList.length) playList(tabList, tabList[0], { wholeList: true });
+		if (tabList.length) playList(tabList, tabList[0], { sameList: true });
 	}
 	/**
 	 * quick-260915-vb9: Shuffle installs a Fisher-Yates COPY of the tab as the queue — it does NOT
 	 * call player.toggleShuffle(). That mode only reorders the tail AFTER the current track and is
 	 * a no-op when shuffle is already on, so the result would depend on prior state; a shuffled copy
 	 * is deterministic and leaves the user's shuffle setting alone.
+	 * quick-261031-scope: the copy is pinned sameList — Up Next is the shuffled tab itself.
 	 */
 	function shuffleAll() {
 		const s = shuffle(tabList);
-		if (s.length) playList(s, s[0], { wholeList: true });
+		if (s.length) playList(s, s[0], { sameList: true });
 	}
 </script>
 
@@ -419,7 +435,7 @@
 {#if tab === 'liked'}
 	{#if library.liked.length}
 		<ul class="list" class:editing={editMode}>
-			{#each library.liked as track (track.uid)}
+			{#each likedList as track (track.uid)}
 				<li class="row-line">
 					<div class="swipe-wrap">
 						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
@@ -436,7 +452,7 @@
 							{track}
 							danger={editMode}
 							smartArtist
-							onplay={() => rowAction(track, library.liked)}
+							onplay={() => rowAction(track, likedList)}
 							onrequestmenu={() => openMenu(track)}
 						/>
 					</div>
@@ -450,21 +466,22 @@
 		     all playlist folders. An unknown/removed id resolves detailPlaylist to null → falls back
 		     to the full list (never an empty crash). -->
 		{#each (detailPlaylist ? [detailPlaylist] : library.playlists) as pl (pl.id)}
+			{@const plList = playlistLists.get(pl.id) ?? []}
 			<section class="pl">
 				<div class="pl-head">
-					<h2>{pl.name} <span class="count">{pl.tracks.length}</span></h2>
+					<h2>{pl.name} <span class="count">{plList.length}</span></h2>
 					{#if editMode}
 						<button class="del" aria-label={t('library.deletePlaylist')} onclick={() => library.deletePlaylist(pl.id)} use:tapBounce><Trash2 size={16} /></button>
-					{:else if pl.tracks.length}
-						<!-- quick-260915-vb9: a folder's own Play is a whole-list play too, so it gets the
-						     same Up-Next guarantee as the action row's Play (two Play buttons on one page
-						     must not behave differently). -->
-						<button class="del" aria-label={t('library.playAll')} title={t('library.playAll')} onclick={() => playList(pl.tracks, pl.tracks[0], { wholeList: true })} use:tapBounce><Play size={16} /></button>
+					{:else if plList.length}
+						<!-- quick-261031-scope: a folder's own Play is an action button on that playlist
+						     shelf — scoped (sameList) like the action row's Play, so the playlist itself
+						     is Up Next. (quick-261024-sets had it unpinned; superseded for buttons.) -->
+						<button class="del" aria-label={t('library.playAll')} title={t('library.playAll')} onclick={() => playList(plList, plList[0], { sameList: true })} use:tapBounce><Play size={16} /></button>
 					{/if}
 				</div>
-				{#if pl.tracks.length}
+				{#if plList.length}
 					<ul class="list">
-						{#each pl.tracks as track (track.uid)}
+						{#each plList as track (track.uid)}
 							<li class="row-line">
 								<div class="swipe-wrap">
 									<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
@@ -476,7 +493,7 @@
 										{track}
 										danger={editMode}
 							smartArtist
-										onplay={() => rowAction(track, pl.tracks, pl.id)}
+										onplay={() => rowAction(track, plList, pl.id)}
 										onrequestmenu={() => openMenu(track)}
 									/>
 								</div>
@@ -490,7 +507,7 @@
 {:else if tab === 'downloads'}
 	{#if library.downloads.length}
 		<ul class="list">
-			{#each library.downloads as track (track.uid)}
+			{#each downloadsList as track (track.uid)}
 				<li class="row-line">
 					<div class="swipe-wrap">
 						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
@@ -503,7 +520,7 @@
 							{track}
 							danger={editMode}
 							smartArtist
-							onplay={() => rowAction(track, library.downloads)}
+							onplay={() => rowAction(track, downloadsList)}
 							onrequestmenu={() => openMenu(track)}
 						/>
 					</div>
@@ -533,8 +550,7 @@
 {:else}
 	{#if history.entries.length}
 		<ul class="list">
-			{#each history.entries as entry (entry.uid)}
-				{@const track = entry as Track}
+			{#each historyList as track (track.uid)}
 				<li class="row-line">
 					<div class="swipe-wrap">
 						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
@@ -604,7 +620,7 @@
 	   labelled via aria-label + title. `.edit-btn` lives only in `.actions`. */
 	.edit-btn { display: grid; place-items: center; min-width: 44px; height: 44px; padding: 0; border-radius: 12px; background: var(--color-surface-2); border: 1px solid transparent; color: var(--color-text); cursor: pointer; transition: background 0.15s, transform 0.1s; }
 	@media (hover: hover) { .edit-btn:active { transform: scale(0.92); } }
-	.edit-btn[aria-pressed='true'] { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.edit-btn[aria-pressed='true'] { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	.actions { display: flex; gap: 8px; margin-bottom: 14px; }
 	.actions .edit-btn { flex: 1 1 0; min-width: 0; }
 	/* fav-artists tiles only — the track rows' copy of this is SongRow's `danger`. */
@@ -613,7 +629,7 @@
 	.tabs { display: flex; gap: 8px; margin-bottom: 14px; }
 	.tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 14px 0; border-radius: 999px; cursor: pointer; min-width: 0; }
 	/* User 2026-10-06 (audit): 10px -> 14px padding for 44px minimum touch target. */
-	.tabs button.active { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.tabs button.active { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 	/* D-11 used to lay out the swipe-wrap beside a trailing DownloadControl. quick-260919-l9e
 	   moved that control INSIDE the row (settings.rowActions), so the wrap is now the only child

@@ -253,7 +253,7 @@ describe('reorderPairs', () => {
 		const out = reorderPairs(input);
 		expect(out).toEqual([
 			{ time: 10, text: 'we can go anywhere together' },
-			{ time: 10, text: '我们可以一同去往世界各地' }
+			{ time: 10, text: '我们可以一同去往世界各地', isTranslation: true }
 		]);
 	});
 
@@ -274,7 +274,7 @@ describe('reorderPairs', () => {
 		const out = reorderPairs(input);
 		expect(out).toEqual([
 			{ time: 3, text: '君のため' },
-			{ time: 3, text: '永远的爱' }
+			{ time: 3, text: '永远的爱', isTranslation: true }
 		]);
 	});
 
@@ -286,7 +286,7 @@ describe('reorderPairs', () => {
 		const out = reorderPairs(input);
 		expect(out).toEqual([
 			{ time: 7, text: '사랑해' },
-			{ time: 7, text: '我爱你' }
+			{ time: 7, text: '我爱你', isTranslation: true }
 		]);
 	});
 
@@ -301,8 +301,8 @@ describe('reorderPairs', () => {
 		const out = reorderPairs(input);
 		expect(out).toEqual([
 			{ time: 4, text: 'the only english line' },
-			{ time: 4, text: '第一句翻译' },
-			{ time: 4, text: '第二句翻译' }
+			{ time: 4, text: '第一句翻译', isTranslation: true },
+			{ time: 4, text: '第二句翻译', isTranslation: true }
 		]);
 	});
 

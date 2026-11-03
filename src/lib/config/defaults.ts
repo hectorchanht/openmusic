@@ -26,9 +26,9 @@ import type { LyricsLang, SourceLang, TranslateMode, DefaultQuality, DefaultSour
 
 /** The accent-color hex used when the user hasn't picked one. Pulled out so the General
  *  reset can restore it without importing from settings.svelte.ts (circular).
- *  quick-260925-vtg: teal — the user's own exported settings adopted as the defaults (was
- *  #7c5cff). #00c2b8 is already an ACCENT_PRESETS entry, so the picker highlights it. */
-export const DEFAULT_ACCENT = '#00c2b8';
+ *  tiffany-261020: Tiffany blue (#0abab5, Pantone 1837C) — replaces the purple/teal era.
+ *  It is ACCENT_PRESETS[0], so the picker highlights it. */
+export const DEFAULT_ACCENT = '#0abab5';
 
 // ---- General ---------------------------------------------------------------------------
 // First-visit detection lives in settings.load() (browser-language auto-detect). Reset reverts
@@ -139,6 +139,18 @@ export const PLAYBACK_DEFAULTS = {
 	 *  Now-Playing page. Shown by default per quick-260925-vtg (the user's own exported settings
 	 *  adopted as the defaults); k5y's original "extra chrome" reasoning for OFF is superseded. */
 	showQualityTag: true,
+	/** quick-261102-srcpill (Hector 2026-11-02): show the current track's SOURCE pill
+	 *  (registry adapter label — JOOX, Netease（GD）, …) immediately before the quality
+	 *  tag on the Now-Playing page. ON by default: Hector asked for the pill to exist;
+	 *  this toggle is the opt-out, mirroring showQualityTag beside it. */
+	showSourceTag: true,
+	/** quick-261024-vid1: the Now Playing MV video layer (ytmusic tracks). ON by default —
+	 *  the layer is inert until the user taps Watch MV, so nobody pays its data cost by
+	 *  accident; the toggle exists so it can be banished entirely (rows stop tagging too). */
+	videoEnabled: true,
+	/** quick-261024-vid1: height cap for the MV layer, shared by Settings and the Now
+	 *  Playing quality menu (one setting, two surfaces). */
+	videoQuality: 720 as VideoQuality,
 	/** quick-260919-1we (D-7): make the docked mini player show the currently-sung lyric line in
 	 *  place of the artist name. OFF by default, for the reason k5y originally gave for
 	 *  showQualityTag (before quick-260925-vtg flipped it): it
@@ -157,6 +169,16 @@ export const PLAYBACK_DEFAULTS = {
 // The types live HERE (not in a store) so both player.svelte.ts and settings.svelte.ts can
 // import them without a circular dependency — defaults.ts is already imported by both.
 export type UpnextMode = 'same-list' | 'generated';
+/** MV video-layer height caps (quick-261024-vid1) — the quality picker's whole domain. */
+export type VideoQuality = 720 | 480 | 360 | 240;
+export const VIDEO_QUALITIES: readonly VideoQuality[] = [720, 480, 360, 240];
+/** quick-261024-sets4 (Hector): the five country chart packs share ONE up-next setting —
+ *  "只需要加一個 pack that apply to all country". `PACK_CONTEXTS` is the family the single
+ *  'pack' key governs; a queue still carries its specific pack context, and
+ *  `effectiveUpnextMode` resolves exact key → 'pack' family key → global mode. */
+export const PACK_CONTEXTS = ['cantopop-2026', 'mandopop-2026', 'kpop-2026', 'jpop-2026', 'western-2026'] as const;
+/** A key in the per-context settings map: any queue context, plus the 'pack' family key. */
+export type UpnextSettingKey = Exclude<QueueContext, null> | 'pack';
 /** Which surface started the current queue. `null` = unknown origin → global default. */
 export type QueueContext =
 	| 'liked'
@@ -190,25 +212,29 @@ export const UPNEXT_DEFAULTS = {
 	/** Global default sourcing mode — roadmap-locked to 'generated'. */
 	mode: 'generated' as UpnextMode,
 	/**
-	 * Per-context overrides — ALBUM ONLY. `album` resolves to 'same-list' (a curated, ordered
-	 * collection — users expect "play the rest of the album"); EVERY other context, artist
-	 * included, resolves to the global `mode` ('generated') so a tap anywhere else fills Up-Next
-	 * with similar songs.
+	 * Per-context overrides — ALBUM, ARTIST, the PACK FAMILY and songs-of-year. They resolve
+	 * to 'same-list' (curated, ORDERED collections — users expect "play the rest of the
+	 * album / this artist's list", and on a ranked pack tapping #4 means the next song is
+	 * #5); EVERY other context resolves to the global `mode` ('generated'), so a tap
+	 * anywhere else seeds Up-Next from the tapped song with similar songs
+	 * (quick-261024-sets: Hector's app-wide rule — "everywhere seed"; sets3 pinned each pack
+	 * individually, sets4 collapses them into the single 'pack' family key on his call).
 	 *
-	 * quick-260831-jtw: `artist` used to be pinned to 'same-list' here on the theory that an
-	 * artist page is a curated collection too. It is not — tapping a song on an artist page is
-	 * an ordinary "play this song" tap and should seed genre-similar sourcing like search/home/
-	 * charts/library do. Dropped.
+	 * History: `artist` was pinned, dropped by quick-260831-jtw (an artist tap treated as an
+	 * ordinary "play this song" tap), and is pinned AGAIN by quick-261024-sets on Hector's
+	 * explicit call, which supersedes jtw. The artist page installs its ranked list on row
+	 * taps (setListQueue(…, 'artist')), so this pin is what makes those taps keep the list
+	 * through the fresh-play tail instead of regenerating over it.
 	 *
-	 * Also quick-260831-jtw: this object is now the ACTUAL seed for `settings.upnextPerContext`
-	 * (init + load fallback), not just what `resetPlayback()` spreads. Before, a fresh install
-	 * started at `{}` (album generated) while a post-reset install got album+artist same-list —
-	 * the same app behaving two ways depending on whether the reset button had ever been pressed.
+	 * Also quick-260831-jtw: this object is the ACTUAL seed for `settings.upnextPerContext`
+	 * (init + load fallback), not just what `resetPlayback()` spreads, and load() merges it
+	 * UNDER any persisted per-context choices — so adding the artist pin here reaches existing
+	 * installs automatically unless the user deliberately set the artist segment themselves.
 	 * Wiring it as the seed also stops the album hot path from firing a full regenerate
 	 * (track.getSimilar + a 20-track tail) that `setListQueue(all, 'album')` immediately discards
 	 * via the queueGen guard.
 	 */
-	perContext: { album: 'same-list' } as Partial<Record<Exclude<QueueContext, null>, UpnextMode>>
+	perContext: { album: 'same-list', artist: 'same-list', pack: 'same-list', 'songs-of-year': 'same-list' } as Partial<Record<UpnextSettingKey, UpnextMode>>
 } as const;
 
 // ---- Home layout -----------------------------------------------------------------------
@@ -245,6 +271,36 @@ export const HOME_DEFAULTS = {
 } as const;
 
 /** All groups in one place — used to drive the reset-group helpers. */
+// quick-261020-sync: SYNC_DEFAULTS is DELIBERATELY not a member — the sync-item
+// selection is ACCOUNT-level (it follows the user across devices inside the settings
+// blob), and no "Reset this group" button may ever touch it.
+
+/**
+ * quick-261020-sync: which data families travel in the cross-device sync envelope.
+ * One member per envelope key family in $lib/backup/backup-logic.ts (SETTINGS_KEY,
+ * LIBRARY_KEY, HISTORY_KEY, SEARCH_HISTORY_KEY, NAME_TR_PREFIX). The sync ENGINE reads
+ * this through the settings blob and filters push/pull to the selected set; unchecking
+ * a family drops it from the cloud copy on the next push (last-write-wins).
+ */
+export interface SyncItems {
+	settings: boolean;
+	library: boolean;
+	history: boolean;
+	searchHistory: boolean;
+	nameTr: boolean;
+}
+
+export const SYNC_DEFAULTS = {
+	/** Everything syncs on a fresh account — an unchecked item is an explicit choice. */
+	items: {
+		settings: true,
+		library: true,
+		history: true,
+		searchHistory: true,
+		nameTr: true
+	} satisfies SyncItems
+};
+
 export const DEFAULTS = {
 	general: GENERAL_DEFAULTS,
 	appearance: APPEARANCE_DEFAULTS,

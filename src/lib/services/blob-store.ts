@@ -246,8 +246,11 @@ function clearStoredDir(uid: string): void {
 // file. The journal below plus the retained temp file are the recovery: the next `overwriteDeviceFile`
 // or the next Settings -> Downloads visit re-streams the complete temp over it. Named, not hidden.
 
-/** quick-260919-ejm: `'ok'` wrote the file; `'unsupported'` cannot here; `'failed'` did not write. */
-export type DeviceWriteResult = 'ok' | 'unsupported' | 'failed';
+/** quick-260919-ejm: `'ok'` wrote the file; `'unsupported'` cannot here; `'failed'` did not write.
+ * quick-261020-rtg: `'denied'` — Android (or the user) refused write access and NOTHING was
+ * written. A separate discriminant from `'failed'` so the retag queue can re-batch consent
+ * instead of marching on into per-file dialogs. */
+export type DeviceWriteResult = 'ok' | 'unsupported' | 'failed' | 'denied';
 
 /** Optional MediaStore column values + the precondition size, all from the one caller (retagOne). */
 export interface DeviceWriteMeta {
@@ -256,6 +259,47 @@ export interface DeviceWriteMeta {
 	album?: string;
 	/** The ORIGINAL file's size, checked Kotlin-side against the row's current SIZE column. */
 	expectedBytes?: number;
+	/**
+	 * quick-261020-rtg: SHA-256 fingerprint of the ORIGINAL bytes (see `contentFingerprint`) —
+	 * the rung-3 tripwire that survives re-encodes and size collisions. Omitted when the digest
+	 * was unavailable; the Kotlin side skips the check then, exactly like a missing
+	 * `expectedBytes`.
+	 */
+	expectedHash?: string;
+}
+
+/**
+ * quick-261020-rtg — CONTENT FINGERPRINT (rung 3's second tripwire).
+ *
+ * Byte-size alone is a weak identity signal: the same song in different encodes is NOT the same
+ * bytes, and two different songs can share a size. This is SHA-256 over TWO samples — the FIRST
+ * 65536 and the LAST 65536 bytes of the blob (the WHOLE blob when it is smaller than 131072
+ * bytes) — hex-encoded, lowercase. The Kotlin side (`fingerprintTarget` in
+ * MediaStoreSaverPlugin.kt) reads the SAME two sample ranges from the target URI over a
+ * READ-ONLY stream, before any write descriptor is opened, and rejects `precheck:target changed`
+ * on mismatch — the identical contract to the size mismatch: nothing was written, so the caller
+ * drops the journal entry and the temp file.
+ *
+ * SAMPLING CONTRACT — both sides must match exactly, or a healthy file fails the check:
+ *  - SAMPLE_LEN = 65536; a blob of <= 131072 bytes (2 * SAMPLE_LEN) is hashed WHOLE;
+ *  - a larger blob: SHA-256(bytes[0..65536) ++ bytes[size-65536..size));
+ *  - hex digest, lowercase, 64 chars.
+ *
+ * Null when the digest cannot be computed (no `crypto.subtle`, an unsliceable blob) — the
+ * caller omits `expectedHash` and the size tripwire still applies. Never throws.
+ */
+export async function contentFingerprint(blob: Blob): Promise<string | null> {
+	try {
+		if (typeof crypto?.subtle?.digest !== 'function') return null;
+		const SAMPLE_LEN = 65536;
+		const n = blob.size;
+		const sample =
+			n <= SAMPLE_LEN * 2 ? blob : new Blob([blob.slice(0, SAMPLE_LEN), blob.slice(n - SAMPLE_LEN, n)]);
+		const digest = await crypto.subtle.digest('SHA-256', await sample.arrayBuffer());
+		return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+	} catch {
+		return null;
+	}
 }
 
 // D-2 — THE PENDING-WRITE JOURNAL. A uid is recorded BEFORE the bridge call and cleared after it,
@@ -263,10 +307,12 @@ export interface DeviceWriteMeta {
 // source. Bounded and cleared wholesale on overflow — prewarm.ts's MAX_TRACKED_UIDS idiom: losing
 // an entry costs one un-replayed repair, which is cheaper than an LRU nobody will maintain.
 //
-// ponytail: replay is LAZY — it runs at the top of the next `overwriteDeviceFile` and on the
-// Settings -> Downloads mount, and nowhere else. NO app-boot hook, because a file write in the app
-// shell's mount is exactly the class of automatic write this codebase has spent three tasks keeping
-// out. Upgrade path if device UAT shows a truncated file lingers too long: call
+// ponytail: replay is LAZY — it runs at the top of the next `overwriteDeviceFile`, and nowhere
+// else. NO app-boot hook and (quick-261020-rtg) no Settings -> Downloads mount call either,
+// because a file write in the app shell's mount is exactly the class of automatic write this
+// codebase has spent three tasks keeping out — and an eager replay can pop a per-file system
+// consent dialog with no batch consent in place. The lazy replay always runs behind the retag
+// queue's consent gate. Upgrade path if device UAT shows a truncated file lingers too long: call
 // `replayPendingDeviceWrites()` from the `(app)` layout's existing mount.
 const PENDING_KEY = 'openmusic:retag-pending:v1';
 const MAX_PENDING = 20;
@@ -349,11 +395,14 @@ function rejectCode(e: unknown): 'unsupported' | 'precheck' | 'denied' | 'io' {
 /**
  * Finish any write that was interrupted, from its temp file. Never throws, never rejects.
  *
- * Called at the top of `overwriteDeviceFile` and from the Settings -> Downloads mount. The bridge
- * call carries NO `expectedBytes`: after a partial write the row's size no longer matches the
- * original by definition, so the precondition that protects a FRESH write would block the repair.
- * The completeness check that replaces it is the stat below — the temp must still be exactly the
- * size the journal recorded, or it is not a recovery source and the entry is dropped.
+ * Called at the top of `overwriteDeviceFile` — and ONLY there (quick-261020-rtg: the Settings ->
+ * Downloads mount used to call it eagerly, but an eager replay can pop a per-file system consent
+ * dialog with no batch consent in place, so recovery is lazy-only now, behind the retag queue's
+ * consent gate). The bridge call carries NO `expectedBytes` and NO `expectedHash`: after a partial
+ * write the row's size AND content no longer match the original by definition, so the preconditions
+ * that protect a FRESH write would block the repair. The completeness check that replaces them is
+ * the stat below — the temp must still be exactly the size the journal recorded, or it is not a
+ * recovery source and the entry is dropped.
  */
 export async function replayPendingDeviceWrites(): Promise<void> {
 	try {
@@ -470,6 +519,11 @@ export async function overwriteDeviceFile(uid: string, blob: Blob, meta: DeviceW
 			...(typeof meta.expectedBytes === 'number' && Number.isFinite(meta.expectedBytes)
 				? { expectedBytes: String(meta.expectedBytes) }
 				: {}),
+			// quick-261020-rtg: the content fingerprint of the ORIGINAL bytes (see
+			// `contentFingerprint`). A string already — omitted entirely when the caller has
+			// none, same "undefined"-string discipline as expectedBytes above. The replay path
+			// never carries it (see replayPendingDeviceWrites).
+			...(meta.expectedHash ? { expectedHash: meta.expectedHash } : {}),
 			...(meta.title ? { title: meta.title } : {}),
 			...(meta.artist ? { artist: meta.artist } : {}),
 			...(meta.album ? { album: meta.album } : {})
@@ -479,6 +533,14 @@ export async function overwriteDeviceFile(uid: string, blob: Blob, meta: DeviceW
 		// `denied` all mean nothing was written, so the journal entry and the temp are dead weight
 		// that would replay a write which was correctly refused.
 		const code = rejectCode(e);
+		// quick-261020-rtg: a consent denial is NOT a failed write — it must surface as its own
+		// discriminant so the retag queue can pause and re-batch consent (instead of collapsing
+		// into 'failed' and marching on to the next file's per-file dialog).
+		if (code === 'denied') {
+			clearPending(uid);
+			await deleteTemp(uid);
+			return 'denied';
+		}
 		if (code === 'io') return 'failed';
 		clearPending(uid);
 		await deleteTemp(uid);

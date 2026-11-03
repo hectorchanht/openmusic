@@ -19,6 +19,7 @@
 // HMAC-peppered voter ids.
 
 import { safeImageUrl, COVER_PICK_IMAGE_HOSTS } from './safe-image-url';
+import { sha256hexN } from '$lib/auth/auth-core';
 import type { Throttle } from './comments';
 
 // The throttle STATE shape and its parser are identical to the comments route's; only the limits
@@ -227,17 +228,13 @@ export function voterAddress(ip: string): string {
 		.join(':') + '::/64';
 }
 
-async function hex16(s: string): Promise<string> {
-	const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
-	return Array.from(new Uint8Array(buf).slice(0, 8), (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
 /**
  * First 16 hex of SHA-256(`ip|k`). Per-key salt (as lyric-offset) so one voter's ids are not linkable
  * across songs; the raw IP is never stored or returned.
  */
 export function voterId(ip: string, k: string): Promise<string> {
-	return hex16(`${voterAddress(ip)}|${k}`);
+	// quick-261020-batch4: canonical truncated-hash helper (was a local hex16 twin).
+	return sha256hexN(`${voterAddress(ip)}|${k}`, 16);
 }
 
 /**
@@ -246,7 +243,7 @@ export function voterId(ip: string, k: string): Promise<string> {
  * if the private bucket ever leaked; no hash ever leaves the edge.
  */
 export function throttleVoterId(ip: string): Promise<string> {
-	return hex16(`${voterAddress(ip)}|cover-pick`);
+	return sha256hexN(`${voterAddress(ip)}|cover-pick`, 16);
 }
 
 /** D-18a: PICK_MIN_GAP_MS between votes and PICK_DAILY_MAX per UTC day, per address. */

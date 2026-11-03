@@ -9,6 +9,9 @@
 	import { names } from "$lib/stores/names.svelte";
 	import { deepLinkPath } from "$lib/services/share-arrival";
 	import { flushLyricOffsetVote } from "$lib/stores/lyric-offset.svelte";
+	// quick-261023-syncmerge-review: the first-sync review modal — mounted ONCE here (root,
+	// ungated) so it opens wherever sign-in completes (/auth/magic, settings, APK handoff).
+	import SyncReviewModal from "$lib/components/SyncReviewModal.svelte";
 
 	let { children } = $props();
 	let audioEl: HTMLAudioElement;
@@ -117,16 +120,36 @@
 		let off: (() => void) | undefined;
 		void (async () => {
 			const { App } = await import("@capacitor/app"); // dynamic — keeps it out of the web chunk
+			const { auth } = await import("$lib/stores/auth.svelte"); // same — the auth store
+			const { parseAuthCallbackUrl } = await import("$lib/auth/auth-core");
+			// quick-261020-deeplink: the AUTH CALLBACK goes FIRST. openmusic://auth/callback
+			// carries a session bearer (a credential, not a navigation), so it must never fall
+			// through to deepLinkPath (which would ignore it — wrong scheme) or to goto.
+			// parseAuthCallbackUrl re-validates the payload (T-38-02 twin: the manifest's
+			// filter is the OS's gate, not ours); adoptNativeToken is idempotent, so a
+			// duplicate delivery just re-probes. On success the user lands signed-in on
+			// Settings → Account, mirroring the web verify page's goto.
+			async function handleAuthCallback(raw: string | null | undefined): Promise<boolean> {
+				const token = parseAuthCallbackUrl(raw);
+				if (!token) return false;
+				if (await auth.adoptNativeToken(token)) await goto("/settings/account");
+				return true;
+			}
 			// COLD: the launch intent's URL, the only place a cold deep link is visible.
 			const launch = await App.getLaunchUrl();
-			const p = deepLinkPath(launch?.url);
-			if (p) void goto(p);
+			if (!(await handleAuthCallback(launch?.url))) {
+				const p = deepLinkPath(launch?.url);
+				if (p) void goto(p);
+			}
 			// WARM: singleTask routes a re-tap while the activity is alive to onNewIntent, which is
 			// what emits this event. Same deepLinkPath gate as the cold path — T-38-02: a hostile app
 			// can send ANY VIEW URL, and the manifest's host filter is the OS's gate, not ours.
 			const h = await App.addListener("appUrlOpen", (e) => {
-				const p = deepLinkPath(e.url);
-				if (p) void goto(p);
+				void (async () => {
+					if (await handleAuthCallback(e.url)) return;
+					const p = deepLinkPath(e.url);
+					if (p) void goto(p);
+				})();
 			});
 			// The disposer only matters for a real teardown (HMR in dev), but a leaked duplicate
 			// listener would double-fire goto on every warm link. D-03's no-op guard would absorb it;
@@ -181,3 +204,6 @@
 {@render children()}
 
 <audio bind:this={audioEl} style="display:none"></audio>
+
+<!-- quick-261023-syncmerge-review: first-sync review modal, mounted once, ungated. -->
+<SyncReviewModal />

@@ -10,6 +10,7 @@
 // the client's local offset (including an explicit 0) always beats whatever this publishes.
 
 import { normalizeLyricOffset, LYRIC_OFFSET_MAX } from '$lib/services/lrc';
+import { sha256hexN } from '$lib/auth/auth-core';
 
 /** A vote body is `{"k":"<32 hex>","offset":-600.0}` at most ~60 B; 256 leaves slack, nothing more. */
 export const MAX_VOTE_BODY_BYTES = 256;
@@ -110,6 +111,6 @@ export function consensus(rec: OffsetRecord): { offset: number | null; n: number
  * Node 22 (same idiom as diag-auth.ts), so the tested path IS the edge path.
  */
 export async function voterId(ip: string, k: string): Promise<string> {
-	const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${ip}|${k}`));
-	return Array.from(new Uint8Array(buf).slice(0, 8), (b) => b.toString(16).padStart(2, '0')).join('');
+	// quick-261020-batch4: canonical truncated-hash helper (was an inline digest+hex loop).
+	return sha256hexN(`${ip}|${k}`, 16);
 }

@@ -559,8 +559,10 @@ describe('nav.share carries the link in text, not url (quick-260808-vkd)', () =>
 	// OFF). Concatenating targets (WhatsApp) render `title` and `text` as two separate lines, so an
 	// unconditional title duplicated the OG card, which already shows `Song • Artist` beneath the
 	// link. Test 2 below pins that: no ungated object-literal `nav.share({…})` call may come back.
+	// TrackMenu.svelte is NOT in this list any more: its Share became a straight clipboard
+	// copy (user call 2026-10-06, see the menu's own comment) — the gated nav.share sheet
+	// survives on the album + artist pages only.
 	it.each([
-		'src/lib/components/TrackMenu.svelte',
 		'src/routes/(app)/album/[name]/+page.svelte',
 		'src/routes/(app)/artist/[name]/+page.svelte'
 	])('%s gates the nav.share title on the setting and keeps the link in `text`', async (file) => {

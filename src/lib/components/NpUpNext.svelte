@@ -2,6 +2,7 @@
 	import { untrack } from 'svelte';
 	import { GripVertical, Layers, Trash2 } from '@lucide/svelte';
 	import { player, SKIP_REASON_KEY } from '$lib/stores/player.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { t } from '$lib/i18n';
@@ -45,6 +46,12 @@
 		onMenu: (track: Track) => void;
 		onVersions: (track: Track) => void;
 	} = $props();
+
+	// quick-261019-qkh: index of the currently-playing row WITHIN `rows`. Rows above it
+	// (i < currentRowIdx) are already played — rendered dimmed via `is-played`, still fully
+	// interactive (a tap replays via the existing non-fresh play). -1 when current isn't in the
+	// list; the anchor/clamp keeps it in, so that only happens transiently.
+	const currentRowIdx = $derived(rows.findIndex((t) => t.uid === player.current?.uid));
 
 	// quick-260910-q5a / quick-260910-qwt — POST-PAINT cover fill for THIS pane's rows.
 	//
@@ -208,7 +215,9 @@
 			const liRect = li.getBoundingClientRect();
 			const cRect = container.getBoundingClientRect();
 			const offsetWithin = liRect.top - cRect.top + container.scrollTop;
-			container.scrollTo({ top: offsetWithin, behavior: 'smooth' });
+			// quick-261102-s5t: reduce motion (app flag OR OS) jumps instead of gliding.
+			const reduce = settings.reduceMotion || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+			container.scrollTo({ top: offsetWithin, behavior: reduce ? 'auto' : 'smooth' });
 		});
 	});
 </script>
@@ -222,10 +231,11 @@
 			     quick-260910-qwt: now the SHARED pickRowCover — the identical read every other row
 			     surface uses (resolved → track.cover → shared cache). Behaviour is unchanged here.
 			     Phase 40 D-14: rung 0 is readChosenCover — the pin, then the crowd pick. -->
-			{@const qArt = sizedCover(pickRowCover(readChosenCover(track.uid, track.artist, track.title), resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title)), ROW_COVER_PX)}
+			{@const qArt = sizedCover(pickRowCover(readChosenCover(track.uid, track.artist, track.title), undefined, resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title)), ROW_COVER_PX)}
 			<li
 				class:lifted={i === dragFrom}
 				class:over={i === dragOver && i !== dragFrom}
+				class:is-played={currentRowIdx >= 0 && i < currentRowIdx}
 				style:transform={i === dragFrom && rowDragY ? `translateY(${rowDragY}px)` : undefined}
 			>
 				<!-- Gap 4 (26-10): per-row version-picker trigger, still the single lazy fetchVariants
@@ -303,7 +313,8 @@
 	   diverge below that shared base, and hoisting six declarations into app.css would widen the
 	   global surface for no behavioural gain. */
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-	.row { width: 100%; text-align: left; background: none; border: none; padding: 8px 6px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: column; }
+	/* quick-261102-s5t: logical properties here and below so the row mirrors under Arabic (RTL). */
+	.row { width: 100%; text-align: start; background: none; border: none; padding: 8px 6px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: column; }
 	/* quick-260910-nx6: the reveal pattern on the UP-NEXT list. The wrapper is a <span> (not the
 	   <li>, which also holds the always-visible grip) so the grip never slides with the row;
 	   flex:1/min-width:0 make it fill the li beside that sibling button, and the old
@@ -325,21 +336,28 @@
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
 	   background on a queue row under a held finger while the track menu opens. */
 	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
-	.row.playing { background: rgba(124,92,255,0.15); }
+	/* quick-261102-s5t: was rgba(124,92,255,.15) — the retired purple accent, which ignored the
+	   runtime accent pick. The playing tint now derives from --color-primary. */
+	.row.playing { background: color-mix(in srgb, var(--color-primary) 15%, transparent); }
 	/* quick-260910-nx6: `.row.playing` is TRANSLUCENT and, later at equal specificity, would beat
 	   the opaque `.q-swipe .q-row` on the playing row and re-open the bleed. Same tint, composited
 	   over the opaque bg. `.row.playing` itself stays untouched (it is the generic rule). */
-	.q-swipe .q-row.playing { background: linear-gradient(rgba(124,92,255,0.15), rgba(124,92,255,0.15)) var(--color-bg); }
+	.q-swipe .q-row.playing { background: color-mix(in srgb, var(--color-primary) 15%, var(--color-bg)); }
 	/* Queue rows: play-button + far-right grip side by side. */
 	.list li { display: flex; align-items: center; gap: 2px; }
+	/* quick-261019-qkh: already-played rows sit above the current one — dim them so the eye
+	   lands on the playing row. Placed BEFORE the drag states below so a lifted/dragged row
+	   (equal specificity, later in the sheet) still wins while dragging. */
+	.list li.is-played { opacity: 0.45; }
 	.q-row { flex: 1; min-width: 0; }
 	/* quick-260629-nyl Task 1: Up-Next rows lay the lazy album-art thumbnail to the LEFT of a
 	   min-width:0 text column so the title/artist still stack and ellipsis as before. The art dims
 	   with the row via `.q-row.skipped` (child). */
 	.q-row { flex-direction: row; align-items: center; gap: 0; }
-	.q-art { width: 36px; height: 36px; border-radius: 6px; background-size: cover; background-position: center; background-color: rgba(255,255,255,0.04); flex: none; margin-right: 8px; }
+	.q-art { width: 36px; height: 36px; border-radius: 6px; background-size: cover; background-position: center; background-color: rgba(255,255,255,0.04); flex: none; margin-inline-end: 8px; }
 	.q-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-	.grip-handle { flex: 0 0 auto; background: none; border: none; color: var(--color-text-muted); opacity: 0.55; cursor: grab; touch-action: none; display: grid; place-items: center; padding: 8px 6px; border-radius: 8px; }
+	/* quick-261102-s5t: padding-sized (~30x34) -> a 44px box, the DESIGN.md hit minimum. */
+	.grip-handle { flex: 0 0 auto; background: none; border: none; color: var(--color-text-muted); opacity: 0.55; cursor: grab; touch-action: none; display: grid; place-items: center; min-width: 44px; min-height: 44px; padding: 0; border-radius: 8px; }
 	.grip-handle:active { cursor: grabbing; opacity: 0.9; }
 	.list li.lifted { position: relative; z-index: 2; opacity: 0.92; }
 	.list li.lifted .q-row { background: var(--color-surface); }
@@ -357,7 +375,7 @@
 	.q-row.skipped > * { opacity: 0.45; }
 	/* quick-260926-l69: the skip reason sits on the ✗ line (inherits these tokens); one line,
 	   ellipsised in the min-width:0 column so a long translation never widens the row. */
-	.r-skip { font-size: calc(0.75rem * var(--fs-artist, 1)); font-weight: 600; color: var(--color-text-muted); margin-right: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.r-why { margin-left: 6px; }
+	.r-skip { font-size: calc(0.75rem * var(--fs-artist, 1)); font-weight: 600; color: var(--color-text-muted); margin-inline-end: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.r-why { margin-inline-start: 6px; }
 	.empty { color: var(--color-text-muted); font-size: 0.875rem; text-align: center; padding: 24px; }
 </style>

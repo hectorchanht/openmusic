@@ -4,7 +4,7 @@
 	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { goto } from '$app/navigation';
-	import { ChevronDown, MoreVertical, Heart, SkipBack, SkipForward, Play, Pause, Moon, ListMusic, MicVocal, MessageCircle, Sparkles, VolumeX, Volume1, Volume2 } from '@lucide/svelte';
+	import { ChevronDown, MoreVertical, Heart, Clapperboard, Info, SkipBack, SkipForward, Play, Pause, Moon, ListMusic, MicVocal, MessageCircle, Sparkles, VolumeX, Volume1, Volume2 } from '@lucide/svelte';
 	import { player, fmtTime } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -17,10 +17,16 @@
 	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the per-row
 	// version picker — fired ONLY on a trigger tap, never on list render (T-26-10-02).
 	import { fetchVariants } from '$lib/services/variants';
+	// quick-261102-qtruth / quick-261102-srcpill: the quality + source tags derive through
+	// the ONE shared module (services/display-quality) so this page can never disagree
+	// with the Track detail sheet about the same playing track again.
+	import { displayQualityLabel, trackSourceLabel } from '$lib/services/display-quality';
 	import { enrichTrack } from '$lib/services/lastfm';
 	import { songShareUrl } from '$lib/services/share';
 	import { recallItunesId } from '$lib/services/itunes-cover';
 	import { lazyCover } from '$lib/actions/lazyCover';
+	import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
+	import { hasHttpsScheme } from '$lib/services/url-safety';
 	// cover-hero-mediacard-missing (Issue 1): the reactive cover-cache read helper the up-next rows /
 	// home tiles use — the hero current cell now falls back to it so a cover that lands anywhere for
 	// the current song repaints the hero live (one resolved cover reused EVERYWHERE, cached).
@@ -39,6 +45,8 @@
 	import KeyTip from '$lib/components/KeyTip.svelte';
 	import { marquee } from '$lib/actions/marquee';
 	import { coverSwipe } from '$lib/actions/coverSwipe';
+import VideoStage from '$lib/components/VideoStage.svelte';
+import NpAbout from '$lib/components/NpAbout.svelte';
 	import { scrub } from '$lib/actions/scrub';
 	import { seekTargetFraction, SEEK_STEP_SECONDS } from '$lib/services/transport-keys';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -71,7 +79,7 @@
 	// >=1280px, where the column is mounted while sheetState stays 'closed'.
 	import { upNextPaneOpen } from '$lib/services/upnext-scroll';
 
-	type Tab = 'queue' | 'lyrics' | 'comments' | 'related';
+	type Tab = 'queue' | 'lyrics' | 'comments' | 'related' | 'about';
 	let tab = $state<Tab>('lyrics');
 	// quick-260926-qat: PLAIN field (nothing renders it). Snapshot at mount so a request raised while
 	// this component was unmounted (menu opened from the Nowbar / a list row) is not replayed on the
@@ -286,7 +294,13 @@
 		src.onload = () => {
 			if (player.current?.uid === forTrack.uid) adopt(src.naturalWidth);
 		};
-		src.onerror = () => adopt(0); // source cover broken → Last.fm art beats nothing
+		// quick-261020-batch3 (C9): a broken source cover is dead-URL evidence — mark it so it
+		// can't shadow live art at pickRowCover's seeded rung (previously every track change
+		// re-probed the same dead URL). https-gated: inline (data:) covers never fail this way.
+		src.onerror = () => {
+			if (forTrack.cover && hasHttpsScheme(forTrack.cover)) markCoverUrlDead(forTrack.cover);
+			adopt(0); // source cover broken → Last.fm art beats nothing
+		};
 		src.src = forTrack.cover;
 	}
 
@@ -309,6 +323,13 @@
 	// lockstep with every tile, the Nowbar and the OS media card (all four read player.displayCover).
 	// The `data:` embedded-cover exception lives in the getter. Null (all miss) → gradient (D-12).
 	const effectiveCover = $derived(player.displayCover);
+	// quick-261024-vid1: the MV layer — one-tap toggle in the meta row; the stage replaces
+	// the cover strip while on. Offered only for ytmusic tracks with videos enabled.
+	let videoOn = $state(false);
+	const canVideo = $derived(settings.videoEnabled && player.current?.source === 'ytmusic');
+	// quick-261024-about: the About tab exists only for ytmusic tracks (it shows the
+	// video's YouTube description — other sources have no such thing to show).
+	const canAbout = $derived(player.current?.source === 'ytmusic');
 
 	// quick-260704-20e: self-heal a DEAD current cover — the counterpart to the neighbor cells'
 	// use:lazyCover. resolvedCover is seeded FIRST from track.cover (a source-CDN thumbnail that
@@ -411,6 +432,9 @@
 			? window.matchMedia('(prefers-reduced-motion: reduce)').matches
 			: false;
 	const xfadeMs = $derived(settings.reduceMotion || osReduceMotion ? 0 : 200);
+	// quick-261102-s5t: the sheet's own open/close `transition:fly` is a JS transition too, so the
+	// same app-flag-OR-OS guard applies — it was the one Now Playing motion that ignored both.
+	const flyMs = $derived(settings.reduceMotion || osReduceMotion ? 0 : 320);
 
 	// quick-260625-pzs-01: the now-playing artist string is split into individual names so each
 	// renders its own link to that SOLE artist. openArtistName generalises the old single-artist
@@ -441,8 +465,32 @@
 	// title/artist when settings.showQualityTag is on. `qualityLabel` is the source's own
 	// wording and wins; `quality` is the raw tier. Null for a stub that has not resolved yet
 	// AND for a source that reports no tier — both render nothing (never an empty pill).
-	// Same read order as TrackMenu.svelte:429 / VersionPicker.svelte:58.
-	const qualityTag = $derived(player.current?.qualityLabel || player.current?.quality || null);
+	// quick-261102-qtruth (Hector 2026-11-02): the read now goes through the shared
+	// displayQualityLabel WITH the download record consulted live — the old bare read of
+	// player.current's stamps could lie (320K) when the snapshot / stream-resolve stamp
+	// was stale relative to the file actually playing, while the Detail sheet, which
+	// merges the record, said LOSSLESS for the same track. Precedence (one place now,
+	// services/display-quality): download record > resolved stamps > stub claim. Reading
+	// library.downloads here also repaints the pill the moment a download lands or is
+	// replaced while this page is open — the same truth the Detail sheet would show.
+	const qualityTag = $derived.by(() => {
+		const cur = player.current;
+		if (!cur) return null;
+		const dlUid = library.downloadUidFor(cur);
+		return displayQualityLabel(cur, dlUid ? library.qualityForDownload(dlUid) : null);
+	});
+	// quick-261102-srcpill (Hector 2026-11-02): the SOURCE pill, rendered immediately
+	// before the quality pill. The label is the registry adapter's own — the same wording
+	// the Play-from-source sheet rows carry (VersionPicker.sourceLabel, zhLock included) —
+	// read off player.current, so after a cross-source fallback the pill names the source
+	// actually playing, not the one originally tapped. Shown unless settings.showSourceTag
+	// is off; the current track always has a source, so no empty-pill case exists.
+	const sourceTag = $derived.by(() => {
+		const cur = player.current;
+		if (!cur) return null;
+		const raw = trackSourceLabel(cur);
+		return raw ? names.zhLock(raw) : null;
+	});
 	// quick-261010-npurl: the share URL of the current track, built with the EXACT recipe the
 	// Share button copies (display-language names via names.dnTitle/dnArtist, the hero cover's
 	// token via coverToken inside songShareUrl, the identity carrier) — so the URL bar shows
@@ -968,14 +1016,18 @@
 
 </script>
 
-<section
+<!-- quick-261102-s5t: a <div>, not <section> — role="dialog" is invalid on a sectioning element. -->
+<div
 	class="np"
 	class:reflow={sheetState !== 'closed'}
 	class:fullshrink={sheetState == 'full'}
-	transition:fly={{ y: 600, duration: 320, easing: cubicOut }}
+	transition:fly={{ y: 600, duration: flyMs, easing: cubicOut }}
 	style:transform={dragY ? `translateY(${dragY}px)` : undefined}
 	style:transition={dragging ? 'none' : 'transform 0.28s cubic-bezier(.22,1,.36,1)'}
 	use:focusTrap
+	role="dialog"
+	aria-modal="true"
+	aria-label={t('nowplaying.nowPlaying')}
 >
 	<!-- NP-04: top running-line loader. The indeterminate variant ONLY (always `indet`, only
 	     the sliver — no determinate seek `<i style:width>`, that one is the Nowbar's seek progress).
@@ -1036,6 +1088,11 @@
 	         coverSwipe arms a one-shot capture-phase click suppressor on the strip (stops the bubble to
 	         `.cover`). NO extra movement guard is added beyond the sheetState check.
 	     Net: |dy|>|dx| past slop → vertical collapse; |dx|>|dy| past slop → carousel; sub-slop → tap. -->
+	{#if videoOn && canVideo}
+		<div class="cover video-cover">
+			<VideoStage videoId={player.current?.songid ?? ''} onclose={() => (videoOn = false)} />
+		</div>
+	{:else}
 	<div
 		class="cover"
 		onclick={tapCoverCollapse}
@@ -1099,6 +1156,7 @@
 			{/if}
 		</div>
 	</div>
+	{/if}
 
 	<div class="meta">
 		<!-- {#key uid}: .title/.artist are single persistent nodes, so the marquee action would
@@ -1115,6 +1173,15 @@
 				<div class="title" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}>
 					<span class="marquee-inner">{player.current ? names.dnTitle(player.current.title, player.current.artist) : ''}</span>
 				</div>
+				{#if canVideo}
+					<!-- quick-261024-mv3: the MV toggle is an ICON in the title row (Hector's
+					     placement): its margin-left:auto parks it at the row's end — on mobile
+					     directly above the quality tag, on desktop immediately left of the
+					     volume control (the .np-vol auto margin yields via the ~ rule below). -->
+					<button class="mv-icon" class:on={videoOn} aria-pressed={videoOn} aria-label={t('nowplaying.watchVideo')} title={t('nowplaying.watchVideo')} onclick={() => (videoOn = !videoOn)} use:tapBounce>
+						<Clapperboard size={18} />
+					</button>
+				{/if}
 				{#if volDesktop}
 					<!-- Desktop volume: mute button + native range, mirroring the Nowbar's .np-vol
 					     (quick-260919-et3). Native input = keyboard/screen-reader support for free. -->
@@ -1149,9 +1216,20 @@
 			<!-- quick-260831-k5y: opt-in quality tag. OUTSIDE the {#key} block on purpose — the value
 					lands asynchronously after ensureTrackDetails, so it repaints in place rather than
 					remounting with the title/artist crossfade. Renders nothing at all when the track has
-					no tag, so an unresolved stub leaves no empty box. -->
-			{#if settings.showQualityTag && qualityTag}
-				<div class="quality-tag">{qualityTag}</div>
+					no tag, so an unresolved stub leaves no empty box.
+					quick-261102-srcpill: the SOURCE pill sits immediately BEFORE the quality pill in
+					the same right-hand cluster (.np-tags) — one wrapper, so the pair keeps the exact
+					spot the lone quality tag held at the row's end on desktop AND mobile. Each pill
+					keeps its own toggle: settings.showSourceTag / settings.showQualityTag. -->
+			{#if (settings.showSourceTag && sourceTag) || (settings.showQualityTag && qualityTag)}
+				<div class="np-tags">
+					{#if settings.showSourceTag && sourceTag}
+						<div class="quality-tag source-tag">{sourceTag}</div>
+					{/if}
+					{#if settings.showQualityTag && qualityTag}
+						<div class="quality-tag">{qualityTag}</div>
+					{/if}
+				</div>
 			{/if}
 			</div>
 		{/key}
@@ -1172,6 +1250,7 @@
 			aria-valuemin="0"
 			aria-valuemax="100"
 			aria-valuenow={Math.round(displayFrac * 100)}
+			aria-valuetext={`${fmtTime(displayTime)} / ${player.duration > 0 ? fmtTime(player.duration) : '--:--'}`}
 			onkeydown={seekKey}
 			use:scrub={{ onSeek: onScrubCommit, onPreview: onScrubPreview, onScrubEnd }}
 		>
@@ -1278,18 +1357,27 @@
 				<button aria-hidden="true" tabindex="-1" title={t('nowplaying.upNext')}><ListMusic size={20} /></button>
 				<button aria-hidden="true" tabindex="-1" title={t('nowplaying.lyrics')}><MicVocal size={20} /></button>
 				<span class="pair">
-					<button data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
-					<button data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab !== 'comments'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
+					<!-- quick-261102-s5t: the active column was class-only (visual); aria-pressed exposes it. -->
+					<button data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} aria-pressed={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
+					<button data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab !== 'comments' && tab !== 'about'} aria-pressed={tab !== 'comments' && tab !== 'about'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
+					{#if canAbout}
+						<button data-tab="about" aria-label={t('nowplaying.about')} title={t('nowplaying.about')} class:active={tab === 'about'} aria-pressed={tab === 'about'} onclick={() => selectTab('about')} use:tapBounce><Info size={20} /></button>
+					{/if}
 				</span>
 			</div>
 		{:else}
-			<nav class="subnav"
+			<!-- quick-261102-s5t: tablist/tab + aria-selected — the selected tab used to be conveyed by
+			     the `.active` class alone, so a screen reader heard five identical icon buttons. -->
+			<div class="subnav" role="tablist" tabindex="-1"
 				onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
-				<button data-tab="queue" aria-label={t('nowplaying.upNext')} title={t('nowplaying.upNext')} class:active={tab === 'queue'} onclick={() => selectTab('queue')} use:tapBounce><ListMusic size={20} /></button>
-				<button data-tab="lyrics" aria-label={t('nowplaying.lyrics')} title={t('nowplaying.lyrics')} class:active={tab === 'lyrics'} onclick={() => selectTab('lyrics')} use:tapBounce><MicVocal size={20} /></button>
-				<button data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
-				<button data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
-			</nav>
+				<button role="tab" aria-selected={tab === 'queue'} data-tab="queue" aria-label={t('nowplaying.upNext')} title={t('nowplaying.upNext')} class:active={tab === 'queue'} onclick={() => selectTab('queue')} use:tapBounce><ListMusic size={20} /></button>
+				<button role="tab" aria-selected={tab === 'lyrics'} data-tab="lyrics" aria-label={t('nowplaying.lyrics')} title={t('nowplaying.lyrics')} class:active={tab === 'lyrics'} onclick={() => selectTab('lyrics')} use:tapBounce><MicVocal size={20} /></button>
+				<button role="tab" aria-selected={tab === 'comments'} data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
+				<button role="tab" aria-selected={tab === 'related'} data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
+				{#if canAbout}
+					<button role="tab" aria-selected={tab === 'about'} data-tab="about" aria-label={t('nowplaying.about')} title={t('nowplaying.about')} class:active={tab === 'about'} onclick={() => selectTab('about')} use:tapBounce><Info size={20} /></button>
+				{/if}
+			</div>
 		{/if}
 
 		<!-- The pane prop lists live in snippets so the narrow (one-of-three) and wide (all three)
@@ -1320,6 +1408,9 @@
 		{#snippet commentsPane()}
 			<NpComments />
 		{/snippet}
+		{#snippet aboutPane()}
+			<NpAbout />
+		{/snippet}
 
 		{#if wide}
 			<!-- >=1280px: Up Next | Lyrics | Related, all three at once. `grid-template-columns:
@@ -1334,13 +1425,14 @@
 				<div class="panel">{@render lyricsPane()}</div>
 				<!-- quick-260926-nsz: toggling unmounts NpRelated (one searchAll on toggle-back, the
 				     same cost as switching tabs on a phone — accepted). -->
-				<div class="panel">{#if tab === 'comments'}{@render commentsPane()}{:else}{@render relatedPane()}{/if}</div>
+				<div class="panel">{#if tab === 'comments'}{@render commentsPane()}{:else if tab === 'about' && canAbout}{@render aboutPane()}{:else}{@render relatedPane()}{/if}</div>
 			</div>
 		{:else}
 			<div class="panel">
 				{#if tab === 'queue'}{@render upNextPane()}
 				{:else if tab === 'lyrics'}{@render lyricsPane()}
 				{:else if tab === 'comments'}{@render commentsPane()}
+				{:else if tab === 'about' && canAbout}{@render aboutPane()}
 				{:else}{@render relatedPane()}{/if}
 			</div>
 		{/if}
@@ -1359,7 +1451,7 @@
 		onclose={closeVersionPicker}
 		onpick={(v) => player.play(v, { fresh: true })}
 	/>
-</section>
+</div>
 
 <style>
 	/* quick-260611-fr9: top is intentionally FLUSH (0) — content starts at the very top with no
@@ -1420,14 +1512,29 @@
 	   The markup carries `.motion-always` (app.css's escape hatch) so the app's reduce-motion setting
 	   cannot freeze it, and the OS-pref 2.2s slowdown is gone so it runs at one speed everywhere. */
 	.bar { display: flex; align-items: center; justify-content: space-between; }
-	.icon { background: none; border: none; color: var(--color-text); cursor: pointer; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; }
-	.icon:hover { background: var(--color-surface-2); }
+	/* quick-261102-s5t: 38 -> 44px (DESIGN.md hit minimum); hover gated so touch never latches it. */
+	.icon { background: none; border: none; color: var(--color-text); cursor: pointer; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; }
+	@media (hover: hover) { .icon:hover { background: var(--color-surface-2); } }
 	/* The .np-top wrapper carries the drag-down gesture (slop-thresholded so clicks still
 	   fire). touch-action: pan-x leaves horizontal scrolling intact (none here, but
 	   defensive) while letting our pointer handlers own vertical motion. */
 	.np-top { touch-action: pan-x; }
 	.cover { position: relative; z-index: 1; width: min(72vw, 320px); height: auto; aspect-ratio: 1/1; margin: 4px auto; border-radius: 16px; overflow: hidden; background-size: cover; background-position: center; box-shadow: 0 18px 50px rgba(0,0,0,0.5); cursor: grab; transition: width 0.32s cubic-bezier(.22,1,.36,1), height 0.32s cubic-bezier(.22,1,.36,1), margin 0.32s cubic-bezier(.22,1,.36,1), border-radius 0.32s cubic-bezier(.22,1,.36,1); }
 	.cover:active { cursor: grabbing; }
+	/* quick-261024-vid1: the video stage takes the cover box (black letterbox inside);
+	   the toggle pill sits centred under the meta block. */
+	.video-cover { background: #000; cursor: default; }
+	/* quick-261024-mv3: the title-row MV icon — same 34px round hit target as .np-volbtn.
+	   Its auto left margin takes the row's free space; when the desktop volume follows,
+	   the volume's own auto margin must yield or the free space splits between them. */
+	/* quick-261102-s5t: 44px hit area; the -5px block margin keeps the title row at its old 34px
+	   height so the meta block does not grow. `.on` was `--color-accent`, which no theme defines, so
+	   it always painted the #e5484d fallback — a second accent. An on-state is the One Signal. */
+	.mv-icon { flex: none; margin-left: auto; margin-block: -5px; background: none; border: none; color: var(--color-text-muted); width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; transition: background 0.12s ease, color 0.12s ease, transform 0.12s ease; }
+	@media (hover: hover) { .mv-icon:hover { background: var(--color-surface); color: var(--color-text); } }
+	.mv-icon:active { transform: scale(0.92); }
+	.mv-icon.on { color: var(--color-primary); }
+	.title-row .mv-icon ~ .np-vol { margin-left: 0; }
 	/* NP-01 carousel: the rigid strip fills .cover and rests at translateX(0) (current cell visible).
 	   The commit-settle uses the cover-reflow personality (0.32s, same universal curve); coverSwipe
 	   overrides this to `none` while dragging (1:1 finger-follow), then restores it on release so the
@@ -1514,15 +1621,17 @@
 	   flex:0 stops the grow so the bg hugs the text; shrink still allows ellipsis. */
 	.title-row > .title { flex: 0 1 auto; min-width: 0; }
 	.title-row .np-vol { flex: none; margin-left: auto; display: flex; align-items: center; gap: 6px;
-		/* quick-261010-soy8: visible bg for the volume control. */
-		background: rgba(0, 0, 0, 0.55); padding: 6px 10px; border-radius: 999px; }
+		/* quick-261010-soy8: visible bg for the volume control.
+		   quick-261102-s5t: was rgba(0,0,0,.55) — on the light theme that put the dark
+		   --color-text glyph on a dark pill. surface-2 follows every theme. */
+		background: var(--color-surface-2); padding: 6px 10px; border-radius: 999px; }
 	.np-volbtn { background: none; border: none; color: var(--color-text); width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; opacity: 0.85; transition: background 0.12s ease, transform 0.12s ease; }
-	.np-volbtn:hover { background: rgba(255, 255, 255, 0.1); opacity: 1; }
+	.np-volbtn:hover { background: var(--color-surface); opacity: 1; }
 	.np-volbtn:active { transform: scale(0.92); }
 	/* appearance:none + explicit track/thumb: the two vendors disagree about everything else;
 	   the element stays a native range input, so keyboard arrows, Home/End and pointer
 	   capture keep working for free (same recipe as the Nowbar's .np-volrange). */
-	.np-volrange { -webkit-appearance: none; appearance: none; width: 90px; height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.25); cursor: pointer; }
+	.np-volrange { -webkit-appearance: none; appearance: none; width: 90px; height: 4px; border-radius: 999px; background: color-mix(in srgb, var(--color-text-muted) 30%, transparent); cursor: pointer; } /* quick-261102-s5t: same muted-30% track as .scrubber; white 25% vanished on light */
 	.np-volrange::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--color-text); cursor: pointer; }
 	.np-volrange::-moz-range-thumb { width: 12px; height: 12px; border: none; border-radius: 50%; background: var(--color-text); cursor: pointer; }
 	.artist { display: flex; width: 100%; justify-content: space-between; align-items: center; background: transparent; border: none; padding: 1px; border-radius: none; color: var(--color-text); font-size: calc(1rem * var(--fs-np-artist, 1)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1533,11 +1642,21 @@
 	/* quick-260831-k5y: small muted pill under the artist row. Sized off the NP artist scale so
 	   it tracks the appearance settings, and always smaller than the artist line it sits below. */
 	.quality-tag { display: inline-block; margin-top: 4px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--color-border); color: var(--color-text-muted); font-size: calc(0.7rem * var(--fs-np-artist, 1)); font-weight: 600; letter-spacing: 0.02em; line-height: 1.5; white-space: nowrap; }
+	/* quick-261102-srcpill: the source+quality pill cluster at the artist row's end. The
+	   wrapper is the flex child the lone quality tag used to be (the row's space-between
+	   parks it right); inside, the source pill leads and the quality pill follows. */
+	.np-tags { display: flex; align-items: flex-start; gap: 6px; flex-shrink: 0; }
 	/* Marquee lives globally in app.css (transform-based .marquee-inner). The .title/.artist
 	   clips above + the use:marquee action + inner .marquee-inner span in the markup are the
 	   only per-file pieces — the global rule animates them. (gmy unified the drift.) */
-	.np-error { color: #ff6b6b; font-size: 0.8125rem; text-align: center; margin: 2px 2px 10px; }
+	.np-error { color: var(--color-danger-text); font-size: 0.8125rem; text-align: center; margin: 2px 2px 10px; }
 	.prog { margin: 4px 0; }
+	/* quick-261102-s5t: the global .scrubber is 14px tall — too small a thumb target for the
+	   page's main gesture. A transparent 44px band centred on the rail is part of the element, so
+	   use:scrub receives its pointerdowns unchanged. Scoped here, not in app.css, because the
+	   Nowbar's scrubber sits beside buttons this band would cover. 44px stops ~1px short of the
+	   artist row above (meta margin 12 + prog margin 4). */
+	.prog .scrubber::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 44px; transform: translateY(-50%); }
 	/* plan 002: the seek rail is now the shared global `.scrubber` (app.css) driven by
 	   use:scrub — the old local `.track`/`.fill`/`.knob` rules were removed. */
 	/* plan 006: tabular-nums so the ticking current-time readout never jitters horizontally. */
@@ -1546,21 +1665,27 @@
 	   0.32s curve) instead of hitching at t=0; see .np.reflow .transport above. */
 	.transport { display: flex; align-items: center; justify-content: space-between; margin: 0px 4px 0; transition: margin 0.32s cubic-bezier(.22,1,.36,1); }
 	.t { background: none; border: none; color: var(--color-text); cursor: pointer; opacity: 0.85; display: grid; place-items: center; }
+	/* quick-261102-s5t: the transport buttons had no box — the hit area was the bare glyph (Heart
+	   ~20px). 44px minimum; scoped to .transport so the sleep-timer pill (.t too) keeps its size. */
+	.transport .t { min-width: 44px; min-height: 44px; border-radius: 50%; }
 	.t.on { color: var(--color-primary); opacity: 1; }
 	/* quick-260919-0mw: size the shared DownloadControl to its five `.t` siblings — it ships a 40×40
 	   list-row footprint with an 18px glyph and a muted colour, none of which match this row. The
 	   override lives HERE (scoped under .t-dl, :global to cross the child's style scope) rather than
 	   in DownloadControl.svelte, because five list-row call sites depend on its current look. */
 	.t-dl { display: grid; place-items: center; padding: 0 6px; }
-	.t-dl :global(.dc) { width: auto; height: auto; color: var(--color-text); opacity: 0.85; }
+	.t-dl :global(.dc) { width: auto; height: auto; min-width: 44px; min-height: 44px; color: var(--color-text); opacity: 0.85; }
 	.t-dl :global(.dc svg) { width: 20px; height: 20px; }
 	.t-dl :global(button.dc:hover) { background: none; color: var(--color-text); }
 	/* The downloaded/unavailable states keep their own meaning — only the neutral idle colour moved. */
 	.t-dl :global(.dc.downloaded) { opacity: 0.4; }
-	.t-dl :global(.dc.unavailable) { color: #ff7a90; opacity: 1; }
+	.t-dl :global(.dc.unavailable) { color: var(--color-danger-text); opacity: 1; }
 	.st-row { display: flex; justify-content: center; margin: 2px 4px 0; }
 	.st-readout { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; font-size: 0.8125rem; font-variant-numeric: tabular-nums; background: var(--color-surface); }
 	.play { width: 62px; height: 62px; border-radius: 50%; border: none; background: #fff; color: #000; cursor: pointer; display: grid; place-items: center; }
+	/* quick-261102-s5t: a white disc on the #f7f7fa light floor has ~1.07:1 edge contrast. The
+	   hero's job is "brightest-contrast thing on screen", so on light it inverts to a dark disc. */
+	:global(:root[data-theme='light']) .play { background: var(--color-text); color: var(--color-bg); }
 	.sheet { display: flex; flex-direction: column; flex: 1; min-height: 0; will-change: transform; user-select: none; -webkit-user-select: none; }
 	.sheet.full {
     /* position: absolute; */
@@ -1603,7 +1728,7 @@
 	.subnav { display: flex; justify-content: space-around; padding-bottom: 6px; touch-action: none; user-select: none; -webkit-user-select: none; }
 	.subnav button { position: relative; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; color: var(--color-text-muted); font-size: 0.8125rem; min-height: 40px; padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; }
 	.subnav button.active { color: var(--color-text); border-bottom-color: var(--color-primary); }
-	.subnav .count { position: absolute; top: 2px; right: 0; line-height: 1.2; padding: 1px 6px; border-radius: 999px; background: var(--color-surface); color: var(--color-text-muted); font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
+	.subnav .count { position: absolute; top: 2px; inset-inline-end: 0; line-height: 1.2; padding: 1px 6px; border-radius: 999px; background: var(--color-surface); color: var(--color-text-muted); font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
 	/* NP-02: contain over-scroll/bounce to the panel edges so half-open scroll never chains to
 	   the page behind the sheet. NO touch-action: none — the panel keeps its pan-y scroll (the
 	   browser owns vertical scrolling here). iOS <16 lacks overscroll-behavior support, so it is

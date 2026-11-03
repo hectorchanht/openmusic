@@ -18,7 +18,7 @@
 // reshapeDeezerSearch() so the proxy can be EXTENDED later for charts/album/artist-info (tasks
 // 3b/3c) WITHOUT restructuring — but only the search → { cover, artistPicture } path ships now.
 import type { RequestHandler } from './$types';
-import { corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { corsHeaders, jsonResponse, corsPreflight } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import { fetchDeezerCover, DEEZER_COVER_TTL } from '$lib/proxy/deezer-cover';
 import type { DeezerCover } from '$lib/proxy/deezer-cover';
@@ -89,6 +89,4 @@ export const GET: RequestHandler = async ({ url, request }) => {
 };
 
 // CORS preflight — scoped to the own origin via corsHeaders (never `*`, T-wv8-02).
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

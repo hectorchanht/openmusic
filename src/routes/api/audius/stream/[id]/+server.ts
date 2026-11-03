@@ -16,7 +16,7 @@
 // api.audius.co/.../{id}/stream — id is path-encoded into a fixed template, so it cannot be
 // coerced into an arbitrary-host relay (same posture as the existing dedicated routes).
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { fetchWithRetry, corsHeaders, corsPreflight } from '$lib/proxy/http';
 
 const APP_NAME = 'musicsquare';
 
@@ -63,6 +63,4 @@ export const GET: RequestHandler = async ({ params, request }) => {
 	}
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

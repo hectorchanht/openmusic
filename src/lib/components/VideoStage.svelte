@@ -1,0 +1,361 @@
+<script lang="ts">
+	// quick-261024-vid1 — the Now Playing MV layer: a muted <video> following the master
+	// <audio>. The player store stays the single clock (play/pause/seek/queue/MediaSession
+	// untouched); this component only paints picture in sync. Its own control bar drives
+	// the MASTER (play/pause/seek), picks the quality (the shared settings.videoQuality),
+	// and offers PiP / fullscreen / close. Any failure lands as an inline error over the
+	// stage with Retry — the music never notices.
+	import { onDestroy } from 'svelte';
+	import { Play, Pause, X, Maximize, PictureInPicture2, ChevronDown, Check, RotateCcw } from '@lucide/svelte';
+	import { player, fmtTime } from '$lib/stores/player.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
+	import { VIDEO_QUALITIES, type VideoQuality } from '$lib/config/defaults';
+	import { t } from '$lib/i18n';
+	import { VideoFeeder, syncDecision, probeDirectVideo, type VideoStageError } from '$lib/services/video-stage';
+	import { videoAvailability } from '$lib/services/video-availability.svelte';
+
+	let { videoId, onclose }: { videoId: string; onclose: () => void } = $props();
+
+	let stageEl = $state<HTMLDivElement | null>(null);
+	let videoEl = $state<HTMLVideoElement | null>(null);
+	let err = $state<VideoStageError | null>(null);
+	let height = $state(0);
+	let waiting = $state(false);
+	// quick-261024-vid3: 'direct' = the no-MSE fallback (the route URL as a plain file
+	// src) for WebViews whose MSE rejects the codec — Hector's APK hit exactly that.
+	let mode = $state<'mse' | 'direct'>('mse');
+	let qualityOpen = $state(false);
+	let scrubbing = $state(false);
+	let scrubValue = $state(0);
+	let feeder: VideoFeeder | null = null;
+	let runId = 0;
+	// quick-261024-vid3b: gate bursts run for tens of seconds — the stage auto-retries a
+	// gated resolve twice with backoff (mirrors NpAbout/about2) before the error shows,
+	// and a direct-mode media error gets one reload. Manual Retry resets both counters.
+	let gateRetries = 0;
+	let directRetries = 0;
+	let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function clearRetry() {
+		if (retryTimer) {
+			clearTimeout(retryTimer);
+			retryTimer = null;
+		}
+	}
+
+	const pipOk = typeof document !== 'undefined' && !!document.pictureInPictureEnabled;
+	const shownTime = $derived(scrubbing ? scrubValue : player.currentTime);
+
+	function elementBufferedEnd(): number {
+		try {
+			const b = videoEl?.buffered;
+			return b && b.length > 0 ? b.end(b.length - 1) : 0;
+		} catch {
+			return 0;
+		}
+	}
+
+	/** Direct mode (vid3): no MSE — the element streams the route URL as a plain file
+	 *  (range requests make it seekable; the same sync loop drives it).
+	 *  quick-261029-vidgate: the URL is PREFLIGHTED first (probeDirectVideo) — a gated
+	 *  503 handed blindly to the element as `src` surfaced only as "media error 4"
+	 *  with the real (bot-gate) reason lost. Only an OK probe sets `src`; a failed
+	 *  probe becomes the overlay error with its real kind/reason. Retried / recovered
+	 *  loads carry a cache-busting `retry` param so no cached error can replay. */
+	async function startDirect(mine: number) {
+		feeder?.stop();
+		feeder = null;
+		const el = videoEl;
+		if (!el) return;
+		const probe = await probeDirectVideo(videoId, settings.videoQuality, { retries: 2 });
+		if (mine !== runId || videoEl !== el) return;
+		if (!probe.ok) {
+			if (probe.kind === 'none') {
+				err = { kind: 'none' };
+				videoAvailability.mark(videoId, false);
+			} else if (probe.kind === 'gated') {
+				err = {
+					kind: 'gated',
+					reason: probe.reason,
+					detail: `video route http 503 after ${probe.attempts} probe(s)`
+				};
+			} else {
+				err = { kind: 'network', detail: `video route http ${probe.status || 'error'}` };
+			}
+			return;
+		}
+		const bust = directRetries > 0 || probe.attempts > 1 ? `&retry=${directRetries + probe.attempts}` : '';
+		el.src = `/api/ytmusic/video/${encodeURIComponent(videoId)}?q=${settings.videoQuality}${bust}`;
+		el.load();
+	}
+
+	function startFeed() {
+		feeder?.stop();
+		clearRetry();
+		err = null;
+		height = 0;
+		const mine = ++runId;
+		const el = videoEl;
+		if (!el) return;
+		if (mode === 'direct') {
+			void startDirect(mine);
+			return;
+		}
+		feeder = new VideoFeeder(el, videoId, settings.videoQuality, {
+			onMeta: (h) => {
+				if (mine !== runId) return;
+				height = h;
+				videoAvailability.mark(videoId, true);
+			},
+			onError: (e) => {
+				if (mine !== runId) return;
+				// vid3: an MSE refusal is not the end — fall back to direct mode and only
+				// surface the error if THAT fails too (its 'error' event lands below).
+				if (e.kind === 'unsupported') {
+					mode = 'direct';
+					void startDirect(mine);
+					return;
+				}
+				// vid3b: a gate is transient by definition — retry quietly twice behind
+				// the loading spinner before asking the user to tap anything.
+				if (e.kind === 'gated' && gateRetries < 2) {
+					const delay = gateRetries === 0 ? 1500 : 4000;
+					gateRetries++;
+					retryTimer = setTimeout(() => {
+						if (mine === runId) startFeed();
+					}, delay);
+					return;
+				}
+				err = e;
+				if (e.kind === 'none') videoAvailability.mark(videoId, false);
+			}
+		});
+		void feeder.start();
+	}
+
+	// (Re)start on track / quality change.
+	$effect(() => {
+		void videoId;
+		void settings.videoQuality;
+		gateRetries = 0;
+		directRetries = 0;
+		if (videoEl) startFeed();
+	});
+
+	/** The error overlay's Retry: a fresh budget of auto-retries, then a fresh feed. */
+	function manualRetry() {
+		gateRetries = 0;
+		directRetries = 0;
+		startFeed();
+	}
+
+	// Mirror the master, 4×/s, via the pure syncDecision (quick-261024-vid2): NEVER seek
+	// into unbuffered time (the first live check froze exactly that way — a mid-song open
+	// snapped into the void every tick and the element never played). While the playhead
+	// is ahead of the feed the picture waits; once the buffer covers it, one snap lands
+	// and small drifts are absorbed by a rate nudge instead of repeated seeks.
+	$effect(() => {
+		const tick = setInterval(() => {
+			const v = videoEl;
+			if (!v || err) return;
+			const d = syncDecision({
+				masterTime: player.currentTime,
+				videoTime: v.currentTime,
+				bufferedEnd: feeder ? feeder.bufferedEnd() : elementBufferedEnd(),
+				masterPlaying: player.playing
+			});
+			waiting = d.action === 'wait';
+			if (d.action === 'pause' || d.action === 'wait') {
+				if (!v.paused) v.pause();
+				v.playbackRate = 1;
+				return;
+			}
+			if (d.action === 'snap') {
+				try {
+					v.currentTime = player.currentTime;
+				} catch {
+					// not seekable yet — the next tick retries
+				}
+			}
+			v.playbackRate = d.rate;
+			if (v.paused && v.readyState >= 2) void v.play().catch(() => {});
+		}, 250);
+		return () => clearInterval(tick);
+	});
+
+	onDestroy(() => {
+		feeder?.stop();
+		clearRetry();
+	});
+
+	function pickQuality(q: VideoQuality) {
+		qualityOpen = false;
+		if (q === settings.videoQuality) return;
+		settings.videoQuality = q;
+		settings.save();
+	}
+
+	async function goFullscreen() {
+		try {
+			// quick-261024-vid2: the button is a TOGGLE — in fullscreen it must exit (the
+			// first live check found tapping it again did nothing).
+			if (document.fullscreenElement) {
+				await document.exitFullscreen();
+				return;
+			}
+			await stageEl?.requestFullscreen();
+			const o = screen.orientation as unknown as { lock?: (x: string) => Promise<void> };
+			await o.lock?.('landscape').catch(() => {});
+		} catch {
+			// fullscreen refused (iframe policy / native shell) — the stage stays inline
+		}
+	}
+
+	async function goPip() {
+		try {
+			await videoEl?.requestPictureInPicture();
+		} catch {
+			// PiP refused — nothing to surface, the stage keeps playing inline
+		}
+	}
+
+	function errText(e: VideoStageError): string {
+		if (e.kind === 'none') return t('video.noVideo');
+		if (e.kind === 'gated') return e.reason ? `${t('video.gated')} (${e.reason})` : t('video.gated');
+		if (e.kind === 'unsupported') return t('video.unsupported');
+		return t('video.network');
+	}
+</script>
+
+<div class="vstage" bind:this={stageEl}>
+	<!-- svelte-ignore a11y_media_has_caption — an MV picture layer; the song's lyrics view is one tap away and captions do not exist for these streams -->
+	<video
+		bind:this={videoEl}
+		muted
+		playsinline
+		preload="auto"
+		onloadedmetadata={() => {
+			if (mode === 'direct') {
+				height = settings.videoQuality;
+				videoAvailability.mark(videoId, true);
+			}
+		}}
+		onerror={() => {
+			if (mode !== 'direct' || err) return;
+			// quick-261029-vidgate (was vid3b): quiet reloads with backoff, up to 3 —
+			// the old `height === 0` guard meant a MID-STREAM error never retried at
+			// all (height is set on loadedmetadata in direct mode), so failures at
+			// 0:33 / 2:19 went straight to the overlay. height resets so the loading
+			// spinner (spinner ONLY, xor1) shows during the reload.
+			if (directRetries < 3) {
+				const delays = [1500, 3000, 5000];
+				const delay = delays[directRetries] ?? 5000;
+				directRetries++;
+				height = 0;
+				retryTimer = setTimeout(() => startFeed(), delay);
+				return;
+			}
+			// Retries exhausted: classify with ONE probe so the overlay states the
+			// REAL reason (a gate says so, with its reason) instead of "media error 4"
+			// alone — the code survives only as small-print detail.
+			const code = videoEl?.error?.code ?? '?';
+			void (async () => {
+				const probe = await probeDirectVideo(videoId, settings.videoQuality, { retries: 0 });
+				if (err) return;
+				if (probe.kind === 'gated') {
+					err = { kind: 'gated', reason: probe.reason, detail: `media error ${code}` };
+				} else if (probe.kind === 'none' && probe.status === 404) {
+					err = { kind: 'none', detail: `media error ${code}` };
+				} else {
+					err = { kind: 'network', detail: `media error ${code}` };
+				}
+			})();
+		}}
+	></video>
+
+	{#if err}
+		<div class="v-err" role="alert">
+			<p>{errText(err)}</p>
+			{#if err.detail}<p class="v-detail">{err.detail}</p>{/if}
+			<div class="v-err-btns">
+				{#if err.kind !== 'none' && err.kind !== 'unsupported'}
+					<button onclick={manualRetry}><RotateCcw size={14} /> {t('video.retry')}</button>
+				{/if}
+				<button onclick={onclose}><X size={14} /> {t('nowplaying.closeVideo')}</button>
+			</div>
+		</div>
+	{:else if height === 0}
+		<!-- quick-261029-xor1: spinner ONLY here (a compact overlay control — no
+		     skeleton; spinner + skeleton together are banned, standing rule). -->
+		<div class="v-loading" aria-hidden="true"><span class="v-ring motion-always"></span>{t('video.loading')}</div>
+	{:else if waiting}
+		<div class="v-waiting" aria-hidden="true"><span class="v-ring sm motion-always"></span>{t('video.loading')}</div>
+	{/if}
+
+	<div class="v-bar">
+		<button class="v-btn" aria-label={t('nowplaying.playPause')} onclick={() => player.toggle()}>
+			{#if player.playing}<Pause size={18} />{:else}<Play size={18} />{/if}
+		</button>
+		<span class="v-time">{fmtTime(shownTime)}</span>
+		<input
+			class="v-seek"
+			type="range"
+			min="0"
+			max={player.duration || 0}
+			step="0.1"
+			value={shownTime}
+			aria-label={t('video.seek')}
+			onpointerdown={() => (scrubbing = true)}
+			onpointerup={() => (scrubbing = false)}
+			oninput={(e) => {
+				scrubValue = Number((e.currentTarget as HTMLInputElement).value);
+				if (player.duration > 0) player.seekFraction(scrubValue / player.duration);
+			}}
+		/>
+		<span class="v-time">{player.duration > 0 ? fmtTime(player.duration) : '--:--'}</span>
+		<div class="v-q">
+			<button class="v-btn v-qbtn" aria-haspopup="menu" aria-expanded={qualityOpen} onclick={() => (qualityOpen = !qualityOpen)}>
+				{height > 0 ? `${height}p` : t('video.quality')}<ChevronDown size={14} />
+			</button>
+			{#if qualityOpen}
+				<div class="v-menu" role="menu">
+					{#each VIDEO_QUALITIES as q (q)}
+						<button role="menuitemradio" aria-checked={settings.videoQuality === q} onclick={() => pickQuality(q)}>
+							{q}p {#if settings.videoQuality === q}<Check size={14} />{/if}
+						</button>
+					{/each}
+				</div>
+			{/if}
+		</div>
+		{#if pipOk}
+			<button class="v-btn" aria-label={t('video.pip')} onclick={goPip}><PictureInPicture2 size={17} /></button>
+		{/if}
+		<button class="v-btn" aria-label={t('video.fullscreen')} onclick={goFullscreen}><Maximize size={17} /></button>
+		<button class="v-btn" aria-label={t('nowplaying.closeVideo')} onclick={onclose}><X size={17} /></button>
+	</div>
+</div>
+
+<style>
+	.vstage { position: absolute; inset: 0; background: #000; overflow: hidden; }
+	.vstage video { width: 100%; height: 100%; object-fit: contain; display: block; }
+	.vstage:fullscreen { border-radius: 0; }
+	.v-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px; color: #cfcfe0; font-size: 13px; background: rgba(0,0,0,0.35); }
+	.v-waiting { position: absolute; top: 10px; left: 10px; display: flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 999px; color: #cfcfe0; font-size: 12px; background: rgba(0,0,0,0.55); }
+	.v-ring { flex: none; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.8); border-top-color: transparent; border-radius: 50%; animation: vspin 0.7s linear infinite; }
+	.v-ring.sm { width: 12px; height: 12px; border-width: 1.5px; }
+	@keyframes vspin { to { transform: rotate(360deg); } }
+	.v-err { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; text-align: center; padding: 16px; color: #f0eefc; background: rgba(8,6,18,0.82); font-size: 13px; }
+	.v-err p { margin: 0; max-width: 34ch; }
+	.v-err .v-detail { font-family: ui-monospace, monospace; font-size: 11px; opacity: 0.75; max-width: 90%; overflow-wrap: anywhere; }
+	.v-err-btns { display: flex; gap: 8px; }
+	.v-err-btns button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.35); background: transparent; color: inherit; font-size: 12.5px; cursor: pointer; }
+	.v-bar { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 8px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(180deg, transparent, rgba(0,0,0,0.72) 38%); color: #fff; }
+	.v-btn { display: inline-flex; align-items: center; justify-content: center; gap: 3px; min-width: 32px; height: 32px; padding: 0 6px; border: none; border-radius: 8px; background: transparent; color: #fff; cursor: pointer; font-size: 12.5px; }
+	.v-btn:hover { background: rgba(255,255,255,0.14); }
+	.v-time { font-size: 11.5px; font-variant-numeric: tabular-nums; opacity: 0.9; min-width: 34px; text-align: center; }
+	.v-seek { flex: 1; accent-color: #fff; min-width: 40px; }
+	.v-q { position: relative; }
+	.v-menu { position: absolute; right: 0; bottom: calc(100% + 6px); display: flex; flex-direction: column; min-width: 92px; padding: 4px; border-radius: 10px; background: rgba(18,16,30,0.97); box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 5; }
+	.v-menu button { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; border: none; border-radius: 6px; background: transparent; color: #fff; font-size: 13px; cursor: pointer; text-align: left; }
+	.v-menu button:hover { background: rgba(255,255,255,0.12); }
+</style>

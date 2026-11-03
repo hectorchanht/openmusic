@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { joox } from './joox';
+import { jooxHealth } from '../services/joox-health';
 import type { Track } from './types';
 import { settings } from '$lib/stores/settings.svelte';
 import searchFixture from './__fixtures__/joox.search.json';
@@ -78,9 +79,11 @@ function mockSelfHealFetch(searchBody: unknown, detailByN: Record<number, unknow
 
 beforeEach(() => {
 	vi.restoreAllMocks();
+	jooxHealth.__reset(); // the gate is module-scope — never let a trip leak between tests
 });
 afterEach(() => {
 	vi.restoreAllMocks();
+	jooxHealth.__reset();
 });
 
 describe('joox.search (fixture-backed)', () => {
@@ -585,5 +588,37 @@ describe('joox.resolve — graceful failed-resolve sentinel + bounded self-heal 
 
 		const searchCalls = spy.mock.calls.filter((c) => String(c[0]).startsWith('/api/joox/search'));
 		expect(searchCalls.length).toBe(0);
+	});
+});
+
+describe('joox health gate (joox-health wiring)', () => {
+	it('search short-circuits to [] without a fetch once the gate is tripped', async () => {
+		const fetchMock = mockJsonFetch(searchFixture);
+		vi.stubGlobal('fetch', fetchMock);
+		jooxHealth.recordFail();
+		jooxHealth.recordFail();
+		jooxHealth.recordFail();
+		expect(jooxHealth.isGated()).toBe(true);
+
+		const tracks = await joox.search('周杰伦', 1, ac.signal);
+
+		expect(tracks).toEqual([]);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('drift searches throw AND count toward the gate (3 trips it)', async () => {
+		vi.stubGlobal('fetch', mockJsonFetch({ code: 500, data: {} }));
+		for (let i = 0; i < 3; i++) {
+			await expect(joox.search('x', 1, ac.signal)).rejects.toThrow(/contract-drift/);
+		}
+		expect(jooxHealth.isGated()).toBe(true);
+	});
+
+	it('a well-formed EMPTY songs[] is a legit no-hit — recordOk, never a dry', async () => {
+		vi.stubGlobal('fetch', mockJsonFetch({ code: 200, data: { songs: [] } }));
+		for (let i = 0; i < 3; i++) {
+			await expect(joox.search('obscure', 1, ac.signal)).resolves.toEqual([]);
+		}
+		expect(jooxHealth.isGated()).toBe(false);
 	});
 });

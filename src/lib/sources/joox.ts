@@ -31,6 +31,7 @@ import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { inferQualityFromUrl } from '../services/lrc';
 import { apiFetch } from '../services/api-base';
+import { jooxHealth } from '../services/joox-health';
 import { settings, type DefaultQuality } from '$lib/stores/settings.svelte';
 import { pickByQualityPref, effectiveQuality } from './quality';
 
@@ -251,19 +252,39 @@ export const joox: SourceAdapter = {
 	enabledByDefault: true,
 
 	async search(keyword: string, _page: number, signal: AbortSignal): Promise<Track[]> {
+		// HEALTH-GATE short-circuit (joox-health, universal-gate rollout 2026-11-01). While
+		// apicx is down every call is a slow 504 / error envelope; after a run of failures the
+		// gate skips the wasted call for a bounded window, then auto-opens for one probe whose
+		// outcome re-decides — joox is never hidden permanently. Never-throw on this path.
+		if (jooxHealth.isGated()) return [];
+
 		// The proxy injects token + br server-side — the client only sends the keyword.
 		const path = `/api/joox/search?msg=${encodeURIComponent(keyword)}`;
 
-		const res = await apiFetch(path, { signal });
-		const json = (await res.json()) as JooxSearchResponse;
+		// The fetch + JSON parse sit in ONE try (the kuwoJson lesson): a dead apicx presents
+		// as a 504 whose EMPTY body throws inside res.json(), so counting only a rejected
+		// fetch would make the gate unreachable for the real failure. A caller abort is a
+		// supersede, not an outage — rethrown uncounted.
+		let json: JooxSearchResponse;
+		try {
+			const res = await apiFetch(path, { signal });
+			json = (await res.json()) as JooxSearchResponse;
+		} catch (err) {
+			if (!signal.aborted) jooxHealth.recordFail();
+			throw err;
+		}
 
 		// Contract-drift guard: JOOX must return code:200 with data.songs[]. Throw (not
 		// return 0) so the fan-out records a typed per-source error (DATA-03).
 		const songs =
 			json && json.code === 200 && Array.isArray(json.data?.songs) ? json.data!.songs! : null;
 		if (!songs) {
+			jooxHealth.recordFail();
 			throw new Error('joox: contract-drift (expected {code:200,data:{songs:[]}})');
 		}
+		// A well-formed body is a live upstream — instant recovery. An EMPTY songs[] counts
+		// too: it is a legit no-hit here, NOT a dry spell (see joox-health.ts).
+		jooxHealth.recordOk();
 
 		return songs.map((it, idx) => {
 			const songMid = it.songmid || '';
@@ -302,10 +323,24 @@ export const joox: SourceAdapter = {
 		// against the track's stable identity below before trusting it.
 		const n = track.jooxIndex || track.displayIndex || 1;
 
-		const initial = await fetchJooxDetailData(track.keyword, n, signal);
+		// Deliberately NOT gated (the kuwo rule): resolve is only reached for a track the
+		// user already chose, so a gated window must not refuse it — but its outcome still
+		// feeds the gate. A rejected fetch (transport) and a null body (code!==200 / no
+		// data — the kuwo detail counting) both recordFail; a well-formed detail recordOk
+		// ONCE here, since everything after this point (identity heal, tier probes) runs
+		// on an upstream already proven alive and stays uncounted.
+		let initial: JooxDetailData | null;
+		try {
+			initial = await fetchJooxDetailData(track.keyword, n, signal);
+		} catch (err) {
+			if (!signal.aborted) jooxHealth.recordFail();
+			throw err;
+		}
 		if (!initial) {
+			jooxHealth.recordFail();
 			throw new Error('joox detail failed (invalid response)');
 		}
+		jooxHealth.recordOk();
 
 		// IDENTITY RE-VALIDATION (Pitfall 4 / criterion #4) — keep music playing.
 		// The positional `n` may have returned a DIFFERENT song than the one the user

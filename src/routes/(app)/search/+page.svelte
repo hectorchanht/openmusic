@@ -6,7 +6,7 @@
 	import { dedupeBest, groupVariants } from '$lib/services/dedupe';
 	import { dedupeBestWithDeezer } from '$lib/services/dedupe-deezer';
 	import { scoreMatch } from '$lib/services/score-match';
-	import { computeSetContext } from '$lib/services/score-context';
+	import { computeSetContext, tokenizeQuery } from '$lib/services/score-context';
 	// quick-260910-qwt: the shared row cover read (resolved → track.cover → the shared cache).
 	import { enrichArtist } from '$lib/services/lastfm';
 	import { deezerArtistCover, deezerSearchTopN, type DeezerHit } from '$lib/services/deezer';
@@ -22,7 +22,11 @@
 	import { initialSearch } from '$lib/services/search-url';
 	import { syncTabUrl } from '$lib/services/url-tab';
 	import { settings } from '$lib/stores/settings.svelte';
-	import { mergeArtistTiles, type ArtistTile } from '$lib/services/artist-tiles';
+	import {
+		mergeArtistTiles,
+		prioritizeArtistIntent,
+		type ArtistTile
+	} from '$lib/services/artist-tiles';
 	import { player } from '$lib/stores/player.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { searchSession } from '$lib/stores/searchSession.svelte';
@@ -119,6 +123,42 @@
 	// PAGE-LOCAL transient (never lifted into searchSession — same discipline as `ac`/`moreAc`).
 	let suggestions = $state<Suggestion[]>([]);
 	let suggestAc: AbortController | null = null;
+
+	// quick-261102-rrb: ARIA combobox state. `typeaheadOpen` is the SAME gate the dropdown has
+	// always used (no inputFocused — see debug-search-typeahead-hidden-mobile below), now named
+	// so aria-expanded and the keyboard handler share it. `activeIdx` is the keyboard-highlighted
+	// option (-1 = none); every new suggestion list resets it so a stale index never points into
+	// a different list.
+	let typeaheadOpen = $derived(q.trim().length >= MIN_QUERY_LEN && suggestions.length > 0);
+	let activeIdx = $state(-1);
+	$effect(() => {
+		void suggestions;
+		activeIdx = -1;
+	});
+
+	// quick-261102-rrb: ArrowUp/ArrowDown move (wrapping) through the options, Enter picks the
+	// highlighted one (instead of submitting the form), Escape closes the list. With nothing
+	// highlighted Enter still submits the typed query as before.
+	function onSuggestKeydown(e: KeyboardEvent) {
+		if (!typeaheadOpen) return;
+		const n = suggestions.length;
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			activeIdx = (activeIdx + 1) % n;
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			activeIdx = activeIdx <= 0 ? n - 1 : activeIdx - 1;
+		} else if (e.key === 'Enter' && activeIdx >= 0 && activeIdx < n) {
+			e.preventDefault();
+			pickSuggestion(suggestions[activeIdx]);
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			fetchSuggestions.cancel();
+			suggestAc?.abort();
+			suggestions = [];
+		}
+	}
+
 
 	// Debounced suggestion fetch: at most one network call per ~300ms typing pause. A fresh
 	// keystroke restarts the timer (in oninput) so only the trailing pause fetches. Inside, we
@@ -281,7 +321,15 @@
 		const sorted = [...groups.values()].sort((a, b) =>
 			b.count - a.count || a.firstIdx - b.firstIdx
 		);
-		return sorted.map((g) => ({ name: g.name, image: null, trackCount: g.count, canonical: null }));
+		const tiles = sorted.map((g) => ({
+			name: g.name,
+			image: null,
+			trackCount: g.count,
+			canonical: null
+		}));
+		// quick-261024-cig: count alone put the queried artist's tile fifth behind
+		// high-row-count uploaders — the artist the query NAMES leads the row.
+		return prioritizeArtistIntent(tiles, tokenizeQuery(query));
 	}
 
 	async function refreshArtistTiles(query: string, rows: Track[]) {
@@ -304,7 +352,12 @@
 		if (artistTilesFor !== tag) return; // race guard — newer query took over
 		// Merge only AFTER enrichment: before it every tile has canonical:null and would group by
 		// its own name, i.e. exactly the unmerged row we paint immediately for zero-latency.
-		artistTiles = mergeArtistTiles(withCovers, settings.artistLang);
+		// quick-261024-cig: the merge re-sorts by count, so re-apply the artist-intent lead
+		// or the merged row would demote the queried artist back behind the uploaders.
+		artistTiles = prioritizeArtistIntent(
+			mergeArtistTiles(withCovers, settings.artistLang),
+			tokenizeQuery(query)
+		);
 	}
 
 	function fallbackArtistCover(name: string): string {
@@ -316,6 +369,21 @@
 	let page = $state(1); // last page successfully loaded
 	let loadingMore = $state(false); // true ONLY while a NEXT-page batch is in flight
 	let hasMore = $state(false); // whether another batch might yield net-new tracks
+
+	// quick-261102-rrb: one polite live-region message for the search status, so screen readers
+	// hear searching / no results / the result count without moving focus.
+	// quick-261102-s0k: announce the count on every successful search (was silent when hasMore,
+	// and said "No more results." first when results fit one page). search.noMore stays on the
+	// visible end note only.
+	let statusMsg = $derived(
+		showFirstSkeleton || loading
+			? t('search.searching')
+			: !searched
+				? ''
+				: results.length === 0
+					? t('search.empty')
+					: t('search.resultsCount', { n: results.length })
+	);
 	let moreAc: AbortController | null = null; // separate controller for load-more requests
 
 	// Sentinel + observer (sentinel binding/observer creation live in the template/$effect).
@@ -651,10 +719,20 @@
 		     (it has to reach across the route boundary, and this is the app's only search input).
 		     An inert data-* hook — no layout, styling, focus order or a11y change, so mobile is
 		     untouched. -->
+		<!-- quick-261102-rrb: type=search + accessible name + ARIA combobox wiring to the
+		     #search-suggest listbox (native WebKit cancel X hidden in CSS — the custom X stays). -->
 		<input
 			data-search-input
 			bind:this={queryInputEl}
 			bind:value={q}
+			type="search"
+			aria-label={t('search.placeholder')}
+			role="combobox"
+			aria-autocomplete="list"
+			aria-controls="search-suggest"
+			aria-expanded={typeaheadOpen}
+			aria-activedescendant={typeaheadOpen && activeIdx >= 0 ? `search-opt-${activeIdx}` : undefined}
+			onkeydown={onSuggestKeydown}
 			placeholder={t('search.placeholder')}
 			autocomplete="off"
 			autocapitalize="off"
@@ -747,17 +825,24 @@
      was suppressed on mobile (worked on desktop, where focus is stable). `suggestions` is
      already cleared on submit/pick/clear/below-2-chars, so this gate is self-limiting (no
      lingering dropdown). Mirrors the same inputFocused-drop done for the recent block (sm7). -->
-{#if q.trim().length >= MIN_QUERY_LEN && suggestions.length > 0}
+{#if typeaheadOpen}
 	<div class="suggest">
 		<div class="suggest-head">
 			<span class="suggest-title">{t('search.suggestions')}</span>
 		</div>
-		<ul class="list">
-			{#each suggestions as s (s.key)}
-				<li>
+		<!-- quick-261102-rrb: listbox/option semantics; the input owns focus and points at the
+		     highlighted option via aria-activedescendant, so options are tabindex=-1. -->
+		<ul class="list" id="search-suggest" role="listbox" aria-label={t('search.suggestions')}>
+			{#each suggestions as s, i (s.key)}
+				<li role="none">
 					<button
 						type="button"
 						class="row suggest-row"
+						class:active={i === activeIdx}
+						role="option"
+						id="search-opt-{i}"
+						aria-selected={i === activeIdx}
+						tabindex="-1"
 						onmousedown={(e) => e.preventDefault()}
 						onclick={() => pickSuggestion(s)}
 						use:tapBounce
@@ -765,6 +850,8 @@
 						<!-- quick-260712-gm4: 3-way kind glyph — song ♫ / artist ♪ / album ◎. Album rows
 						     show the album artist as the muted sub-line, like a song row. -->
 						<span class="suggest-kind" aria-hidden="true">{s.kind === 'album' ? '◎' : s.kind === 'artist' ? '♪' : '♫'}</span>
+						<!-- quick-261102-rrb: spoken kind cue for the aria-hidden glyph (existing keys). -->
+						<span class="vh">{s.kind === 'album' ? t('menu.detailAlbum') : s.kind === 'artist' ? t('menu.detailArtist') : t('tags.fieldTitle')}</span>
 						<span class="suggest-meta">
 							<span class="suggest-q">{names.dnTitle(s.title, s.kind === 'song' ? s.artist : undefined)}</span>
 							{#if (s.kind === 'song' || s.kind === 'album') && s.artist}
@@ -789,16 +876,20 @@
 {/if}
 
 <!-- ONE skeleton-row definition shared by the D-01 first-load gate and the existing
-     load-more position (no second skeleton style). Reduce-motion handled by .skel CSS. -->
-{#snippet skeletonRows(count: number, label: string)}
-	<li class="skel-wrap" aria-label={label}>
-		<span class="vh">{label}</span>
+     load-more position (no second skeleton style). quick-261102-rrb: blocks use the global .sk
+     (theme-safe greys + shimmer, reduce-motion re-asserted in app.css); the line spans are
+     .sk-line, not .bar — .bar collided with the search form's flex + margin-bottom and made
+     skeleton rows taller than real rows. -->
+{#snippet skeletonRows(count: number)}
+	<!-- quick-261102-s0k: decorative only; the role=status region below is the single
+	     "searching" announcement (the aria-label + .vh copy here read it three times). -->
+	<li class="skel-wrap" aria-hidden="true">
 		{#each Array(count) as _, i (i)}
-			<span class="row skel" aria-hidden="true">
-				<span class="art motion-always"></span>
+			<span class="row skel">
+				<span class="art sk"></span>
 				<span class="meta">
-					<span class="bar bar-title motion-always"></span>
-					<span class="bar bar-artist motion-always"></span>
+					<span class="sk sk-line sk-title"></span>
+					<span class="sk sk-line sk-artist"></span>
 				</span>
 			</span>
 		{/each}
@@ -809,7 +900,7 @@
 	<!-- D-01: first-load skeleton. Gated on a dwell-floored flag (NOT raw `loading`/empty)
 	     so a D-04 cache HIT / fast settle can't collapse it below one paint frame. -->
 	<ul class="list">
-		{@render skeletonRows(6, t('search.searching'))}
+		{@render skeletonRows(6)}
 	</ul>
 {:else if searched && !loading && results.length === 0}
 	<p class="muted">{t('search.empty')}</p>
@@ -821,7 +912,21 @@
 				{#each artistTiles as tile (tile.name)}
 					<!-- quick-260910-qjv: artist tap feedback, parity with song rows -->
 					<button class="artist-tile" use:tapBounce onclick={() => goto(names.artistHref(tile.name))}>
-						<span class="artist-avatar" style:background-image={tile.image ? `url(${tile.image})` : fallbackArtistCover(tile.name)}></span>
+						<!-- quick-261102-rrb: the gradient is always the background; the photo is a lazy
+						     <img> on top, so offscreen tiles in the horizontal scroller don't fetch and a
+						     failed load falls back to the gradient. <img src>, not CSS url() (T-rrb-01). -->
+						<span class="artist-avatar" style:background-image={fallbackArtistCover(tile.name)}>
+							{#if tile.image}
+								<img
+									src={tile.image}
+									alt=""
+									loading="lazy"
+									decoding="async"
+									referrerpolicy="no-referrer"
+									onerror={(e) => ((e.currentTarget as HTMLImageElement).hidden = true)}
+								/>
+							{/if}
+						</span>
 						<span class="artist-name">{names.dnArtist(tile.name)}</span>
 					</button>
 				{/each}
@@ -859,12 +964,16 @@
 					     exactly the app convention (right = queue, left = play next), which now lives in
 					     the component, so the page's own swipeQueue/swipeNext are gone. Ordering is
 					     untouched: `results` is already rankList-sorted by scoreMatch and the row neither
-					     reads nor re-sorts it, it only hands the same array to setListQueue. -->
+					     reads nor re-sorts it. quick-261024-sets: a tap no longer hands the
+					     results pool to setListQueue — installed UNPINNED (quick-261024-sets), so the
+					     'search' Up-next sourcing setting decides: generated (default) seeds Up Next
+					     from the tapped song; same-list keeps the remaining results. -->
 					<!-- quick-261010-sar: the artist-name rule, app-wide — the row's artist
 					     name is the SMART-resolved (auto-updating) one, not the raw source string. -->
 					<SongRow
 						track={t}
 						smartArtist
+						showAlbumTag={false}
 						onplay={() => { player.setListQueue(results, 'search'); player.play(t, { fresh: true }); }}
 						onrequestmenu={() => { menuTrack = t; menuOpen = true; }}
 					/>
@@ -873,7 +982,7 @@
 		{/each}
 
 		{#if showMoreSkeleton}
-			{@render skeletonRows(4, t('search.loadingMore'))}
+			{@render skeletonRows(4)}
 		{/if}
 
 		{#if hasMore}
@@ -883,6 +992,10 @@
 		{/if}
 	</ul>
 {/if}
+
+<!-- quick-261102-rrb: always mounted so a status change is announced (a region inserted with its
+     text already in it is often not read). -->
+<p class="vh" role="status" aria-live="polite">{statusMsg}</p>
 
 <TrackMenu track={menuTrack} open={menuOpen} onclose={() => (menuOpen = false)} />
 
@@ -928,7 +1041,13 @@
 		color: var(--color-text); border-radius: 999px; padding: 12px; font-size: 0.9375rem; outline: none; height: 44px;
 	}
 	/* User 2026-10-06 (audit): 40px -> 44px for minimum touch target. */
-	.bar input:focus { border-color: var(--color-primary); }
+	.bar input:focus { /* quick-261102-s0k: focus token, >=3:1 on every theme */ border-color: var(--color-focus); }
+	/* quick-261102-rrb: visible keyboard focus ring (outline:none above removed the default). */
+	.bar input:focus-visible { /* quick-261102-s0k: focus token, >=3:1 on every theme */ box-shadow: 0 0 0 2px var(--color-focus); }
+	/* quick-261102-rrb: type=search draws its own cancel X in WebKit; the custom .clear-input
+	   button already does that job. */
+	.bar input::-webkit-search-cancel-button,
+	.bar input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
 	/* quick-260711-sm7: clear (X) button — full input-height grid-centred (NO translateY, so the
 	   use:tapBounce scale keyframe can't displace it). Shown only when the input has text. */
 	.clear-input {
@@ -940,7 +1059,7 @@
 	/* User 2026-10-06 (audit): 34px -> 44px width for minimum touch target. */
 	@media (hover: hover) { .clear-input:hover { color: var(--color-text); } }
 	.bar button {
-		background: var(--color-primary); border: none; color: #fff; border-radius: 999px;
+		background: var(--color-primary); border: none; color: var(--color-on-primary); /* quick-261102-rrb */ border-radius: 999px;
 		width: 44px; height: 44px; font-weight: 700; cursor: pointer;
 		display: inline-flex; align-items: center; justify-content: center;
 	}
@@ -958,7 +1077,9 @@
 	.artist-tiles { display: flex; gap: 12px; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
 	.artist-tiles::-webkit-scrollbar { display: none; }
 	.artist-tile { flex: 0 0 96px; background: none; border: none; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--color-text); }
-	.artist-avatar { width: 96px; height: 96px; border-radius: 50%; background-size: cover; background-position: center; }
+	.artist-avatar { width: 96px; height: 96px; border-radius: 50%; background-size: cover; background-position: center; overflow: hidden; display: block; }
+	/* quick-261102-rrb: lazy photo layered over the gradient background. */
+	.artist-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 50%; }
 	.artist-name { font-size: 0.75rem; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 96px; color: var(--color-text);}
 
 	/* OFFL-03 inline offline empty-state (shared idiom across online-only surfaces). */
@@ -966,7 +1087,7 @@
 	.offline-title { font-size: 0.9375rem; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
 	.offline-body { font-size: 0.8125rem; margin: 0 0 16px; }
 	.offline-cta {
-		background: var(--color-primary); border: none; color: #fff; border-radius: 999px;
+		background: var(--color-primary); border: none; color: var(--color-on-primary); /* quick-261102-rrb */ border-radius: 999px;
 		padding: 9px 18px; font-size: 0.8125rem; font-weight: 600; cursor: pointer;
 	}
 
@@ -976,10 +1097,11 @@
 		display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;
 	}
 	.suggest-title { font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); letter-spacing: 0.02em; }
-	/* quick-261006-ico: icon-only clear-history — 40px ghost circle, Trash2. */
+	/* quick-261006-ico: icon-only clear-history — 44px ghost circle, Trash2.
+	   quick-261102-rrb: 40px -> 44px minimum touch target. */
 	.suggest-clear {
 		background: none; border: none; color: var(--color-text-muted);
-		cursor: pointer; width: 40px; height: 40px; padding: 0; border-radius: 50%;
+		cursor: pointer; width: 44px; height: 44px; padding: 0; border-radius: 50%;
 		display: inline-grid; place-items: center;
 	}
 	.suggest-clear:hover { background: var(--color-surface); }
@@ -1042,6 +1164,10 @@
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
 	   background on a row under a held finger while the track menu opens. */
 	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
+	/* quick-261102-rrb: keyboard-highlighted typeahead option — same look as hover. */
+	/* quick-261102-s0k: the surface fill alone is 1.09:1 on the page — add a focus-token inset
+	   ring so the aria-activedescendant option is actually visible. */
+	.row.active { background: var(--color-surface); box-shadow: inset 0 0 0 2px var(--color-focus); }
 	.art { width: 48px; height: 48px; border-radius: 8px; background-size: cover; background-position: center; flex: none; }
 	.meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
@@ -1050,31 +1176,11 @@
 	.skel-wrap { display: flex; flex-direction: column; gap: 6px; list-style: none; }
 	/* Skeleton row mirrors .row sizing so placeholders line up with real rows. */
 	.skel { pointer-events: none; }
-	/* Lighter grey than --color-surface-2 so the placeholders are clearly visible on the dark
-	   page background during the (brief, dwell-floored) loading window. */
-	.skel .art { background: rgba(255, 255, 255, 0.11); }
 	.skel .meta { gap: 7px; }
-	.skel .bar { display: block; height: 11px; border-radius: 5px; background: rgba(255, 255, 255, 0.11); }
-	.skel .bar-title { width: 62%; height: 9px;}
-	.skel .bar-artist { width: 40%; height: 9px; }
-	.skel .art, .skel .bar {
-		position: relative; overflow: hidden;
-	}
-	.skel .art::after, .skel .bar::after {
-		content: ''; position: absolute; inset: 0;
-		background: linear-gradient(
-			90deg,
-			transparent 0%,
-			rgba(255, 255, 255, 0.22) 50%,
-			transparent 100%
-		);
-		transform: translateX(-100%);
-		animation: skel-shimmer 1.1s ease-in-out infinite;
-	}
-	@keyframes skel-shimmer {
-		100% { transform: translateX(100%); }
-	}
-	/* Disable shimmer for users who prefer reduced motion. */
+	/* quick-261102-rrb: sizing only — colour + shimmer come from the global .sk. */
+	.sk-line { display: block; height: 9px; border-radius: 5px; }
+	.sk-title { width: 62%; }
+	.sk-artist { width: 40%; }
 	/* Visually-hidden screen-reader cue for the skeleton container. */
 	.vh {
 		position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;

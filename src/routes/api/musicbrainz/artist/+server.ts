@@ -12,7 +12,7 @@
 // searches then reads the top hit's aliases from the same response when present, else returns the
 // canonical name only — the display layer falls back to canonical, never blank).
 import type { RequestHandler } from './$types';
-import { corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { jsonResponse, corsPreflight } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import { MB_WS, mbFetch, normalizeLocale, isMbid } from '$lib/proxy/musicbrainz-shared';
 
@@ -53,8 +53,7 @@ const MIN_SCORE = 90;
 const jsonResult = (body: unknown, origin: string | null, ttl?: number): Response =>
 	jsonResponse(body, origin, { ttl });
 
-export const OPTIONS: RequestHandler = ({ request }) =>
-	new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);
 
 export const GET: RequestHandler = async ({ url, request }) => {
 	const origin = request.headers.get('origin');

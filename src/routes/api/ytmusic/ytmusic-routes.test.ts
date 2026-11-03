@@ -6,6 +6,7 @@ import {
 	SEARCH_URL,
 	NEXT_URL,
 	BROWSE_URL,
+	PLAYER_URL,
 	SONGS_FILTER,
 	VIDEOS_FILTER
 } from '$lib/proxy/ytmusic';
@@ -232,12 +233,77 @@ describe('GET /api/ytmusic/lyrics — next -> browse two-hop', () => {
 	});
 
 	it('a track with NO lyrics tab returns {} and issues no browse fetch', async () => {
+		// quick-261024-lyr: the no-tab case now runs the caption/description fallback
+		// (player calls) before declaring a miss — against THIS stub the player hop is
+		// unrouted and fails, so the answer is still {}. The invariant that matters:
+		// the BROWSE hop is never issued without a lyrics tab.
 		const fetchSpy = routeFetch(NEXT_NO_LYRICS);
 		vi.stubGlobal('fetch', fetchSpy);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const res = await lyricsGet(ev('/api/ytmusic/lyrics', { videoId: 'abc' }) as any);
 		expect(await res.json()).toEqual({});
-		expect(fetchSpy).toHaveBeenCalledTimes(1); // next only — no browse hop
+		expect(fetchSpy.mock.calls.some(([u]) => String(u) === BROWSE_URL)).toBe(false);
+	});
+
+	it('NO lyrics tab + a human caption track → timed LRC from timedtext (quick-261024-lyr)', async () => {
+		const playerJson = {
+			playabilityStatus: { status: 'OK' },
+			videoDetails: { shortDescription: 'desc' },
+			captions: {
+				playerCaptionsTracklistRenderer: {
+					captionTracks: [
+						{ baseUrl: 'https://www.youtube.com/api/timedtext?v=abc&lang=zh-HK', languageCode: 'zh-HK' }
+					]
+				}
+			}
+		};
+		const json3 = {
+			events: [1000, 3000, 5000, 7000, 9000].map((tStartMs, i) => ({
+				tStartMs,
+				segs: [{ utf8: `歌詞第${i + 1}句` }]
+			}))
+		};
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (u: unknown) => {
+				const s = String(u);
+				if (s === NEXT_URL) return jsonRes(NEXT_NO_LYRICS);
+				if (s === SEARCH_URL) return jsonRes({ responseContext: { visitorData: 'VD' } });
+				if (s === PLAYER_URL) return jsonRes(playerJson);
+				if (s.startsWith('https://www.youtube.com/api/timedtext')) return jsonRes(json3);
+				throw new Error('unexpected upstream url: ' + s);
+			})
+		);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await lyricsGet(ev('/api/ytmusic/lyrics', { videoId: 'abc' }) as any);
+		const body = (await res.json()) as { text?: string; attribution?: string };
+		expect(body.attribution).toBe('YouTube captions');
+		expect(body.text).toContain('[00:01.00]歌詞第1句');
+		expect(body.text).toContain('[00:09.00]歌詞第5句');
+	});
+
+	it('NO lyrics tab + no captions → the video description serves (quick-261024-lyr)', async () => {
+		const desc = '全首歌詞在下面：第一句 第二句 第三句，這是發行商貼上的完整描述文字，超過四十字元門檻。';
+		const playerJson = {
+			playabilityStatus: { status: 'OK' },
+			videoDetails: { shortDescription: desc },
+			captions: { playerCaptionsTracklistRenderer: { captionTracks: [] } }
+		};
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (u: unknown) => {
+				const s = String(u);
+				if (s === NEXT_URL) return jsonRes(NEXT_NO_LYRICS);
+				if (s === SEARCH_URL) return jsonRes({ responseContext: { visitorData: 'VD' } });
+				if (s === PLAYER_URL) return jsonRes(playerJson);
+				throw new Error('unexpected upstream url: ' + s);
+			})
+		);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const res = await lyricsGet(ev('/api/ytmusic/lyrics', { videoId: 'abc' }) as any);
+		const body = (await res.json()) as { text?: string; attribution?: string };
+		expect(body.text).toBe(desc);
+		expect(body.attribution).toBe('YouTube');
 	});
 
 	it('empty videoId → {} with no upstream fetch', async () => {

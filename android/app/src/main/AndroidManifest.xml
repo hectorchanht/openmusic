@@ -45,6 +45,23 @@
                 <data android:scheme="https" android:host="openmusic.lol" android:pathPrefix="/artist" />
             </intent-filter>
 
+            <!-- quick-261020-deeplink: auth handoff for the installed APK. The magic-link email
+                 points at https://openmusic.lol/auth/magic (the SYSTEM browser), which burns the
+                 single-use token; that page then offers "Open in OpenMusic" pointing at
+                 openmusic://auth/callback?token=<session-bearer> — the browser's cookie can
+                 never reach the app's WebView, so the bearer crosses on this deep link and the
+                 root layout adopts it (adoptNativeToken). android:scheme drops the '://'
+                 (manifest form); the payload is re-validated in parseAuthCallbackUrl() before
+                 it can become a credential (T-38-02 twin). Like the App Links filter above,
+                 this hand-added filter survives `npx cap sync android` — sync only manages
+                 plugin entries, never these. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="openmusic" android:host="auth" android:pathPrefix="/callback" />
+            </intent-filter>
+
         </activity>
 
         <provider

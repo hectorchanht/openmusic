@@ -12,10 +12,13 @@
 // surface or the player. catalog.ts / dedupe.ts are pure reuse — NOT modified here.
 import { searchAll } from '$lib/services/catalog';
 import { dedupeBest } from '$lib/services/dedupe';
+import { pickOfficial, partitionOfficial, isAutoAcceptableArtist } from '$lib/services/song-variant';
+import { tier1Only } from '$lib/sources/registry';
 import { scoreMatch } from '$lib/services/score-match';
 import { isChineseLine, t2sConvertLines, t2sConvertLineSync } from '$lib/services/zh-convert';
 import { detectLang } from '$lib/i18n/detect';
 import { isStrongMatch, lookupChineseName, type ZhName } from '$lib/services/name-rescue';
+import { foldScript } from '$lib/services/dedupe';
 import { settings } from '$lib/stores/settings.svelte';
 import { isAutoResolveEligible } from '$lib/sources/registry';
 import type { Track } from '$lib/sources/types';
@@ -44,26 +47,35 @@ async function attempt(
 	title: string,
 	accept?: (t: Track) => boolean
 ): Promise<Bests> {
-	const r = await searchAll(`${artist} ${title}`, 1);
+	// quick-261020-speed: TIERED SEARCH. Tier-1 (qq/joox/kuwo/netease/suyin) covers ~95% of
+	// plays; searching only those 5 first cuts the fan-out from 14 sources to 5 (~5s → ~2s).
+	// Only when tier-1 yields NO official version do we expand to the full set (for
+	// obscure/long-tail songs the tail sources cover).
 	const query = { artist, title };
+	const tier1 = await searchAll(`${artist} ${title}`, 1, tier1Only());
+	const { official } = partitionOfficial(tier1.interleaved, title);
+	const useFull = official.length === 0;
+	const r = useFull ? await searchAll(`${artist} ${title}`, 1) : tier1;
 	const pick = (rows: Track[]): Track | null => {
 		// dedupeBest = the deduped, quality/preferredSource-ordered candidate list (FINAL
-		// tie-break). Re-rank IT by scoreMatch with a stable max: only replace the current
-		// best on a STRICTLY higher score, so equal scores keep the earlier dedupeBest slot.
+		// tie-break). quick-261020-off1: pickOfficial ranks the OFFICIAL pool first — a plain
+		// original recording always beats a 伴奏/live/DJ/cover variant of the same song.
+		// Variants are only considered when no official version exists. scoreMatch still
+		// ranks within each pool, and the stable-max keeps dedupeBest order on ties.
 		let candidates = dedupeBest(rows, settings.preferredSource);
+		// quick-261102-cov1 (user report 2026-11-02): the ARTIST-IDENTITY gate runs BEFORE
+		// ranking. scoreMatch only re-orders — every plain-titled cover earns the same
+		// title-only credit, so on a covers-only pool (netease's pool for 周杰倫《說了再見》
+		// is exactly that: 10 fan covers, no official row) the stable max simply took the
+		// first cover and the tap played 阿傑 under 周杰倫's name. A candidate credited to
+		// a clearly different artist is not a candidate at all for an automatic resolve:
+		// filter it out here so the pick walks past covers to the original artist's row
+		// whenever any source in the pool carries one, and returns null when none does.
+		candidates = candidates.filter((t) => isAutoAcceptableArtist(artist, t.artist));
 		// quick-260925-wa7: the name rescue ranks only the rows it would accept (see rescueLatin).
 		if (accept) candidates = candidates.filter(accept);
 		if (candidates.length === 0) return null;
-		let best = candidates[0];
-		let bestScore = scoreMatch(query, best);
-		for (let i = 1; i < candidates.length; i++) {
-			const s = scoreMatch(query, candidates[i]);
-			if (s > bestScore) {
-				best = candidates[i];
-				bestScore = s;
-			}
-		}
-		return best;
+		return pickOfficial(candidates, query, scoreMatch);
 	};
 	// quick-260926-c69: partition BEFORE dedupeBest. Its same-key collapse is decided by quality →
 	// settings.preferredSource → SOURCE_RANK, so a user-preferred ineligible source could otherwise
@@ -93,12 +105,41 @@ async function strongFolded(query: ZhName, cand: ZhName): Promise<boolean> {
  * matches; a strong ineligible (ytmusic) row beats a weak/wrong eligible one — never play a wrong
  * song; with nothing strong, today's result: the best eligible weak row, else the best ineligible
  * one, else null. The `?? ineligible` tail is what keeps ytmusic the LAST RESORT — do not remove it.
+ *
+ * quick-261102-cov1: the weak fallback is additionally ARTIST-gated (see the check in the
+ * body). wrong1 verified only the title; the 2026-11-02 incident is the other half of
+ * "wrong song" — the RIGHT title by the WRONG artist （阿傑's cover of 說了再見 for a
+ * 周杰倫 tap). A different-artist weak row now returns null like a wrong-title one.
  */
 export async function preferEligible(query: ZhName, bests: Bests): Promise<Track | null> {
 	const { eligible, ineligible } = bests;
 	if (eligible && (await strongFolded(query, eligible))) return eligible;
 	if (ineligible && (await strongFolded(query, ineligible))) return ineligible;
-	return eligible ?? ineligible;
+	const fallback = eligible ?? ineligible;
+	// quick-261102-cov1: a weak row credited to a clearly DIFFERENT artist is a cover /
+	// another act's song, never a stand-in for the tapped artist — veto it BEFORE the
+	// title check below. (attempt's pick already filters its own bests through the same
+	// gate; this is the explicit bar at the selection seam, and it covers any caller
+	// that hands preferEligible bests built elsewhere.)
+	if (fallback && !isAutoAcceptableArtist(query.artist, fallback.artist)) {
+		return null;
+	}
+	// quick-261020-wrong1: NEVER return a weak match with a completely different title —
+	// that plays the wrong song (e.g. 說了再見 → 擱淺). The folded titles must share
+	// significant overlap, otherwise return null and let the caller handle the miss.
+	if (fallback) {
+		const qTitle = foldScript(query.title || '').toLowerCase().replace(/\s+/g, '');
+		const cTitle = foldScript(fallback.title || '').toLowerCase().replace(/\s+/g, '');
+		// Titles match if one contains the other, or they share >= 50% of the query's chars.
+		const contains = qTitle && cTitle && (qTitle.includes(cTitle) || cTitle.includes(qTitle));
+		if (!contains) {
+			let overlap = 0;
+			const cSet = new Set(cTitle);
+			for (const ch of qTitle) if (cSet.has(ch)) overlap++;
+			if (qTitle.length === 0 || overlap / qTitle.length < 0.5) return null;
+		}
+	}
+	return fallback;
 }
 
 /**

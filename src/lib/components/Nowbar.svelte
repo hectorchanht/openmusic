@@ -36,6 +36,7 @@
     import { activeLineAt } from "$lib/services/lrc";
     import { parseLyrics } from "$lib/stores/lyric-script.svelte";
     import { readLyrics } from "$lib/stores/lyric-pins.svelte";
+    import { splitParenLines, reorderPairs } from "$lib/services/lrc";
     // quick-260926-mzn: the EFFECTIVE offset (local ?? listeners' consensus ?? 0), same as the pane.
     import { getEffectiveLyricOffset, ensureSharedLyricOffset, lyricOffsetVersion } from "$lib/stores/lyric-offset.svelte";
 
@@ -82,7 +83,30 @@
     //    This derived depends on the lyric STRING, not on currentTime, so it costs one pass over the
     //    LRC per TRACK — not per tick. quick-260919-2jo: the script conversion rides INSIDE that same
     //    once-per-track pass (parseLyrics), so the per-tick scan below still walks plain strings.
-    const lyricLines = $derived(parseLyrics(readLyrics(player.current)));
+    // quick-261020-lyr1: SAME pipeline as NpLyrics — splitParenLines(reorderPairs(parseLyrics))
+    // so the Nowbar's line obeys the same translation settings (Hide parenthesised
+    // translations/lines). The visible-lines filter mirrors NpLyrics's render guard.
+    const lyricLines = $derived.by(() => {
+        const src = readLyrics(player.current);
+        if (!src) return [];
+        const all = splitParenLines(reorderPairs(parseLyrics(src)));
+        // Filter hidden lines (same as NpLyrics's {#if} guards):
+        // - lyricsHideParenLines ON → hide the entire paren/translation line
+        // - lyricsHideParenTranslation ON → hide paren/translation lines (show parent instead)
+        // - translateMode === 'replace' → hide original when translation sibling exists
+        // quick-261020-lyr2: also catches isTranslation (separate-line translations).
+        // quick-261020-lyr4: Replace mode for embedded translations.
+        return all.filter((l, i) => {
+            const isTr = l.fromParen || l.isTranslation;
+            if (isTr && settings.lyricsHideParenLines) return false;
+            if (isTr && settings.lyricsHideParenTranslation) return false;
+            if (settings.translateMode === 'replace' && !isTr) {
+                const hasTrSibling = all.some((o, j) => j !== i && o.time === l.time && (o.fromParen || o.isTranslation));
+                if (hasTrSibling) return false;
+            }
+            return true;
+        });
+    });
     // quick-260926-mis: same offset as the pane, same function, so the two surfaces cannot drift.
     const lyricOffset = $derived(getEffectiveLyricOffset(player.current?.uid));
     // 2. The early return gates the whole scan: with the setting off this costs one boolean read per
@@ -619,7 +643,7 @@
     .np-btn {
         background: var(--color-primary);
         border: none;
-        color: #fff;
+        color: var(--color-on-primary); /* quick-261102-rrb */
         width: 40px;
         height: 40px;
         border-radius: 50%;

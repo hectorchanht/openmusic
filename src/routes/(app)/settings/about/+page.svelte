@@ -14,9 +14,12 @@
 	const TAGLIB = 'https://github.com/taglib/taglib';
 	const TIPJAR = 'https://dawnlimited.gumroad.com/l/openmusic-tip';
 
+	// App version baked at build time (VITE_APP_VERSION from CI); 'dev' locally.
+	const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'dev';
+
 	// What the app does today (literal — brand/credits text, not part of the translated UI chrome).
 	const features = [
-		'Search + stream across Netease, QQ, Kuwo, JOOX, 5sing, Jamendo, Audius & YouTube Music — all searched by default, each toggleable in Settings → Playback',
+		'Search + stream across Netease, QQ, Kuwo, Kugou, Migu, JOOX, 5sing, Bilibili, Jamendo, Audius, Internet Archive & YouTube Music — plus independent second pipes for Netease (GD音乐台) and Kuwo （溯音）; all searched by default, each toggleable in Settings → Playback',
 		'Home discovery — Deezer top-hits & top-artists charts plus Last.fm genre & region shelves you can pick, reorder & hide',
 		'Tap-to-play that re-resolves the best match across the enabled sources; a failing source quietly hands off to another',
 		'Real album & artist art via Deezer → iTunes → CN fallback',
@@ -25,6 +28,7 @@
 		'Sleep timer with a gentle fade-out, background audio & lock-screen controls',
 		'Song comments + crowd-sourced cover picks — vote for better artwork',
 		'Anonymous play-count analytics — song + device type, OS, platform, app version, language & country; no account, no IP stored',
+		'Like & download analytics — which songs are liked / downloaded; tied to your account when signed in, anonymous device id otherwise; no IP stored',
 		'Installable PWA, plus an Android app (same app in a Capacitor shell)',
 		// 36-D-01: TagLib is dual-licensed LGPL-2.1 / MPL-1.1 — weak copyleft, so shipping it
 		// obliges us to give notice. The npm tarball ships only the MIT wrapper LICENSE and omits
@@ -40,6 +44,7 @@
 
 <section>
 	<div class="item static"><Info size={18} /> {t('settings.aboutLine')}</div>
+	<div class="item static version"><Tag size={18} /> v{APP_VERSION}</div>
 </section>
 
 <section>
@@ -61,6 +66,7 @@
 	section h2 { font-size: 0.95rem; margin: 0 0 8px; color: var(--color-text); }
 	.item { width: 100%; display: flex; align-items: center; gap: 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 14px; border-radius: 12px; font-size: 0.9375rem; text-align: left; }
 	.item.static { cursor: default; color: var(--color-text-muted); font-size: 0.8125rem; }
+	.item.version { font-variant-numeric: tabular-nums; }
 	.item.link { cursor: pointer; margin-bottom: 8px; }
 	.item.link:hover { background: var(--color-surface); }
 	.item.link span { word-break: break-all; }

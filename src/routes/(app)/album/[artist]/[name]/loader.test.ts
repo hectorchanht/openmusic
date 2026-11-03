@@ -74,28 +74,28 @@ describe('album/[artist]/[name] loader — OG head', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
-// quick-260926-kvz — the VISIBLE text follows the Chinese script lock (client-side only)
+// quick-261023-albumurl — the 2-segment route renders the REAL album page (no forwarder)
 // ---------------------------------------------------------------------------------------------
-// The forward target was already locked (quick-260926-hze); the landing body still rendered the raw
-// route segments. The component cannot be mounted here (no jsdom project), so guard the SOURCE: the
-// display goes through a lazily-bound names.zhLock, while the forward stays keyed on raw data.
-describe('album share landing — visible text follows the script lock (quick-260926-kvz)', () => {
+// The page is a thin wrapper around the one album implementation at ../../[name]/+page.svelte —
+// no duplicated ~1000-line component, no replaceState forward (which used to double-hop every
+// in-app album tap back to the legacy shape). The component cannot be mounted here (no jsdom
+// project), so guard the SOURCE: it renders <AlbumPage> with the loader's data (whose `artist`
+// is already dash-decoded), and keeps the SSR-SAFETY invariant (no static store import — the
+// imported component's own module top is store-free, audited 24-04).
+describe('album 2-segment page renders the real album implementation (quick-261023-albumurl)', () => {
 	const src = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
 
-	it('renders the locked display fields, not the raw ones', () => {
-		expect(src).toContain('{shownName}');
-		expect(src).toContain('{shownArtist}');
-		expect(src).not.toContain('<h1 class="title">{name}</h1>');
+	it('renders the shared AlbumPage component, not a forward landing', () => {
+		expect(src).toContain("import AlbumPage from '../../[name]/+page.svelte'");
+		expect(src).toContain('<AlbumPage data={data} />');
+		expect(src).not.toContain("goto(");
 	});
 
-	it('binds the lock from a LAZY names import (no static store import — SSR-SAFETY)', () => {
-		expect(src).toContain("import('$lib/stores/names.svelte')");
-		expect(src).toContain('names.zhLock(');
+	it('keeps the SSR-SAFETY invariant (no static store import at module top)', () => {
 		expect(src).not.toMatch(/^\s*import\s[^(]*from '\$lib\/stores\//m);
 	});
 
-	it('keeps the raw route segments as the resolution keys', () => {
-		expect(src).toContain('encodeURIComponent(data.name)');
-		expect(src).toContain('encodeURIComponent(data.artist)');
+	it('passes the loader data through (artist already dash-decoded by the loader)', () => {
+		expect(src).toContain('let { data }: { data: PageData } = $props()');
 	});
 });

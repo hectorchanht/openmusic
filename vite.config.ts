@@ -24,7 +24,11 @@ function localeChunkNames(): Plugin {
 		outputOptions(options) {
 			const prev = options.chunkFileNames;
 			options.chunkFileNames = (chunkInfo) => {
-				const ids: string[] = chunkInfo.moduleIds ?? Object.keys(chunkInfo.modules ?? {});
+				// rolldown (vite 8) types PreRenderedChunk with moduleIds only; keep a typed
+				// fallback for old rollup's modules so the locale-chunk naming keeps working
+				// on either bundler without a type error.
+				const legacy = chunkInfo as unknown as { modules?: Record<string, unknown> };
+				const ids: string[] = chunkInfo.moduleIds ?? Object.keys(legacy.modules ?? {});
 				let tag: string | undefined;
 				for (const id of ids) {
 					const m = id.match(LOCALE_RE);

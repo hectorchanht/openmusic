@@ -340,6 +340,9 @@ class Names {
 	 *    the lock gets the last word rather than us arbitrating.
 	 */
 	private resolve(text: string, target: string, whitelist: readonly string[]): string {
+		// quick-261020-lyr11: resolve() is only called when the target is ON (dnArtist/dnTitle
+		// gate on 'off' first), so applyLock here is correct — the zhScript conversion applies
+		// to translated artist/title names.
 		return this.applyLock(this.resolveTranslated(text, target, whitelist));
 	}
 
@@ -432,20 +435,37 @@ class Names {
 	/** Artist name → artistLang + artistSkip. ju0: `'auto'` resolves to settings.appLang.
 	 * quick-260925-x8o: a rescued single-performer Chinese artist wins while the lock is on. */
 	dnArtist(text: string): string {
-		const a = this.aliasArtist(text);
+		// quick-261020-lyr11/12 (user):
+		// - Translation target OFF → no TRANSLATION, but Chinese Script (zhScript) STILL
+		//   applies: Simplified → Traditional conversion for Chinese text. English untouched.
+		// - Target ON + Chinese → use Chinese alias + script lock.
+		// - Target ON + other language → skip Chinese alias, translate to target.
+		const target = effectiveTarget(settings.artistLang);
+		if (target === 'off') {
+			return this.applyLock(text);
+		}
+		const isChineseTarget = target === 'zh-Hant' || target === 'zh-Hans';
+		const a = isChineseTarget ? this.aliasArtist(text) : null;
 		return a !== null
 			? this.applyLock(a)
-			: this.resolve(text, effectiveTarget(settings.artistLang), settings.artistSkip);
+			: this.resolve(text, target, settings.artistSkip);
 	}
 
 	/** Song / album title → titleLang + titleSkip. ju0: `'auto'` resolves to settings.appLang.
 	 * quick-260925-x8o: `artist` is the SAME track's raw artist — it keys the rescued Chinese title
 	 * ("Coral Sea" alone must never become 珊瑚海). Album/artist-name callers must NOT pass one. */
 	dnTitle(text: string, artist?: string): string {
-		const a = this.aliasTitle(text, artist);
+		// quick-261020-lyr11/12 (user): same as dnArtist — OFF means no translation,
+		// but zhScript conversion still applies to Chinese text.
+		const target = effectiveTarget(settings.titleLang);
+		if (target === 'off') {
+			return this.applyLock(text);
+		}
+		const isChineseTarget = target === 'zh-Hant' || target === 'zh-Hans';
+		const a = isChineseTarget ? this.aliasTitle(text, artist) : null;
 		return a !== null
 			? this.applyLock(a)
-			: this.resolve(text, effectiveTarget(settings.titleLang), settings.titleSkip);
+			: this.resolve(text, target, settings.titleSkip);
 	}
 
 	/** Last.fm tag → lastfmLang + lastfmSkip. ju0: `'auto'` resolves to settings.appLang. */

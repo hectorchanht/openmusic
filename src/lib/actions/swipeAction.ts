@@ -1,5 +1,6 @@
 import type { Action } from 'svelte/action';
 import { createVelocityTracker } from '$lib/gestures/velocity';
+import { createSpringSnap } from '$lib/gestures/springSnap';
 
 // use:swipeAction — DIRECTIONAL finger-drag-SIDEWAYS that commits a per-direction callback then
 // ALWAYS springs the row back (Phase 23, UX-04 / D-01/D-02). A verbatim generalization of
@@ -23,6 +24,18 @@ import { createVelocityTracker } from '$lib/gestures/velocity';
 //    capture) so the row's scroll / use:longpress menu runs — the swipe never hijacks it.
 //  - touch-action: pan-y on attach — vertical panning/scroll stays with the browser, only the
 //    horizontal axis is yielded to this action.
+//  - SETTLE IS UNCONDITIONAL (quick-261102-settle): the release used to be heard ONLY via
+//    pointerup/pointercancel delivered to this node, with a bare setPointerCapture in move().
+//    If capture is lost mid-gesture (browser implicit release, a competing surface capturing
+//    the same pointer, release outside the window) NEITHER event reaches the node, up() never
+//    runs, springSnap is never invoked and the row LATCHES at its drag offset — Hector's
+//    desktop report "swiping a song row does not snap back when the mouse leaves" (reproduced
+//    in headless Chromium by stealing capture mid-drag: lostpointercapture fires, no up/cancel
+//    ever arrives, transform stays translateX(60px) forever). The fix routes EVERY abandonment
+//    path into the same up(): lostpointercapture on the node, window-level pointerup /
+//    pointercancel / pointermove / blur safety listeners armed at commit (dragScroll's
+//    window-listener precedent), a try/catch around setPointerCapture with window tracking as
+//    the fallback, and a buttons===0 move guard for a release that happened off-window.
 //  - This action is a PURE DOM gesture: it does NOT fire haptics. The consuming component calls
 //    haptics.tick() inside onSwipeRight/onSwipeLeft on commit (PATTERNS.md §3.3).
 //  - Reactive update(opts) swaps callbacks / threshold / toggles `enabled`. enabled:false → inert.
@@ -45,6 +58,8 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 	let startX = 0;
 	let startY = 0;
 	let dx = 0;
+	let activePointerId = -1;
+	let lastMoveEvent: PointerEvent | null = null;
 	const SLOP = 8; // px before a press becomes a drag (swipeRemove's DRAG_START)
 	const FLICK_V = 0.5; // px/ms — a fast horizontal flick commits even when not dragged far
 	const vel = createVelocityTracker();
@@ -56,6 +71,16 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 		node.style.transform = '';
 		node.style.transition = '';
 	}
+
+	// quick-261022-spring: the ALWAYS-spring-back (D-02, iOS-Mail full-commit-then-spring-back)
+	// settles with a real damped spring instead of the old fixed 0.28s ease-out. The pump drives
+	// the inline transform every frame; onSettled clears it so the host CSS resting state returns.
+	const snap = createSpringSnap(
+		(v) => {
+			node.style.transform = v === 0 ? '' : `translateX(${v}px)`;
+		},
+		{ onSettled: resetTransform }
+	);
 
 	// WR-01: swallow the trailing click after a COMMITTED horizontal drag. setPointerCapture
 	// retargets the click to this node, and on mouse input a click fires after every
@@ -69,6 +94,38 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 		node.removeEventListener('click', suppressClick, true);
 	}
 
+	// quick-261102-settle: window-level safety net, armed only while a drag is committed.
+	// With pointer capture held, releases retarget to this node and the window copies of the
+	// same event are deduped (move) / no-ops (up, via the dragging guard); when capture is
+	// lost or refused, these become the ONLY path that can settle the gesture. Handlers are
+	// pointerId-filtered so a second finger's release never settles this pointer's drag.
+	const win = () => (typeof window !== 'undefined' ? window : null);
+	const winMove = (e: PointerEvent) => {
+		if (e.pointerId === activePointerId) move(e);
+	};
+	const winUp = (e: PointerEvent) => {
+		if (e.pointerId === activePointerId) up();
+	};
+	const winBlur = () => up();
+
+	function armWindow() {
+		const w = win();
+		if (!w) return;
+		w.addEventListener('pointermove', winMove);
+		w.addEventListener('pointerup', winUp);
+		w.addEventListener('pointercancel', winUp);
+		w.addEventListener('blur', winBlur);
+	}
+
+	function disarmWindow() {
+		const w = win();
+		if (!w) return;
+		w.removeEventListener('pointermove', winMove);
+		w.removeEventListener('pointerup', winUp);
+		w.removeEventListener('pointercancel', winUp);
+		w.removeEventListener('blur', winBlur);
+	}
+
 	function down(e: PointerEvent) {
 		if (!enabled) return;
 		// A new gesture starts clean: drop a stale suppressor from a prior committed drag whose
@@ -76,6 +133,8 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 		node.removeEventListener('click', suppressClick, true);
 		dragging = true;
 		captured = false;
+		activePointerId = e.pointerId;
+		lastMoveEvent = null;
 		startX = e.clientX;
 		startY = e.clientY;
 		dx = 0;
@@ -84,11 +143,24 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 		// Do NOT setPointerCapture here: capturing on pointerdown retargets the trailing click to
 		// THIS node, so a tap on the row never reaches its onclick (tap-to-play "did nothing").
 		// Capture only once an actual horizontal drag begins (in move()).
+		// quick-261022-spring: interrupt an in-flight spring settle so the pump can't fight the finger.
+		snap.cancel();
 		node.style.transition = 'none';
 	}
 
 	function move(e: PointerEvent) {
 		if (!dragging) return;
+		// The same event instance reaches both the node listener and the window safety listener
+		// (capture retargets to the node, then it bubbles to window) — process it once.
+		if (e === lastMoveEvent) return;
+		lastMoveEvent = e;
+		// quick-261102-settle: a move arriving with NO button pressed means the press ended
+		// somewhere we never saw (released off-window / after a blur) — settle the gesture
+		// instead of hover-dragging the row under a button-less cursor.
+		if (e.buttons === 0) {
+			up();
+			return;
+		}
 		const ddx = e.clientX - startX;
 		const ddy = e.clientY - startY;
 		if (!captured) {
@@ -101,8 +173,17 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 			}
 			// Horizontal commit: capture HERE (not on down) so the gesture keeps flowing past the
 			// node edge while a tap (never reaching slop) leaves the click to the row.
-			node.setPointerCapture(e.pointerId);
+			// quick-261102-settle: capture can THROW (NotFoundError for an already-inactive
+			// pointer) — the bare call used to abort this handler before the transform write and
+			// leave the gesture untracked. On a throw the window safety net (armed just below)
+			// tracks the rest of the gesture instead.
+			try {
+				node.setPointerCapture(e.pointerId);
+			} catch {
+				/* window listeners below keep tracking — non-fatal */
+			}
 			captured = true;
+			armWindow();
 		}
 		dx = e.clientX - startX;
 		vel.sample(e.clientX, e.timeStamp);
@@ -113,6 +194,8 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 	function up() {
 		if (!dragging) return;
 		dragging = false;
+		disarmWindow();
+		activePointerId = -1;
 		// WR-01: a gesture that committed (captured) must NOT let its trailing click reach the
 		// row's onclick — neither after a swipe-commit (commit-then-replay) nor after a spring-back
 		// (the user clearly dragged, not tapped). Capture-phase, one-shot.
@@ -126,17 +209,26 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 			if (dx > 0) onSwipeRight?.(); // queue (D-03) — host fires haptics.tick()
 			else onSwipeLeft?.(); // like toggle (D-04) — host fires haptics.tick()
 		}
-		// ALWAYS spring back to rest — the row is NEVER removed (D-02). Re-enable the transition
-		// and animate translateX → 0 regardless of whether we committed.
-		node.style.transition = 'transform 0.28s cubic-bezier(.22,1,.36,1)';
-		node.style.transform = 'translateX(0)';
+		// ALWAYS spring back to rest — the row is NEVER removed (D-02). The shared springSnap
+		// settles with real spring physics (quick-261022-spring) regardless of whether we committed.
+		snap.snap(dx, 0);
 		dx = 0;
+	}
+
+	// quick-261102-settle: capture was taken from us mid-gesture (implicit browser release or
+	// a competing surface) — pointerup/pointercancel may never be delivered here, so settle
+	// exactly like a release at the current offset (pointercancel parity: an abandoned touch
+	// swipe ends the same way). After a NORMAL pointerup this fires with dragging already
+	// false and no-ops.
+	function lostCapture() {
+		if (dragging) up();
 	}
 
 	node.addEventListener('pointerdown', down);
 	node.addEventListener('pointermove', move);
 	node.addEventListener('pointerup', up);
 	node.addEventListener('pointercancel', up);
+	node.addEventListener('lostpointercapture', lostCapture);
 
 	return {
 		update(next: SwipeActionOpts) {
@@ -146,10 +238,13 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 			enabled = next.enabled ?? true;
 		},
 		destroy() {
+			snap.cancel(); // quick-261022-spring: never leave the pump writing to a dead node
+			disarmWindow(); // quick-261102-settle: never leak the window safety net
 			node.removeEventListener('pointerdown', down);
 			node.removeEventListener('pointermove', move);
 			node.removeEventListener('pointerup', up);
 			node.removeEventListener('pointercancel', up);
+			node.removeEventListener('lostpointercapture', lostCapture);
 			node.removeEventListener('click', suppressClick, true); // WR-01: drop an armed suppressor
 			resetTransform();
 			node.style.touchAction = '';

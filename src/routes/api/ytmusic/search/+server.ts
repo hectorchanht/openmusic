@@ -12,7 +12,7 @@
 // WEB_REMIX key lives only in SEARCH_URL (server -> upstream); it is NEVER echoed into a response
 // body. CORS is allowlisted (never '*').
 import type { RequestHandler } from './$types';
-import { corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { corsHeaders, jsonResponse, corsPreflight } from '$lib/proxy/http';
 import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
 import { innerTubeLocale, searchInnerTube, SONGS_FILTER, VIDEOS_FILTER } from '$lib/proxy/ytmusic';
 
@@ -91,6 +91,4 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	}
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

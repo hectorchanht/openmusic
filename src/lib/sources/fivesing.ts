@@ -23,6 +23,7 @@ import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { inferQualityFromUrl } from '../services/lrc';
 import { apiFetch } from '../services/api-base';
+import { fivesingHealth } from '../services/fivesing-health';
 
 // ---- Upstream JSON shapes (only fields we read; all optional — untrusted) ----------------
 
@@ -73,18 +74,37 @@ export const fivesing: SourceAdapter = {
 	enabledByDefault: true,
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
+		// HEALTH-GATE short-circuit (fivesing-health, universal-gate rollout 2026-11-01):
+		// after a run of failures/drys, skip the wasted call for a bounded window; the gate
+		// then auto-opens for one probe whose outcome re-decides. Never-throw on this path.
+		if (fivesingHealth.isGated()) return [];
+
 		const pg = Math.max(1, page || 1);
 		const path = `/api/fivesing/search?keyword=${encodeURIComponent(keyword)}&page=${pg}&pagesize=20`;
 
-		const res = await apiFetch(path, { signal });
-		const json = (await res.json()) as FsSearchResponse | null;
+		// Fetch + parse in ONE try (the kuwoJson lesson) so every failure shape counts; a
+		// caller abort is a supersede, not an outage — rethrown uncounted.
+		let json: FsSearchResponse | null;
+		try {
+			const res = await apiFetch(path, { signal });
+			json = (await res.json()) as FsSearchResponse | null;
+		} catch (err) {
+			if (!signal.aborted) fivesingHealth.recordFail();
+			throw err;
+		}
 
 		// Contract-drift guard: 5sing's `list` is the anchor. Missing → throw so the fan-out
 		// records a typed per-source error rather than silently dropping the source (mirrors
 		// kuwo.ts).
 		if (!json || !Array.isArray(json.list)) {
+			fivesingHealth.recordFail();
 			throw new Error('fivesing: contract-drift (expected {list:[]} search body)');
 		}
+		// DRY counting (fivesing-health): the search route converts an upstream outage
+		// into this exact well-formed EMPTY body, so an empty list is this source's outage
+		// shape — recordDry. Rows prove a live upstream — recordOk, instant recovery.
+		if (json.list.length === 0) fivesingHealth.recordDry();
+		else fivesingHealth.recordOk();
 
 		const tracks: Track[] = [];
 		json.list.forEach((it, idx) => {
@@ -129,9 +149,20 @@ export const fivesing: SourceAdapter = {
 		const numericId = track.songid.replace(/^(fc|bz|yc)-/, '');
 		const path = `/api/fivesing/url?songid=${encodeURIComponent(numericId)}&songtype=${encodeURIComponent(songtype)}`;
 
-		const res = await apiFetch(path, { signal });
-		const j = (await res.json()) as FsUrlResponse | null;
+		// Deliberately NOT gated (the kuwo rule): a gated window never refuses a chosen
+		// track — but the outcome feeds the gate (fivesing-health). The url route converts
+		// an upstream failure into HTTP 200 {code:0, data:{}}, so the failure branch below
+		// IS this leg's outage shape; a transport throw counts the same way.
+		let j: FsUrlResponse | null;
+		try {
+			const res = await apiFetch(path, { signal });
+			j = (await res.json()) as FsUrlResponse | null;
+		} catch (err) {
+			if (!signal.aborted) fivesingHealth.recordFail();
+			throw err;
+		}
 		if (!j || j.code !== 1000 || !j.data) {
+			fivesingHealth.recordFail();
 			throw new Error('fivesing: detail failed');
 		}
 		const d = j.data;
@@ -140,7 +171,13 @@ export const fivesing: SourceAdapter = {
 		const audioUrl =
 			d.squrl || d.hqurl || d.lqurl ||
 			d.squrl_backup || d.hqurl_backup || d.lqurl_backup || null;
-		if (!audioUrl) throw new Error('fivesing: no playable url tier returned');
+		if (!audioUrl) {
+			// code:1000 + data proves a LIVE upstream — this song simply has no playable
+			// tier (a per-song miss): recordOk, then throw as before.
+			fivesingHealth.recordOk();
+			throw new Error('fivesing: no playable url tier returned');
+		}
+		fivesingHealth.recordOk();
 
 		track.audioUrl = audioUrl;
 		track.detailsLoaded = true;

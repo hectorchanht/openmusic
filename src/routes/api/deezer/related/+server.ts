@@ -10,7 +10,7 @@
 // similar.ts already runs. NO secret, NO env read (Deezer public API, same posture as the
 // existing /api/deezer/search route).
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { fetchWithRetry, jsonResponse, corsPreflight } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import { pickBestArtistId, DEEZER_ARTIST_SEARCH_LIMIT } from '$lib/proxy/deezer-pick';
 
@@ -98,6 +98,4 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	}
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

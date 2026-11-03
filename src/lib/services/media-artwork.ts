@@ -58,9 +58,27 @@ export const MAX_ART_BYTES = 1_000_000;
 /** Per-fetch deadline. Artwork is decoration — it must never hold up a metadata write for long. */
 export const ART_FETCH_TIMEOUT_MS = 6_000;
 
+/**
+ * Bounded retry budget for the /api/og leg (media-card-noart-261019). The edge tier chain and
+ * the image hop run with tight timeouts and retries=0 BY DESIGN (crawler budget), so one
+ * transient fault answers 200 + image/jpeg + `x-og-fallback` — and with a single attempt the OS
+ * media card would clear its artwork for the whole track. Production-probed 2026-10-19: two
+ * identical /api/og requests seconds apart flip-flopped between the fallback card and a real
+ * 146 KB cover, so the fault is transient and a retry lands. The direct cover-fetch leg needs
+ * no retry: a CORS rejection is deterministic and fails fast, and the og leg is its backstop.
+ */
+export const OG_MAX_ATTEMPTS = 3;
+/** Base delay between /api/og attempts, multiplied by the attempt index (1 s, then 2 s). */
+export const OG_RETRY_DELAY_MS = 1_000;
+
 /** Image MIME types worth handing to BitmapFactory. An HTML error page must never get through. */
 function isImageType(contentType: string | null): boolean {
 	return typeof contentType === 'string' && contentType.toLowerCase().startsWith('image/');
+}
+
+/** setTimeout promisified. Local (not shared) — the only await-a-delay in this module. */
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -111,6 +129,17 @@ export interface ArtworkQuery {
 	artist: string;
 }
 
+/** Options for {@link resolveArtworkDataUrl}. Every field optional — existing callers pass none. */
+export interface ArtworkResolveOptions {
+	/**
+	 * Return true when the caller no longer wants the result (media-card-noart-261019). The
+	 * native media session passes its generation guard here: a newer metadata write superseded
+	 * this resolve, so the retry loop aborts instead of burning attempts (and their sleeps) on
+	 * a track whose result would be dropped anyway. Checked before every attempt.
+	 */
+	isCancelled?: () => boolean;
+}
+
 /**
  * Resolve `q` to a `data:` URL, or null if no source produced usable image bytes.
  *
@@ -118,8 +147,14 @@ export interface ArtworkQuery {
  * (works for the CORS-clean Deezer/iTunes tiers); then own-origin /api/og by title+artist (the
  * only route to CN covers, which send no CORS headers). A non-https cover is never fetched — it
  * would be blocked as mixed content anyway, and it is the exact input that crashed the app.
+ *
+ * The /api/og leg retries bounded (OG_MAX_ATTEMPTS): its edge pipeline is flaky by design
+ * (media-card-noart-261019) and one transient miss must not clear the card art for the track.
  */
-export async function resolveArtworkDataUrl(q: ArtworkQuery): Promise<string | null> {
+export async function resolveArtworkDataUrl(
+	q: ArtworkQuery,
+	opts: ArtworkResolveOptions = {}
+): Promise<string | null> {
 	if (q.cover && q.cover.startsWith('data:')) return q.cover;
 
 	if (hasHttpsScheme(q.cover)) {
@@ -130,5 +165,15 @@ export async function resolveArtworkDataUrl(q: ArtworkQuery): Promise<string | n
 	// /api/og resolves a cover from TEXT. Without at least a title it has nothing to work with.
 	if (!q.title.trim()) return null;
 	const params = new URLSearchParams({ type: 'song', title: q.title, artist: q.artist });
-	return fetchAsDataUrl(apiUrl(`/api/og?${params.toString()}`));
+	const ogUrl = apiUrl(`/api/og?${params.toString()}`);
+	// fetchAsDataUrl already maps the x-og-fallback marker and every failure mode to null, so
+	// "null" is exactly the retry condition — a transient edge fault gets more chances, a genuine
+	// miss just costs the bounded attempts and still resolves to null, never a throw.
+	for (let attempt = 1; attempt <= OG_MAX_ATTEMPTS; attempt++) {
+		if (opts.isCancelled?.()) return null;
+		const hit = await fetchAsDataUrl(ogUrl);
+		if (hit) return hit;
+		if (attempt < OG_MAX_ATTEMPTS) await sleep(OG_RETRY_DELAY_MS * attempt);
+	}
+	return null;
 }

@@ -305,7 +305,7 @@ export type ChartSectionId = (typeof CHART_SECTIONS)[number];
 /**
  * quick-260925-vtg — no longer === HOME_SECTIONS: this is the user's own exported order (personal
  * group radio-first, classic shelves interleaved where the export put them), adopted as the
- * default. It MUST remain a permutation of all 17 HOME_SECTIONS ids (guarded by
+ * default. It MUST remain a permutation of all 18 HOME_SECTIONS ids (guarded by
  * home-layout.test.ts) because resolveSectionOrder returns it verbatim as the fallback.
  * HOME_SECTIONS itself stays the canonical/append order and is unchanged.
  */

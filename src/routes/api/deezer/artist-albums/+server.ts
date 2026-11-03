@@ -16,7 +16,7 @@
 // validated integer, not raw input) is then interpolated into the fixed
 // `api.deezer.com/artist/{id}/albums` path. The host is always the literal api.deezer.com.
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { fetchWithRetry, corsHeaders, jsonResponse, corsPreflight } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import { pickBestArtistId, DEEZER_ARTIST_SEARCH_LIMIT } from '$lib/proxy/deezer-pick';
 import { safeImageUrl as checkImageUrl, DEEZER_IMAGE_HOSTS } from '$lib/proxy/safe-image-url';
@@ -235,6 +235,4 @@ export const GET: RequestHandler = async ({ url, request }) => {
 };
 
 // CORS preflight — scoped to the own origin via corsHeaders (never `*`).
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

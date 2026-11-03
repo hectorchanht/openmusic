@@ -21,6 +21,7 @@ import { matchKey } from '$lib/services/match-key';
 import type { CoverNeed } from '$lib/services/cover-backfill';
 import type { Track } from '$lib/sources/types';
 import { hasHttpsScheme } from './url-safety';
+import { isCoverUrlDead } from './dead-cover-urls';
 
 /**
  * Hard bound on rows submitted per fill. Equals SIMILAR_TRACK_LIMIT — one attempt per generated row.
@@ -55,7 +56,10 @@ export function upNextCoverNeeds(
 	const seen = new Set<string>();
 	const needs: CoverNeed[] = [];
 	for (const t of list) {
-		if (hasHttpsScheme(t.cover)) continue; // already has art (source cover / piz album seed)
+		// quick-261020-batch4 (C8): a DEAD-marked seeded cover counts as coverless — it must not
+		// block backfill submission (the pane's pickRowCover render already dead-skips it, so
+		// without this the row sat on gradient while a fresh cover was one backfill away).
+		if (hasHttpsScheme(t.cover) && !isCoverUrlDead(t.cover)) continue; // already has art (source cover / piz album seed)
 		const artist = t.artist ?? '';
 		const title = t.title ?? '';
 		if (!artist && !title) continue;

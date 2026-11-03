@@ -7,7 +7,7 @@
 // are cacheable; /api/kuwo/detail NEVER is, its resolver urls are signed + expiring (T-2os-03
 // parity). Only a 200 is stored, so one upstream fault is never frozen for the TTL.
 import type { RequestHandler } from './$types';
-import { corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { jsonResponse, corsPreflight } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import { fetchKuwoSearch } from '$lib/proxy/kuwo';
 
@@ -42,6 +42,4 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	return jsonResponse(body, origin, { status, ttl: status === 200 ? TTL : undefined });
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

@@ -16,9 +16,8 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { Play, Shuffle, Download } from '@lucide/svelte';
 	import { downloadAlbum as downloadPackTracks } from '$lib/services/download-album';
+	// quick-261023-bulklock: bulk ZIP downloads are a supporter perk.
 	import { goto } from '$app/navigation';
-	import DownloadGateModal from '$lib/components/DownloadGateModal.svelte';
-	import { isSupporter } from '$lib/config/sponsored';
 	// quick-261010-posthog: pack_download_started when the supporter bulk-download begins.
 	import { track } from '$lib/posthog';
 	import type { Track } from '$lib/sources/types';
@@ -45,56 +44,52 @@
 
 	async function play(s: PackSong) {
 		const tr = await player.playStub(s.artist, s.title, undefined, 'cantopop-2026');
+		// quick-261024-sets: install the pack UNPINNED — the Up-next sourcing setting for this context
+		// decides: 'generated' (default) regenerates the tail from this song, a user's
+		// 'same-list' choice keeps the pack. No sameList pin anywhere outside album/artist.
+		if (tr) player.setListQueue(packQueue(CANTOPOP_2026), 'cantopop-2026');
 		if (tr === null && player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 
-	// quick-261010-soy2: header actions — Play the whole pack from the top, Shuffle the whole pack.
-	// quick-261015-playall: Play installs the WHOLE pack as Up Next (the album-page
-	// quick-260919-alb idiom) — track 1 plays instantly via playStub, the rest install as
-	// lazy name-only stub tracks (zero network; they resolve when they reach the front).
-	// `sameList` keeps the installed list through the fresh-play tail.
+	// quick-261010-soy2: header actions — Play the pack from the top, Shuffle the pack.
+	// quick-261015-playall: the pack installs as lazy name-only stub tracks (zero network;
+	// they resolve when they reach the front).
+	// quick-261024-sets (Hector 2026-10-24): NO sameList pin any more — the install is unpinned, so the
+	// Up-next sourcing setting decides what Up Next becomes: 'generated' (the default for
+	// every non-album/artist context) regenerates the tail from the first song; a user who
+	// set this pack's context to 'same-list' in Settings → Playback keeps the whole pack.
 	function packQueue(list: PackSong[], at = -1, real: Track | null = null): Track[] {
 		return list
 			.map((s, i) => (i === at && real ? real : nameStub(s.artist, s.title)))
 			.filter((tr): tr is Track => tr !== null);
 	}
+	// quick-261031-scope (Hector 2026-10-31): the pack's Play / Shuffle BUTTONS are scoped to
+	// the pack again — playStub gets { sameList: true }, so Up Next IS this pack (in order /
+	// shuffled) whatever the sourcing setting says. Row taps stay unpinned (sets stands).
 	async function playAll() {
 		const list = CANTOPOP_2026;
 		if (!list.length) return;
-		const first = await player.playStub(list[0].artist, list[0].title, undefined, 'cantopop-2026', {
-			sameList: true
-		});
+		const first = await player.playStub(list[0].artist, list[0].title, undefined, 'cantopop-2026', { sameList: true });
 		if (first) player.setListQueue(packQueue(list, 0, first), 'cantopop-2026');
 		else if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 	async function shufflePlay() {
-		// quick-261015-shuffleall: Shuffle installs the WHOLE pack as Up Next in shuffled
-		// order (the album-page quick-260930-uy0 idiom — Shuffle passes a shuffled COPY).
-		// `sameList` keeps the install through the fresh-play tail; NOT player.toggleShuffle()
-		// (that only reorders the tail and is a no-op when shuffle is already on).
+		// quick-261015-shuffleall: Shuffle starts from a shuffled COPY (NOT
+		// player.toggleShuffle() — that only reorders the tail and is a no-op when shuffle
+		// is already on). quick-261024-sets: the shuffled pack installs unpinned, same as Play.
 		const shuffled = shuffle(CANTOPOP_2026);
 		if (!shuffled.length) return;
-		const first = await player.playStub(shuffled[0].artist, shuffled[0].title, undefined, 'cantopop-2026', {
-			sameList: true
-		});
+		const first = await player.playStub(shuffled[0].artist, shuffled[0].title, undefined, 'cantopop-2026', { sameList: true });
 		if (first) player.setListQueue(packQueue(shuffled, 0, first), 'cantopop-2026');
 		else if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 
-	// quick-261010-soy4: Download all — tip-jar supporters only (same gate as discography pack).
+	// quick-261023-chartfree: chart packs stay free for everyone (Hector).
 	let downloading = $state(false);
-	let gateOpen = $state(false);
 	async function downloadAll() {
-		// SUPPORTER CHOICE MODEL (Hector 2026-10-10): the tip-jar supporter
-		// flag is dawn_supporter=1 (isSupporter()); the strip-hide flag no
-		// longer implies supporter status.
-		if (!isSupporter()) {
-			gateOpen = true;
-			return;
-		}
 		if (downloading) return;
 		downloading = true;
-		// quick-261010-posthog: the gate already passed — a real bulk download is starting.
+		// quick-261010-posthog: a real bulk download is starting.
 		track('pack_download_started', { pack: 'cantopop-2026' });
 		try {
 			// Resolve all stubs (4 concurrent), then bulk-download as a zip named for the pack.
@@ -205,8 +200,6 @@
 </ul>
 
 <TrackMenu track={menuTrack} open={menuOpen} loading={menuLoading} onclose={() => (menuOpen = false)} />
-
-<DownloadGateModal bind:open={gateOpen} />
 <style>
 	.hero {
 		padding: 24px 16px 8px;
@@ -251,7 +244,7 @@
 		height: 56px;
 		background: var(--color-primary);
 		border-color: var(--color-primary);
-		color: #fff;
+		color: var(--color-on-primary); /* quick-261102-rrb */
 	}
 	.act.download {
 		border-color: var(--color-primary);

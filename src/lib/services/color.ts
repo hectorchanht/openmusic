@@ -18,3 +18,72 @@ export function darken(hex: string, amount: number): string {
 	const b = f(n & 0xff);
 	return '#' + [r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('');
 }
+
+/** Parse `#rrggbb` (leading `#` optional) to [r,g,b] 0..255, or null when malformed. */
+function parseHex(hex: string): [number, number, number] | null {
+	const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+	if (!m) return null;
+	const n = parseInt(m[1], 16);
+	return [n >> 16, (n >> 8) & 0xff, n & 0xff];
+}
+
+/** WCAG 2.x relative luminance (sRGB linearisation). Malformed input reads as black (0). */
+function relativeLuminance(hex: string): number {
+	const rgb = parseHex(hex);
+	if (!rgb) return 0;
+	const [r, g, b] = rgb.map((c) => {
+		const s = c / 255;
+		return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+	});
+	return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** WCAG contrast ratio between two `#rrggbb` colours (1..21). */
+export function contrastRatio(a: string, b: string): number {
+	const la = relativeLuminance(a);
+	const lb = relativeLuminance(b);
+	return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+const ON_DARK = '#0b0b0f';
+const ON_LIGHT = '#ffffff';
+
+/** quick-261102-rrb: text/icon colour for content sitting ON a `hex` fill — whichever of
+ *  #0b0b0f / #ffffff has the higher WCAG contrast. The default tiffany primary (#0abab5) gets
+ *  dark text (white was 2.41:1). Malformed input returns '#ffffff' (the pre-token behaviour),
+ *  never throws (T-rrb-02). Set by settings.applyTheme() as `--color-on-primary`. */
+export function onColor(hex: string): string {
+	if (!parseHex(hex)) return ON_LIGHT;
+	return contrastRatio(hex, ON_DARK) >= contrastRatio(hex, ON_LIGHT) ? ON_DARK : ON_LIGHT;
+}
+
+/** Lighten a `#rrggbb` toward white by `amount` (0..1). Malformed input passes through. */
+function lighten(hex: string, amount: number): string {
+	const rgb = parseHex(hex);
+	if (!rgb) return hex;
+	return (
+		'#' +
+		rgb
+			.map((c) => Math.round(c + (255 - c) * amount).toString(16).padStart(2, '0'))
+			.join('')
+	);
+}
+
+/** quick-261102-s0k: focus-indicator colour (WCAG 1.4.11 non-text, ≥3:1). Returns `primary`
+ *  when it already clears 3:1 against every surface; otherwise steps it darker (light
+ *  surfaces) or lighter (dark surfaces) until it does. Tiffany on the light theme was 2.05–2.26:1.
+ *  Falls back to the theme text colour if stepping never clears. Never throws. Set by
+ *  settings.applyTheme() as `--color-focus`. */
+export function focusColor(primary: string, surfaces: string[]): string {
+	const ok = (c: string) => surfaces.every((s) => contrastRatio(c, s) >= 3);
+	if (!parseHex(primary)) return primary;
+	if (ok(primary)) return primary;
+	const avgLum =
+		surfaces.reduce((sum, s) => sum + relativeLuminance(s), 0) / Math.max(1, surfaces.length);
+	const lightSurfaces = avgLum > 0.18;
+	for (let step = 0.05; step <= 1; step += 0.05) {
+		const c = lightSurfaces ? darken(primary, step) : lighten(primary, step);
+		if (ok(c)) return c;
+	}
+	return lightSurfaces ? '#1a1a22' : '#f4f4f6';
+}

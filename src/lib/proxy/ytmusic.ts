@@ -24,7 +24,15 @@ import {
 	INNERTUBE_HEADERS,
 	SEARCH_URL,
 	WEB_REMIX_CONTEXT,
-	WEB_REMIX_KEY
+	WEB_REMIX_KEY,
+	PLAYER_URL,
+	PLAYER_UA,
+	playerBody,
+	isPlayable,
+	hasUsableMetadata,
+	extractDescription,
+	metadataPlayerBody,
+	METADATA_PLAYER_CLIENTS
 } from './ytmusic-innertube';
 
 // Re-export every pure primitive so existing importers ('$lib/proxy/ytmusic') need zero edits.
@@ -251,4 +259,122 @@ export function extractLyrics(browseJson: unknown): {
 	};
 	walk(browseJson);
 	return { text, attribution };
+}
+
+// --- Shared gated player resolve (quick-261024-vid1) -------------------------------------
+// Moved out of the audio stream route so the VIDEO route resolves through the exact same
+// gate machinery — one implementation of the bot-gate dance for every media route. The
+// doc-comments travel with the code; their quick-ids are the decision record.
+const PLAYER_TIMEOUT_MS = 15000; // player JSON hop
+// HEADERS-only deadline for the googlevideo hop: the timer is cleared once headers arrive, so
+// the body streams uncapped (the quick-260930-x3q posture — Workers bill CPU, not wall time).
+const MEDIA_HEAD_TIMEOUT_MS = 15000;
+// quick-261024-ytg: the PLAYER call itself is bot-gated per subrequest (~40% LOGIN_REQUIRED
+// from the edge). Each retry uses a FRESH visitorData; quick-261024-ytr races the retries in
+// parallel (see callPlayerGated).
+const PLAYER_GATE_ATTEMPTS = 3; // total player calls per resolve: cached token + 2 fresh
+const GATE_DELAY_MS = [250, 500]; // stagger before parallel gate retry 1 / 2
+const gateDelay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** POST the VISIONOS player. Returns the parsed JSON, or null on an upstream throw (so the
+ *  caller can gate on isPlayable and refresh/503 rather than crash).
+ *
+ *  quick-261006-r2: `visitorData` arrives as a PROMISE and is awaited INSIDE the try — an
+ *  await while building the arguments would sit outside the try/catch, and a getVisitorData()
+ *  throw would become an uncaught crash instead of the graceful null promised here. */
+export async function callPlayer(videoId: string, visitorData: Promise<string | null>): Promise<unknown> {
+	try {
+		return await innerTubePost(PLAYER_URL, playerBody(videoId, await visitorData), {
+			headers: { 'user-agent': PLAYER_UA },
+			signal: AbortSignal.timeout(PLAYER_TIMEOUT_MS)
+		});
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * quick-261024-ytg — one player call, retried on a non-OK playability with a FRESH
+ * visitorData each time (see PLAYER_GATE_ATTEMPTS). First call uses the cached token (the
+ * fast, usually-OK path). Returns a playable response when one is found, otherwise the LAST
+ * retry's response, so the caller can gate / diagnose on it.
+ *
+ * quick-261024-ytr — the fresh-token retries race in PARALLEL (staggered by GATE_DELAY_MS):
+ * the edge probe that night proved no other InnerTube client survives the edge (ANDROID_VR /
+ * iOS byte-wall at ~1.5 MB, embedded/TV unusable), so VISIONOS stays the only client and the
+ * levers left are decorrelation + latency. First playable response wins.
+ */
+export async function callPlayerGated(videoId: string): Promise<unknown> {
+	const first = await callPlayer(videoId, getVisitorData());
+	if (isPlayable(first)) return first;
+	const retries = await Promise.all(
+		Array.from({ length: PLAYER_GATE_ATTEMPTS - 1 }, async (_, i) => {
+			await gateDelay(GATE_DELAY_MS[i] ?? 500);
+			return callPlayer(videoId, getVisitorData(true));
+		})
+	);
+	return retries.find((j) => isPlayable(j)) ?? retries[retries.length - 1] ?? first;
+}
+
+export interface MetadataPlayerResult {
+	json: unknown;
+	/** True when `json` is a definitive metadata answer (see hasUsableMetadata). */
+	definitive: boolean;
+	/** Which client produced `json` ('VISIONOS' = the shared gated resolve). */
+	via: string;
+}
+
+/**
+ * quick-261029-meta1 — resolve a player response FOR METADATA ONLY (description /
+ * captions), robust to a per-PoP / per-video VISIONOS gate burst:
+ *   1. the shared gated VISIONOS resolve (callPlayerGated — fresh visitorData per
+ *      retry, staggered parallel);
+ *   2. alternate InnerTube clients (metadataPlayerBody) that need no streamable
+ *      format and are not the gate's usual target;
+ *   3. ONE more gated VISIONOS round after a beat (fresh visitorData again) — the
+ *      about2 decorrelation trick, now shared by every metadata caller.
+ * Returns definitive:false with the last response when nothing usable answered, so
+ * the caller can 503 with playability headers and MUST NOT cache it as a verdict.
+ */
+export async function callPlayerForMetadata(
+	videoId: string,
+	need: 'any' | 'description' = 'any'
+): Promise<MetadataPlayerResult> {
+	// 'description' callers must not settle for a captions-only answer: a client that
+	// returned tracks but no description has NOT proved the description is empty.
+	const usable = (j: unknown) =>
+		need === 'description'
+			? isPlayable(j) || extractDescription(j).length > 0
+			: hasUsableMetadata(j);
+	const first = await callPlayerGated(videoId);
+	if (usable(first)) return { json: first, definitive: true, via: 'VISIONOS' };
+	let last: unknown = first;
+	for (const client of METADATA_PLAYER_CLIENTS) {
+		try {
+			const json = await innerTubePost(PLAYER_URL, metadataPlayerBody(videoId, client), {
+				signal: AbortSignal.timeout(PLAYER_TIMEOUT_MS)
+			});
+			last = json;
+			if (usable(json)) return { json, definitive: true, via: client };
+		} catch {
+			// one dead client is not the answer — try the next
+		}
+	}
+	await gateDelay(600);
+	const retry = await callPlayerGated(videoId);
+	if (usable(retry)) return { json: retry, definitive: true, via: 'VISIONOS' };
+	return { json: retry ?? last, definitive: false, via: 'none' };
+}
+
+/** One googlevideo byte fetch with a HEADERS-only deadline (see MEDIA_HEAD_TIMEOUT_MS). RAW
+ *  edge fetch (fetchWithRetry) — NEVER the client fetch governor (api-base): a long-lived
+ *  media stream must not hold a governor slot (T-27-03-03). */
+export async function fetchMedia(url: string, headers: Record<string, string>): Promise<Response> {
+	const ctrl = new AbortController();
+	const timer = setTimeout(() => ctrl.abort(), MEDIA_HEAD_TIMEOUT_MS);
+	try {
+		return await fetchWithRetry(url, { redirect: 'follow', signal: ctrl.signal, headers }, 1);
+	} finally {
+		clearTimeout(timer);
+	}
 }

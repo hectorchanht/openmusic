@@ -173,6 +173,58 @@ export function __resetGovernor(): void {
 	failureTimes.length = 0;
 	circuitOpenUntil = 0;
 	halfOpenProbeInFlight = false;
+	notifyApiIdle();
+}
+
+// ── Pipeline-idle seam (quick-261102-idle1) ──────────────────────────────────────────────────
+// The player schedules its next-song prefetch "ASAP when nothing else is stalling" (user
+// requirement 2026-11-02): the walk must not pile onto an in-flight search / cover / resolve
+// burst, but must fire the moment the pipeline drains. The governor already COUNTS the load
+// (slots held + FIFO waiters); this seam exposes that count and a one-shot drain notification
+// so schedulers re-check idleness instead of guessing with fixed timers. The priority lane
+// (auth) deliberately bypasses the slots and is NOT counted — it is brief and user-critical.
+
+/** Governed /api requests currently holding a concurrency slot or queued for one. */
+export function apiPipelineBusyCount(): number {
+	return active + waiters.length;
+}
+
+const idleCallbacks = new Set<() => void>();
+
+/**
+ * One-shot idle notification: `cb` fires the next time the governed pipeline fully drains
+ * (no slot held, no waiter queued). If the pipeline is ALREADY drained, `cb` fires on a
+ * microtask — delivery is always async so callers never re-enter synchronously from inside
+ * a fetch call stack. Returns an unsubscribe that cancels a pending notification.
+ */
+export function onApiPipelineIdle(cb: () => void): () => void {
+	if (active === 0 && waiters.length === 0) {
+		let live = true;
+		queueMicrotask(() => {
+			if (live) cb();
+		});
+		return () => {
+			live = false;
+		};
+	}
+	idleCallbacks.add(cb);
+	return () => {
+		idleCallbacks.delete(cb);
+	};
+}
+
+/** Fire every pending one-shot idle callback — called wherever the busy count may have hit 0. */
+function notifyApiIdle(): void {
+	if (active !== 0 || waiters.length !== 0 || idleCallbacks.size === 0) return;
+	const cbs = [...idleCallbacks];
+	idleCallbacks.clear();
+	for (const cb of cbs) {
+		try {
+			cb();
+		} catch {
+			/* a listener must never break the governor's release path */
+		}
+	}
 }
 
 /** Acquire one concurrency slot — resolves immediately if a slot is free, else queues FIFO. */
@@ -188,7 +240,10 @@ function acquireSlot(): Promise<void> {
 function releaseSlot(): void {
 	const next = waiters.shift();
 	if (next) next(); // slot ownership passes to the waiter — `active` stays the same
-	else active--;
+	else {
+		active--;
+		notifyApiIdle(); // the only place the busy count decreases — maybe just drained
+	}
 }
 
 function abortError(): DOMException {
@@ -253,14 +308,71 @@ async function governedFetch(url: string, init: RequestInit | undefined): Promis
 }
 
 /**
+ * Per-call options for {@link apiFetch}, beyond RequestInit.
+ */
+export interface ApiFetchInit extends RequestInit {
+	/**
+	 * quick-261020-authprio — the PRIORITY lane for user-initiated critical requests
+	 * (sign-in, session probe). A priority request skips the circuit-breaker gate AND the
+	 * FIFO concurrency queue: it must never be fast-rejected or starved by background
+	 * floods (the production case: tapping "Email me a sign-in link" while cover-search
+	 * churn had the breaker open / the queue full → instant "Couldn't reach the server").
+	 * Timeout governance still applies, and the outcome still feeds the breaker
+	 * classification, so a genuinely downed /api/* still trips the breaker for everyone
+	 * else. Never deduped. Reserved for auth — background callers stay governed.
+	 *
+	 * Named `priorityLane` (not `priority`): lib.dom's RequestInit already declares
+	 * `priority?: RequestPriority` (the fetch scheduling hint), and redeclaring it as
+	 * boolean makes the interface incorrectly extend RequestInit. No caller uses the
+	 * fetch-standard hint — apiFetch strips this flag before delegating to fetch.
+	 */
+	priorityLane?: boolean;
+}
+
+/**
+ * The priority lane: governedFetch minus the circuit gate and the concurrency queue.
+ * Same timeout + caller-abort wiring, same breaker classification, no waiting, no
+ * fast-reject. One raw fetch — never routed through apiFetch (no recursion).
+ */
+async function priorityFetch(url: string, init: RequestInit | undefined): Promise<Response> {
+	const timeout = new AbortController();
+	const timer = setTimeout(() => timeout.abort(), REQUEST_TIMEOUT_MS);
+	const caller = init?.signal ?? null;
+	const onCallerAbort = () => timeout.abort();
+	if (caller) {
+		if (caller.aborted) timeout.abort();
+		else caller.addEventListener('abort', onCallerAbort);
+	}
+	try {
+		const resp = await fetch(url, { ...(init ?? {}), signal: timeout.signal });
+		if (resp.status >= 500 || resp.status === 429) recordFailure();
+		else recordSuccess();
+		return resp;
+	} catch (err) {
+		// A caller-abort is an expected healthy cancel — neutral, like governedFetch.
+		if (!caller?.aborted) recordFailure();
+		throw err;
+	} finally {
+		clearTimeout(timer);
+		if (caller) caller.removeEventListener('abort', onCallerAbort);
+	}
+}
+
+/**
  * `fetch` through the API-base seam: resolves `path` via {@link apiUrl}, then routes the request
  * through the outbound governor (dedupe + concurrency cap + timeout — see the block above). The
  * resolved-URL and same-origin/native-base behavior is unchanged; only the request GOVERNANCE is
  * added, so callers keep the native `fetch` return/error contract (a superseded caller's promise
  * still rejects with an AbortError when its signal fires).
+ *
+ * Pass `{ priorityLane: true }` for user-initiated critical requests (auth) — see {@link ApiFetchInit}.
  */
-export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+export function apiFetch(path: string, init?: ApiFetchInit): Promise<Response> {
 	const url = apiUrl(path);
+	if (init?.priorityLane) {
+		const { priorityLane: _dropped, ...rest } = init;
+		return priorityFetch(url, rest);
+	}
 	const method = (init?.method ?? 'GET').toUpperCase();
 
 	// Only idempotent, body-less GETs are deduped — a POST/PUT/bodied request is a distinct

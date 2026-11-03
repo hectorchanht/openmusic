@@ -1,4 +1,4 @@
-/* openmusic — global theme (sketch-001 variant C: dark + violet) */
+/* openmusic — global theme (dark + tiffany) */
 :root {
   --color-bg: #0b0b0f;
   --color-surface: #16161d;
@@ -6,13 +6,16 @@
   --color-border: #888888;
   --color-text: #f4f4f6;
   --color-text-muted: #a0a0ad;
-  --color-primary: #00c2b8; /* quick-260925-vtg: matches DEFAULT_ACCENT; applyTheme() overrides at runtime */
-  --color-primary-hover: #00aba2; /* quick-260925-vtg: darken(DEFAULT_ACCENT, 0.12) */
+  --color-primary: #0abab5; /* tiffany-261020: matches DEFAULT_ACCENT; applyTheme() overrides at runtime */
+  --color-primary-hover: #09a49f; /* tiffany-261020: darken(DEFAULT_ACCENT, 0.12) */
+  --color-on-primary: #0b0b0f; /* quick-261102-rrb: default for tiffany (white is 2.41:1); applyTheme() sets onColor(primary) at runtime */
+  --color-focus: var(--color-primary); /* quick-261102-s0k: focus indicators; applyTheme() sets focusColor(primary, [bg, surface-2]) (>=3:1) */
+  --color-danger-text: #ff7a90; /* quick-261102-s5t: DESIGN.md alarm-coral-text — inline error text */
 
   --src-netease: #c20c0c;
   --src-qq: #1db954;
   --src-kuwo: #ffcb1f;
-  --src-joox: #00c2b8;
+  --src-joox: #07827e; /* tiffany-261020: darkened so the JOOX chip stays distinct from the tiffany accent */
   --src-fivesing: #ff5959; /* Kugou UGC — opt-in (quick-260607-hvu) */
   --src-jamendo: #ff7700;  /* CC indie — opt-in (quick-260607-ixw) */
 
@@ -77,9 +80,31 @@
   --color-bg: #f7f7fa;
   --color-surface: #ffffff;
   --color-surface-2: #ececf2;
-  --color-border: #c5c5cf;
+  --color-border: #80808a; /* quick-261102-rrb: was #c5c5cf (~1.4:1 vs surface-2); #80808a is 3.32:1 vs #ececf2 (non-text 3:1) */
   --color-text: #1a1a22;
   --color-text-muted: #5a5a66;
+  --color-danger-text: #c62a47; /* quick-261102-s5t: #ff7a90 is ~2.4:1 on #f7f7fa; this is 7.5:1 */
+}
+
+/* quick-261023-perks: SUPPORTER-EXCLUSIVE themes. Warm dark (gold) and pink dark
+   (sakura) variants — same token set as light overrides; the signature primary is
+   applied at runtime by settings.applyTheme() from THEME_PRIMARY (it wins over the
+   accent pick while one of these themes is active). */
+:root[data-theme='gold'] {
+  --color-bg: #100c06;
+  --color-surface: #1a140b;
+  --color-surface-2: #241b0e;
+  --color-border: #6b5a2e;
+  --color-text: #f7f0dd;
+  --color-text-muted: #b3a684;
+}
+:root[data-theme='sakura'] {
+  --color-bg: #120b10;
+  --color-surface: #1c1218;
+  --color-surface-2: #261722;
+  --color-border: #6e4a5a;
+  --color-text: #faeef3;
+  --color-text-muted: #bd9fab;
 }
 
 * { box-sizing: border-box; }
@@ -145,21 +170,22 @@ button, a, [role="button"] { -webkit-tap-highlight-color: transparent; }
 
 /* Global loading-skeleton placeholder. Add `.sk` to any element (sized to match the real
    content it stands in for) to render a greyish block with a left-to-right shimmer sweep.
-   Greys (0.11 base / 0.22 sweep) match the search-page skeleton — visible on the dark page
-   bg. quick-260809-mvz: the shimmer keeps sweeping under BOTH reduce-motion gates — it is the
+   quick-261102-rrb: greys are mixed from --color-text (11% base / 22% sweep) instead of fixed
+   white rgba, so the block shows on the light theme too (white-on-#ececf2 was invisible).
+   quick-260809-mvz: the shimmer keeps sweeping under BOTH reduce-motion gates — it is the
    "still loading" signal, and a frozen grey block is indistinguishable from content that simply
    failed to arrive. See the re-assert below the keyframe. */
 .sk {
 	position: relative;
 	overflow: hidden;
-	background: rgba(255, 255, 255, 0.11);
+	background: color-mix(in srgb, var(--color-text) 11%, transparent);
 	border-radius: 6px;
 }
 .sk::after {
 	content: '';
 	position: absolute;
 	inset: 0;
-	background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.22) 50%, transparent 100%);
+	background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--color-text) 22%, transparent) 50%, transparent 100%);
 	transform: translateX(-100%);
 	animation: sk-shimmer 1.1s ease-in-out infinite;
 }

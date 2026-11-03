@@ -4,7 +4,9 @@
 	// Three variants:
 	//  - 'track' : 40×40 art (radius 6px) + title/subtitle (both marquee) + a trailing ⋮ option
 	//              button. tap row = play (onplay), tap ⋮ = open menu (onrequestmenu),
-	//              long-press row = open menu (onrequestmenu, via use:longpress).
+	//              long-press row = open menu (onrequestmenu, via use:longpress),
+	//              right-click row = open menu (onrequestmenu, via oncontextmenu —
+	//              quick-261023-rowmenu, desktop parity with the mobile long-press).
 	//  - 'artist': 40×40 ROUND avatar + name only (marquee). tap = open artist (onopen). NO ⋮,
 	//              NO long-press (no meaningful artist menu — D-09).
 	//  - 'album' : 40×40 SQUARE art + title/subtitle (both marquee); the whole row is ONE button
@@ -82,12 +84,16 @@ import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 		// the master for the hero / pins / share.
 		sizedCover(
 			pickRowCover(
-				// quick-260915-w4f rung 0: the user's pinned cover. Like rung 3 it needs an identity, so a
+				// quick-260915-w4f rung 0: the user's pinned cover. Like the cache rung it needs an identity, so a
 				// uid-less discovery stub (track == null) keeps exactly the old host-provided behaviour.
 				// Phase 40 D-14: pin, then the crowd pick.
+				// quick-261020-latest: the host `cover` prop is the explicit rung (above the cache);
+				// the row's own lazyCover result now ranks below the shared cache so a newer
+				// cross-surface write wins everywhere.
 				track ? readChosenCover(track.uid, track.artist, track.title) : null,
+				cover ?? undefined,
 				resolvedCover ?? undefined,
-				cover,
+				null,
 				track ? readCoverByUidOrName(track.uid, track.artist, track.title) : null
 			),
 			ROW_COVER_PX
@@ -143,7 +149,17 @@ import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 		</span>
 	</button>
 {:else}
-	<div class="crow-wrap">
+	<!-- quick-261023-rowmenu: the desktop right-click (contextmenu) opens the SAME track menu
+	     as ⋮ / long-press (onrequestmenu). preventDefault kills the native menu; the handler
+	     sits on the wrapper so a right-click on the row OR the ⋮ button both count. Mobile
+	     long-press is untouched (use:longpress below). -->
+	<div
+		class="crow-wrap"
+		oncontextmenu={(e) => {
+			e.preventDefault();
+			onrequestmenu?.();
+		}}
+	>
 		<button
 			class="crow"
 			class:is-active={track != null && player.current?.uid === track.uid}

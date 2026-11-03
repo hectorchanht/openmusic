@@ -1,0 +1,45 @@
+{
+ "status": 1,
+ "error_code": 0,
+ "data": {
+  "total": 480,
+  "lists": [
+   {
+    "SongName": "<em>理想三旬</em>",
+    "SingerName": "陈鸿宇",
+    "FileName": "陈鸿宇 - <em>理想三旬</em>",
+    "AlbumName": "浓烟下的诗歌电台",
+    "AlbumID": "647158",
+    "Duration": 210,
+    "FileHash": "8267B85E29D936AE8FFBA797F64D5B0A",
+    "HQFileHash": "D5F22262D50389EEF6894C2D732CC698",
+    "SQFileHash": "2146999DF447B6012599756CDF3A8E6D",
+    "ResFileHash": "6CADEBD47EBA0DFB29052C14E2D7930C",
+    "FileSize": 3374808,
+    "Bitrate": 128,
+    "HQBitrate": 320,
+    "Privilege": 5,
+    "Audioid": 12096640,
+    "MixSongID": "33130452"
+   },
+   {
+    "SongName": "<em>理想三旬</em> (DJ版)",
+    "SingerName": "陈鸿宇",
+    "FileName": "陈鸿宇 - <em>理想三旬</em> (DJ版)",
+    "AlbumName": "",
+    "AlbumID": "",
+    "Duration": 188,
+    "FileHash": "2DB19573DBB38D8D47F5DE28BB7D6D6B",
+    "HQFileHash": "78C6FDD8CFE9DA90847F3E8BE57CC763",
+    "SQFileHash": "C0B4491B92F82583C02198558B693B61",
+    "ResFileHash": "",
+    "FileSize": 3019932,
+    "Bitrate": 128,
+    "HQBitrate": 320,
+    "Privilege": 5,
+    "Audioid": 82813679,
+    "MixSongID": "275521228"
+   }
+  ]
+ }
+}

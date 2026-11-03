@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { darken } from './color';
+import { darken, contrastRatio, onColor, focusColor } from './color';
 
 // Pure color util — no DOM, no browser, no store imports. Runs under the node project
 // alongside detect.ts/i18n.test.ts. Asserts per-channel darkening + clamp + malformed
@@ -48,5 +48,68 @@ describe('darken (Phase 17 UX-07 accent-hover derivation)', () => {
 	it('amount 0 returns the same color; amount 1 returns #000000', () => {
 		expect(darken('#7c5cff', 0)).toBe('#7c5cff');
 		expect(darken('#7c5cff', 1)).toBe('#000000');
+	});
+});
+
+// quick-261102-rrb: --color-on-primary pick — whichever of #0b0b0f / #ffffff has higher WCAG
+// contrast. Expectations follow the computed ratios (e.g. #7c5cff: dark 4.52 vs white 4.35).
+describe('contrastRatio / onColor (quick-261102-rrb on-primary token)', () => {
+	it('black vs white is ~21:1 and order-independent', () => {
+		expect(contrastRatio('#ffffff', '#000000')).toBeCloseTo(21, 1);
+		expect(contrastRatio('#000000', '#ffffff')).toBeCloseTo(21, 1);
+	});
+
+	it('picks dark text for the tiffany default and other bright accents', () => {
+		expect(onColor('#0abab5')).toBe('#0b0b0f');
+		expect(onColor('#ff8a00')).toBe('#0b0b0f');
+		expect(onColor('#1db954')).toBe('#0b0b0f');
+	});
+
+	it('picks the higher-contrast side for mid-luminance accents', () => {
+		for (const hex of ['#7c5cff', '#ff0033']) {
+			const dark = contrastRatio(hex, '#0b0b0f');
+			const light = contrastRatio(hex, '#ffffff');
+			expect(onColor(hex)).toBe(dark >= light ? '#0b0b0f' : '#ffffff');
+		}
+	});
+
+	it('extremes: black fill → white, white fill → dark', () => {
+		expect(onColor('#000000')).toBe('#ffffff');
+		expect(onColor('#ffffff')).toBe('#0b0b0f');
+	});
+
+	it('malformed input returns #ffffff and never throws', () => {
+		expect(onColor('red')).toBe('#ffffff');
+		expect(onColor('#abc')).toBe('#ffffff');
+		expect(onColor('')).toBe('#ffffff');
+	});
+
+	it('light-theme border #80808a is >= 3:1 against surface-2 #ececf2', () => {
+		expect(contrastRatio('#80808a', '#ececf2')).toBeGreaterThanOrEqual(3);
+	});
+});
+
+// quick-261102-s0k: focus indicators must clear 3:1 (WCAG 1.4.11) on bg + surface-2.
+describe('focusColor', () => {
+	it('keeps tiffany on the dark theme', () => {
+		expect(focusColor('#0abab5', ['#0b0b0f', '#1d1d27'])).toBe('#0abab5');
+	});
+	it('darkens tiffany on the light theme to >= 3:1 against both surfaces', () => {
+		const c = focusColor('#0abab5', ['#f7f7fa', '#ececf2']);
+		expect(c).not.toBe('#0abab5');
+		expect(contrastRatio(c, '#f7f7fa')).toBeGreaterThanOrEqual(3);
+		expect(contrastRatio(c, '#ececf2')).toBeGreaterThanOrEqual(3);
+	});
+	it('gold and sakura primaries clear 3:1 on their dark themes', () => {
+		for (const [p, s] of [
+			['#d9a821', ['#100c06', '#241b0e']],
+			['#ef7fb4', ['#120b10', '#261722']]
+		] as const) {
+			const c = focusColor(p, [...s]);
+			for (const x of s) expect(contrastRatio(c, x)).toBeGreaterThanOrEqual(3);
+		}
+	});
+	it('passes malformed input through', () => {
+		expect(focusColor('red', ['#ffffff'])).toBe('red');
 	});
 });

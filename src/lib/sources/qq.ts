@@ -17,6 +17,7 @@ import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { inferQualityFromUrl } from '../services/lrc';
 import { apiFetch } from '../services/api-base';
+import { fetchJbsouStreamUrl } from '../services/jbsou-fallback';
 import { qqProxy } from '$lib/proxy/qq';
 import { effectiveQuality } from './quality';
 import { settings, type DefaultQuality } from '$lib/stores/settings.svelte';
@@ -399,10 +400,25 @@ export const qq: SourceAdapter = {
 			// its silent `else { return; }` — the user tapped and nothing happened, no fallback, no
 			// notice. Throw instead: the catch below keeps detailsLoaded=false (retryable) and the
 			// caller routes into the cross-source fallback like any other resolve failure.
-			if (!best.url) {
-				throw new Error('qq detail error (no playable url)');
+			//
+			// quick-261101-jbs: before that throw, ONE last resort — the JBSou fallback pipe
+			// (an independent gateway over the same qq catalog; /api/jbsou/resolve). This seam
+			// is clean precisely because the detail body is VALID here: metadata is already
+			// assigned above, so a rescued URL lands on a fully-formed track, and the throw
+			// contract below is untouched on a JBSou miss. The other failure branches stay
+			// un-wired on purpose: 'rate-limited' must keep its typed throw (the album
+			// download backs off on it) and a null detail body has no verified title/artist
+			// to match a JBSou row against.
+			let playUrl = best.url;
+			if (!playUrl) {
+				playUrl = await fetchJbsouStreamUrl('qq', track, signal);
+				// A superseded resolve must keep rejecting as an ABORT (the fetchQqDetail idiom).
+				if (!playUrl && signal.aborted) throw new DOMException('Aborted', 'AbortError');
+				if (!playUrl) {
+					throw new Error('qq detail error (no playable url)');
+				}
 			}
-			track.audioUrl = best.url;
+			track.audioUrl = playUrl;
 
 			// 歌词 — inline from the detail body (legacy:2369). quick-260629-nyl Task 3: the live tang
 			// detail still carries `song_lyric` (timestamped LRC) + `lyric` (plain) for popular tracks,

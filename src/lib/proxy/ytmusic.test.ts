@@ -12,7 +12,10 @@ import {
 	searchInnerTube,
 	getVisitorData,
 	findLyricsTab,
-	extractLyrics
+	extractLyrics,
+	hasUsableMetadata,
+	metadataPlayerBody,
+	METADATA_PLAYER_CLIENTS
 } from './ytmusic';
 
 // A JSON Response with a chosen status (Response body is single-use — build fresh per call).
@@ -245,5 +248,38 @@ describe('innerTubeLocale + searchInnerTube locale (quick-260925-wa7)', () => {
 		expect(body.context).toEqual(WEB_REMIX_CONTEXT);
 		expect(body.context.client.hl).toBe('en');
 		expect(body.context.client.gl).toBe('US');
+	});
+});
+
+describe('metadata player fallback (quick-261029-meta1)', () => {
+	it('builds one body per alternate client, videoId in the body only', () => {
+		expect(METADATA_PLAYER_CLIENTS).toEqual(['WEB_REMIX', 'WEB', 'ANDROID']);
+		for (const c of METADATA_PLAYER_CLIENTS) {
+			const b = metadataPlayerBody('layNDqkZQnQ', c) as unknown as { videoId: string; context: { client: { clientName: string } } };
+			expect(b.videoId).toBe('layNDqkZQnQ');
+			expect(b.context.client.clientName).toBe(c);
+		}
+	});
+
+	it('hasUsableMetadata: playable OR description OR captions count; a bare gate does not', () => {
+		expect(hasUsableMetadata({ playabilityStatus: { status: 'OK' } })).toBe(true);
+		expect(
+			hasUsableMetadata({
+				playabilityStatus: { status: 'LOGIN_REQUIRED' },
+				videoDetails: { shortDescription: 'real description' }
+			})
+		).toBe(true);
+		expect(
+			hasUsableMetadata({
+				playabilityStatus: { status: 'LOGIN_REQUIRED' },
+				captions: {
+					playerCaptionsTracklistRenderer: {
+						captionTracks: [{ baseUrl: 'https://www.youtube.com/api/timedtext?v=x', languageCode: 'yue' }]
+					}
+				}
+			})
+		).toBe(true);
+		expect(hasUsableMetadata({ playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'bot' } })).toBe(false);
+		expect(hasUsableMetadata(null)).toBe(false);
 	});
 });

@@ -45,6 +45,7 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
 	import { downloadTrack } from '$lib/services/download-track';
+import { player } from '$lib/stores/player.svelte';
 	import { downloadLabel } from '$lib/services/download-label';
 	import { names } from '$lib/stores/names.svelte';
 	import DownloadRing from '$lib/components/DownloadRing.svelte';
@@ -159,6 +160,9 @@
 			const picked = probed?.track && probed.track.uid === target.uid ? probed.track : target;
 			// DL-BUG-01: downloadTrack never navigates; it returns a sentinel the UI localizes here.
 			const res = await downloadTrack(picked, { persist });
+			// quick-261020-hqswitch: downloading the PLAYING song at a higher tier swaps
+			// the live stream to the downloaded file, position + state preserved.
+			if (res === 'saved') void player.adoptDownloadedCurrent(target.uid);
 			const label = labelFor(target);
 			toast.show(
 				res === 'saved'

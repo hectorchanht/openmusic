@@ -16,6 +16,8 @@
 	// User call 2026-10-06: the reset button opens an in-app confirm modal (not the
 	// native window.confirm).
 	let resetOpen = $state(false);
+	// quick-261020-lyr6: active tab for TRANSLATION TARGETS (all | lyrics | artist | title | bio).
+	let tabState = $state<'all' | PartKey>('all');
 
 	// `off` + 'auto' are chrome (label resolved in template via t()); language endonyms literal.
 	// ju0: 'auto' added as a 17th option in all per-part pickers (was bio-only). At resolve
@@ -218,6 +220,33 @@
 		</span>
 	</span>
 {/snippet}
+<!-- quick-261020-lyr10 (user): visual previews for the Hide toggles. -->
+{#snippet hideLinesShow()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-col" style:gap="4px">
+			<span class="mock-text">Already folding it for you</span>
+			<span class="mock-text dim">早已為你準備好一切</span>
+		</span>
+	</span>
+{/snippet}
+{#snippet hideLinesHide()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-col" style:gap="4px">
+			<span class="mock-text">Already folding it for you</span>
+			<span class="mock-text strike">早已為你準備好一切</span>
+		</span>
+	</span>
+{/snippet}
+{#snippet hideParenShow()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-text">Already folding it for you <span class="mock-text dim">(早已為你準備好一切)</span></span>
+	</span>
+{/snippet}
+{#snippet hideParenHide()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-text">Already folding it for you <span class="mock-text strike">(早已為你準備好一切)</span></span>
+	</span>
+{/snippet}
 
 <!-- 0. Chinese script lock (quick-260919-2jo) — sits ABOVE everything else because it governs the
      names and titles the sections below then translate: the lock is applied LAST and has the last
@@ -231,12 +260,59 @@
 <hr class="div" />
 
 <!-- 1. Lyrics translate mode — how translated lyrics display (replace vs show below). -->
+<!-- 2. TRANSLATION TARGETS (quick-261020-lyr6, user): the MAIN translation control.
+     Compacted from 5 stacked accordions into TABS — one tab bar, content below.
+     Tabs: All | Lyrics | Artist | Title | Bio. -->
 <section>
-	<!-- The (i) is hidden while the control is disabled: its text describes the two ENABLED states,
-	     and the visible OFF note below already says why nothing here is pickable. -->
-	<h2><Replace size={15} /> {t('settings.lyricsTranslateMode')}{#if settings.lyricsLang !== 'off'}<SettingHint label={t('settings.lyricsTranslateMode')} text={t('settings.translateModeOnNote')} />{/if}</h2>
-	<!-- quick-260919-ebi (F3): replace-vs-below is a shape on screen, so it is picked by tapping
-	     one of two lyric mockups. -->
+	<h2><Languages size={15} /> {t('settings.translateTargets')}</h2>
+
+	<div class="tabs" role="tablist">
+		<button role="tab" aria-selected={tabState === 'all'} class="tab" class:on={tabState === 'all'} onclick={() => (tabState = 'all')} use:tapBounce>{t('settings.translateApplyAll')}</button>
+		{#each parts as part (part.key)}
+			<button role="tab" aria-selected={tabState === part.key} class="tab" class:on={tabState === part.key} onclick={() => (tabState = part.key)} use:tapBounce>{t(part.headingKey)}</button>
+		{/each}
+	</div>
+
+	<div class="tabpane" role="tabpanel">
+		{#if tabState === 'all'}
+			<p class="sublabel">{t('settings.translateApplyAllNote')}</p>
+			<div class="chips">
+				{#each langs as l (l.v)}
+					<button class="chip" class:on={sharedTarget === l.v} onclick={() => applyAll(l.v)} use:tapBounce>{langLabel(l.v)}</button>
+				{/each}
+			</div>
+			{#if sharedTarget === null}<p class="muted">{t('settings.translateMixed')}</p>{/if}
+		{:else}
+			{@const part = parts.find((p) => p.key === tabState)}
+			{#if part}
+				<p class="sublabel">{t(part.noteKey)}</p>
+				<div class="chips">
+					{#each langs as l (l.v)}
+						<button class="chip" class:on={TARGET[part.key]() === l.v} onclick={() => setTarget(part.key, l.v)} use:tapBounce>{langLabel(l.v)}</button>
+					{/each}
+				</div>
+				{#if part.skip}
+					<div class="skip" class:disabled={TARGET[part.key]() === 'off'}>
+						<p class="sublabel">{t('settings.skipLanguages')}<SettingHint label={t('settings.skipLanguages')} text={t('settings.skipLanguagesNote')} /></p>
+						<div class="chips">
+							{#each sources as s (s.v)}
+								<button class="chip skipchip" class:on={SKIP[part.key]().includes(s.v)} disabled={TARGET[part.key]() === 'off'} onclick={() => toggleSkip(part.key, s.v)} use:tapBounce>{s.label}</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
+			{/if}
+		{/if}
+	</div>
+</section>
+
+<!-- quick-261020-lyr8 (user): LYRICS TRANSLATE MODE sits BELOW the TRANSLATION TARGETS
+     section (tied to the Lyrics translation tab). Shows only when Lyrics target is ON. -->
+{#if settings.lyricsLang !== 'off'}
+<hr class="div" />
+
+<section>
+	<h2><Replace size={15} /> {t('settings.lyricsTranslateMode')}<SettingHint label={t('settings.lyricsTranslateMode')} text={t('settings.translateModeNote')} /></h2>
 	<SettingPicker
 		variant="preview"
 		label={t('settings.lyricsTranslateMode')}
@@ -246,101 +322,48 @@
 		]}
 		value={settings.translateMode}
 		onpick={setMode}
-		disabled={settings.lyricsLang === 'off'}
-	/>
-	<!-- The OFF note is NOT the prose a preview replaces: it explains why the control above is
-	     DISABLED, which no mockup of the enabled states can say. It stays on screen, unhidden,
-	     because a disabled control with no visible reason is the confusing case. -->
-	{#if settings.lyricsLang === 'off'}
-		<p class="muted">{t('settings.translateModeOffNote')}</p>
-	{/if}
-
-	<!-- quick-260919-ebi (F2): the one shared boolean row — inset + switch + accent edge. These two
-	     keep their prose: a before/after lyric pair would need a representative bilingual sample
-	     line, and choosing that line is itself a translation problem. -->
-	<SettingToggle
-		label={t('settings.lyricsHideParenTranslation')}
-		checked={settings.lyricsHideParenTranslation}
-		onchange={() => { settings.lyricsHideParenTranslation = !settings.lyricsHideParenTranslation; settings.save(); }}
-		hint={t('settings.lyricsHideParenTranslationNote')}
-	/>
-
-	<SettingToggle
-		label={t('settings.lyricsHideParenLines')}
-		checked={settings.lyricsHideParenLines}
-		onchange={() => { settings.lyricsHideParenLines = !settings.lyricsHideParenLines; settings.save(); }}
-		hint={t('settings.lyricsHideParenLinesNote')}
 	/>
 </section>
+{/if}
 
+<!-- quick-261020-lyr9 (user): the two Hide parenthesised toggles are ALWAYS visible,
+     not gated on Lyrics translation.
+     quick-261020-lyr10 (user): visual pickers with mockup previews, better names. -->
 <hr class="div" />
 
-<!-- 2. TRANSLATION TARGETS (quick-260919-hm2) — the four content parts, grouped.
-     This page used to stack four independent sections, each with its own always-open 19-chip
-     language list (plus three 17-chip skip lists): ~127 chips on screen before you had done
-     anything. They are now ONE section of <details> accordions, and every language list starts
-     CLOSED, so the page opens as five one-line rows that each state their current value.
-
-     THE ACCORDION IS THE EXISTING `.advanced` <details>/<summary> IDIOM from the Playback page
-     (Advanced > Sources), reused verbatim rather than reinvented — including the reason
-     SettingHint stopPropagation()s its click: a hint inside a <summary> must not also toggle
-     the accordion it explains.
-
-     The "Apply to all" row sits FIRST and writes all four at once; the four per-part rows below
-     it still set exactly one part each, so nothing that was individually settable stopped being
-     individually settable. When the parts disagree, the shared row reads Mixed and selects
-     nothing — it never flattens an existing per-part mix on render (see `sharedTarget`). -->
 <section>
-	<h2><Languages size={15} /> {t('settings.translateTargets')}</h2>
+	<h2><Languages size={15} /> {t('settings.embeddedTranslations')}</h2>
+	<SettingPicker
+		variant="preview"
+		label={t('settings.embeddedTranslations')}
+		options={[
+			{ v: 'show', label: t('settings.optShow'), preview: hideLinesShow },
+			{ v: 'hide', label: t('settings.optHide'), preview: hideLinesHide }
+		]}
+		value={settings.lyricsHideParenLines ? 'hide' : 'show'}
+		onpick={(v) => { settings.lyricsHideParenLines = v === 'hide'; settings.save(); }}
+	/>
+	<p class="muted">{t('settings.embeddedTranslationsNote')}</p>
 
-	<details class="advanced">
-		<summary>
-			<Languages size={15} />
-			{t('settings.translateApplyAll')}
-			<SettingHint label={t('settings.translateApplyAll')} text={t('settings.translateApplyAllNote')} />
-			<span class="cur">{sharedTarget === null ? t('settings.translateMixed') : langLabel(sharedTarget)}</span>
-			<span class="chev" aria-hidden="true"><ChevronDown size={15} /></span>
-		</summary>
-		<div class="chips">
-			{#each langs as l (l.v)}
-				<button class="chip" class:on={sharedTarget === l.v} onclick={() => applyAll(l.v)} use:tapBounce>{langLabel(l.v)}</button>
-			{/each}
-		</div>
-	</details>
-
-	{#each parts as part (part.key)}
-		<details class="advanced">
-			<summary>
-				<Languages size={15} />
-				{t(part.headingKey)}
-				<SettingHint label={t(part.headingKey)} text={t(part.noteKey)} />
-				<span class="cur">{langLabel(TARGET[part.key]())}</span>
-				<span class="chev" aria-hidden="true"><ChevronDown size={15} /></span>
-			</summary>
-			<div class="chips">
-				{#each langs as l (l.v)}
-					<button class="chip" class:on={TARGET[part.key]() === l.v} onclick={() => setTarget(part.key, l.v)} use:tapBounce>{langLabel(l.v)}</button>
-				{/each}
-			</div>
-			{#if part.skip}
-				<div class="skip" class:disabled={TARGET[part.key]() === 'off'}>
-					<p class="sublabel">{t('settings.skipLanguages')}<SettingHint label={t('settings.skipLanguages')} text={t('settings.skipLanguagesNote')} /></p>
-					<div class="chips">
-						{#each sources as s (s.v)}
-							<button class="chip skipchip" class:on={SKIP[part.key]().includes(s.v)} disabled={TARGET[part.key]() === 'off'} onclick={() => toggleSkip(part.key, s.v)} use:tapBounce>{s.label}</button>
-						{/each}
-					</div>
-				</div>
-			{/if}
-		</details>
-	{/each}
+	<h2 style="margin-top: 16px"><Languages size={15} /> {t('settings.inlineTranslations')}</h2>
+	<SettingPicker
+		variant="preview"
+		label={t('settings.inlineTranslations')}
+		options={[
+			{ v: 'show', label: t('settings.optShow'), preview: hideParenShow },
+			{ v: 'hide', label: t('settings.optHide'), preview: hideParenHide }
+		]}
+		value={settings.lyricsHideParenTranslation ? 'hide' : 'show'}
+		onpick={(v) => { settings.lyricsHideParenTranslation = v === 'hide'; settings.save(); }}
+	/>
+	<p class="muted">{t('settings.inlineTranslationsNote')}</p>
 </section>
 
 <hr class="div" />
 
 <section>
 	<h2><Languages size={15} /> {t('settings.appLanguage')}</h2>
-	<button class="link" onclick={() => goto('/settings/general')}>{t('settings.appLanguage')} →</button>
+	<button class="link" onclick={() => goto('/settings')}>{t('settings.appLanguage')} →</button>
 	<p class="muted">{t('settings.groupGeneralDesc')}</p>
 </section>
 
@@ -372,7 +395,7 @@
 		white-space: nowrap;
 	}
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
-	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.chip.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	.chip:disabled { cursor: default; }
 	.skip { margin-top: 12px; }
 	.skip.disabled { opacity: 0.45; pointer-events: none; }
@@ -403,11 +426,22 @@
 	   drop it a step to keep the fill visible. The selected states are restated at the higher
 	   specificity the descendant selector creates. */
 	.advanced .chip { background: var(--color-bg); }
-	.advanced .chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.advanced .chip.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	.advanced .skipchip.on { background: var(--color-surface); color: var(--color-primary); border-color: var(--color-primary); }
 	/* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte — the quick-260919-2jo Chinese
 	   script control is pixel-identical there, because the rules were lifted verbatim. */
 	.link { background: none; border: none; color: var(--color-primary); cursor: pointer; font-size: 0.875rem; padding: 0; }
 	.div { border: none; border-top: 1px solid var(--color-border); margin: 4px 0; }
 	/* quick-260919-ebi: the toggle-row CSS moved into SettingToggle.svelte. */
+	/* quick-261020-lyr6: tab bar for TRANSLATION TARGETS. */
+	.tabs { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 12px; scrollbar-width: none; }
+	.tabs::-webkit-scrollbar { display: none; }
+	.tab {
+		flex: none; padding: 8px 14px; border-radius: 999px; font-size: 0.85rem;
+		background: var(--color-surface-2); color: var(--color-text-muted);
+		border: 1px solid var(--color-border); cursor: pointer; white-space: nowrap;
+	}
+	.tab.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
+	.tabpane { padding: 4px 0; }
+	.tabpane .sublabel { margin: 0 0 10px; color: var(--color-text-muted); font-size: 0.85rem; }
 </style>

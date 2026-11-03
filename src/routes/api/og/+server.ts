@@ -55,7 +55,7 @@
 // byte-identically to before this change (T-3uo-07).
 import type { RequestHandler } from './$types';
 import type { Env } from '$lib/proxy/proxy-types';
-import { corsHeaders, fetchWithRetry } from '$lib/proxy/http';
+import { corsHeaders, fetchWithRetry, corsPreflight } from '$lib/proxy/http';
 import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
 import type { EdgeCache } from '$lib/proxy/edge-cache';
 import { OG_RESOLVE_MS, coverUrlFromToken, isOgType, resolveCoverTiered } from '$lib/proxy/og-cover';
@@ -338,6 +338,4 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
 };
 
 // CORS preflight — scoped to the own origin via corsHeaders (never `*`, T-wv8-02).
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

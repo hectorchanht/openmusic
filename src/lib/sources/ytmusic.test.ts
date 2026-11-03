@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ytmusic } from './ytmusic';
 import { makeUid, type Track } from './types';
 import { __resetGovernor } from '../services/api-base';
+import { ytmusicHealth } from '../services/ytmusic-health';
 // A REAL captured InnerTube WEB_REMIX songs-filter envelope (query "周杰倫 稻香"), trimmed to the
 // shelf + first 4 rows with the parse-irrelevant menu/trackingParams stripped (spike 005 capture).
 import fixture from './__fixtures__/ytmusic-search.json';
@@ -29,12 +30,14 @@ function mockFetch(body: unknown, contentType = 'application/json') {
 
 beforeEach(() => {
 	__resetGovernor(); // no inflight-dedupe / breaker state leaking across tests
+	ytmusicHealth.__reset(); // the gate is module-scope — never let a trip leak between tests
 	vi.restoreAllMocks();
 	mocks.isNative.mockReturnValue(false); // WEB branch unless a test opts into native
 	mocks.nativeResolve.mockReset();
 });
 afterEach(() => {
 	vi.restoreAllMocks();
+	ytmusicHealth.__reset();
 });
 
 describe('ytmusic.search — parse over the captured InnerTube fixture (YT-SEARCH-01)', () => {
@@ -374,5 +377,29 @@ describe('ytmusic.resolve — native on-device googlevideo url with proxy fallba
 		const out = await ytmusic.resolve(stubTrack('vidN3'), new AbortController().signal);
 
 		expect(out.audioUrl?.endsWith('/api/ytmusic/stream/vidN3')).toBe(true);
+	});
+});
+
+describe('ytmusic health gate (ytmusic-health wiring)', () => {
+	it('search short-circuits to [] without a fetch once the gate is tripped', async () => {
+		const fetchMock = mockFetch(fixture);
+		vi.stubGlobal('fetch', fetchMock);
+		ytmusicHealth.recordFail();
+		ytmusicHealth.recordFail();
+		ytmusicHealth.recordFail();
+		expect(ytmusicHealth.isGated()).toBe(true);
+
+		const tracks = await ytmusic.search('周杰倫 稻香', 1, ac.signal);
+
+		expect(tracks).toEqual([]);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('shelf-less bodies are drift — throw AND count toward the gate (3 trips it)', async () => {
+		vi.stubGlobal('fetch', mockFetch({ contents: {} }));
+		for (let i = 0; i < 3; i++) {
+			await expect(ytmusic.search('x', 1, ac.signal)).rejects.toThrow(/contract-drift/);
+		}
+		expect(ytmusicHealth.isGated()).toBe(true);
 	});
 });

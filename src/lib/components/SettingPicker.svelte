@@ -28,6 +28,8 @@
 	//   - Mocks are aria-hidden="true"; the option button's aria-label is the accessible name.
 	import type { Component, Snippet } from 'svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
+	// quick-261023-perks: lock glyph for gated options (supporter themes).
+	import { Lock } from '@lucide/svelte';
 
 	let {
 		options,
@@ -38,7 +40,7 @@
 		disabled = false,
 		iconOnly = false
 	}: {
-		options: { v: V; label: string; icon?: Component<{ size?: number }>; preview?: Snippet }[];
+		options: { v: V; label: string; icon?: Component<{ size?: number }>; preview?: Snippet; locked?: boolean; lockLabel?: string }[];
 		value: V;
 		onpick: (v: V) => void;
 		/** Group accessible name — the setting's own label. */
@@ -56,14 +58,16 @@
 			<button
 				class="card"
 				class:on={value === o.v}
+				class:locked={o.locked}
 				aria-pressed={value === o.v}
-				aria-label={o.label}
+				aria-label={o.locked && o.lockLabel ? `${o.label} — ${o.lockLabel}` : o.label}
 				{disabled}
 				onclick={() => onpick(o.v)}
 				use:tapBounce
 			>
 				<span class="mock" aria-hidden="true">
 					{#if o.preview}{@render o.preview()}{/if}
+					{#if o.locked}<span class="lock"><Lock size={15} /></span>{/if}
 				</span>
 				<span class="cap">{o.label}</span>
 			</button>
@@ -128,7 +132,7 @@
 	}
 	.seg button.on {
 		background: var(--color-primary);
-		color: #fff;
+		color: var(--color-on-primary); /* quick-261102-rrb */
 	}
 	.seg button:disabled {
 		cursor: default;
@@ -176,6 +180,23 @@
 	}
 	.card.on .cap {
 		color: var(--color-primary);
+	}
+	/* quick-261023-perks: gated option — dimmed with a lock glyph over the preview. */
+	.card.locked {
+		opacity: 0.75;
+	}
+	.card.locked .mock {
+		position: relative;
+	}
+	.lock {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: var(--color-text);
+		background: rgba(0, 0, 0, 0.35);
+		border-radius: var(--radius-sm, 6px);
 	}
 
 	/* ---- the shared mock primitives ------------------------------------------------------
@@ -239,6 +260,12 @@
 	.mock :global(.mock-text.dim) {
 		color: var(--color-text-muted);
 	}
+	/* quick-261020-lyr10: strikethrough for hidden preview mockups. */
+	.mock :global(.mock-text.strike) {
+		color: var(--color-text-muted);
+		text-decoration: line-through;
+		opacity: 0.6;
+	}
 	/* A cover tile. */
 	.mock :global(.mock-tile) {
 		display: block;
@@ -259,7 +286,7 @@
 		padding: 2px 4px;
 		border-radius: 999px;
 		background: var(--color-primary);
-		color: #fff;
+		color: var(--color-on-primary); /* quick-261102-rrb */
 		flex: none;
 	}
 	.mock :global(.mock-badge.ghost) {

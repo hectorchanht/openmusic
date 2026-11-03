@@ -28,6 +28,7 @@
 import type { SourceAdapter, Track } from './types';
 import { makeUid } from './types';
 import { apiFetch, apiUrl } from '../services/api-base';
+import { ytmusicHealth } from '../services/ytmusic-health';
 import { Capacitor } from '@capacitor/core';
 import { nativeResolveStreamUrl } from '../services/ytmusic-native';
 
@@ -227,15 +228,34 @@ export const ytmusic: SourceAdapter = {
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
 		// Single song shelf, no reliable pagination (the audius rule) — page>1 is a no-op with no
-		// upstream call.
+		// upstream call (and NO health record: nothing was asked of the upstream).
 		if ((page || 1) > 1) return [];
+		// HEALTH-GATE short-circuit (ytmusic-health, universal-gate rollout 2026-11-01):
+		// after a run of failures/drys, skip the wasted call for a bounded window; the gate
+		// then auto-opens for one probe whose outcome re-decides. Never-throw on this path.
+		if (ytmusicHealth.isGated()) return [];
 		// JSON hop through the governor (apiFetch): the own-origin proxy does the InnerTube POSTs
 		// (WEB_REMIX ctx + Songs & Videos params + public key, all edge-side — Plan 27-02) and returns
 		// a merged `{ ytmusicMerged: [...] }` envelope (quick-260715-jdj); the recursive parse +
 		// cross-shelf dedupe stays client-side + unit-tested.
 		const path = '/api/ytmusic/search?q=' + encodeURIComponent(keyword);
-		const res = await apiFetch(path, { signal });
-		const json: unknown = await res.json();
+		// Fetch + parse in ONE try (the kuwoJson lesson): a transport throw AND the
+		// parseSearchEnvelope contract-drift throw both count — a caller abort is a
+		// supersede, not an outage, and is rethrown uncounted.
+		let tracks: Track[];
+		try {
+			const res = await apiFetch(path, { signal });
+			const json: unknown = await res.json();
+			tracks = parseSearchEnvelope(json, keyword);
+		} catch (err) {
+			if (!signal.aborted) ytmusicHealth.recordFail();
+			throw err;
+		}
+		// DRY counting (ytmusic-health): YTM fuzzy-matches every query, so a parsed shelf
+		// yielding ZERO playable rows is this source's dry shape — recordDry. Rows prove a
+		// live upstream — recordOk, instant recovery.
+		if (tracks.length === 0) ytmusicHealth.recordDry();
+		else ytmusicHealth.recordOk();
 		// quick-260715-l9p (revert): ranking is owned by scoreMatch at the SEARCH PAGE (rankList in
 		// search/+page.svelte), NOT the adapter. The l9p adapter-level scoreMatch re-rank was DEAD
 		// CODE — the search page re-sorts EVERY source's results by scoreMatch, discarding each
@@ -244,7 +264,7 @@ export const ytmusic: SourceAdapter = {
 		// bearing authority every source's search list flows through). The adapter returns the parsed
 		// + videoId-deduped rows in shelf order (songs before videos); displayIndex stays the emit
 		// order — Pitfall 4: displayIndex is ORDERING only, the search page re-ranks for display.
-		return parseSearchEnvelope(json, keyword);
+		return tracks;
 	},
 
 	async resolve(track: Track, signal: AbortSignal): Promise<Track> {

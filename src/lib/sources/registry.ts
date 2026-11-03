@@ -3,12 +3,19 @@
 // name a source. Adding a source = a new adapter file + one import line here.
 import type { SourceAdapter, SourceId } from './types';
 import { netease } from './netease';
+import { gdnetease } from './gdnetease';
 import { qq } from './qq';
 import { kuwo } from './kuwo';
+import { suyin } from './suyin';
 import { joox } from './joox';
+import { kugou } from './kugou';
+import { migu } from './migu';
 import { fivesing } from './fivesing';
 import { jamendo } from './jamendo';
 import { audius } from './audius';
+import { archive } from './archive';
+import { bilibili } from './bilibili';
+import { ccmixter } from './ccmixter';
 import { ytmusic } from './ytmusic';
 import { settings } from '$lib/stores/settings.svelte';
 
@@ -41,7 +48,30 @@ import { settings } from '$lib/stores/settings.svelte';
 // track (mirrors how audius/jamendo are searchable-but-off-the-hot-path). That flag is unaffected by
 // the 2026-08-31 reorder above — the resolve floor is now qq→netease→kuwo→joox; the code that honors
 // the flag lands in Plan 27-04.
-export const SOURCES: Record<SourceId, SourceAdapter> = { qq, netease, kuwo, joox, fivesing, jamendo, audius, ytmusic };
+// quick-261020-kugo: kugou takes the seat AFTER joox — it is a full mainstream catalog
+// (autoResolveEligible stays undefined = on the resolve floor), but the proven
+// qq→netease→kuwo→joox floor order is untouched ahead of it.
+// quick-261020-migu: migu follows kugou, same mainstream posture (floor-eligible).
+// quick-261020-bili: bilibili is appended just before ytmusic — search-only
+// (autoResolveEligible: false), and ytmusic keeps the load-bearing LAST seat.
+// quick-261020-arch: archive sits with the other off-floor legal catalogs
+// (autoResolveEligible: false), just ahead of bilibili.
+// quick-261101-ccm: ccmixter joins the off-floor legal catalogs right after
+// archive (search-only CC remix/indie; autoResolveEligible: false), ahead of
+// bilibili; ytmusic keeps the load-bearing LAST seat.
+// quick-261020-suyin: suyin （溯音 Kuwo via oiapi.net) sits right after kuwo —
+// a second independent Kuwo pipe (browser-direct, CORS *).
+// quick-261020-gdnt: gdnetease (GD音乐台 Netease via music-api.gdstudio.xyz)
+// sits right after netease — a second independent Netease pipe (via /api proxy,
+// no CORS). Neither disturbs the proven qq→netease→kuwo→joox floor ahead.
+// quick-261020-joox1: joox moves to #2 (right after qq). Hector reports JOOX has
+// the best audio quality and the most authentic (non-伴奏/同人) versions —
+// verified 2026-10-20: 給我一首歌的時間 resolves to the 魔杰座 original with a
+// 母带无损 FLAC url (206 audio/x-flac), while qijieya netease returns 同人
+// versions and suyin returns a DJ版 for the same query. Trying JOOX early in
+// the fallback walk means its authentic version wins over other pipes'
+// variant versions.
+export const SOURCES: Record<SourceId, SourceAdapter> = { qq, joox, netease, gdnetease, kuwo, suyin, kugou, migu, fivesing, jamendo, audius, archive, ccmixter, bilibili, ytmusic };
 
 /**
  * The enabled adapters for a search fan-out. Precedence (highest first):
@@ -78,6 +108,28 @@ export function onlySource(id: SourceId): Partial<Record<SourceId, boolean>> {
 	const prefs: Partial<Record<SourceId, boolean>> = {};
 	for (const sourceId of Object.keys(SOURCES) as SourceId[]) prefs[sourceId] = false;
 	prefs[id] = true;
+	return prefs;
+}
+
+// --- SPEED TIERS (quick-261020-speed) ---------------------------------------------------------
+// Tier-1: the 5 sources that cover ~95% of plays (benchmark 2026-10-20, 20 songs):
+// kuwo (85% official, most authentic), qq (65%, primary), joox (50% + FLAC, now #2),
+// netease (60%), suyin (100% hit, fastest resolve at 2.9s).
+// Discovery and fallback search tier-1 first; only if no official version is found do they
+// expand to the full set. This cuts the typical search fan-out from 14 sources to 5
+// (~5s → ~2s) without losing coverage — the tail sources are for obscure/long-tail songs.
+
+export const TIER_1_SOURCES: readonly SourceId[] = ['qq', 'joox', 'kuwo', 'netease', 'suyin'] as const;
+
+/**
+ * A `prefs` object that enables ONLY the tier-1 sources.
+ * Counterpart to onlySource() for the tiered search path.
+ */
+export function tier1Only(): Partial<Record<SourceId, boolean>> {
+	const prefs: Partial<Record<SourceId, boolean>> = {};
+	for (const sourceId of Object.keys(SOURCES) as SourceId[]) {
+		prefs[sourceId] = (TIER_1_SOURCES as readonly string[]).includes(sourceId);
+	}
 	return prefs;
 }
 

@@ -23,7 +23,7 @@
 // (safe — discovery is PUBLIC, key-only data with no user `sk`) so re-browsing home
 // never re-hits Last.fm (Pitfall 11).
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders } from '$lib/proxy/http';
+import { fetchWithRetry, corsHeaders, corsPreflight } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
 import type { Env } from '$lib/proxy/proxy-types';
 import { safeImageUrl as checkImageUrl, LASTFM_IMAGE_HOSTS } from '$lib/proxy/safe-image-url';
@@ -233,6 +233,4 @@ export const GET: RequestHandler = async ({ url, platform, request }) => {
 };
 
 // CORS preflight — scoped to the own origin via corsHeaders (never `*`, T-09-06).
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

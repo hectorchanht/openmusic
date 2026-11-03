@@ -10,7 +10,7 @@
 // namespaces for the same numeric songid, and our compound uid encodes this. We pin the
 // allowed values here so a malformed query never reaches upstream.
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
+import { fetchWithRetry, jsonResponse, corsPreflight } from '$lib/proxy/http';
 
 // Upstream is http-only (TLS cert mismatch on https, mirrors the search proxy). The CLIENT
 // still talks to this route over its own-origin https; the worker→upstream hop is http.
@@ -43,6 +43,4 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	}
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

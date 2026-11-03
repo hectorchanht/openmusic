@@ -1,5 +1,6 @@
 import type { Action } from 'svelte/action';
 import { createVelocityTracker } from '$lib/gestures/velocity';
+import { createSpringSnap } from '$lib/gestures/springSnap';
 
 // use:coverSwipe — finger-drag-SIDEWAYS to change track (Phase 20, NP-01 cover carousel / NP-05
 // nowbar slide). A structural X-axis MIRROR of swipeRemove.ts: same arm-on-down /
@@ -55,6 +56,8 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 	let startX = 0;
 	let startY = 0;
 	let dx = 0;
+	let lastApplied = 0; // quick-261022-spring: the translate ACTUALLY applied on the last move
+	// (rubber-banded at a boundary, 1:1 otherwise) — the spring re-seeds from THIS, not raw dx.
 	let commitDist = 0; // 0.28 × measuredWidth, recomputed at each down()
 	let maxPull = 0; // 0.18 × measuredWidth, the rubber-band asymptote
 	const SLOP = 8; // px before a press becomes a drag (swipeRemove's SLOP / dragClose's DRAG_START)
@@ -70,6 +73,19 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 		node.style.transform = '';
 		node.style.transition = '';
 	}
+
+	// quick-261022-spring: both snap-backs (boundary + normal) settle with a real damped spring
+	// instead of the old fixed 0.28s/0.32s ease-outs. The pump drives the inline transform every
+	// frame AND reports each frame to ondrag (WR-02 parity: a host driving its own surface off
+	// ondrag never visually disagrees with the node, even mid-spring). onSettled clears the
+	// inline styles so the host's CSS resting state (e.g. NowPlaying's strip settle) returns.
+	const snap = createSpringSnap(
+		(v) => {
+			node.style.transform = v === 0 ? '' : `translateX(${v}px)`;
+			ondrag?.(v);
+		},
+		{ onSettled: resetTransform }
+	);
 
 	// Defensively release a held pointer capture (WR-04). Browsers auto-release on
 	// pointerup/pointercancel, but an enabled:false update or a destroy() mid-drag can skip up();
@@ -102,6 +118,7 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 		releaseCapture();
 		dragging = false;
 		resisting = false;
+		snap.cancel(); // quick-261022-spring: stop the settle pump too
 		resetTransform();
 	}
 
@@ -128,6 +145,10 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 		startX = e.clientX;
 		startY = e.clientY;
 		dx = 0;
+		lastApplied = 0;
+		// quick-261022-spring: a new press interrupts an in-flight spring settle — otherwise the
+		// pump would keep writing the transform and fight the finger.
+		snap.cancel();
 		// Measure the element width at gesture start (like NowPlaying.measureOffsets reads the live
 		// layout) so the commit + rubber-band scale with the actual cover/nowbar width, never hardcoded.
 		const width = node.getBoundingClientRect().width;
@@ -179,6 +200,7 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 		const applied = resisting
 			? Math.sign(dx) * maxPull * (1 - Math.exp(-Math.abs(dx) / maxPull))
 			: dx;
+		lastApplied = applied; // quick-261022-spring: the spring re-seeds from the APPLIED value
 		node.style.transform = `translateX(${applied}px)`;
 		// Report the value APPLIED, not the raw dx, so a host driving its own surface off ondrag
 		// never visually disagrees with the node at a boundary (WR-02).
@@ -198,12 +220,12 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 			node.addEventListener('click', suppressClick, true);
 			suppressTimer = setTimeout(disarmSuppressor, 350);
 		}
-		// At a TRUE BOUNDARY: ignore flick entirely and ALWAYS spring back over the heavier 0.32s
-		// cover-reflow settle — a hard flick into a wall must never commit (UI-SPEC §2).
+		// At a TRUE BOUNDARY: ignore flick entirely and ALWAYS spring back — a hard flick into a
+		// wall must never commit (UI-SPEC §2). quick-261022-spring: real spring physics replace
+		// the old fixed 0.32s ease-out; re-seeds from the rubber-banded applied value.
 		if (resisting) {
 			resisting = false;
-			node.style.transition = 'transform 0.32s cubic-bezier(.22,1,.36,1)';
-			node.style.transform = 'translateX(0)';
+			snap.snap(lastApplied, 0);
 			dx = 0;
 			return;
 		}
@@ -222,9 +244,9 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 			// (translateX(0)); the host's own transition animates the new cover into place.
 			resetTransform();
 		} else {
-			// Spring back: re-enable transitions, animate translateX → 0.
-			node.style.transition = 'transform 0.28s cubic-bezier(.22,1,.36,1)';
-			node.style.transform = 'translateX(0)';
+			// quick-261022-spring: spring snap-back from the live release point (pump drives the
+			// transform + ondrag frames; onSettled restores the host CSS resting state).
+			snap.snap(dx, 0);
 		}
 		dx = 0;
 	}

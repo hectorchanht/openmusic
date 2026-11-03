@@ -20,9 +20,12 @@ import {
 	buildEnvelope,
 	hasUndoSnapshot,
 	serializeEnvelope,
+	slimLibraryForSync,
+	slimTrackForSync,
 	storageKeys,
 	undoImport,
 	validateEnvelope,
+	validateSyncKey,
 	type BackupEnvelope
 } from './backup-logic';
 
@@ -387,5 +390,105 @@ const _shape: BackupEnvelope = { app: BACKUP_MAGIC, format: BACKUP_FORMAT, expor
 describe('envelope contract', () => {
 	it('exposes the BackupEnvelope interface downstream plans import', () => {
 		expect(_shape.app).toBe(BACKUP_MAGIC);
+	});
+});
+
+// quick-261020-slimsync: the library payload was 1.7MB (lrc lyrics text = 75% of it) and
+// 504'd ~1 in 3 sync pushes over a marginal uplink. Sync keeps identity+display only.
+describe('slimTrackForSync', () => {
+	const full = {
+		uid: 'kuwo:9',
+		source: 'kuwo',
+		songid: '9',
+		title: '晴天',
+		artist: '周杰倫',
+		album: '葉惠美',
+		cover: 'https://x/y.jpg',
+		quality: '320k',
+		duration: 240,
+		songMid: 'MID-9',
+		lrc: '[00:01]...lyrics...',
+		lrcUrl: 'https://x/lrc',
+		audioUrl: 'https://x/a.mp3',
+		proxyUrl: 'https://openmusic.lol/api/x',
+		keyword: '晴天 周杰倫',
+		detailsLoaded: true,
+		qualityLabel: 'HQ',
+		displayIndex: 3
+	};
+	it('keeps identity + display fields + resolve extras', () => {
+		expect(slimTrackForSync(full)).toEqual({
+			uid: 'kuwo:9',
+			source: 'kuwo',
+			songid: '9',
+			title: '晴天',
+			artist: '周杰倫',
+			album: '葉惠美',
+			cover: 'https://x/y.jpg',
+			quality: '320k',
+			duration: 240,
+			songMid: 'MID-9'
+		});
+	});
+	it('drops lrc text, ephemeral urls and derivable fields', () => {
+		const slim = slimTrackForSync(full) as Record<string, unknown>;
+		for (const f of ['lrc', 'lrcUrl', 'audioUrl', 'proxyUrl', 'keyword', 'detailsLoaded', 'qualityLabel', 'displayIndex']) {
+			expect(slim[f]).toBeUndefined();
+		}
+	});
+	it('passes non-objects through untouched', () => {
+		expect(slimTrackForSync(null)).toBeNull();
+		expect(slimTrackForSync('x')).toBe('x');
+	});
+});
+
+describe('slimLibraryForSync', () => {
+	it('slims liked and nested playlist tracks, strips device-local downloads+unavailable', () => {
+		const t = { uid: 'kuwo:9', title: '晴天', lrc: 'lyrics', audioUrl: 'https://x' };
+		const lib = {
+			liked: [t],
+			downloads: [t],
+			playlists: [{ name: 'p', tracks: [t] }],
+			favArtists: ['周杰倫'],
+			unavailable: ['kuwo:9'],
+			deleted: ['u:kuwo:1']
+		};
+		const out = slimLibraryForSync(lib, true) as Record<string, any>;
+		expect(out.liked[0]).toEqual({ uid: 'kuwo:9', title: '晴天' });
+		// quick-261023-syncmerge: downloads describe this device's files — they never travel in sync.
+		expect('downloads' in out).toBe(false);
+		expect('unavailable' in out).toBe(false);
+		expect(out.playlists[0].tracks[0]).toEqual({ uid: 'kuwo:9', title: '晴天' });
+		expect(out.favArtists).toEqual(['周杰倫']);
+		// ...but the tombstone set MUST travel, or deletes stop propagating.
+		expect(out.deleted).toEqual(['u:kuwo:1']);
+	});
+	it('keeps downloads by default (manual backups + the 35-D-09 undo snapshot stay faithful)', () => {
+		const lib = { liked: [], downloads: [{ uid: 'kuwo:9', title: '晴天' }], unavailable: ['kuwo:9'] };
+		const out = slimLibraryForSync(lib) as Record<string, any>;
+		expect(out.downloads).toEqual([{ uid: 'kuwo:9', title: '晴天' }]);
+		expect(out.unavailable).toEqual(['kuwo:9']);
+		const read = (k: string) => (k === LIBRARY_KEY ? JSON.stringify(lib) : null);
+		const env = buildEnvelope(read, [LIBRARY_KEY], new Date(), { stripDeviceLocal: true });
+		expect('downloads' in (env.keys[LIBRARY_KEY] as Record<string, unknown>)).toBe(false);
+	});
+	it('buildEnvelope slims the library key on export', () => {
+		const lib = { liked: [{ uid: 'kuwo:9', title: '晴天', lrc: 'lyrics' }], downloads: [] };
+		const read = (k: string) => (k === LIBRARY_KEY ? JSON.stringify(lib) : null);
+		const env = buildEnvelope(read, [LIBRARY_KEY]);
+		const out = (env.keys[LIBRARY_KEY] as any).liked[0];
+		expect(out.lrc).toBeUndefined();
+		expect(out.title).toBe('晴天');
+	});
+});
+
+describe('validateSyncKey library deleted (quick-261023-syncmerge)', () => {
+	it('accepts an absent or string-array deleted', () => {
+		expect(validateSyncKey(LIBRARY_KEY, { liked: [] })).toBe(true);
+		expect(validateSyncKey(LIBRARY_KEY, { liked: [], deleted: ['u:a', 'f:b'] })).toBe(true);
+	});
+	it('refuses non-string tombstones', () => {
+		expect(validateSyncKey(LIBRARY_KEY, { liked: [], deleted: ['u:a', 5] })).toBe(false);
+		expect(validateSyncKey(LIBRARY_KEY, { liked: [], deleted: 'u:a' })).toBe(false);
 	});
 });

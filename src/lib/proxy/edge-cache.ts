@@ -1,5 +1,6 @@
 // Shared Cloudflare edge-cache accessor for the /api/* proxy routes (quick-260713-mqv).
 //
+import { jsonResponse } from './http';
 // Consolidates the EdgeCache/EdgeCacheStorage narrowing + the `edgeCache()` accessor that was
 // copy-pasted across 11 proxy routes (a CLAUDE.md Anti-Pattern: cache-write duplication). This
 // is a pure no-behavior-change extraction — every consumer's caching behavior, TTLs, CORS
@@ -44,4 +45,49 @@ export function edgeCache(): EdgeCache | null {
  */
 export function ownOriginCacheKey(url: URL | string): Request {
 	return new Request(url.toString());
+}
+
+/**
+ * quick-261020-batch2: the shared edge-cache + upstream + passthrough flow, collapsing the
+ * verbatim GET skeleton (~28 lines) copy-pasted across 7 search routes — and the 8-line
+ * cache-read idiom shared by 33 routes. (kuwo, deezer and ytmusic search keep bespoke flows:
+ * conditional cache-put / CORS-free entries / partial-merge rules — deliberately not collapsed.) Flow, unchanged from every call site:
+ *   cache match (own-origin key, never the secret-bearing upstream URL) → hit ? passthrough
+ *   : fetchUpstream() → cache put (`Cache-Control: public, max-age=<ttl>`) → passthrough.
+ * An upstream error returns `empty` with NO cache write (so the next retry can succeed) and NO
+ * Cache-Control header — byte-identical to every route's bare `jsonPassthrough(empty, origin)`.
+ *
+ * `fetchUpstream` is the route's own fetch — usually fetchWithRetry, but bilibili's WBI-signed
+ * helper lives here too. Route-specific guards (empty-query early return, env checks, pagination
+ * clamps) stay in the route; only the cache→upstream→put→passthrough spine moves here.
+ */
+export async function cachedUpstreamJson(opts: {
+	origin: string | null;
+	url: URL;
+	ttl: number;
+	empty: unknown;
+	fetchUpstream: () => Promise<unknown>;
+}): Promise<Response> {
+	const { origin, url, ttl, empty, fetchUpstream } = opts;
+	const cache = edgeCache();
+	const cacheReq = ownOriginCacheKey(url);
+	if (cache) {
+		const hit = await cache.match(cacheReq);
+		if (hit) return jsonResponse(await hit.json(), origin, { ttl });
+	}
+	try {
+		const body = await fetchUpstream();
+		if (cache) {
+			await cache.put(
+				cacheReq,
+				new Response(JSON.stringify(body), {
+					status: 200,
+					headers: { 'content-type': 'application/json', 'Cache-Control': `public, max-age=${ttl}` }
+				})
+			);
+		}
+		return jsonResponse(body, origin, { ttl });
+	} catch {
+		return jsonResponse(empty, origin);
+	}
 }

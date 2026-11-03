@@ -14,6 +14,7 @@
 
 <script lang="ts">
 	import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { t } from '$lib/i18n';
 	import { translateLinesEx } from '$lib/services/translate';
@@ -73,6 +74,10 @@
 			return src ? splitParenLines(reorderPairs(parseLyrics(src))) : [];
 		})()
 	);
+	// quick-261019-lyrspin: while the track is still resolving (player.loading) or a lyric
+	// backfill walk is in flight for it (player.lyricsFetching), an empty pane means "not yet",
+	// not "none" — the template shows the spinner instead of the no-lyrics line.
+	const lyricsPending = $derived(player.loading || player.lyricsFetching);
 	// When multiple lyric lines share a timestamp (common in CN LRCs that ship the original
 	// + an inline translation as two consecutive entries at the same time, plus our own
 	// splitParenLines parent + paren clauses), ALL of them are simultaneously active for
@@ -330,7 +335,10 @@
 		// padding does not move the bounded `.panel` scroller's own rect.
 		const elRect = el.getBoundingClientRect();
 		const offsetWithin = elRect.top - cRect.top + container.scrollTop; // line top in container scroll-space
-		container.scrollTo({ top: offsetWithin - anchorWithin, behavior: 'smooth' });
+		// quick-261102-s5t: reduce motion (app flag OR OS) jumps instead of gliding. Read here, after
+		// the early returns, so it is not a dependency of the anchor effect.
+		const reduce = settings.reduceMotion || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+		container.scrollTo({ top: offsetWithin - anchorWithin, behavior: reduce ? 'auto' : 'smooth' });
 	}
 
 	// quick-260919-npfix (Fix 3): how long to wait before re-anchoring after a sheet-state change.
@@ -487,8 +495,14 @@
 	{#if translating}<p class="tr-hint">{t('nowplaying.translating')}</p>{/if}
 	<div class="lyrics" role="group" aria-label={t('nowplaying.lyrics')} bind:this={lyricsEl} onpointerdown={lyricsPointerDown} ontouchstart={lyricsTouch} ontouchend={lyricsTouch} ontouchcancel={lyricsTouch} onwheel={() => dispatch({ type: 'wheel' })}>
 		{#each lines as l, i (i)}
-			{#if !(l.fromParen && settings.lyricsHideParenLines)}
-				{@const hideTrForLine = l.fromParen && settings.lyricsHideParenTranslation}
+			{@const isHiddenParen = (l.fromParen || l.isTranslation) && settings.lyricsHideParenLines}
+			{@const isTr = l.fromParen || l.isTranslation}
+			<!-- quick-261020-lyr4: Replace mode for EMBEDDED translations — hide the original
+			     when a translation sibling shares its timestamp. The translation line itself
+			     (isTr) always shows in Replace mode. -->
+			{@const hideForReplace = settings.translateMode === 'replace' && !isTr && lines.some((o, j) => j !== i && o.time === l.time && (o.fromParen || o.isTranslation))}
+			{#if !isHiddenParen && !hideForReplace}
+				{@const hideTrForLine = isTr && settings.lyricsHideParenTranslation}
 				<!-- D-01: every lyric line is a tap target that seeks to its timestamp. The line stays a
 				     semantic <p> so the anchor $effect's `querySelectorAll('p')[idx]` scroll-centering, the
 				     `.lyrics p` centring/active/paren CSS, and the activeTime↔translated[i] index alignment
@@ -510,30 +524,37 @@
 			{/if}
 		{/each}
 	</div>
-{:else}<p class="empty">{t('nowplaying.noLyrics')}</p>{/if}
+{:else if lyricsPending}<LoadingState label={t('common.loading')} lines={6} />{:else}<p class="empty">{t('nowplaying.noLyrics')}</p>{/if}
 
 <style>
 	/* quick-260919-np3: the lyrics SUBSET of NowPlaying.svelte's old panel CSS, moved verbatim with
 	   the markup it styles (Svelte scopes styles per component). */
-	/* Side padding gives the active line's transform: scale + bold weight room to grow
-	   without bumping the parent's `overflow: hidden` clip. word-break/overflow-wrap force
-	   even unbroken-character runs (CJK with no spaces, or long URLs) to wrap inside the
-	   column instead of being clipped at the edges. */
+	/* quick-261019-lyr: the active line used to highlight with font-weight 700 — bold glyphs are
+	   wider/taller than their regular twins, so every highlight triggered a reflow and the whole
+	   lyric column visibly shifted (before/during/after). The highlight is now faux-bold via
+	   text-shadow: it thickens the strokes with IDENTICAL glyph metrics, so the active line pops
+	   with zero layout shift. Side padding still gives room against the parent's
+	   `overflow: hidden` clip. word-break/overflow-wrap force even unbroken-character runs
+	   (CJK with no spaces, or long URLs) to wrap inside the column instead of being clipped. */
 	.lyrics { text-align: center; line-height: 1.3; }
-	.lyrics p { font-size: calc(1rem * var(--fs-lyrics, 1)); color: var(--color-text-muted); transition: color 0.2s ease, transform 0.2s ease; margin: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
-	.lyrics p.active { color: var(--color-text); font-weight: 700; }
+	.lyrics p { font-size: calc(1rem * var(--fs-lyrics, 1)); color: var(--color-text-muted); transition: color 0.2s ease, text-shadow 0.2s ease, transform 0.2s ease; margin: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+	.lyrics p.active { color: var(--color-text); text-shadow: 0 0 0.5px currentColor, 0 0 0.5px currentColor; }
 	/* paren-derived sibling line — slightly smaller / lower contrast than the parent so the
 	   reader can tell "this is the embedded-translation part" at a glance. */
 	.lyrics p.paren { font-size: calc(0.9rem * var(--fs-lyrics, 1)); opacity: 0.85; }
-	.lyrics .tr { display: block; font-size: 0.82em; font-weight: 400; color: var(--color-text-muted); margin-top: 2px; }
-	/* quick-260618-t7p Task 3: the per-line translation inside an active line is a CHILD .tr span, so
-	   .lyrics p.active (which only restyles the <p>'s own color/weight) does not reach it and the base
-	   .lyrics .tr pins a muted color/weight 400 — the translation stayed un-highlighted while its parent
-	   line was active. Mirror the active-line emphasis (same tokens as .lyrics p.active) so the active
-	   moment's translation reads as highlighted in lockstep with the original. */
-	.lyrics .tr.active { color: var(--color-text); font-weight: 700; }
-	.tr-hint { text-align: center; font-size: 0.6875rem; color: var(--color-primary); margin: 0 0 6px; }
+	.lyrics .tr { display: block; font-size: 0.82em; font-weight: 400; color: var(--color-text-muted); margin-top: 2px; transition: color 0.2s ease, text-shadow 0.2s ease; }
+	/* quick-260618-t7p Task 3 + quick-261019-lyr: the per-line translation inside an active line is a
+	   CHILD .tr span, so the .lyrics p.active emphasis does not reach it. Mirror the active-line
+	   highlight (faux-bold text-shadow, not font-weight 700) so the active moment's translation
+	   reads as highlighted in lockstep with the original — still with zero layout shift. */
+	.lyrics .tr.active { color: var(--color-text); text-shadow: 0 0 0.5px currentColor, 0 0 0.5px currentColor; }
+	/* quick-261102-s5t: muted, not the accent — a status line is not "live/on/go", and Tiffany
+	   small text on the light floor was ~2:1. */
+	.tr-hint { text-align: center; font-size: 0.6875rem; color: var(--color-text-muted); margin: 0 0 6px; }
 	.empty { color: var(--color-text-muted); font-size: 0.875rem; text-align: center; padding: 24px; }
+	/* quick-261029-xor1: the fetching state is the shared LoadingState — skeleton ONLY
+	   for lyrics (long text; spinner + skeleton together are banned, standing rule) —
+	   the old scoped .row-spinner (quick-261019-lyrspin) retired with load1. */
 	/* quick-260926-mis: quiet offset row. In normal flow above `.lyrics`, so it shifts every line by the
 	   same amount and anchorActiveLine (live rects) still lands exactly. Opaque --color-bg (what .np /
 	   .sheet paint) keeps it legible over lyrics scrolling beneath it. */

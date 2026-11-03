@@ -5,8 +5,14 @@
 //   - open(id, close)   pushes ONE entry AND ONE history state.
 //   - dismiss(id)        UI close (scrim / X / drag / cover-collapse): removes the
 //                        entry AND calls history.back() ONCE to pop the matching
-//                        history state. A `popping` flag swallows the resulting
-//                        popstate so we don't double-close.
+//                        history state. A `pendingPops` counter swallows the resulting
+//                        popstate echo(s) 1:1 so we don't double-close — a COUNTER, not
+//                        a flag, because two synchronous dismisses (e.g. TrackMenu's
+//                        pickCover: closeCoverPicker() + close() → two dismisses, two
+//                        backs) must swallow TWO echoes; a boolean swallowed only the
+//                        first and the stray popstate closeTop()'d the underlying
+//                        overlay (quick-261019-ovl: the now-playing sheet collapsing
+//                        when a menu action was picked).
 //   - back gesture       fires popstate with our state non-empty → closeTop() pops the
 //                        top entry and runs its close() handler.
 // Because both UI-close and the back gesture pop exactly one history state and one
@@ -47,8 +53,13 @@ function sameOriginHref(url: string): string | null {
 class Overlays {
 	/** Stack of open overlays, top = last. $state so a depth readout could react if needed. */
 	private stack = $state<OverlayEntry[]>([]);
-	/** True while WE triggered history.back() in dismiss() — swallows the echo popstate. */
-	private popping = false;
+	/** history.back() calls issued by dismiss() whose popstate echo hasn't arrived yet.
+	 *  A counter (not a boolean): N synchronous dismisses issue N backs and each back
+	 *  produces exactly one popstate, so the listener swallows exactly N echoes 1:1.
+	 *  No timeout reset — dismiss() only backs when the entry pushed a state
+	 *  (pushed=true ⇒ the session history grew ⇒ back() WILL fire a popstate), so the
+	 *  counter is self-balancing and can never leak. */
+	private pendingPops = 0;
 	/** True during an outbound navigateAway() — suppresses dismiss()'s history.back() so the
 	 *  hosts unmounting under the new route can't pop the just-navigated destination off. */
 	private navigating = false;
@@ -157,11 +168,12 @@ class Overlays {
 		// the entry carried quick-261010-npurl's display URL) with an empty stack, so the
 		// popstate listener simply no-ops.
 		if (entry.pushed && HAS_WINDOW && !this.navigating) {
-			this.popping = true;
 			history.back();
-			// Safety net: clear the flag even if popstate never fires (some browsers
-			// no-op history.back() at the very first entry of a fresh session).
-			setTimeout(() => (this.popping = false), 0);
+			// 1:1 with the popstate this back() will produce — the listener decrements
+			// and swallows exactly one echo per back, so stacked synchronous dismisses
+			// (picker-pick → closePicker() + close()) can't leak a stray popstate into
+			// closeTop() and collapse the overlay underneath.
+			this.pendingPops++;
 		}
 	}
 
@@ -205,9 +217,10 @@ class Overlays {
 		if (!HAS_WINDOW || this.listening) return () => {};
 		this.listening = true;
 		const onpop = () => {
-			if (this.popping) {
-				// This popstate is the echo of our own dismiss() history.back() — ignore.
-				this.popping = false;
+			if (this.pendingPops > 0) {
+				// This popstate is the echo of our own dismiss() history.back() — ignore,
+				// one echo per back issued.
+				this.pendingPops--;
 				return;
 			}
 			if (this.stack.length > 0) {

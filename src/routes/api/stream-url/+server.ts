@@ -15,7 +15,7 @@
 // ytmusic is deliberately ABSENT: its edge-signed URLs are IP-locked to the caller's IP,
 // so a browser fetch 403s by construction — the client skips the direct leg for it.
 import type { RequestHandler } from './$types';
-import { corsHeaders, fetchWithRetry } from '$lib/proxy/http';
+import { corsHeaders, fetchWithRetry, corsPreflight } from '$lib/proxy/http';
 
 // Free-text identifier, NOT a key (mirrors the audius stream route).
 const AUDIUS_APP_NAME = 'musicsquare';
@@ -71,6 +71,4 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	}
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

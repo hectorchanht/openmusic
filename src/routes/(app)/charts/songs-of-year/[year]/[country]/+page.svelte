@@ -2,8 +2,8 @@
 	// Songs of the Year pack page — /charts/songs-of-year/[year]/[country].
 	// Data comes from the songs-of-year registry (lazy per-year import); combos without
 	// verified data render a "coming soon" state, never fabricated songs.
-	// Row pattern mirrors the static 2026 pack pages (stubTrack + resolveStub + SongRow),
-	// plus index={rank} since a year-end chart's rank is the point.
+	// Row pattern mirrors the static 2026 pack pages (stubTrack + resolveStub + SongRow).
+	// No rank numbers (quick-261020-norank — Hector: numbering eats title width on every page).
 	import { page } from '$app/state';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SoyYearStrip from '$lib/components/SoyYearStrip.svelte';
@@ -21,9 +21,7 @@
 	import { Play, Shuffle, Download } from '@lucide/svelte';
 	import { downloadAlbum as downloadPackTracks } from '$lib/services/download-album';
 	import { goto } from '$app/navigation';
-	import DownloadGateModal from '$lib/components/DownloadGateModal.svelte';
-	import { isSupporter } from '$lib/config/sponsored';
-	// quick-261010-posthog: pack_download_started when the supporter bulk-download begins.
+	// quick-261010-posthog: pack_download_started when the bulk download begins.
 	import { track } from '$lib/posthog';
 	import type { Track } from '$lib/sources/types';
 
@@ -124,43 +122,40 @@
 
 	async function play(s: PackSong) {
 		const tr = await player.playStub(s.artist, s.title, undefined, 'songs-of-year');
+		// quick-261024-sets: install the pack UNPINNED — the Up-next sourcing setting for
+		// 'songs-of-year' decides between a generated tail (default) and the pack itself.
+		if (tr) player.setListQueue(packQueue(songs), 'songs-of-year');
 		if (tr === null && player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 
-	// Whole-list queue (album-page quick-260919-alb idiom): track 1 plays instantly via
-	// playStub, the rest install as lazy name-only stub tracks (zero network; they resolve
-	// when they reach the front). `sameList` keeps the installed list through the fresh-play tail.
+	// The pack installs as lazy name-only stub tracks (zero network; they resolve when
+	// they reach the front). quick-261024-sets (Hector 2026-10-24): installed UNPINNED — no sameList
+	// outside album/artist; the Up-next sourcing setting decides the tail.
 	function packQueue(list: PackSong[], at = -1, real: Track | null = null): Track[] {
 		return list
 			.map((s, i) => (i === at && real ? real : nameStub(s.artist, s.title)))
 			.filter((tr): tr is Track => tr !== null);
 	}
+	// quick-261031-scope (Hector 2026-10-31): the pack's Play / Shuffle BUTTONS are scoped to
+	// the pack again — playStub gets { sameList: true }, so Up Next IS this pack (in order /
+	// shuffled) whatever the sourcing setting says. Row taps stay unpinned (sets stands).
 	async function playAll() {
 		if (!songs.length) return;
-		const first = await player.playStub(songs[0].artist, songs[0].title, undefined, 'songs-of-year', {
-			sameList: true
-		});
+		const first = await player.playStub(songs[0].artist, songs[0].title, undefined, 'songs-of-year', { sameList: true });
 		if (first) player.setListQueue(packQueue(songs, 0, first), 'songs-of-year');
 		else if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
 	async function shufflePlay() {
-		// Shuffle installs the WHOLE pack as Up Next in shuffled order.
+		// Shuffle starts from a shuffled copy; the pack installs unpinned (quick-261024-sets).
 		const shuffled = shuffle(songs);
 		if (!shuffled.length) return;
-		const first = await player.playStub(shuffled[0].artist, shuffled[0].title, undefined, 'songs-of-year', {
-			sameList: true
-		});
+		const first = await player.playStub(shuffled[0].artist, shuffled[0].title, undefined, 'songs-of-year', { sameList: true });
 		if (first) player.setListQueue(packQueue(shuffled, 0, first), 'songs-of-year');
 		else if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 	}
-	// Download all — tip-jar supporters only (same gate as the 2026 pack pages).
+	// Download all — free for everyone (quick-261020-nogate: Hector cancelled the tip gate).
 	let downloading = $state(false);
-	let gateOpen = $state(false);
 	async function downloadAll() {
-		if (!isSupporter()) {
-			gateOpen = true;
-			return;
-		}
 		if (downloading) return;
 		downloading = true;
 		// quick-261010-posthog: the gate already passed — a real bulk download is starting.
@@ -214,7 +209,7 @@
 
 <PageHeader backLabel={t('common.back')} showSettings />
 
-<SoyYearStrip active={String(yearNum)} onselect={selectYear} />
+<SoyYearStrip active={String(yearNum)} onselect={selectYear} country={country} />
 
 {#if !valid || loadFailed}
 	<header class="hero">
@@ -266,11 +261,10 @@
 	</header>
 
 	<ul class="list">
-		{#each songs as s, i (s.artist + s.title)}
+		{#each songs as s (s.artist + s.title)}
 			<li>
 				<SongRow
 					track={stubTrack(s)}
-					index={i}
 					smartArtist
 					resolve={() => resolveStub(s.artist, s.title).catch(() => null)}
 					onplay={() => play(s)}
@@ -281,8 +275,6 @@
 	</ul>
 
 	<TrackMenu track={menuTrack} open={menuOpen} loading={menuLoading} onclose={() => (menuOpen = false)} />
-
-	<DownloadGateModal bind:open={gateOpen} />
 
 	<!-- quick-261010-soysrc: chart source attribution — where this page's data came from. -->
 	{#if srcInfo}
@@ -330,7 +322,7 @@
 		height: 56px;
 		background: var(--color-primary);
 		border-color: var(--color-primary);
-		color: #fff;
+		color: var(--color-on-primary); /* quick-261102-rrb */
 	}
 	.act.download {
 		border-color: var(--color-primary);

@@ -58,7 +58,7 @@ describe('navActive — tab-less hrefs behave EXACTLY like the old inline expres
 	});
 
 	it('a subpath match is kept, and is not a prefix match', () => {
-		expect(navActive(u('https://x/settings/general'), '/settings')).toBe(true);
+		expect(navActive(u('https://x/settings/appearance'), '/settings')).toBe(true);
 		expect(navActive(u('https://x/settingsx'), '/settings')).toBe(false);
 	});
 });

@@ -48,7 +48,6 @@ describe('shared settings rows (quick-260919-ebi F2)', () => {
 	// silently tolerated.
 	const CONVERTED: [string, string[]][] = [
 		[`${ROUTES}/+page.svelte`, ['row-toggle', 'sw', 'item']],
-		[`${ROUTES}/general/+page.svelte`, ['row-toggle', 'sw', 'item']],
 		[`${ROUTES}/appearance/+page.svelte`, ['row-toggle', 'sw', 'item']],
 		[`${ROUTES}/translation/+page.svelte`, ['row-toggle', 'sw', 'item']],
 		[`${ROUTES}/playback/+page.svelte`, ['row-toggle', 'sw', 'item']],
@@ -101,7 +100,10 @@ describe('shared settings rows (quick-260919-ebi F2)', () => {
 		// Both variants: a group with a name, and every option a real <button> with aria-pressed.
 		expect(picker.match(/role="group"/g) ?? []).toHaveLength(2);
 		expect(picker.match(/aria-pressed=\{value === o\.v\}/g) ?? []).toHaveLength(2);
-		expect(picker.match(/aria-label=\{o\.label\}/g) ?? []).toHaveLength(2);
+		// quick-261023-perks: the preview variant's aria-label appends the lock hint
+		// for gated options — the accessible name still starts from o.label.
+		expect(picker.match(/aria-label=\{o\.label\}/g) ?? []).toHaveLength(1);
+		expect(picker).toMatch(/aria-label=\{o\.locked && o\.lockLabel/);
 		// The seg variant is the EXISTING pill row, not a second implementation of it.
 		expect(picker).toMatch(/\.seg button\.on \{[\s\S]*?background: var\(--color-primary\)/);
 		// Mocks never announce themselves; the button's aria-label is the accessible name.
@@ -170,17 +172,14 @@ describe('shared settings rows (quick-260919-ebi F2)', () => {
 		const uses: [string, string][] = [
 			[`${ROUTES}/+page.svelte`, 'SettingRow'],
 			[`${ROUTES}/data/+page.svelte`, 'SettingRow'],
-			[`${ROUTES}/general/+page.svelte`, 'SettingToggle'],
 			[`${ROUTES}/appearance/+page.svelte`, 'SettingToggle'],
 			[`${ROUTES}/appearance/+page.svelte`, 'SettingPicker'],
-			[`${ROUTES}/translation/+page.svelte`, 'SettingToggle'],
 			[`${ROUTES}/playback/+page.svelte`, 'SettingPicker'],
 			[`${ROUTES}/playback/+page.svelte`, 'SettingHint'],
 			[`${ROUTES}/translation/+page.svelte`, 'SettingPicker'],
 			[`${ROUTES}/translation/+page.svelte`, 'SettingHint'],
 			[`${ROUTES}/home/+page.svelte`, 'SettingPicker'],
 			[`${ROUTES}/home/+page.svelte`, 'SettingHint'],
-			[`${ROUTES}/general/+page.svelte`, 'SettingHint'],
 			[`${ROUTES}/appearance/+page.svelte`, 'SettingHint']
 		];
 		for (const [file, comp] of uses) {

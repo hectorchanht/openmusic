@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { mergeArtistTiles, pickTileName, type ArtistTile } from './artist-tiles';
+import {
+	mergeArtistTiles,
+	pickTileName,
+	prioritizeArtistIntent,
+	type ArtistTile
+} from './artist-tiles';
+import { tokenizeQuery } from './score-context';
 
 // quick-260831-s0c. Reported: a search for "jay chow" showed THREE artist tiles — 周傑倫, Jay Chou,
 // 周杰倫 — for one person, because tiles are derived from raw per-source `track.artist` strings.
@@ -103,5 +109,44 @@ describe('pickTileName — display name follows the artist-language setting', ()
 
 	it('returns the canonical for an empty candidate list', () => {
 		expect(pickTileName([], 'Jay Chou', 'en')).toBe('Jay Chou');
+	});
+});
+
+describe('prioritizeArtistIntent — the queried artist leads the tile row (quick-261024-cig)', () => {
+	// The live "cigarette after sex" row: four high-count uploader accounts ahead of the
+	// actual artist, whose songs fill the top of the song list.
+	const ROW = [
+		t('ok33', 30),
+		t('Dawkinsblog', 25),
+		t('Old Time Radio Researchers Group', 20),
+		t('STEF68', 18),
+		t('Cigarettes After Sex', 12),
+		t('Black Roses', 3)
+	];
+
+	it('moves the fuzzy query match to the front, keeping everyone else in order', () => {
+		const out = prioritizeArtistIntent(ROW, tokenizeQuery('cigarette after sex'));
+		expect(out.map((x) => x.name)).toEqual([
+			'Cigarettes After Sex',
+			'ok33',
+			'Dawkinsblog',
+			'Old Time Radio Researchers Group',
+			'STEF68',
+			'Black Roses'
+		]);
+	});
+
+	it('still leads when the query is misspelled', () => {
+		const out = prioritizeArtistIntent(ROW, tokenizeQuery('ciggarette after sex'));
+		expect(out[0].name).toBe('Cigarettes After Sex');
+	});
+
+	it('returns the row unchanged when no tile matches the query', () => {
+		const out = prioritizeArtistIntent(ROW, tokenizeQuery('taylor swift'));
+		expect(out.map((x) => x.name)).toEqual(ROW.map((x) => x.name));
+	});
+
+	it('returns the row unchanged for an empty query', () => {
+		expect(prioritizeArtistIntent(ROW, [])).toBe(ROW);
 	});
 });

@@ -2,8 +2,9 @@
 // fetchNeteaseDetails (legacy:2268-2308).
 //
 // Differences from the monolith (intentional):
-//   - calls the SAME-ORIGIN proxy /api/netease/... instead of api.qijieya.cn directly
-//     (token-free for Netease, but uniform with the proxy boundary for all sources)
+//   - search is BROWSER-DIRECT to api.qijieya.cn (quick-261020-speed — its ACAO:* makes
+//     the /api proxy hop unnecessary); the returned url/lrc still ride same-origin proxy
+//     URLs, and the /api/netease proxy is retained for non-browser contexts
 //   - emits the canonical COLON-form uid `netease:<songid>` (D-10), not the hyphen form
 //   - pickQueryParam drops `new URL(rawUrl, window.location.href)` — no `window`
 //     server-side; uses an absolute-or-regex parse instead
@@ -14,6 +15,7 @@ import { makeUid } from './types';
 import { inferQualityFromUrl } from '../services/lrc';
 import { apiUrl, apiFetch } from '../services/api-base';
 import { fetchDirectStreamUrl } from '../services/stream-url';
+import { fetchJbsouStreamUrl } from '../services/jbsou-fallback';
 import { neteaseHealth } from '../services/netease-health';
 
 // Netease search row shape from the Meting proxy (fields we read).
@@ -57,7 +59,7 @@ export const netease: SourceAdapter = {
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
 		// HEALTH-GATE short-circuit (Plan 26-05, NETEASE-01 / T-26-05-01). The qijieya Meting upstream
 		// intermittently returns [] for a RUN of queries then recovers (spikes 001/004). After a run of
-		// drys the gate trips and we SKIP the wasted /api/netease/search for a bounded window so a dead
+		// drys the gate trips and we SKIP the wasted search for a bounded window so a dead
 		// netease neither slows nor strands the search fan-out (the healthy sources still return; the
 		// kuwo-first resolve is unaffected). isGated() auto-opens after GATE_WINDOW_MS for a single probe
 		// whose outcome re-decides — so netease is never hidden permanently (T-26-05-02). Never-throw on
@@ -66,11 +68,15 @@ export const netease: SourceAdapter = {
 
 		// Pagination by limit-multiplication, not a real page param (preserve legacy:1987).
 		const requestLimit = Math.max(1, page || 1) * Math.max(1, 10);
-		const path = `/api/netease/search?id=${encodeURIComponent(keyword)}&limit=${encodeURIComponent(
-			requestLimit
-		)}`;
+		// quick-261020-speed: BROWSER-DIRECT. qijieya sends `Access-Control-Allow-Origin: *`
+		// (verified 2026-10-20), so the search hits the upstream directly, saving the ~1s
+		// /api proxy hop (same 32-D-12 reasoning as tang detail + suyin). The /api/netease
+		// proxy is retained for non-browser contexts.
+		const url =
+			`https://api.qijieya.cn/meting/?server=netease&type=search&id=${encodeURIComponent(keyword)}` +
+			`&limit=${encodeURIComponent(requestLimit)}`;
 
-		const res = await apiFetch(path, { signal });
+		const res = await apiFetch(url, { signal });
 		const json: unknown = await res.json();
 		// Contract-drift guard: Netease must return an array. Throw (not return 0) so the
 		// fan-out records a typed per-source error. NOTE (26-05): a non-array body is genuine DRIFT,
@@ -152,7 +158,16 @@ export const netease: SourceAdapter = {
 			// (cheap path — no extra hop). Any failure keeps the proxy path: the listener
 			// never sees the difference.
 			if (!track.audioUrl || track.audioUrl === proxy) {
-				track.audioUrl = (await fetchDirectStreamUrl('netease', track.songid, signal)) ?? proxy;
+				track.audioUrl =
+					(await fetchDirectStreamUrl('netease', track.songid, signal)) ??
+					// quick-261101-jbs: LAST fallback before the proxy path — JBSou, an independent
+					// resolve gateway over the same netease catalog (edge-side cookie + signed-link
+					// walk in /api/jbsou/resolve). Consulted ONLY here, when the Meting type=url hop
+					// yielded nothing — the qijieya dry-spell shape (search returns rows, resolve
+					// returns no playable URL). A JBSou miss keeps the proxy path exactly as before;
+					// the pipe is health-gated (jbsou-health) so a dead JBSou is skipped, not taxed.
+					(await fetchJbsouStreamUrl('netease', track, signal)) ??
+					proxy;
 			}
 			if (!track.lrcUrl) {
 				// Pitfall 3: lrcUrl is fetched as-is below — must be absolute on native too.

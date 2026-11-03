@@ -4,6 +4,8 @@
 // same song surfaced by multiple sources collapses to one — the highest quality.
 import type { SourceId, Track } from '$lib/sources/types';
 import { t2sConvertLineSync, warmT2S } from '$lib/services/zh-convert';
+import { isDeviceUid } from '$lib/services/device-track';
+import { splitArtists } from '$lib/util/artist-split';
 
 // Tie-break when quality is equal/unknown. Tune freely.
 // 5sing is UGC (covers / 伴奏 / 原创) — it should NEVER win a tie against a mainstream CN
@@ -35,7 +37,7 @@ import { t2sConvertLineSync, warmT2S } from '$lib/services/zh-convert';
 // title/album metadata is what the user sees. Identity is unaffected — it stays uid-based
 // (`makeUid`), and this rank never decides identity, only which of two same-song rows survives.
 // Cross-ref: the roadmap's pending "netease upstream health-gate" item already suspected this rank-4.
-const SOURCE_RANK: Record<SourceId, number> = { netease: 3, qq: 4, kuwo: 2, joox: 1, fivesing: 0, jamendo: -1, audius: -1, ytmusic: -1 };
+const SOURCE_RANK: Record<SourceId, number> = { netease: 3, gdnetease: 3, qq: 4, kuwo: 2, suyin: 2, joox: 3, kugou: 1, migu: 1, fivesing: 0, jamendo: -1, audius: -1, archive: -1, ccmixter: -1, bilibili: -1, ytmusic: -1 };
 
 /** Higher = better. Reads qualityLabel/quality strings (often null pre-resolve). */
 function qualityRank(t: Track): number {
@@ -254,6 +256,61 @@ export function sameSongStrings(aArtist: string, aTitle: string, bArtist: string
 	return !!title && title === kb.slice(0, ib) && aliasArtist(ka.slice(ia + 1), kb.slice(ib + 1));
 }
 
+/**
+ * quick-261102-cov1: the ARTIST half of the identity machinery, exported for the
+ * auto-substitution gate (song-variant's isAutoAcceptableArtist). Two artist strings name
+ * the SAME credited act when any of the codebase's canonical comparisons says so:
+ *   1. their songKey artist halves are equal (script-folded per char, bracketed segments
+ *      and feat./ft. dash-tails dropped, punctuation stripped — 周杰倫 vs 周杰伦，
+ *      "周杰倫 (Jay Chou)" vs 周杰倫）;
+ *   2. the alias rule (aliasArtist — whole script-run subsets: `G.E.M.` vs `G.E.M.鄧紫棋`);
+ *   3. they SHARE a credited segment under splitArtists — duet / featuring containment in
+ *      either direction （周杰倫 vs `周杰倫/蔡依林`; a duet-credited stub vs its primary
+ *      artist's solo credit). A segment only counts whole (splitArtists output keyed
+ *      through the same songKey normalization), never as a substring, so 阿傑 vs 阿傑正傳
+ *      stay apart.
+ * A blank side NEVER matches (returns false): the blank policy — a candidate with no
+ * credited artist carries no identity to check — belongs to the gate, not to identity.
+ * Deliberately NOT routed through sameSongKey: that predicate also demands title equality
+ * and its key() feeds persisted comment-thread hashes (comments.ts) that must not move.
+ */
+export function sameArtistCredit(aArtist: string, bArtist: string): boolean {
+	const artistHalf = (s: string): string => {
+		const k = songKey(s ?? '', '');
+		return k.slice(k.indexOf('|') + 1);
+	};
+	const ha = artistHalf(aArtist);
+	const hb = artistHalf(bArtist);
+	if (!ha || !hb) return false;
+	if (ha === hb) return true;
+	if (aliasArtist(ha, hb)) return true;
+	const segKeys = (s: string) =>
+		splitArtists(s ?? '')
+			.map(artistHalf)
+			.filter((x) => x.length > 0);
+	const aSegs = segKeys(aArtist);
+	if (aSegs.length === 0) return false;
+	const bSegs = new Set(segKeys(bArtist));
+	return aSegs.some((s) => bSegs.has(s));
+}
+
+// quick-261102-cov1: the CREDIT-based identity the automatic adoption seams OR in
+// beside sameSongKey. sameSongKey's artist half demands equal-SHAPE credits (same
+// segment count after splitting), which excludes a duet credit outright — a
+// 周杰倫/蔡依林 row is "not the same song" as the 周杰倫 track it must substitute
+// for, even though it IS the original recording. This helper asks the two questions
+// the seams actually mean: same TITLE (dedupe key equality, brackets/feat stripped
+// as everywhere) AND same ARTIST by credit (sameArtistCredit — equality, alias, or
+// segment containment). It never widens past a different act: containment requires
+// a whole credited segment, and the title must key-match exactly.
+export function sameSongByCredit(
+	a: { artist: string; title: string },
+	b: { artist: string; title: string }
+): boolean {
+	if (titleKey(a.title ?? '') !== titleKey(b.title ?? '')) return false;
+	return sameArtistCredit(a.artist ?? '', b.artist ?? '');
+}
+
 function better(a: Track, b: Track, preferred?: SourceId): Track {
 	const qa = qualityRank(a);
 	const qb = qualityRank(b);
@@ -362,6 +419,90 @@ export function collapseVariants(tracks: Track[]): Track[] {
 }
 
 /**
+ * quick-261031-dedup (Hector 2026-10-31: "every shelf should be dedup"): the RENDITION key of a
+ * title — the part that makes two same-song rows DIFFERENT recordings rather than duplicates.
+ * `variantTag` covers bracketed markers ("(Live)", "【Remix】"); this adds the common
+ * " - Live / - Remix" tail form variantTag cannot see. '' = the plain (studio) rendition.
+ * Deliberately narrow: only a trailing qualifier word counts, so "Live While We're Young"
+ * (a title that merely STARTS with the word) stays the plain rendition of itself.
+ */
+function versionKey(title: string): string {
+	const tag = variantTag(title);
+	if (tag) return (tag.key ?? tag.text).toLowerCase();
+	const m = (title || '').match(
+		/[-–—]\s*(live|remix|acoustic|demo|instrumental|inst|remaster(?:ed)?|cover|karaoke)\b/i
+	);
+	return m ? m[1].toLowerCase() : '';
+}
+
+/** The minimal shape shelf dedupe reads — satisfied by both Track and HistoryEntry. */
+export interface ShelfItem {
+	uid: string;
+	artist: string;
+	title: string;
+	source: SourceId;
+	quality?: string | null;
+	qualityLabel?: string | null;
+}
+
+/**
+ * quick-261031-dedup: "the same song on a shelf" — sameSongKey (script-folded, artist-alias
+ * aware) AND the same rendition (versionKey). dedupeBest's key() alone strips "(Live)" /
+ * "- Remix" markers, which is right for search/queue collapse but WRONG for a user's own
+ * lists: a downloaded Live cut and the studio cut are two recordings the user chose on
+ * purpose (the downloadUidFor / versionedMatchKey distinction, quick-261008-dl1), and a
+ * shelf dedupe must never merge them. Two DEVICE entries are the same only by uid — a
+ * device file is the user's own file and no catalog row may stand in for it (34-D-01).
+ */
+export function isSameShelfSong(a: ShelfItem, b: ShelfItem): boolean {
+	if (a.uid === b.uid) return true;
+	if (isDeviceUid(a.uid) || isDeviceUid(b.uid)) return false;
+	return (
+		sameSongKey(a as unknown as Track, b as unknown as Track) &&
+		versionKey(a.title) === versionKey(b.title)
+	);
+}
+
+/**
+ * quick-261031-dedup: collapse a user-owned shelf list (library liked / downloads /
+ * playlists, history, home shelves) to one row per song+rendition, keeping the
+ * best-quality copy (the private better() — same pick dedupeBest makes) at the FIRST
+ * occurrence's position, so a most-recent-first list stays most-recent-first. Pairs are
+ * only compared inside a titleKey bucket, so a whole shelf costs one key per row plus
+ * tiny in-bucket scans. Device entries pass through untouched except exact-uid repeats.
+ * Pure / never-throw / order-preserving.
+ */
+export function dedupeShelfList<T extends ShelfItem>(tracks: T[], preferred?: SourceId): T[] {
+	const out: T[] = [];
+	const buckets: string[] = []; // titleKey per out row ('' for device rows — never bucket-matched)
+	for (const t of tracks) {
+		if (isDeviceUid(t.uid)) {
+			if (!out.some((k) => k.uid === t.uid)) {
+				out.push(t);
+				buckets.push('');
+			}
+			continue;
+		}
+		const tk = titleKey(t.title);
+		let hit = -1;
+		for (let i = 0; i < out.length; i++) {
+			if (buckets[i] !== tk || isDeviceUid(out[i].uid)) continue;
+			if (isSameShelfSong(out[i], t)) {
+				hit = i;
+				break;
+			}
+		}
+		if (hit < 0) {
+			out.push(t);
+			buckets.push(tk);
+		} else if (better(out[hit] as unknown as Track, t as unknown as Track, preferred) === (t as unknown as Track)) {
+			out[hit] = t;
+		}
+	}
+	return out;
+}
+
+/**
  * quick-261006-aex — rank an artist page's hit songs by ARTIST-NAME EXACTNESS against the
  * page's artist. searchAll(artistName) returns relevance-ranked cross-source hits, so a fuzzy
  * upstream can outrank the artist's own songs ("Hara Kiri" on Kiri T's page, or a same-title
@@ -445,6 +586,10 @@ export function rankByArtistExactness(tracks: Track[], artist: string, aliases: 
 export function dedupeBest(tracks: Track[], preferred?: SourceId): Track[] {
 	const order: string[] = [];
 	const winner = new Map<string, Track>();
+	// quick-261021-cov2 (user): track all variants per key for best-cover picking.
+	// JOOX/Migu have the most accurate covers; prefer theirs during search so the
+	// list shows the right cover on first load (not just after Now Playing self-heal).
+	const variants = new Map<string, Track[]>();
 	for (const t of tracks) {
 		const k = key(t);
 		if (!k || k === '|') {
@@ -456,8 +601,29 @@ export function dedupeBest(tracks: Track[], preferred?: SourceId): Track[] {
 		if (!winner.has(k)) {
 			order.push(k);
 			winner.set(k, t);
+			variants.set(k, [t]);
 		} else {
+			variants.get(k)!.push(t);
 			winner.set(k, better(winner.get(k)!, t, preferred));
+		}
+	}
+	// Pick best cover from variants (JOOX > Migu > others).
+	// quick-261021-cov2: even if winner HAS a cover, prefer JOOX/Migu's — they are
+	// the most accurate. This fixes wrong covers on first load.
+	const COVER_PREF: SourceId[] = ['joox', 'migu', 'qq', 'netease', 'kuwo'];
+	for (const k of order) {
+		const w = winner.get(k);
+		if (!w) continue;
+		const vars = variants.get(k) || [];
+		// If winner is already from a preferred source, keep its cover.
+		const wRank = COVER_PREF.indexOf(w.source);
+		for (const src of COVER_PREF) {
+			if (wRank !== -1 && COVER_PREF.indexOf(src) >= wRank) break;
+			const v = vars.find((t) => t.source === src && t.cover);
+			if (v && v.cover !== w.cover) {
+				winner.set(k, { ...w, cover: v.cover });
+				break;
+			}
 		}
 	}
 	return order.map((k) => winner.get(k)!).filter(Boolean);

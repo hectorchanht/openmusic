@@ -26,6 +26,9 @@
 	import { marquee } from '$lib/actions/marquee';
 	import { t } from '$lib/i18n';
 	import { collapseVariants, variantTag, type VersionTag } from '$lib/services/dedupe';
+	// quick-261102-qtruth: the row quality label reads through the shared derivation
+	// (services/display-quality), like the Now-Playing pill and the Detail sheet.
+	import { trackQualityLabel, trackSourceLabel } from '$lib/services/display-quality';
 	import { SOURCES } from '$lib/sources/registry';
 	import type { Track } from '$lib/sources/types';
 
@@ -57,7 +60,7 @@
 
 	// Quality label with a graceful fallback (many search stubs carry no quality pre-resolve).
 	function qualityLabel(v: Track): string {
-		return v.qualityLabel || v.quality || t('versions.unknownQuality');
+		return trackQualityLabel(v) ?? t('versions.unknownQuality');
 	}
 	// Gap 5 tag label: map the normalized enum to a LITERAL i18n key via a switch (NO dynamic
 	// t('versions.tag.'+key) — that won't typecheck under strict; NO `as any`). An unrecognized
@@ -83,7 +86,9 @@
 	// source string. No /api/translate round trip (brand names are never translated, only
 	// re-scripted), and 'off' returns the label byte-for-byte.
 	function sourceLabel(v: Track): string {
-		return names.zhLock(SOURCES[v.source]?.label ?? v.source);
+		// quick-261102-srcpill: the adapter-label read itself is shared with the
+		// Now-Playing source pill (services/display-quality's trackSourceLabel).
+		return names.zhLock(trackSourceLabel(v) ?? v.source);
 	}
 	/** seconds → "m:ss" for the sub line. null when the source did not report a duration
 	 *  (Track.duration is optional — never fabricate one). */

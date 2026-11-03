@@ -1,5 +1,11 @@
 <script lang="ts">
-	// Full discography page (quick-260831-qkx).
+	// Discography page (quick-260831-qkx) — MERGED with the Discography Pack (quick-261023-discmerge,
+	// Hector: one entrance for everything album-related).
+	//
+	// This page is now the SINGLE album entrance: the pack hero (artist + album count + year range),
+	// the pack actions (Play all / Shuffle all / Download all with PER-ALBUM progress indicators /
+	// Liner notes) and the full filterable discography list live together here. The old
+	// `/artist/[name]/pack` route redirects here so no link dies.
 	//
 	// The artist page's album shelf deliberately shows albums + EPs only — Coldplay's real Deezer
 	// discography is 123 releases (17 albums, 5 EPs, 101 singles), and an unfiltered horizontal
@@ -11,8 +17,19 @@
 	// there is one source of truth for "what order" and "what counts as an album".
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { Download, ListEnd, Play, Share2, Shuffle } from '@lucide/svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { online } from '$lib/stores/online.svelte';
+	import { player } from '$lib/stores/player.svelte';
+	import { library } from '$lib/stores/library.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
+	import { toast as globalToast } from '$lib/stores/toast.svelte';
+	// quick-261023-bulklock: bulk ZIP downloads are a supporter perk.
+	import { isSupporter } from '$lib/config/sponsored';
+	import { support } from '$lib/stores/support.svelte';
+	import { entityCardUrl } from '$lib/services/share';
+	import { nameStub } from '$lib/services/similar';
+	import { sameSongKey } from '$lib/services/dedupe';
 	import { t, type TranslationKey } from '$lib/i18n';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -30,6 +47,13 @@
 	// quick-260919-2jo: the shared tab-URL mechanism (F2) — `/artist/X/albums?tab=single` is now
 	// a real cold-load target, and switching the filter writes it back.
 	import { pickTab, syncTabUrl } from '$lib/services/url-tab';
+	// Pack actions moved in here (quick-261023-discmerge): tracklist fetch + stub resolve for
+	// play-all/shuffle-all/download-all, and the shared per-album download orchestrator.
+	import { fetchAlbumTracklist, resolvePackTracks } from '$lib/services/discography-pack';
+	import { resolveStub } from '$lib/services/discovery';
+	import { downloadAlbum as downloadAlbumTracks } from '$lib/services/download-album';
+	import { downloadLabel } from '$lib/services/download-label';
+	import type { Track } from '$lib/sources/types';
 
 	const name = $derived(decodeURIComponent(page.params.name ?? ''));
 
@@ -48,6 +72,208 @@
 		{ id: 'single', key: 'artist.filterSingle' },
 		{ id: 'all', key: 'artist.filterAll' }
 	];
+
+	// Pack header: year range of the CURRENTLY SHOWN list (respects the filter).
+	const yearRange = $derived.by(() => {
+		const years = shown
+			.map((a) => (a.releaseDate ?? '').slice(0, 4))
+			.filter((y) => /^\d{4}$/.test(y))
+			.sort();
+		if (!years.length) return '';
+		return years[0] === years[years.length - 1] ? years[0] : `${years[0]} – ${years[years.length - 1]}`;
+	});
+
+	// ---- pack actions state (quick-261023-discmerge) ----
+	let playing = $state(false);
+	// quick-261031-dlpersist (Hector 2026-10-31): the Download-all run state lives in the
+	// LIBRARY store (library.packJobs[name]) — this page only MIRRORS it. It was component
+	// $state, so navigating away mid-run lost the header "9/13" counter and the per-album
+	// bars even though the downloads themselves kept going; a remount now re-reads the run.
+	const dlJob = $derived(library.packJobs[name] ?? null);
+	const dlRunning = $derived(dlJob !== null);
+	const dlDoneAlbums = $derived(dlJob?.done ?? 0);
+	const dlTotalAlbums = $derived(dlJob?.total ?? 0);
+	/** Per-album download progress, keyed by albumKeyOf. Absent = not started/finished. */
+	const dlProgress = $derived<Record<string, { done: number; total: number }>>(dlJob?.albums ?? {});
+
+	// Same key shape as the album page (`${name}|${artist}|${dzid}|${mbid}`) so the
+	// library.beginAlbumJob claim dedupes across pages — a download started here is also
+	// "running" on the album detail page and vice versa.
+	const albumKeyOf = (al: DiscographyEntry) =>
+		`${al.name}|${name}|${al.id ?? ''}|${al.mbid ?? ''}`;
+
+	// quick-261010-disco2 (moved from the pack page): Play album-by-album (in discography order),
+	// or shuffle all. Plays the FIRST playable song ASAP — fetch all tracklists (metadata, fast),
+	// resolve + play one song immediately, then resolve the rest in the background and expand.
+	async function playAll(shuffle = false) {
+		if (playing || !shown.length) return;
+		playing = true;
+		try {
+			const list = shown;
+			const stubs: { artist: string; title: string }[] = [];
+			let ai = 0;
+			async function albumWorker() {
+				while (ai < list.length) {
+					const idx = ai++;
+					const tracks = await fetchAlbumTracklist(list[idx], name);
+					stubs.push(...tracks);
+				}
+			}
+			await Promise.all([albumWorker(), albumWorker(), albumWorker(), albumWorker()]);
+			if (!stubs.length) {
+				globalToast.show(t('home.unplayable'));
+				return;
+			}
+			const firstIdx = shuffle ? Math.floor(Math.random() * stubs.length) : 0;
+			const firstStub = stubs[firstIdx];
+			const firstTrack = await resolveStub(firstStub.artist, firstStub.title).catch(() => null);
+			if (!firstTrack) {
+				globalToast.show(t('home.unplayable'));
+				return;
+			}
+			player.setQueue([firstTrack], 'discography-pack');
+			await player.play(firstTrack, { context: 'discography-pack' });
+			const remaining = stubs.filter((_, i) => i !== firstIdx);
+			void resolvePackTracks(remaining).then((rest) => {
+				if (!rest.length) return;
+				let queue = [firstTrack, ...rest];
+				if (shuffle) {
+					const tail = queue.slice(1);
+					for (let i = tail.length - 1; i > 0; i--) {
+						const j = Math.floor(Math.random() * (i + 1));
+						[tail[i], tail[j]] = [tail[j], tail[i]];
+					}
+					queue = [queue[0], ...tail];
+				}
+				player.setQueue(queue, 'discography-pack');
+			});
+		} finally {
+			playing = false;
+		}
+	}
+
+	// quick-261023-discmerge: Download ALL — the filtered list, album by album, SEQUENTIALLY
+	// (the qq detail host rate-limits bursts; parallel albums would trip it — see
+	// download-album.ts quick-260930-x3q). Each album: fetch tracklist → resolve stubs (the
+	// album page's resolveAll idiom: library.stubTrack memory so a second run is instant) →
+	// the shared downloadAlbum orchestrator with a per-album onProgress that paints the row.
+	// Never throws; a failed album is skipped and the run continues. Web: one zip per album
+	// (the existing 40-D-03 behaviour); native: persists into Music/OpenMusic/<Artist>/<Album>/.
+	async function downloadAll() {
+		// quick-261023-bulklock: bulk ZIP is a supporter perk (per-song stays free).
+		// Non-supporters get the tip sheet instead.
+		if (!isSupporter()) {
+			globalToast.show(t('support.bulkLocked'));
+			support.openSheet();
+			return;
+		}
+		if (dlRunning || !shown.length) return;
+		const list = shown.slice(); // snapshot — a filter switch mid-run must not mutate the run
+		// quick-261031-dlpersist: claim the whole run in the store — a re-click after a page
+		// change (when this component's old guard died with it) is a no-op while the run lives.
+		if (!library.beginPackJob(name, list.length)) return;
+		let doneCount = 0; // closure-local mirror for the completion toast; the store owns the display state
+		const artist = names.dnArtist(name);
+		globalToast.show(t('toast.downloading', { label: artist }));
+		try {
+			for (const al of list) {
+				const key = albumKeyOf(al);
+				// Claim-once per album (library store): a second tap — here or on the album
+				// page — is a no-op while this album is in flight.
+				if (!library.beginAlbumJob(key)) {
+					doneCount++;
+					library.bumpPackProgress(name);
+					continue;
+				}
+				try {
+					const album = names.dnTitle(al.name);
+					const stubs = await fetchAlbumTracklist(al, name);
+					const out: (Track | null)[] = stubs.map((s) => library.stubTrack(s.artist, s.title));
+					let next = 0;
+					const worker = async () => {
+						for (let i = next++; i < stubs.length; i = next++) {
+							if (out[i]) continue;
+							const tr = await resolveStub(stubs[i].artist, stubs[i].title).catch(() => null);
+							out[i] = tr;
+							if (tr) library.rememberStub(stubs[i].artist, stubs[i].title, tr);
+						}
+					};
+					await Promise.all(Array.from({ length: Math.min(4, stubs.length || 1) }, worker));
+					const resolved = out.filter((tr): tr is Track => tr !== null);
+					if (!resolved.length) continue; // nothing playable — skip, keep going
+					library.setPackAlbumProgress(name, key, { done: 0, total: resolved.length });
+					await downloadAlbumTracks(
+						resolved,
+						{ artist, album },
+						(n, total) => {
+							library.setPackAlbumProgress(name, key, { done: n, total });
+						}
+					);
+				} catch {
+					// 40-D-06 (album granularity): a failed album never aborts the run.
+				} finally {
+					library.endAlbumJob(key);
+					library.setPackAlbumProgress(name, key, null);
+					doneCount++;
+					library.bumpPackProgress(name);
+				}
+			}
+			globalToast.show(t('pack.downloadAllDone', { saved: doneCount, total: list.length }));
+		} finally {
+			library.endPackJob(name);
+		}
+	}
+
+	// quick-261023-discbtns: Append all — the filtered list's every track to the END of the
+	// queue, album by album. Mirrors the album page's queueAlbum: LAZY nameStubs (zero network —
+	// each resolves kuwo-first when it reaches the front), sameSongKey dedupe so a re-tap never
+	// doubles the queue.
+	async function appendAll() {
+		if (playing || dlRunning || !shown.length) return;
+		playing = true;
+		try {
+			const list = shown;
+			const stubs: { artist: string; title: string }[] = [];
+			let ai = 0;
+			async function albumWorker() {
+				while (ai < list.length) {
+					const idx = ai++;
+					const tracks = await fetchAlbumTracklist(list[idx], name);
+					stubs.push(...tracks);
+				}
+			}
+			await Promise.all([albumWorker(), albumWorker(), albumWorker(), albumWorker()]);
+			for (const s of stubs) {
+				const tr = nameStub(s.artist, s.title);
+				if (!tr) continue;
+				if (player.queue.some((q) => sameSongKey(q, tr))) continue;
+				player.addToQueue(tr);
+			}
+			globalToast.show(t('toast.addedToQueue'));
+		} finally {
+			playing = false;
+		}
+	}
+
+	// quick-261023-discbtns: Share — the artist entity link (this page IS the artist's
+	// discography). Mirrors the artist page's shareArtist: the link rides ShareData.text
+	// (quick-260808-vkd — `url` would get percent-encoded by the WHATWG serializer),
+	// clipboard fallback with a toast, title line opt-in via settings.shareIncludeTitle.
+	async function shareDiscography() {
+		const dName = names.dnArtist(name);
+		const url = entityCardUrl({ type: 'artist', name: dName });
+		try {
+			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
+			if (nav.share)
+				await nav.share(settings.shareIncludeTitle ? { title: dName, text: url } : { text: url });
+			else {
+				await navigator.clipboard.writeText(url);
+				globalToast.show(t('toast.shareCopied'));
+			}
+		} catch {
+			/* user dismissed / clipboard blocked — no toast on cancel */
+		}
+	}
 
 	// quick-260831-re9: source selection now lives in loadDiscography — MusicBrainz for CJK
 	// artists (original-script titles, far deeper coverage), Deezer otherwise, Last.fm last.
@@ -78,6 +304,42 @@
 
 <PageHeader title={names.dnArtist(name)} backLabel={t('common.back')} showSettings />
 
+<!-- quick-261023-discmerge: the pack hero, merged in — one entrance, all album functions. -->
+<header class="hero">
+	<p class="sub">{t('pack.albumCount', { count: shown.length })}{#if yearRange} · {yearRange}{/if}</p>
+	<!-- quick-261023-discbtns: button order mirrors the album detail page —
+	     download, shuffle, play (bigger), append, share. No liner notes (Hector). -->
+	<div class="actions">
+		<button
+			type="button"
+			class="act download"
+			aria-label={t('pack.downloadAll')}
+			title={t('pack.downloadAll')}
+			aria-busy={dlRunning}
+			disabled={dlRunning || playing}
+			onclick={downloadAll}
+			use:tapBounce
+		>
+			<Download size={20} />
+		</button>
+		<button type="button" class="act" aria-label={t('pack.shuffle')} title={t('pack.shuffle')} onclick={() => playAll(true)} disabled={playing || dlRunning} use:tapBounce>
+			<Shuffle size={20} />
+		</button>
+		<button type="button" class="act play" aria-label={t('pack.play')} title={t('pack.play')} onclick={() => playAll(false)} disabled={playing || dlRunning} use:tapBounce>
+			<Play size={22} fill="currentColor" />
+		</button>
+		<button type="button" class="act" aria-label={t('menu.addToQueue')} title={t('menu.addToQueue')} onclick={appendAll} disabled={playing || dlRunning} use:tapBounce>
+			<ListEnd size={20} />
+		</button>
+		<button type="button" class="act" aria-label={t('menu.share')} title={t('menu.share')} onclick={shareDiscography} use:tapBounce>
+			<Share2 size={20} />
+		</button>
+	</div>
+	{#if dlRunning}
+		<p class="dl-status" role="status">{dlDoneAlbums}/{dlTotalAlbums}</p>
+	{/if}
+</header>
+
 <div class="chips" role="tablist">
 	{#each FILTERS as f (f.id)}
 		<button
@@ -102,6 +364,8 @@
 {:else}
 	<ul class="list">
 		{#each shown as al (al.mbid ?? al.id ?? al.name)}
+			{@const key = albumKeyOf(al)}
+			{@const prog = dlProgress[key]}
 			<li>
 				<!-- quick-260926-hze: album title + artist follow the script lock -->
 				<button class="row" onclick={() => goto(names.lockUrl(albumHref(al, name)))} use:tapBounce>
@@ -111,6 +375,12 @@
 						<span class="al-sub">
 							{#if typeLabelKey(al.type)}{t(typeLabelKey(al.type) as TranslationKey)}{:else}{t('artist.albumLabel')}{/if}{#if releaseYear(al.releaseDate)}{' · ' + releaseYear(al.releaseDate)}{/if}
 						</span>
+						{#if prog}
+							<span class="dlbar" role="progressbar" aria-valuenow={prog.done} aria-valuemin={0} aria-valuemax={prog.total}>
+								<span class="dlfill" style:width={`${prog.total ? Math.round((prog.done / prog.total) * 100) : 0}%`}></span>
+							</span>
+							<span class="dltext">{prog.done}/{prog.total}</span>
+						{/if}
 					</span>
 				</button>
 			</li>
@@ -119,19 +389,39 @@
 {/if}
 
 <style>
+	/* quick-261023-discmerge: pack hero — the single entrance's header. */
+	.hero { padding: 12px 16px 4px; text-align: center; }
+	.sub { color: var(--color-text-muted); font-size: 0.85rem; margin: 0; }
+	.actions { display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 12px; }
+	.act {
+		display: flex; align-items: center; justify-content: center;
+		width: 44px; height: 44px; border-radius: 50%;
+		border: 1px solid var(--color-border); background: var(--color-surface);
+		color: var(--color-text); cursor: pointer;
+	}
+	.act.play { width: 56px; height: 56px; background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ }
+	.act.download { border-color: var(--color-primary); color: var(--color-primary); }
+	.act:disabled { opacity: 0.45; cursor: default; }
+	.dl-status { color: var(--color-primary); font-size: 0.78rem; font-weight: 600; margin: 8px 0 0; }
+
 	/* quick-261007-hscroll: hide the scrollbar — same idiom as .artist-tiles on /search. */
 	.chips { display: flex; gap: 8px; padding: 10px 4px 4px; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; }
 	.chips::-webkit-scrollbar { display: none; width: 0; }
 	.chip { flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--color-border); background: none; color: var(--color-text-muted); font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
-	.chip.on { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+	.chip.on { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ }
 
-	.list { list-style: none; margin: 8px 0 0; padding: 0; }
+	.list { list-style: none; margin: 8px 0 0; padding: 0 0 32px; }
 	.row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 4px; background: none; border: none; color: var(--color-text); text-align: left; cursor: pointer; }
 	.cover { flex: 0 0 auto; width: 56px; height: 56px; border-radius: 6px; background-size: cover; background-position: center; }
-	.meta { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+	.meta { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
 	.al-name { font-size: calc(0.95rem * var(--fs-title, 1)); font-weight: 600; white-space: nowrap; overflow: hidden; }
 	.al-sub { font-size: 0.78rem; color: var(--color-text-muted); }
 	.empty { color: var(--color-text-muted); padding: 24px 4px; text-align: center; }
+
+	/* quick-261023-discmerge: per-album download progress on the row. */
+	.dlbar { display: block; height: 3px; border-radius: 2px; background: var(--color-surface-2); overflow: hidden; margin-top: 4px; }
+	.dlfill { display: block; height: 100%; background: var(--color-primary); border-radius: 2px; transition: width 0.2s; }
+	.dltext { font-size: 0.7rem; color: var(--color-primary); font-weight: 600; }
 
 	.sk { display: block; background: var(--color-surface); border-radius: 6px; animation: pulse 1.2s ease-in-out infinite; }
 	.sk-cover { width: 56px; height: 56px; flex: 0 0 auto; }

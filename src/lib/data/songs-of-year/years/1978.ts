@@ -1,6 +1,7 @@
-// 1978 年選 — year-end charts (United States、United Kingdom).
+// 1978 年選 — year-end charts (United States、United Kingdom、Hong Kong).
 // - United States: Billboard Year-End Hot 100 (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 香港電台 十大中文金曲獎 (rank order = published 十大中文金曲 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -14,6 +15,16 @@ export const PACK_META_SOY_1978_US = {
   free: true,
   year: 1978,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_1978_HK = {
+  id: 'soy-1978-hk',
+  title: '1978 香港年選',
+  titleEn: 'Hong Kong 1978',
+  description: '香港電台 十大中文金曲獎',
+  free: true,
+  year: 1978,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_1978: Record<string, PackSong[]> = {
@@ -120,10 +131,24 @@ export const SOY_1978: Record<string, PackSong[]> = {
     { artist: "Suzi Quatro", title: "If You Can't Give Me Love", note: "#48 Official Charts 年終" },
     { artist: "The Barron Knights", title: "A Taste of Aggro", note: "#49 Official Charts 年終" },
     { artist: "Justin Hayward", title: "Forever Autumn", note: "#50 Official Charts 年終" },
-  ]
+  ],
+  'Hong Kong': [
+    { artist: "羅文", title: "小李飛刀", note: "#1 十大中文金曲第1位" },
+    { artist: "鄧麗君", title: "小村之戀", note: "#2 十大中文金曲第2位" },
+    { artist: "薰妮", title: "每當變幻時", note: "#3 十大中文金曲第3位" },
+    { artist: "甄妮", title: "明日話今天", note: "#4 十大中文金曲第4位" },
+    { artist: "徐小鳳", title: "風雨同路", note: "#5 十大中文金曲第5位" },
+    { artist: "鄭少秋", title: "倚天屠龍記", note: "#6 十大中文金曲第6位" },
+    { artist: "鄭少秋", title: "誓要入刀山", note: "#7 十大中文金曲第7位" },
+    { artist: "許冠傑", title: "賣身契", note: "#8 十大中文金曲第8位" },
+    { artist: "張德蘭", title: "願君心記取", note: "#9 十大中文金曲第9位" },
+    { artist: "袁麗嫦", title: "鱷魚淚", note: "#10 十大中文金曲第10位" },
+  ],
+
 };
 
 export const SOY_SOURCES_1978: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "香港電台 十大中文金曲獎", url: "https://zh.wikipedia.org/wiki/十大中文金曲頒獎音樂會十大中文金曲獎" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1978" },
   'United Kingdom': { name: "Official Charts Company End of Year Singles Chart", url: "https://en.wikipedia.org/wiki/1978_in_British_music" }
 };

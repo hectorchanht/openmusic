@@ -8,6 +8,7 @@
 	import ShelfChevrons from '$lib/components/ShelfChevrons.svelte';
 	import SponsoredStrip from '$lib/components/SponsoredStrip.svelte';
 	import { buildDiversePicks } from '$lib/services/picks';
+	import { dedupeShelfList } from '$lib/services/dedupe';
 	import { buildRadio, reseedRadio } from '$lib/services/radio';
 	import type { QueueContext } from '$lib/config/defaults';
 	import {
@@ -68,6 +69,8 @@
 	import { deezerChart } from '$lib/services/deezer';
 	import { backfillCovers, backfillArtistCovers } from '$lib/services/cover-backfill';
 	import { lazyCover } from '$lib/actions/lazyCover';
+import { pickRowCover } from '$lib/services/row-cover';
+import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	// quick-260615-hep: read covers through the GLOBAL reactive signal so a cover landing anywhere
 	// (now-playing, lazyCover, backfill) repaints homepage tiles live; read uid-first for Track rows.
 	import {
@@ -242,12 +245,14 @@
 	}
 	function buildLibraryShelves(randomize: boolean) {
 		const cap = clampShelfSize(settings.homeShelfSize);
-		likedShelf = pickN(library.liked, cap, randomize);
-		downloadsShelf = pickN(library.downloads, cap, randomize);
+		// quick-261031-dedup: home library shelves draw from the deduped lists — one tile per
+		// song+rendition, same rule as the Library page shelves.
+		likedShelf = pickN(dedupeShelfList(library.liked), cap, randomize);
+		downloadsShelf = pickN(dedupeShelfList(library.downloads), cap, randomize);
 		// History entries carry the full track on `.track`; the latest are at the front.
 		// HistoryEntry IS the playable Track whitelist (audioUrl re-resolves on play()).
 		const historyTracks = playHistory.entries as unknown as Track[];
-		historyShelf = pickN(historyTracks, cap, randomize);
+		historyShelf = pickN(dedupeShelfList(historyTracks), cap, randomize);
 		// quick-260926-lw8 (was quick-260924-pgu's reshuffle of the tiles it already had): Randomize
 		// now draws a NEW session seed and rebuilds. Seeds already fetched this session are 6h-cached,
 		// so the cost is only the newly-sampled seed artists (still <= RADIO_SEEDS x 2), and the old
@@ -255,7 +260,7 @@
 		if (randomize) { reseedRadio(); rebuildRadio(); }
 		playlistShelves = library.playlists
 			.filter((p) => p.tracks.length > 0)
-			.map((p) => ({ id: p.id, name: p.name, tracks: pickN(p.tracks, cap, randomize) }));
+			.map((p) => ({ id: p.id, name: p.name, tracks: pickN(dedupeShelfList(p.tracks), cap, randomize) }));
 		// kmn: favourite artists — same shape as topArtists tiles (name only; cover backfills).
 		favArtistsShelf = pickN(library.favArtists, cap, randomize).map((n) => ({ name: n }));
 		// Schedule a cover backfill for the rendered fav-artist names (Deezer → iTunes chain,
@@ -302,14 +307,16 @@
 			const idx = new Map(src.map((t) => [t.uid, t]));
 			return (uids: string[] | undefined) => (uids ?? []).map((u) => idx.get(u)).filter(Boolean) as Track[];
 		};
-		likedShelf = byUidArr(library.liked)(c.liked);
-		downloadsShelf = byUidArr(library.downloads)(c.downloads);
+		// quick-261031-dedup: cached uid picks can still name both copies of a song (a cache
+		// written before the dedup) — the resolved shelves pass through dedupeShelfList too.
+		likedShelf = dedupeShelfList(byUidArr(library.liked)(c.liked));
+		downloadsShelf = dedupeShelfList(byUidArr(library.downloads)(c.downloads));
 		// HistoryEntry IS the playable Track whitelist (audioUrl re-resolves on play()).
 		const historyTracks = playHistory.entries as unknown as Track[];
-		historyShelf = byUidArr(historyTracks)(c.history);
+		historyShelf = dedupeShelfList(byUidArr(historyTracks)(c.history));
 		playlistShelves = library.playlists
 			.filter((p) => p.tracks.length > 0)
-			.map((p) => ({ id: p.id, name: p.name, tracks: byUidArr(p.tracks)(c.playlists?.[p.id]) }))
+			.map((p) => ({ id: p.id, name: p.name, tracks: dedupeShelfList(byUidArr(p.tracks)(c.playlists?.[p.id])) }))
 			// A playlist whose CACHED picks no longer resolve (e.g. all tracks removed) still
 			// renders nothing — let buildLibraryShelves repopulate it next Randomize. Drop empties
 			// so the shelf header doesn't render either.
@@ -366,19 +373,41 @@
 		artistName?: string;
 	}): string | null {
 		coverVersion(); // reactive dependency on the GLOBAL signal: recompute when a cover lands anywhere
-		if (item.image) return item.image;
+		// quick-261020-dcvr (batch1 C1): delegate the tier ladder to the shared pickRowCover — the
+		// tile's Last.fm image is the seeded rung (a probe-dead image is skipped INSIDE pickRowCover,
+		// so it can no longer shadow the backfilled cache), and the backfilled name-key read is the
+		// cached rung. Render order is now cached-first, matching libraryRowCover's latest-wins
+		// read (Hector's 2026-10-20 "same song, same cover everywhere" directive). Pin rung is null:
+		// DiscoveryTrack carries NO uid, and pins are track-scoped.
 		// NOTE: the CAA-by-mbid tier was REMOVED here — coverartarchive.org image loads are
 		// blocked by the browser's Opaque Response Blocking (net::ERR_BLOCKED_BY_ORB), so a CAA
 		// URL always renders broken AND shadowed the working Deezer/CN backfilled cover for any
 		// item that carried an mbid (the runtime root cause of "most tiles are color blocks").
 		// DiscoveryTrack carries NO uid → name-key only (the cross-surface bridge); reactive readers.
-		if (item.artist && item.title) return readCoverByName(item.artist, item.title);
-		if (item.artistName) return readArtistCover(item.artistName);
-		return null;
+		return pickRowCover(
+			null, // no pin read on discovery tiles (no uid; pins stay track-scoped)
+			undefined, // no host-explicit cover on discovery tiles
+			undefined, // no component-local resolved result (backfill only bumps here)
+			item.image, // seeded Last.fm image — dead-skipped inside pickRowCover
+			item.artist && item.title
+				? readCoverByName(item.artist, item.title)
+				: item.artistName
+					? readArtistCover(item.artistName)
+					: null
+		);
 	}
 	// Hide a cover <img> on load error so the gradient underneath shows (no broken-image icon).
+	// quick-261020-dcvr (batch1 C1): an <img> load error is the same dead-URL evidence as an
+	// Image() probe — mark the failed src dead so pickRowCover's seeded dead-skip stops shadowing
+	// the backfilled cache, then bump the global cover signal so tiles and rows re-render with the
+	// healed art. Session-scoped: a wrong mark costs at most one session, and a later passing
+	// probe unmarks. Terminates: each re-render dead-skips one more URL, and an unchanged src
+	// never reloads (no error refire, no loop).
 	function hideOnError(e: Event) {
-		(e.currentTarget as HTMLImageElement).style.display = 'none';
+		const img = e.currentTarget as HTMLImageElement;
+		if (img.src) markCoverUrlDead(img.src);
+		img.style.display = 'none';
+		bumpCoverVersion();
 	}
 
 	// quick-260615-hep: the local coverVer was replaced by the GLOBAL coverVersion() signal (see the
@@ -1045,15 +1074,15 @@
 		}
 		player.play(track, { fresh: true, context: ctx });
 	}
-	// quick-260924-pgu: mirrors the album hero Play (quick-260919-alb / quick-260915-vb9) — `sameList`
-	// pins the same-list branch so the fresh-play tail does not regenerate over the install;
-	// setListQueue after the resolve anchors the now-real `current` into the shelf by
-	// uid-then-sameSongKey, so the remaining radio tiles are the Up Next. Toast gate copied from
-	// playStub(item) above (null = miss OR supersede; only a miss clears pendingTrack).
+	// quick-261024-sets (Hector 2026-10-24): the radio shelf installs UNPINNED — the old
+	// quick-260924-pgu `sameList` pin is gone, so the 'home-discovery' Up-next sourcing
+	// setting decides: 'generated' (default) regenerates the tail from the tapped song
+	// instead of concatenating the remaining radio tiles; a user's 'same-list' choice
+	// keeps the shelf. setListQueue after the resolve anchors the now-real `current` into
+	// the shelf by uid-then-sameSongKey. Toast gate copied from playStub(item) above
+	// (null = miss OR supersede; only a miss clears pendingTrack).
 	async function playRadioTrack(track: Track) {
-		const tr = await player.playStub(track.artist, track.title, track.cover, 'home-discovery', {
-			sameList: true
-		});
+		const tr = await player.playStub(track.artist, track.title, track.cover, 'home-discovery');
 		if (!tr) {
 			if (player.pendingTrack == null) toast.show(t('home.unplayable'));
 			return;
@@ -1065,15 +1094,28 @@
 		menuOpen = true;
 	}
 	function libraryRowCover(track: Track): string | null {
-		// quick-260615-hep: library rows carry a full Track (uid present) → read uid-first then name,
-		// through the global reactive signal so a cover resolved elsewhere repaints this row live.
+		// quick-260615-hep: library rows carry a full Track (uid present) → read through the global
+		// reactive signal so a cover resolved elsewhere repaints this row live.
+		// quick-261020-latest: the shared pickRowCover read — the cache (name-first = latest write
+		// wins) outranks the track's implicit source art, so every tile shows the same latest art
+		// as the nowbar (Hector's 2026-10-20 "same song, same cover everywhere" directive). A
+		// probe-dead track.cover is skipped inside pickRowCover (quick-261020-dcvr).
 		// psi-home-163mb-payload-lcp follow-up: the cache USED to hold the HERO-sized iTunes cover
 		// (upgradeArtwork → 1200x1200bb, ~330 KB); these shelf tiles are ≤ ~140 CSS px, so mzstatic
 		// URLs were resized to 600px (~45–100 KB). quick-261006-o9t: the resolver now STORES the
 		// 400px display variant; quick-261006-o9u: sizedCover downsizes mzstatic AND dzcdn masters
 		// to the 400px tile target at render (render-only — the cache keeps the master). Non-mzstatic/
 		// non-dzcdn URLs (QQ, netease, YTM, Last.fm) carry no size token and pass through unchanged.
-		return sizedCover(readChosenCover(track.uid, track.artist, track.title) ?? track.cover ?? readCoverByUidOrName(track.uid, track.artist, track.title), TILE_COVER_PX);
+		return sizedCover(
+			pickRowCover(
+				readChosenCover(track.uid, track.artist, track.title),
+				undefined, // no host-explicit cover on home tiles
+				undefined, // no component-local lazyCover result (the action only bumps here)
+				track.cover,
+				readCoverByUidOrName(track.uid, track.artist, track.title)
+			),
+			TILE_COVER_PX
+		);
 	}
 
 	onMount(() => {
@@ -1201,7 +1243,7 @@
 				<!-- quick-260915-w4f: a pin outranks the tile's inline cover. {@const} must be the immediate
 				     child of the {#each}, not of the <button>. -->
 				{@const art = readChosenCover(track.uid, track.artist, track.title) ?? track.cover}
-				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => { player.setQueue(fallbackSongs, 'home-discovery'); player.play(track, { fresh: true }); }}>
+				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => { player.setQueue(fallbackSongs, 'home-discovery'); player.play(track, { fresh: true }); }}>
 					<div class="art" style:background-image={art ? `url(${art})` : fallbackCover(track.uid)}></div>
 					{#if track.qualityLabel || track.quality}<span class="q">{track.qualityLabel ?? track.quality}</span>{/if}
 					<div class="scrim"></div>
@@ -1397,7 +1439,7 @@
 		     capped at 27 by both the slice here and the component (belt-and-braces). -->
 		<HomeGridPager items={items.slice(0, 27)} key={(item) => item.artist + ' ' + item.title}>
 			{#snippet row(item: DiscoveryTrack)}
-				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item, coverOnPlay ? item.image : null)}>
+				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item, coverOnPlay ? item.image : null)}>
 					<div class="art" style:background-image={fallbackCover(item.artist + item.title)}></div>
 					{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
 					<div class="scrim"></div>
@@ -1413,7 +1455,7 @@
 			{#each items as item (item.artist + ' ' + item.title)}
 				<!-- DiscoveryTrack carries NO uid → resolve-on-view is via scheduleBackfill + the global
 				     reactive signal (NOT use:lazyCover, which needs a Track); no synthetic uid stub. -->
-				<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item, coverOnPlay ? item.image : null)}>
+				<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playStub(item, coverOnPlay ? item.image : null)}>
 					<span class="al-cover" style:background-image={fallbackCover(item.artist + item.title)}>
 						{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
 					</span>
@@ -1592,7 +1634,7 @@
 	<!-- quick-260615-hep: uid-first reactive read; lazyCover resolves-on-view (writes both cache layers
 	     internally) and bumps the global signal so this reactive rowCover recomputes + the <img> paints. -->
 	{@const rowCover = libraryRowCover(track)}
-	<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => playLibraryTrack(track, ctx)}>
+	<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => playLibraryTrack(track, ctx)}>>
 		<!-- psi-home-163mb-payload-lcp follow-up: gradient-only background; the lazy <img> paints the
 		     cover (a CSS url() background is never lazy, so every off-screen pile cover loaded eagerly). -->
 		<span class="al-cover" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={fallbackCover(track.uid)}>
@@ -1626,7 +1668,7 @@
 		<HomeGridPager items={tracks.slice(0, 27)} key={(track) => track.uid}>
 			{#snippet row(track: Track)}
 				{@const rowCover = libraryRowCover(track)}
-				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openTrackMenu(track); }} onclick={() => playLibraryTrack(track, ctx)}>
+				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); openTrackMenu(track); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); openTrackMenu(track); }} onclick={() => playLibraryTrack(track, ctx)}>
 					<div class="art" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={rowCover ? `url(${rowCover})` : fallbackCover(track.uid)}></div>
 					<div class="scrim"></div>
 					<div class="label">

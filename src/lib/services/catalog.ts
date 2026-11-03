@@ -10,8 +10,8 @@ import { sleep } from '$lib/proxy/http';
 import { cached, evictCached, __clearSearchCache } from './ttl-cache';
 import { matchKey } from './match-key';
 import { scoreMatch } from './score-match';
-import { dedupeBest, sameSongKey } from './dedupe';
-import { isAcceptableSubstitute } from './song-variant';
+import { sameSongKey, sameSongByCredit } from './dedupe';
+import { rankAcceptable, isAcceptableSubstitute, isAutoAcceptableArtist } from './song-variant';
 import { readResolveCache, registerServedResolve } from './resolve-cache-client';
 import { logAction } from '$lib/stores/actionLog.svelte';
 import { isTrackReady } from './track-ready';
@@ -26,7 +26,7 @@ import { settings } from '$lib/stores/settings.svelte';
  * these is expected (not the regression), so the cross-source lyric fallback must NOT fire for them
  * (neither as the track to backfill nor as a fallback candidate). The CN/JOOX sources DO carry lyrics.
  */
-const LYRICLESS_SOURCES = new Set<SourceId>(['jamendo', 'audius', 'fivesing']);
+const LYRICLESS_SOURCES = new Set<SourceId>(['jamendo', 'audius', 'fivesing', 'ccmixter']);
 
 // Re-exported so tests (and any future cache-busting caller) can reset the search
 // cache between cases — the 3 existing fan-out spy tests rely on this in afterEach.
@@ -235,7 +235,8 @@ function interleave(perSource: SettledSourceResult[]): Track[] {
  * RESOLVE-02 (POLICY.md / spikes 001+002+004): resolve a sourceless name-only stub (`{artist,title}`
  * — the shape Plan 26-03's Last.fm `track.getSimilar` Up-Next emits) to a playable Track by walking
  * the kuwo-FIRST source order ONE source at a time. For each source: a SINGLE-source `searchAll`
- * (`onlySource` prefs — never an all-enabled fan-out), `dedupeBest` the results, adopt only a
+ * (`onlySource` prefs — never an all-enabled fan-out), rank the RAW results via `rankAcceptable`
+ * (quick-261101-ring1 — no dedupeBest collapse), adopt only a
  * candidate that is the SAME song via `sameSongKey` (WR-06 — a fuzzy upstream search can return a
  * different track), `ensureTrackDetails` it, and return the FIRST that yields a truthy `audioUrl`.
  * Never-throws (per-source failures are swallowed), AbortSignal-honoring (bails after every await),
@@ -292,17 +293,38 @@ export async function resolveNameStub(
 		try {
 			const result = await searchAll(query, 1, onlySource(src), sig);
 			if (sig.aborted) return null;
-			const candidates = dedupeBest(result.interleaved, src);
+			// quick-261101-ring1: RAW rows, not dedupeBest's collapse (same fix as fallback.ts):
+			// dedupe's bracket-stripping key collapsed a source's clean cut and its variants
+			// into one quality/first-order winner before the official partition could choose,
+			// so a name stub could resolve to a ringtone/clip its source also carries clean.
+			const candidates = result.interleaved;
 			// Same two gates as the cross-source failover (see fallback.ts): sameSongKey cannot tell a
 			// rendition apart because dedupe's key() strips bracketed suffixes, so an Up-Next name stub
 			// would otherwise resolve to the instrumental or a cover of the song it asked for.
-			const stub = candidates.find(
-				(c) => sameSongKey(c, want) && isAcceptableSubstitute(title, c.title)
+			// quick-261020-off1: the ranking prefers the plain original over live/remix/DJ variants.
+			// quick-261102-exh1: walk up to THREE acceptable candidates per source, not just the
+			// first pick — one failed resolve (locked tiers, positional-id mismatch, transient
+			// detail error) must not burn a source whose #2 row would have played (the same
+			// false-skip shape as fallback's candidate walk; see song-variant rankAcceptable).
+			// quick-261102-cov1: plus the artist-identity gate, stated explicitly at this
+			// adoption seam for the same reason as fallback.ts — a name stub credited to
+			// 周杰倫 must never come back as a different artist's 同人 cover, however
+			// playable that cover's row is. Identity is `sameSongKey OR sameSongByCredit`
+			// (see fallback.ts): the credit form admits a duet original
+			// (周杰倫/蔡依林 for a 周杰倫 stub) that the strict key excludes by shape.
+			const ranked = rankAcceptable(
+				candidates,
+				title,
+				(c) =>
+					(sameSongKey(c, want) || sameSongByCredit(c, want)) &&
+					isAcceptableSubstitute(title, c.title) &&
+					isAutoAcceptableArtist(artist, c.artist)
 			);
-			if (!stub) continue;
-			const resolved = await ensureTrackDetails(stub, sig);
-			if (sig.aborted) return null;
-			if (resolved.audioUrl) return resolved;
+			for (const stub of ranked.slice(0, 3)) {
+				const resolved = await ensureTrackDetails(stub, sig);
+				if (sig.aborted) return null;
+				if (resolved.audioUrl) return resolved;
+			}
 		} catch {
 			/* this source dry / threw — walk on to the next (never-throw) */
 		}
@@ -634,13 +656,21 @@ async function lyricFromSource(
 	query: string,
 	wantKey: string,
 	q: { artist: string; title: string },
-	signal: AbortSignal
+	signal: AbortSignal,
+	// quick-261014-lyrnotitle: when true, identity is TITLE-ONLY — the candidate's artist is
+	// ignored both in the match-key filter and (via q.artist === '') in scoreMatch. Only the
+	// picker's title-only fallback pass sets this; the walk keeps the strict artist+title gate.
+	titleOnly = false
 ): Promise<string | null> {
 	try {
 		const sr = await searchAll(query, 1, onlySource(src), signal);
 		if (signal.aborted) return null;
 		const best = sr.interleaved
-			.filter((c) => matchKey(c.artist || '', c.title || '') === wantKey)
+			.filter((c) =>
+				titleOnly
+					? matchKey('', c.title || '') === wantKey
+					: matchKey(c.artist || '', c.title || '') === wantKey
+			)
 			.sort((a, b) => scoreMatch(q, b) - scoreMatch(q, a))[0];
 		if (!best) return null;
 		// Use an inline lrc (qq/kuwo return it in the detail body) or resolve this ONE candidate.
@@ -700,7 +730,16 @@ export interface LyricCandidate {
  *
  * Returns [] on an empty artist AND title, on an already-aborted signal, and on a total miss.
  * Preserves `getEnabledAdapters({})` registry order in the returned array. Never throws.
+ *
+ * quick-261021-cache1 (user): memoized by artist|title — repeat opens instant.
  */
+const lyricCandidatesMemo = new Map<string, LyricCandidate[]>();
+
+/** Test hook (mirrors ttl-cache's __clearSearchCache): the memo is session-scoped by
+ *  design, so suites that re-drive collectLyricCandidates with fixture names must reset it. */
+export function __clearLyricCandidatesCache(): void {
+	lyricCandidatesMemo.clear();
+}
 export async function collectLyricCandidates(
 	artist: string,
 	title: string,
@@ -709,27 +748,53 @@ export async function collectLyricCandidates(
 	try {
 		if (!artist && !title) return [];
 		if (signal.aborted) return [];
-		const query = `${artist} ${title}`.trim();
-		const wantKey = matchKey(artist, title);
-		const q = { artist, title };
+		// quick-261021-cache1: memo hit — instant.
+		const memoKey = `${artist}|${title}`.toLowerCase();
+		if (lyricCandidatesMemo.has(memoKey)) {
+			return lyricCandidatesMemo.get(memoKey)!;
+		}
 		const order = getEnabledAdapters({})
 			.map((a) => a.id)
 			.filter((id) => !LYRICLESS_SOURCES.has(id));
 
-		// Per-source never-throw, mirroring collectCoverCandidates' `safe()`: one source throwing or
-		// timing out still yields the others' candidates.
-		const safe = async (src: SourceId): Promise<LyricCandidate | null> => {
-			try {
-				const lrc = await lyricFromSource(src, query, wantKey, q, signal);
-				return lrc ? { source: src, lrc } : null;
-			} catch {
-				return null;
-			}
+		// One pass of the identical per-source step, parameterized — the title-only fallback below
+		// reuses the exact same matching algorithm (no second implementation to drift).
+		const runPass = async (
+			passArtist: string,
+			titleOnly: boolean
+		): Promise<LyricCandidate[]> => {
+			const query = `${passArtist} ${title}`.trim();
+			const wantKey = titleOnly ? matchKey('', title) : matchKey(passArtist, title);
+			const q = { artist: passArtist, title };
+			// Per-source never-throw, mirroring collectCoverCandidates' `safe()`: one source
+			// throwing or timing out still yields the others' candidates.
+			const safe = async (src: SourceId): Promise<LyricCandidate | null> => {
+				try {
+					const lrc = await lyricFromSource(src, query, wantKey, q, signal, titleOnly);
+					return lrc ? { source: src, lrc } : null;
+				} catch {
+					return null;
+				}
+			};
+			const hits = await Promise.all(order.map(safe));
+			// Registry order preserved: Promise.all resolves positionally, so filtering keeps the order.
+			return hits.filter((h): h is LyricCandidate => h !== null);
 		};
 
-		const hits = await Promise.all(order.map(safe));
-		// Registry order preserved: Promise.all resolves positionally, so filtering keeps the order.
-		return hits.filter((h): h is LyricCandidate => h !== null);
+		const withArtist = await runPass(artist, false);
+		if (withArtist.length > 0) {
+			lyricCandidatesMemo.set(memoKey, withArtist);
+			return withArtist;
+		}
+		// quick-261014-lyrnotitle: fan covers carry the FAN's name as artist, so no lyric source
+		// matches "artist title" and the picker comes back empty. Fall back to a title-only pass —
+		// the original recording's lyrics are what the user wants to pick from. Strictly AFTER an
+		// empty first pass (a title-only match is looser and must never outrank an exact
+		// artist+title hit), and only when there is a title to search with.
+		if (!artist.trim() || !title.trim() || signal.aborted) return [];
+		const titleOnly = await runPass('', true);
+		if (titleOnly.length > 0) lyricCandidatesMemo.set(memoKey, titleOnly);
+		return titleOnly;
 	} catch {
 		return [];
 	}

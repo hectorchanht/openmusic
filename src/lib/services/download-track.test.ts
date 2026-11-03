@@ -26,6 +26,8 @@ const mocks = vi.hoisted(() => ({
 		// quick-261007-abq: quality-metadata refresh after a replace download.
 		updateDownloadQuality: vi.fn((_uid: string, _q: unknown) => {}),
 		isDownloaded: vi.fn((_uid: string) => false),
+		// quick-261031-dedup: same song+rendition already downloaded under another uid.
+		otherDownloadOf: vi.fn((_t: unknown): Track | null => null),
 		// debug album-row-tick-before-file-done: a non-saved outcome marks the file-less entry.
 		markUnavailable: vi.fn((_uid: string) => {}),
 		clearUnavailable: vi.fn((_uid?: string) => {})
@@ -54,6 +56,8 @@ const mocks = vi.hoisted(() => ({
 	},
 	ensureTrackDetails: vi.fn(async (_t: Track, _s?: unknown, _q?: unknown) => _t),
 	put: vi.fn(async (_uid: string, _blob: Blob, _filename?: string, _opts?: { dir?: string }) => true),
+	// quick-261031-dedup: blob existence for the other-uid early-out.
+	hasBlob: vi.fn(async (_uid: string) => false),
 	saveBlobToDisk: vi.fn((_blob: Blob, _filename: string) => true),
 	// 36-03: the tag seam. Default = a no-op passthrough reporting success, so every PRE-EXISTING
 	// test above still asserts on the fetched blob's own identity/type.
@@ -62,6 +66,9 @@ const mocks = vi.hoisted(() => ({
 	),
 	resolveArtworkDataUrl: vi.fn(async (_q: unknown): Promise<string | null> => null),
 	logAction: vi.fn((_ev: string, _d?: Record<string, unknown>) => {}),
+	// quick-261023-like-dl: identity-linked download ping. Mocked so the fire-and-forget
+	// fetch never perturbs the exact fetch-count assertions below.
+	trackDownload: vi.fn((_t: unknown, _e?: unknown) => {}),
 	// The donor walk (downloadFromDonor — the album rate-limit fallback). Defaults keep every
 	// single-song test untouched (neither is ever reached by a plain downloadTrack).
 	fetchVariants: vi.fn(async (_t: Track): Promise<Track[]> => []),
@@ -84,7 +91,7 @@ vi.mock('$lib/stores/cover-version.svelte', () => ({ readCoverByUidOrName: mocks
 vi.mock('$lib/stores/settings.svelte', () => ({ settings: mocks.settings }));
 vi.mock('$lib/stores/names.svelte', () => ({ names: mocks.names }));
 vi.mock('$lib/services/catalog', () => ({ ensureTrackDetails: mocks.ensureTrackDetails }));
-vi.mock('$lib/services/blob-store', () => ({ blobStore: { put: mocks.put }, put: mocks.put }));
+vi.mock('$lib/services/blob-store', () => ({ blobStore: { put: mocks.put, has: mocks.hasBlob }, put: mocks.put }));
 vi.mock('$lib/services/download-save', () => ({ saveBlobToDisk: mocks.saveBlobToDisk }));
 // quick-260919-0mw: spread the REAL module so `albumTag` (a pure string helper the download seam
 // now calls) is present — only the codec entry point is stubbed.
@@ -94,6 +101,7 @@ vi.mock('$lib/services/audio-tags', async (orig) => ({
 }));
 vi.mock('$lib/services/media-artwork', () => ({ resolveArtworkDataUrl: mocks.resolveArtworkDataUrl }));
 vi.mock('$lib/stores/actionLog.svelte', () => ({ logAction: mocks.logAction }));
+vi.mock('$lib/analytics', () => ({ trackDownload: mocks.trackDownload }));
 // variants.ts stays REAL for versionsIncludingOwn (pure); only the lookup is stubbed.
 vi.mock('$lib/services/variants', async (orig) => ({
 	...(await orig<typeof import('$lib/services/variants')>()),
@@ -158,6 +166,8 @@ beforeEach(() => {
 	mocks.library.addDownload.mockReset();
 	mocks.library.updateDownloadQuality.mockReset();
 	mocks.library.isDownloaded.mockReset().mockReturnValue(false);
+	mocks.library.otherDownloadOf.mockReset().mockReturnValue(null);
+	mocks.hasBlob.mockReset().mockResolvedValue(false);
 	mocks.library.markUnavailable.mockReset();
 	mocks.library.clearUnavailable.mockReset();
 	// reset player as PLAIN writable data props (the isolation test swaps in throwing accessors).
@@ -176,6 +186,7 @@ beforeEach(() => {
 	mocks.tagAudioBlob.mockReset().mockImplementation(async (blob: Blob) => ({ blob, result: 'tagged', format: 'm4a' }));
 	mocks.resolveArtworkDataUrl.mockReset().mockResolvedValue(null);
 	mocks.logAction.mockReset();
+	mocks.trackDownload.mockReset();
 	mocks.fetchVariants.mockReset().mockImplementation(async () => []);
 	mocks.probeDownload.mockReset().mockImplementation(async (t: Track) => ({
 		container: null,
@@ -192,6 +203,42 @@ beforeEach(() => {
 afterEach(() => {
 	vi.unstubAllGlobals();
 	vi.clearAllMocks();
+});
+
+describe('downloadTrack — same song already downloaded under another uid (quick-261031-dedup)', () => {
+	it('returns "saved" immediately when the other copy\'s file exists — no resolve, no fetch, no spinner bracket', async () => {
+		mocks.library.otherDownloadOf.mockReturnValue(mk({ uid: 'netease-1' }));
+		mocks.hasBlob.mockResolvedValue(true);
+		const f = stubFetch(new Blob(['audio']));
+		const res = await downloadTrack(mk({ uid: 'qq-9' }));
+		expect(res).toBe('saved');
+		expect(mocks.ensureTrackDetails).not.toHaveBeenCalled();
+		expect(f).not.toHaveBeenCalled();
+		expect(mocks.library.beginDownload).not.toHaveBeenCalled();
+		expect(mocks.library.addDownload).not.toHaveBeenCalled();
+	});
+	it('a same-song record WITHOUT its file does not early-out — the download repairs it', async () => {
+		mocks.library.otherDownloadOf.mockReturnValue(mk({ uid: 'netease-1' }));
+		mocks.hasBlob.mockResolvedValue(false);
+		const resolved = mk({ uid: 'qq-9', audioUrl: 'https://cdn.example.com/song.flac', detailsLoaded: true });
+		mocks.ensureTrackDetails.mockResolvedValue(resolved);
+		const f = stubFetch(new Blob(['audio']));
+		const res = await downloadTrack(mk({ uid: 'qq-9', detailsLoaded: false }));
+		expect(res).toBe('saved');
+		expect(mocks.library.beginDownload).toHaveBeenCalled();
+		expect(f).toHaveBeenCalled();
+	});
+	it('audioFrom (an explicit donor replace) is exempt from the early-out', async () => {
+		mocks.library.otherDownloadOf.mockReturnValue(mk({ uid: 'netease-1' }));
+		mocks.hasBlob.mockResolvedValue(true);
+		mocks.library.isDownloaded.mockReturnValue(true);
+		const donor = mk({ uid: 'netease-1', audioUrl: 'https://cdn.example.com/donor.flac', detailsLoaded: true });
+		const f = stubFetch(new Blob(['audio']));
+		const res = await downloadTrack(mk({ uid: 'qq-9', detailsLoaded: true }), { audioFrom: donor });
+		expect(res).toBe('saved');
+		expect(mocks.library.beginDownload).toHaveBeenCalled();
+		expect(f).toHaveBeenCalled();
+	});
 });
 
 describe('downloadTrack — happy path (non-current re-resolve → saved)', () => {
@@ -253,6 +300,74 @@ describe('downloadTrack — happy path (non-current re-resolve → saved)', () =
 		expect(mocks.names.dnArtist).toHaveBeenCalledWith('G.E.M.');
 		expect(mocks.names.dnTitle).toHaveBeenCalledWith('Lightyears', 'G.E.M.');
 		expect(mocks.saveBlobToDisk).toHaveBeenCalledWith(expect.any(Blob), '邓紫棋 - 光年之外.mp3');
+	});
+});
+
+describe('downloadTrack — identity-linked download ping (quick-261023-like-dl)', () => {
+	it('pings trackDownload once with quality + bytes when the download is saved', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(
+			mk({
+				uid: 'netease-1',
+				artist: 'Artist',
+				title: 'Song',
+				audioUrl: 'https://cdn.example.com/song.flac',
+				detailsLoaded: true,
+				quality: 'lossless',
+				qualityLabel: 'FLAC'
+			})
+		);
+		stubFetch(new Blob(['audio-bytes']));
+
+		const res = await downloadTrack(mk({ uid: 'netease-1', audioUrl: null, detailsLoaded: false }));
+
+		expect(res).toBe('saved');
+		expect(mocks.trackDownload).toHaveBeenCalledTimes(1);
+		const [t, extra] = mocks.trackDownload.mock.calls[0];
+		expect((t as Track).uid).toBe('netease-1');
+		expect(extra).toEqual({ quality: 'FLAC', bytes: 11 });
+	});
+
+	it('pings once for the album bulk path (save:false WITH dir — user-initiated)', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(
+			mk({ uid: 'a1', audioUrl: 'https://cdn.example.com/a.mp3', detailsLoaded: true })
+		);
+		stubFetch(new Blob(['x']));
+
+		const res = await downloadTrack(mk({ uid: 'a1', audioUrl: null, detailsLoaded: false }), {
+			save: false,
+			persist: true,
+			dir: 'Artist/Album'
+		});
+
+		expect(res).toBe('saved');
+		expect(mocks.trackDownload).toHaveBeenCalledTimes(1);
+	});
+
+	it('does NOT ping for silent background repairs (save:false, no dir)', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(
+			mk({ uid: 'r1', audioUrl: 'https://cdn.example.com/r.mp3', detailsLoaded: true })
+		);
+		stubFetch(new Blob(['x']));
+
+		const res = await downloadTrack(mk({ uid: 'r1', audioUrl: null, detailsLoaded: false }), {
+			save: false
+		});
+
+		expect(res).toBe('saved');
+		expect(mocks.trackDownload).not.toHaveBeenCalled();
+	});
+
+	it('does NOT ping when the download fails', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(
+			mk({ uid: 'f1', audioUrl: 'https://cdn.example.com/f.mp3', detailsLoaded: true })
+		);
+		stubFetch(new Blob(['x']));
+		mocks.saveBlobToDisk.mockReturnValue(false);
+
+		const res = await downloadTrack(mk({ uid: 'f1', audioUrl: null, detailsLoaded: false }));
+
+		expect(res).toBe('failed');
+		expect(mocks.trackDownload).not.toHaveBeenCalled();
 	});
 });
 

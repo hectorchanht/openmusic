@@ -1,0 +1,261 @@
+{
+ "songResultData": {
+  "result": [
+   {
+    "name": "晴天",
+    "contentId": "600902000006889366",
+    "copyrightId": "60054701923",
+    "id": "3790007",
+    "chargeAuditions": "1",
+    "singers": [
+     {
+      "id": "112",
+      "name": "周杰伦"
+     }
+    ],
+    "albums": [
+     {
+      "id": "8592",
+      "name": "叶惠美",
+      "type": "1"
+     }
+    ],
+    "imgItems": [
+     {
+      "imgSizeType": "01",
+      "img": "https://d.musicapp.migu.cn/data/oss/resource/00/4t/9y/a64e69c4d8c54f59b580b1a25ae5ceb3.webp"
+     },
+     {
+      "imgSizeType": "02",
+      "img": "https://d.musicapp.migu.cn/data/oss/resource/00/4t/9y/b604231d05474ddfb7a48a094cb63e37.webp"
+     },
+     {
+      "imgSizeType": "03",
+      "img": "https://d.musicapp.migu.cn/data/oss/resource/00/4t/9y/679feb591df148ddbc1e98110cd108de.webp"
+     }
+    ],
+    "lyricUrl": "https://d.musicapp.migu.cn/data/oss/resource/00/5b/o7/70896c574ad040789a981d164fe24ff9",
+    "newRateFormats": [
+     {
+      "formatType": "PQ",
+      "resourceType": "2",
+      "price": "200",
+      "androidSize": null,
+      "size": "4317311",
+      "showTag": [
+       "vip"
+      ],
+      "showTags": null,
+      "androidFileType": null,
+      "fileType": "mp3"
+     },
+     {
+      "formatType": "HQ",
+      "resourceType": "2",
+      "price": "200",
+      "androidSize": null,
+      "size": "10792962",
+      "showTag": [
+       "vip"
+      ],
+      "showTags": null,
+      "androidFileType": null,
+      "fileType": "mp3"
+     },
+     {
+      "formatType": "SQ",
+      "resourceType": "E",
+      "price": "200",
+      "androidSize": "31529675",
+      "size": "31529675",
+      "showTag": [
+       "vip"
+      ],
+      "showTags": null,
+      "androidFileType": "flac",
+      "fileType": null
+     }
+    ],
+    "rateFormats": [
+     {
+      "formatType": "LQ",
+      "resourceType": "3",
+      "price": "200",
+      "androidSize": null,
+      "size": "2158842",
+      "showTag": null,
+      "showTags": null,
+      "androidFileType": null,
+      "fileType": "mp3"
+     },
+     {
+      "formatType": "PQ",
+      "resourceType": "2",
+      "price": "200",
+      "androidSize": null,
+      "size": "4317311",
+      "showTag": [
+       "vip"
+      ],
+      "showTags": null,
+      "androidFileType": null,
+      "fileType": "mp3"
+     },
+     {
+      "formatType": "HQ",
+      "resourceType": "2",
+      "price": "200",
+      "androidSize": null,
+      "size": "10792962",
+      "showTag": [
+       "vip"
+      ],
+      "showTags": null,
+      "androidFileType": null,
+      "fileType": "mp3"
+     },
+     {
+      "formatType": "SQ",
+      "resourceType": "E",
+      "price": "200",
+      "androidSize": "31529675",
+      "size": "31529675",
+      "showTag": [
+       "vip"
+      ],
+      "showTags": null,
+      "androidFileType": "flac",
+      "fileType": null
+     }
+    ]
+   },
+   {
+    "name": "晴天 (Live)",
+    "contentId": "600913000007163534",
+    "copyrightId": "60054704101",
+    "id": "1125329711",
+    "chargeAuditions": "0",
+    "singers": [
+     {
+      "id": "112",
+      "name": "周杰伦"
+     }
+    ],
+    "albums": [
+     {
+      "id": "1125329686",
+      "name": "周杰伦地表最强世界巡回演唱会",
+      "type": "1"
+     }
+    ],
+    "imgItems": [
+     {
+      "imgSizeType": "01",
+      "img": "https://d.musicapp.migu.cn/data/oss/resource/00/4t/ac/8fb06e4185984082b48b8defc8643c8a.webp"
+     },
+     {
+      "imgSizeType": "02",
+      "img": "https://d.musicapp.migu.cn/data/oss/resource/00/4t/ae/1adee4062d7e4a3c816d57802d57c329.webp"
+     },
+     {
+      "imgSizeType": "03",
+      "img": "https://d.musicapp.migu.cn/data/oss/resource/00/4t/ae/1097fc9fd50543599bcd6cd978200bd8.webp"
+     }
+    ],
+    "lyricUrl": "https://d.musicapp.migu.cn/data/oss/resource/00/3u/hb/fe30fb977b88415b921b3cb31f953a25",
+    "newRateFormats": [
+     {
+      "formatType": "PQ",
+      "resourceType": "2",
+      "price": "200",
+      "androidSize": null,
+      "size": "3997991",
+      "showTag": null,
+      "showTags": null,
+      "androidFileType": null,
+      "fileType": "mp3"
+     },
+     {
+      "formatType": "HQ",
+      "resourceType": "2",
+      "price": "200",
+      "androidSize": null,
+      "size": "9994661",
+      "showTag": null,
+      "showTags": null,
+      "androidFileType": null,
+      "fileType": "mp3"
+     },
+     {
+      "formatType": "SQ",
+      "resourceType": "E",
+      "price": "200",
+      "androidSize": "30477128",
+      "size": "30477128",
+      "showTag": null,
+      "showTags": null,
+      "androidFileType": "flac",
+      "fileType": null
+     },
+     {
+      "formatType": "ZQ",
+      "resourceType": "2",
+      "price": "200",
+      "androidSize": "54458900",
+      "size": null,
+      "showTag": null,
+      "showTags": null,
+      "androidFileType": "flac",
+      "fileType": null
+     }
+    ],
+    "rateFormats": [
+     {
+      "formatType": "LQ",
+      "resourceType": "3",
+      "price": "200",
+      "androidSize": null,
+      "size": "1999182",
+      "showTag": null,
+      "showTags": null,
+      "androidFileType": null,
+      "fileType": "mp3"
+     },
+     {
+      "formatType": "PQ",
+      "resourceType": "2",
+      "price": "200",
+      "androidSize": null,
+      "size": "3997991",
+      "showTag": null,
+      "showTags": null,
+      "androidFileType": null,
+      "fileType": "mp3"
+     },
+     {
+      "formatType": "HQ",
+      "resourceType": "2",
+      "price": "200",
+      "androidSize": null,
+      "size": "9994661",
+      "showTag": null,
+      "showTags": null,
+      "androidFileType": null,
+      "fileType": "mp3"
+     },
+     {
+      "formatType": "SQ",
+      "resourceType": "E",
+      "price": "200",
+      "androidSize": "30477128",
+      "size": "30477128",
+      "showTag": null,
+      "showTags": null,
+      "androidFileType": "flac",
+      "fileType": null
+     }
+    ]
+   }
+  ]
+ }
+}

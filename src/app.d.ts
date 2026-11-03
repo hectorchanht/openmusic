@@ -28,6 +28,28 @@ declare global {
 				// `openmusic-analytics`, wired in wrangler.jsonc d1_databases. The
 				// endpoint degrades to { ok:false } when absent (local dev / tests).
 				ANALYTICS_DB?: D1Database;
+				// ACCOUNTS (quick-261020-acct): magic-link auth + cross-device sync —
+				// D1 binding `openmusic-accounts` (PII: emails), wired in wrangler.jsonc
+				// d1_databases. Absent ⇒ the auth routes answer logged-out / 503,
+				// never a throw. Mirror of `Env` in $lib/proxy/proxy-types.ts.
+				ACCOUNTS_DB?: D1Database;
+				// SUPPORTERS WALL (2026-10-24): public opt-in wall store — D1 binding
+				// `openmusic-supporters`, wired in wrangler.jsonc d1_databases. Holds
+				// ONLY what a verified tipper chose to publish (display name + short
+				// message), keyed by the SHA-256 of their license key — no raw keys,
+				// no emails, deliberately separate from ACCOUNTS_DB (PII) and
+				// ANALYTICS_DB (anonymous). Absent ⇒ verify still works, the wall
+				// reads empty. Mirror of `Env` in $lib/proxy/proxy-types.ts.
+				SUPPORTERS_DB?: D1Database;
+				// Resend API key for the magic-link email. Server-side only —
+				// `wrangler pages secret put RESEND_API_KEY`, never on the client
+				// bundle (threat parity with JOOX_TOKEN / T-01-04). Absent ⇒ the
+				// magic-link route FAILS CLOSED with 500 'not configured'.
+				RESEND_API_KEY?: string;
+				// OPTIONAL `From:` for the magic-link email, e.g.
+				// `OpenMusic <login@openmusic.lol>`. Absent ⇒ that exact default is
+				// used by the route (see $lib/auth/auth-core).
+				MAGIC_LINK_FROM?: string;
 			};
 			// 31-D-06: the Cloudflare ExecutionContext. `waitUntil()` keeps the Worker alive for a
 			// background job AFTER the response has already been sent — the /api/resolve edge-cache

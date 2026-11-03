@@ -10,7 +10,7 @@
 	// shelves, which had a live layout regression hours before this was written, and re-expressing
 	// it would put that surface inside the blast radius of a brand-new component for zero visible
 	// gain. CONVERGENCE CONDITION: once >=3 surfaces run on SongRow, re-express CompactRow's
-	// `variant='track'` branch as <SongRow index={null} actions={[]}> at the 40x40 art scale.
+	// `variant='track'` branch as <SongRow actions={[]}> at the 40x40 art scale.
 	// `variant='artist'` (round avatar, one line, no menu) is NEVER unified — D-4, and CLAUDE.md
 	// already records that the item-type difference is real.
 	//
@@ -50,9 +50,11 @@
 	// so displaces its own rim by ~1px instead of its width. `.opt` deliberately has none, exactly
 	// as CompactRow's trailing ⋮ does not.
 	//
-	// D-2 — WIDTH: THE TITLE GIVES. Every control here is fixed-width (rank 18, art 44, each inline
+	// D-2 — WIDTH: THE TITLE GIVES. Every control here is fixed-width (art 44, each inline
 	// action 36, the menu 28 — quick-261006-smb) and `.meta` is the only flexible box, so it absorbs 100% of the
-	// squeeze. At 360px with both buttons on, `.meta` gets ~130px — which a CJK title overruns. That
+	// squeeze. quick-261020-norank: the rank column (18px) is GONE — Hector: no page shows song
+	// numbering, the number's width belongs to the title/artist. There is deliberately NO `index`
+	// prop any more, so a future surface cannot re-add numbers by passing one. At 360px with both buttons on, `.meta` gets ~130px — which a CJK title overruns. That
 	// is exactly what use:marquee exists for, so the two lines SCROLL rather than sit clipped.
 	// Nothing else shrinks, nothing wraps, no responsive hiding, no row-height change.
 	//
@@ -77,6 +79,7 @@
 	import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 	import { readCoverByUidOrName, readChosenCover } from '$lib/stores/cover-version.svelte';
 	import { coverGradient } from '$lib/services/cover-gradient';
+import { videoAvailability } from '$lib/services/video-availability.svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
@@ -94,8 +97,6 @@
 	interface Props {
 		/** The song. `uid = ${source}:${songid}` is IDENTITY (makeUid). */
 		track: Track;
-		/** displayIndex — ORDERING ONLY, never identity. null/omitted = no rank column. */
-		index?: number | null;
 		/** REQUIRED. Tap-to-play. Each surface installs its OWN queue here. */
 		onplay: () => void;
 		/** REQUIRED. Long-press or the ⋮. The HOST owns TrackMenu state (the CompactRow contract). */
@@ -139,6 +140,10 @@
 		 *  the single title), which reads as a wrong ARTIST name under the SongRow convention.
 		 *  Default false — every other surface keeps today's album-first subtitle byte-identical. */
 		smartArtist?: boolean;
+		/** quick-261014-notag: `false` hides the album tag after the smart artist name. The
+		 *  search page sets it — the tag is noise next to the artist there. Default true:
+		 *  artist/charts/library rows keep the album disambiguation. */
+		showAlbumTag?: boolean;
 		/** A host-known cover → rung 2 of pickRowCover. OMIT and it defaults to `track.cover`, the
 		 *  song's own source art, which is what every list surface passed here by hand. Pass an
 		 *  explicit value only to override that (the album tracklist passes the album hero, whose
@@ -159,7 +164,6 @@
 
 	let {
 		track,
-		index = null,
 		onplay,
 		onrequestmenu,
 		swipe = undefined,
@@ -170,6 +174,7 @@
 		persist = true,
 		subtitle = undefined,
 		smartArtist = false,
+		showAlbumTag = true,
 		cover = undefined,
 		active = undefined,
 		lazy = true,
@@ -207,14 +212,20 @@
 	// quick-261010-sar2: the album TAG after the smart artist name ("artist · [album]"). Only on
 	// smartArtist rows — the ones whose subtitle IS the artist. Skipped when the album is blank
 	// or is the single itself (album == title), where it would just echo the first line.
+	// quick-261014-notag: showAlbumTag=false (search page) suppresses it outright.
 	const albumTag = $derived.by(() => {
-		if (!smartArtist) return '';
+		if (!smartArtist || !showAlbumTag) return '';
 		const a = (track.album ?? '').trim();
 		if (!a) return '';
 		if (a.toLowerCase() === (track.title ?? '').trim().toLowerCase()) return '';
 		return names.dnTitle(a);
 	});
 	const sub = $derived(subtitle ?? (smartArtist ? smartSub : names.dnArtist(track.album || track.artist)));
+	// quick-261024-vid1: the MV tag — ytmusic rows are watchable unless a past resolve
+	// proved otherwise (videoAvailability) or the user disabled videos in Settings.
+	const mvTag = $derived(
+		track.source === 'ytmusic' && settings.videoEnabled && videoAvailability.showsTag(track.songid)
+	);
 	const isActive = $derived(active ?? player.current?.uid === track.uid);
 
 	// RESOLVE-ON-TAP state (quick-260919-l9e). A stub row has no uid to key liked/downloaded state
@@ -253,9 +264,10 @@
 	// on `resolveByName` (which nameStub sets) precisely because the uid test cannot.
 	const gradientSeed = $derived(track.uid || `${track.artist} ${track.title}`);
 
-	// The shared three-rung row cover read (quick-260910-qwt + quick-260915-w4f rung 0): the user's
-	// PINNED cover, then this row's own lazyCover result, then a host-provided cover, then the
-	// shared reactive cache. A reactive READ, not a fetch — use:lazyCover below is the only network.
+	// The shared row cover read (quick-260910-qwt + quick-260915-w4f rung 0), in pickRowCover's
+	// canonical rung order: the user's PINNED cover → the host-provided cover (rung 2, the
+	// `cover` prop) → the shared reactive cache → this row's own lazyCover result. A reactive
+	// READ, not a fetch — use:lazyCover below is the only network.
 	let resolvedCover = $state<string | null>(null);
 	const art = $derived(
 		// quick-261006-o9u: rows paint at 36–56px — render the 200px variant of the cached
@@ -264,10 +276,14 @@
 			pickRowCover(
 				// Phase 40 D-14: rung 0 is the CHOSEN cover — pin, then the crowd pick.
 				readChosenCover(track.uid, track.artist, track.title),
-				resolvedCover ?? undefined,
 				// `cover ?? track.cover` would let an explicit `null` fall THROUGH to track.cover, which
 				// is the opposite of what passing null means. Only an OMITTED prop defaults.
 				cover === undefined ? track.cover : cover,
+				resolvedCover ?? undefined,
+				// quick-261101-chk: the seeded rung stays empty here — SongRow has no seeded cover
+				// distinct from the `cover` prop above (CompactRow passes null the same way). The
+				// call previously passed only 4 arguments, shifting every later rung one slot up.
+				null,
 				readCoverByUidOrName(track.uid, track.artist, track.title)
 			),
 			ROW_COVER_PX
@@ -397,7 +413,6 @@
 		onclick={onplay}
 	></button>
 	{#if grip}<span class="grip" aria-hidden="true"><GripVertical size={16} /></span>{/if}
-	{#if index != null}<span class="rank">{index + 1}</span>{/if}
 	<span
 		class="art"
 		use:lazyCover={{ track, enabled: lazy, onResolved: (_uid, url) => (resolvedCover = url) }}
@@ -405,7 +420,7 @@
 	></span>
 	<span class="meta">
 		<span class="r-title" use:marquee><span class="marquee-inner">{names.dnTitle(track.title, track.artist)}</span></span>
-		<span class="r-sub" use:marquee><span class="marquee-inner">{sub}{#if albumTag}<span class="album-tag">{albumTag}</span>{/if}</span></span>
+		<span class="r-sub" use:marquee><span class="marquee-inner">{sub}{#if albumTag}<span class="album-tag">{albumTag}</span>{/if}{#if mvTag}<span class="mv-tag">MV</span>{/if}</span></span>
 	</span>
 	<!-- D-5: the passive badge stands down for whichever state this row draws a live control for. -->
 	<RowBadges uid={actUid} hideLiked={acts.includes('like')} hideDownloaded={acts.includes('download')} />
@@ -450,8 +465,14 @@
 	     quick-261010-sar: hidden when the user switches it off in Settings → Appearance → Song
 	     rows (settings.showRowMenu) — long-press / right-click still opens the menu. -->
 	{#if settings.showRowMenu}
-		<button class="ract menu" aria-label={t('menu.options')} onclick={onrequestmenu}>
-			<MoreVertical size={18} />
+		{@const showDlRing = !acts.includes('download') && track?.uid && library.downloading.has(track.uid)}
+		{@const dlFrac = track?.uid ? library.downloadProgress[track.uid] : undefined}
+		<button class="ract menu" aria-label={t('menu.options')} aria-busy={!!showDlRing} onclick={onrequestmenu}>
+			{#if showDlRing}
+				<DownloadRing value={dlFrac}><MoreVertical size={18} /></DownloadRing>
+			{:else}
+				<MoreVertical size={18} />
+			{/if}
 		</button>
 	{/if}
 </div>
@@ -516,7 +537,6 @@
 	/* Inert visuals: `pointer-events: none` so they never swallow a tap meant for .hit, and
 	   `position: relative` so they still paint ABOVE it. */
 	.grip,
-	.rank,
 	.art,
 	.meta,
 	.srow :global(.row-badges) {
@@ -527,13 +547,6 @@
 		flex: none;
 		display: grid;
 		place-items: center;
-		color: var(--color-text-muted);
-	}
-	.rank {
-		flex: none;
-		width: 18px;
-		text-align: center;
-		font-size: 0.75rem;
 		color: var(--color-text-muted);
 	}
 	.art {
@@ -581,6 +594,24 @@
 		border: 1px solid var(--color-border);
 		border-radius: 999px;
 		font-size: 0.85em;
+		line-height: 1.5;
+		white-space: nowrap;
+		vertical-align: 1px;
+	}
+	/* quick-261024-vid1: the MV tag — same pill family as .album-tag (it was accent-tinted to read
+	   as "watchable" until quick-261102-s5t, below). */
+	.mv-tag {
+		display: inline-block;
+		margin-left: 6px;
+		padding: 0 6px;
+		/* quick-261102-s5t: --color-accent is undefined (always the red fallback = a second accent);
+		   a passive tag is not "live/on/go", so it takes the muted pill tokens. */
+		border: 1px solid var(--color-border);
+		color: var(--color-text-muted);
+		border-radius: 999px;
+		font-size: 0.8em;
+		font-weight: 600;
+		letter-spacing: 0.04em;
 		line-height: 1.5;
 		white-space: nowrap;
 		vertical-align: 1px;

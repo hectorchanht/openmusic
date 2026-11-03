@@ -5,6 +5,7 @@ import {
 	resolveNameStub,
 	lyricByName,
 	collectLyricCandidates,
+	__clearLyricCandidatesCache,
 	__clearSearchCache,
 	evictSearch,
 	SEARCH_STAGGER_MS,
@@ -74,6 +75,9 @@ afterEach(() => {
 	// Clear the D-04 TTL cache so the fan-out spy tests never observe a stale
 	// cached SearchResult from a prior case (they all reuse the keyword 'x', page 1).
 	__clearSearchCache();
+	// quick-261021-cache1: collectLyricCandidates memoizes by artist|title across calls —
+	// reset it too, or one case's candidates leak into every later case reusing a fixture name.
+	__clearLyricCandidatesCache();
 	vi.restoreAllMocks();
 	// 31-D-08: back to a cache MISS for the next case (restoreAllMocks does not reset a vi.fn).
 	readResolveCache.mockReset();
@@ -159,21 +163,21 @@ describe('searchAll (DATA-03 fan-out)', () => {
 		expect(interleaved.map((t) => t.uid)).toEqual(['netease:dup', 'netease:other']);
 	});
 
-	it('interleaves round-robin in registry order (qq→netease→kuwo→joox)', async () => {
+	it('interleaves round-robin in registry order (qq→joox→netease→kuwo)', async () => {
 		vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([mk('netease', 'n1'), mk('netease', 'n2')]);
 		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([mk('qq', 'q1')]);
 		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([mk('kuwo', 'k1')]);
 		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([mk('joox', 'j1')]);
 
-		// interleave inherits the registry order. debug/upnext-diverse-fallback-kuwo-dead
-		// (2026-08-31) demoted kuwo from the Phase-26 first seat to #3 (dead upstream: expired
-		// TLS cert → 526 on every call), so the floor is now qq→netease→kuwo→joox.
+		// interleave inherits the registry order (Object.keys(SOURCES)). History: Phase-26
+		// qq-first; 2026-08-31 kuwo demoted (dead upstream); the registry literal has since
+		// settled at qq → joox → netease → … → kuwo among these four tested sources.
 		const { interleaved } = await searchAll('x', 1, ALL);
 		expect(interleaved.map((t) => t.uid)).toEqual([
 			'qq:q1',
+			'joox:j1',
 			'netease:n1',
 			'kuwo:k1',
-			'joox:j1',
 			'netease:n2'
 		]);
 	});
@@ -244,9 +248,10 @@ describe('searchAll (D-04 TTL cache)', () => {
 		const ac = new AbortController();
 		const n = vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([mk('netease', 'n1')]);
 		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([]);
-		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([]);
-		// joox is last in the stagger, so every other adapter has already run when it aborts.
-		vi.spyOn(SOURCES.joox, 'search')
+		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([]);
+		// kuwo is last in the stagger (registry order qq → joox → netease → kuwo), so every
+		// other adapter has already run when it aborts.
+		vi.spyOn(SOURCES.kuwo, 'search')
 			.mockImplementationOnce(async () => {
 				ac.abort();
 				return [];
@@ -370,13 +375,13 @@ describe('searchAll (D-06 progressive onPartial)', () => {
 		const { perSource, interleaved } = await searchAll('noop', 1, ALL);
 
 		expect(perSource.map((p) => p.source).sort()).toEqual(['joox', 'kuwo', 'netease', 'qq']);
-		// interleave stays registry-ordered (qq-first since the 2026-08-31 kuwo demotion)
-		// regardless of settle order
+		// interleave stays registry-ordered (qq → joox → netease → kuwo among the tested
+		// four) regardless of settle order
 		expect(interleaved.map((t) => t.uid)).toEqual([
 			'qq:q1',
+			'joox:j1',
 			'netease:n1',
-			'kuwo:k1',
-			'joox:j1'
+			'kuwo:k1'
 		]);
 	});
 
@@ -431,21 +436,21 @@ describe('searchAllUncached inter-source stagger (GAPLESS-PREFETCH)', () => {
 
 			const done = searchAll('staggerkw', 1, ALL);
 			// Let the synchronous fan-out launch + adapter[0]'s 0ms sleep flush.
-			// debug/upnext-diverse-fallback-kuwo-dead (2026-08-31) demoted kuwo to #3, so the
-			// registry is qq-first → adapter[0]=qq, [1]=netease, [2]=kuwo, [3]=joox.
+			// Registry order among the tested four is qq → joox → netease → kuwo, so
+			// adapter[0]=qq, [1]=joox, [2]=netease, [3]=kuwo.
 			await vi.advanceTimersByTimeAsync(0);
 			expect(q).toHaveBeenCalledTimes(1);
-			// adapter[1] (netease) must still be waiting on its SEARCH_STAGGER_MS sleep.
-			expect(n).not.toHaveBeenCalled();
+			// adapter[1] (joox) must still be waiting on its SEARCH_STAGGER_MS sleep.
+			expect(j).not.toHaveBeenCalled();
 
 			await vi.advanceTimersByTimeAsync(SEARCH_STAGGER_MS);
-			expect(n).toHaveBeenCalledTimes(1);
-			// kuwo at 2x, joox at 3x — still pending until their windows pass.
-			expect(k).not.toHaveBeenCalled();
+			expect(j).toHaveBeenCalledTimes(1);
+			// netease at 2x, kuwo at 3x — still pending until their windows pass.
+			expect(n).not.toHaveBeenCalled();
 
 			await vi.advanceTimersByTimeAsync(SEARCH_STAGGER_MS * 2);
+			expect(n).toHaveBeenCalledTimes(1);
 			expect(k).toHaveBeenCalledTimes(1);
-			expect(j).toHaveBeenCalledTimes(1);
 
 			const { perSource, interleaved } = await done;
 			expect(perSource.map((p) => p.source).sort()).toEqual([
@@ -457,9 +462,9 @@ describe('searchAllUncached inter-source stagger (GAPLESS-PREFETCH)', () => {
 			// final membership matches the un-staggered registry-ordered (qq-first) interleave
 			expect(interleaved.map((t) => t.uid)).toEqual([
 				'qq:q1',
+				'joox:j1',
 				'netease:n1',
-				'kuwo:k1',
-				'joox:j1'
+				'kuwo:k1'
 			]);
 		} finally {
 			vi.useRealTimers();
@@ -799,6 +804,71 @@ describe('resolveNameStub — registry-first single-source name resolution (RESO
 		// …but ytmusic (autoResolveEligible:false) was NEVER searched — it is not an auto-resolve target.
 		expect(SOURCES.ytmusic.search).not.toHaveBeenCalled();
 	});
+
+	// quick-261102-cov1 (user report 2026-11-02): the artist-identity gate at this
+	// adoption seam. A name stub credited to 周杰倫 must never come back as a
+	// different artist's 同人 cover （阿傑）, however playable the cover row is.
+	it('(cov1-a) official fails resolve on qq + playable cover on netease + official on kuwo → the kuwo OFFICIAL plays; the cover is never resolved', async () => {
+		stubAllEmpty();
+		const qqOfficial = mk('qq', 'qoff', 1, { artist: '周杰倫', title: '說了再見' });
+		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([qqOfficial]);
+		// qq's official row resolves WITHOUT a URL (locked tier) → the walk must move on.
+		vi.spyOn(SOURCES.qq, 'resolve').mockResolvedValue({
+			...qqOfficial,
+			detailsLoaded: true,
+			audioUrl: null,
+			lrc: '[00:01]x'
+		});
+		const neCover = mk('netease', '3388515483', 1, { artist: '阿傑', title: '說了再見' });
+		vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([neCover]);
+		const neResolve = vi.spyOn(SOURCES.netease, 'resolve');
+		const kwOfficial = mk('kuwo', 'koff', 1, { artist: '周杰倫', title: '說了再見' });
+		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([kwOfficial]);
+		vi.spyOn(SOURCES.kuwo, 'resolve').mockResolvedValue({
+			...kwOfficial,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/kw.mp3',
+			lrc: '[00:01]x'
+		});
+
+		const out = await resolveNameStub('周杰倫', '說了再見');
+
+		expect(out?.uid).toBe('kuwo:koff');
+		expect(out?.artist).toBe('周杰倫');
+		// The cover ranked EMPTY at netease (gated before ranking) → never resolved.
+		expect(neResolve).not.toHaveBeenCalled();
+	});
+
+	it('(cov1-b) only covers exist anywhere → null, and no cover is ever resolved', async () => {
+		stubAllEmpty();
+		const qqCover = mk('qq', 'qc', 1, { artist: '阿傑', title: '說了再見' });
+		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([qqCover]);
+		const qqResolve = vi.spyOn(SOURCES.qq, 'resolve');
+		const neCover = mk('netease', '3388515483', 1, { artist: '阿傑', title: '說了再見' });
+		vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([neCover]);
+		const neResolve = vi.spyOn(SOURCES.netease, 'resolve');
+
+		const out = await resolveNameStub('周杰倫', '說了再見');
+
+		expect(out).toBeNull();
+		expect(qqResolve).not.toHaveBeenCalled();
+		expect(neResolve).not.toHaveBeenCalled();
+	});
+
+	it('(cov1-c) a duet credit containing the stub artist counts as the original', async () => {
+		stubAllEmpty();
+		const duet = mk('qq', 'qd', 1, { artist: '周杰倫/蔡依林', title: '說了再見' });
+		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([duet]);
+		vi.spyOn(SOURCES.qq, 'resolve').mockResolvedValue({
+			...duet,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/duet.mp3',
+			lrc: '[00:01]x'
+		});
+
+		const out = await resolveNameStub('周杰倫', '說了再見');
+		expect(out?.uid).toBe('qq:qd');
+	});
 });
 
 // Phase 26 (RESOLVE-02): ensureTrackDetails routes a marked name-stub through resolveNameStub and
@@ -921,7 +991,7 @@ describe('lyricByName — name-only lyric walk (37-D-03)', () => {
 // describe block above (lyricByName) is the regression gate for that extraction and is deliberately
 // left unmodified.
 describe('collectLyricCandidates — every source with an LRC (quick-260919-1we)', () => {
-	const LYRICLESS: SourceId[] = ['jamendo', 'audius', 'fivesing'];
+	const LYRICLESS: SourceId[] = ['jamendo', 'audius', 'fivesing', 'ccmixter'];
 
 	/** Every source silent by default, so "which rung ran" is provable rather than inferred. */
 	function silenceAllSearches() {
@@ -1031,6 +1101,58 @@ describe('collectLyricCandidates — every source with an LRC (quick-260919-1we)
 		expect(out).toEqual([{ source: 'kuwo', lrc: '[00:01]kw' }]);
 		expect(search.kuwo).toHaveBeenCalledOnce();
 		expect(kuwoResolve).toHaveBeenCalledOnce();
+	});
+
+	it('quick-261014-lyrnotitle: title-only fallback when the with-artist pass is dry (fan cover)', async () => {
+		const search = silenceAllSearches();
+		// First pass ("FanSinger Rain") matches nothing; the title-only retry finds the
+		// original recording's lyrics under a different artist name.
+		const titleMatch = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Rain', lrc: '[00:01]kw' });
+		search.kuwo!.mockResolvedValueOnce([]).mockResolvedValue([titleMatch]);
+
+		const out = await collectLyricCandidates('FanSinger', 'Rain', new AbortController().signal);
+
+		expect(out).toEqual([{ source: 'kuwo', lrc: '[00:01]kw' }]);
+		expect(search.kuwo).toHaveBeenCalledTimes(2);
+	});
+
+	it('quick-261014-lyrnotitle: no second pass when the with-artist pass already hit', async () => {
+		const search = silenceAllSearches();
+		search.kuwo!.mockResolvedValue([
+			mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Rain', lrc: '[00:01]kw' })
+		]);
+
+		const out = await collectLyricCandidates('Jay', 'Rain', new AbortController().signal);
+
+		expect(out).toEqual([{ source: 'kuwo', lrc: '[00:01]kw' }]);
+		for (const id of Object.keys(SOURCES) as SourceId[]) {
+			if (LYRICLESS.includes(id)) continue;
+			expect(search[id]).toHaveBeenCalledOnce();
+		}
+	});
+
+	it('quick-261014-lyrnotitle: no fallback when the artist is already blank', async () => {
+		const search = silenceAllSearches();
+
+		const out = await collectLyricCandidates('', 'Rain', new AbortController().signal);
+
+		expect(out).toEqual([]);
+		for (const id of Object.keys(SOURCES) as SourceId[]) {
+			if (LYRICLESS.includes(id)) continue;
+			expect(search[id]).toHaveBeenCalledOnce();
+		}
+	});
+
+	it('quick-261014-lyrnotitle: the fallback still requires a TITLE match', async () => {
+		const search = silenceAllSearches();
+		// The retry must not adopt a same-artist different-song lyric: title mismatch filters out.
+		const wrongTitle = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Thunder', lrc: '[00:01]kw' });
+		search.kuwo!.mockResolvedValueOnce([]).mockResolvedValue([wrongTitle]);
+
+		const out = await collectLyricCandidates('FanSinger', 'Rain', new AbortController().signal);
+
+		expect(out).toEqual([]);
+		expect(search.kuwo).toHaveBeenCalledTimes(2);
 	});
 });
 

@@ -10,11 +10,13 @@
 import type { ProxyAdapter } from './proxy-types';
 import type { SourceId } from '../sources/types';
 import { neteaseProxy } from './netease';
+import { gdneteaseProxy } from './gdnetease';
 import { qqProxy } from './qq';
 import { jooxProxy } from './joox';
 
 export const PROXIES: Partial<Record<SourceId, ProxyAdapter>> = {
 	netease: neteaseProxy,
+	gdnetease: gdneteaseProxy,
 	qq: qqProxy,
 	joox: jooxProxy
 };

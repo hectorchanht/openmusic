@@ -6,7 +6,6 @@
     // quick-260920-kxz: LayoutGrid left with the "Covers & layout" heading — the section is now
     // "Song rows" (ListMusic), and Now playing got its own (Disc3).
     import {
-        Type,
         ListMusic,
         Disc3,
         Sun,
@@ -18,6 +17,7 @@
     import {
         settings,
         ACCENT_PRESETS,
+        SUPPORTER_THEMES,
         FONT_SCALE_MIN,
         FONT_SCALE_MAX,
         COVER_SCALE_MIN,
@@ -26,6 +26,9 @@
         LYRICS_ANCHOR_MAX,
         type Theme,
     } from "$lib/stores/settings.svelte";
+    // quick-261023-perks: supporter gating for the exclusive themes.
+    import { isSupporter } from "$lib/config/sponsored";
+    import { support } from "$lib/stores/support.svelte";
     // Demo text is sourced from the current/last-played track (D-12). The page may import the
     // player — settings stays a LEAF store because the player read happens HERE, not in the
     // settings store (Pitfall 6 / SSR-leak rule).
@@ -42,7 +45,15 @@
     import { t } from "$lib/i18n";
     import ConfirmModal from "$lib/components/ConfirmModal.svelte";
 
-    onMount(() => settings.load());
+    onMount(() => {
+        settings.load();
+        // quick-261023-perks: supporter status for the theme lock (SSR-safe — false pre-hydration).
+        try {
+            supporter = isSupporter();
+        } catch {
+            supporter = false;
+        }
+    });
 
     // User call 2026-10-06: the reset button opens an in-app confirm modal (not the
     // native window.confirm).
@@ -63,10 +74,6 @@
     // always split (--fs-title/--fs-artist/--cover-scale for rows, --fs-np-*/--fs-lyrics for the
     // full-screen view); only the page lied about it. Now each group is configured ON a replica
     // of its own surface, and the three Now-Playing scales live in NpPreviewEditor.
-    function setApp(v: number) {
-        settings.fontScaleApp = v;
-        settings.save();
-    }
     // quick-260926-m72: where the active lyric line sits in the lyrics pane (percent of the
     // visible band). Commits live — NpLyrics reads the store, so an open pane re-anchors mid-drag.
     function setLyricsAnchor(v: number) {
@@ -114,7 +121,15 @@
     }
     // quick-260919-ebi: theme / accent / reduce-motion handlers moved here from
     // /settings/general along with their rows.
+    // quick-261023-perks: supporter themes are locked for non-supporters — tapping
+    // one opens the support sheet instead of applying it (the store ALSO demotes a
+    // stored supporter theme on load when the status is gone — defence in depth).
+    let supporter = $state(false);
     function setTheme(v: Theme) {
+        if (!supporter && (SUPPORTER_THEMES as readonly string[]).includes(v)) {
+            support.openSheet();
+            return;
+        }
         settings.theme = v;
         settings.save();
     }
@@ -155,6 +170,22 @@
             border: "#c5c5cf",
             text: "#1a1a22",
             muted: "#5a5a66",
+        },
+        // quick-261023-perks: literal values from the app.css data-theme blocks —
+        // same sanctioned exception as dark/light (the card must show the theme).
+        gold: {
+            bg: "#100c06",
+            surface2: "#241b0e",
+            border: "#6b5a2e",
+            text: "#f7f0dd",
+            muted: "#b3a684",
+        },
+        sakura: {
+            bg: "#120b10",
+            surface2: "#261722",
+            border: "#6e4a5a",
+            text: "#faeef3",
+            muted: "#bd9fab",
         },
     };
     const num = (e: Event) =>
@@ -264,11 +295,29 @@
                 label: t("settings.themeLight"),
                 preview: lightCard,
             },
+            // quick-261023-perks: supporter-exclusive themes — locked cards for
+            // non-supporters (tap opens the support sheet via setTheme).
+            {
+                v: "gold" as Theme,
+                label: t("settings.themeGold"),
+                preview: goldCard,
+                locked: !supporter,
+                lockLabel: t("settings.themeLocked"),
+            },
+            {
+                v: "sakura" as Theme,
+                label: t("settings.themeSakura"),
+                preview: sakuraCard,
+                locked: !supporter,
+                lockLabel: t("settings.themeLocked"),
+            },
         ]}
     />
 </section>
 {#snippet darkCard()}{@render chrome(PALETTE.dark)}{/snippet}
 {#snippet lightCard()}{@render chrome(PALETTE.light)}{/snippet}
+{#snippet goldCard()}{@render chrome(PALETTE.gold)}{/snippet}
+{#snippet sakuraCard()}{@render chrome(PALETTE.sakura)}{/snippet}
 
 <section>
     <h2><Palette size={15} /> {t("settings.accentColor")}<SettingHint label={t("settings.accentColor")} text={t("settings.accentColorDesc")} /></h2>
@@ -284,6 +333,11 @@
             ></button>
         {/each}
     </div>
+    <!-- quick-261023-perks: supporter themes carry their own signature primary — the
+         accent pick only drives the two free themes. -->
+    {#if (SUPPORTER_THEMES as readonly string[]).includes(settings.theme)}
+        <p class="themed-note">{t("settings.accentThemed")}</p>
+    {/if}
 </section>
 
 <!-- quick-260919-ebi: "Motion" (settings.appearanceMotion), not the "Playback & motion" heading
@@ -300,39 +354,10 @@
     />
 </section>
 
-<!-- quick-260920-kxz: ONE global slider replaces the five-slider "Text size" block. It is the
-     only sizing control on this page that is not attached to a mock, and it does not need one —
-     the settings page itself is rendered at the size being dragged, so the preview is the page. -->
-<section>
-    <h2>
-        <Type size={15} /> {t("settings.fontSizeApp")}<SettingHint
-            label={t("settings.fontSizeApp")}
-            text={t("settings.fontSizeAppDesc")}
-        />
-    </h2>
-
-    <div class="ctl">
-        <div class="lab">
-            <span>{t("settings.fontSizeApp")}</span><span class="val"
-                >{settings.fontScaleApp}%</span
-            >
-        </div>
-        <input
-            type="range"
-            min={FONT_SCALE_MIN}
-            max={FONT_SCALE_MAX}
-            step="5"
-            value={settings.fontScaleApp}
-            oninput={(e) => setApp(num(e))}
-            aria-label={t("settings.fontSizeApp")}
-        />
-        <!-- quick-260920-kxz: this note moved up from "Covers & layout", where it was a
-             half-truth ("sizes apply across the whole app" described no slider on the page).
-             Next to the global scale it is simply what the control does. -->
-        <p class="note">{t("settings.appearanceNote")}</p>
-    </div>
-</section>
-
+<!-- quick-261024-sets: the ONE global slider (App text size) MOVED to the top-level
+     Settings page, directly below App language (Hector 2026-10-24) — it now lives in
+     $lib/components/AppTextSizeSetting.svelte. The surface-specific editors below
+     (Song rows, Now playing) stay here: they configure a replica of their own surface. -->
 <!-- quick-260920-kxz: the Song rows editor. The replica row carries BOTH controls now — the
      wings pick which part the single slider below resizes, and the button strip inside the same
      row still drags/toggles the inline actions. One mock, everything a list row can be told.
@@ -487,6 +512,12 @@
     .swatches {
         display: flex;
         gap: 12px;
+    }
+    /* quick-261023-perks: note shown when a supporter theme owns the primary. */
+    .themed-note {
+        margin: 10px 0 0;
+        font-size: 0.75rem;
+        color: var(--color-text-muted);
     }
     .swatch {
         width: 34px;

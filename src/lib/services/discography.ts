@@ -8,6 +8,10 @@
 // large and noisy: Coldplay's 123 releases are 17 albums, 5 EPs and 101 singles. So the list needs
 // ordering and type filtering to be usable at all.
 
+// quick-261023-albumurl: the share path-segment grammar (spaces→dashes, raw CJK). share.ts is
+// import-free of discography, so this is cycle-safe.
+import { encodePathSegment } from './share';
+
 /** A release as the UI renders it. `releaseDate`/`type` are absent on Last.fm-sourced fallback
  *  entries, which is why every rule below has to tolerate null. */
 export interface DiscographyEntry {
@@ -103,18 +107,24 @@ export function releaseYear(releaseDate: string | null): string | null {
 }
 
 /**
- * The album-page href for a release. Carries the Deezer album id as `dzid` when present, which is
- * what lets the album page fetch the REAL ordered tracklist instead of re-matching by name — the
- * fix for "many of the time are empty inside". Without an id (Last.fm fallback entries, deep
- * links) the URL is byte-identical to the one this page produced before quick-260831-qkx.
+ * The album-page href for a release — the 2-segment shape `/album/{artist}/{name}`
+ * (quick-261023-albumurl, Hector: the address bar + shared links should read the artist
+ * first, matching entityCardUrl's carrier-free album links). Segments use encodePathSegment
+ * (the share grammar: spaces→dashes, raw CJK — the /album/[artist]/[name] loader reverses it
+ * with decodePathSegment). The mbid/dzid STAY as query params: they are ids, not names.
+ * Carries the Deezer album id as `dzid` when present, which is what lets the album page
+ * fetch the REAL ordered tracklist instead of re-matching by name — the fix for "many of
+ * the time are empty inside". Without an id (Last.fm fallback entries, deep links) the
+ * album page falls back to its Last.fm name lookup.
  */
 export function albumHref(entry: DiscographyEntry, artistName: string): string {
-	const base = '/album/' + encodeURIComponent(entry.name) + '?artist=' + encodeURIComponent(artistName);
+	const base =
+		'/album/' + encodePathSegment(artistName) + '/' + encodePathSegment(entry.name);
 	// quick-260831-re9: an mbid wins when present — MusicBrainz is only ever chosen for CJK
 	// artists, where it is the source with the original-script tracklist. Deezer's dzid is the
 	// path for everyone else; neither → the album page falls back to its Last.fm name lookup.
-	if (entry.mbid) return base + '&mbid=' + encodeURIComponent(entry.mbid);
-	return entry.id ? base + '&dzid=' + encodeURIComponent(String(entry.id)) : base;
+	if (entry.mbid) return base + '?mbid=' + encodeURIComponent(entry.mbid);
+	return entry.id ? base + '?dzid=' + encodeURIComponent(String(entry.id)) : base;
 }
 
 // fallbackCoverSeed moved to cover-gradient.ts as `coverGradient` — it was duplicated verbatim in

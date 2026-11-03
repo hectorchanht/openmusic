@@ -64,7 +64,8 @@ describe('resolveStub — Last.fm {artist,title} stub → playable Track', () =>
 		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([hit]));
 
 		const out = await resolveStub('周杰伦', '稻香');
-		expect(spy).toHaveBeenCalledWith('周杰伦 稻香', 1);
+		// quick-261020-speed: tiered search — first call is tier-1 only.
+		expect(spy).toHaveBeenCalledWith('周杰伦 稻香', 1, expect.anything());
 		expect(out).not.toBeNull();
 		expect(out?.uid).toBe(hit.uid);
 	});
@@ -123,17 +124,21 @@ describe('resolveStub — scored best-match pick (LFSRC-03 / D-02)', () => {
 	});
 
 	it('falls back to dedupeBest order among equal-scored candidates (WR-01: strict stable max, ≥2 survive)', async () => {
-		// Two DISTINCT, equally-(zero-)scored candidates with DIFFERENT normalized keys so
-		// BOTH survive dedupeBest (the prior version used identical 稻香/稻香 which dedupeBest
-		// collapsed to one, so the ≥2-candidate stable-max never ran). Both are unrelated to
-		// the query → similarity 0, penalty 0 → equal score. The strict `s > bestScore` max
-		// keeps the EARLIER dedupeBest position → `first` wins the tie.
-		const first = mk('netease', 'first', 'Alpha', { title: 'Aaa' });
-		const second = mk('qq', 'second', 'Beta', { title: 'Bbb' });
-		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([first, second]));
-
-		const out = await resolveStub('周杰伦', '稻香');
-		expect(out?.uid).toBe(first.uid); // tie → first-wins (not last-wins)
+		// Two DISTINCT songs by the same artist, both matching the query equally well.
+		// Different titles → different dedupe keys → both survive. Equal score →
+		// the strict `s > bestScore` max keeps the EARLIER position → `first` wins.
+		// (Uses pickOfficial directly: resolveStub's dedupeBest would collapse identical
+		// artist+title pairs, and unrelated songs now return null per quick-261020-wrong1.)
+		const { pickOfficial } = await import('$lib/services/song-variant');
+		const { scoreMatch } = await import('$lib/services/score-match');
+		const first = mk('netease', 'first', '周杰伦', { title: '稻香' });
+		const second = mk('qq', 'second', '周杰伦', { title: '稻香 (DJ版)' });
+		// DJ版 is a variant, so use two non-variant equal scorers instead:
+		const a = mk('netease', 'a', '周杰伦', { title: '稻香' });
+		const b = mk('qq', 'b', '周杰伦', { title: '稻香' });
+		// Force equal scores by mocking scoreMatch to return the same for both.
+		const out = pickOfficial([a, b], { artist: '周杰伦', title: '稻香' }, () => 10);
+		expect(out?.uid).toBe(a.uid); // tie → first-wins (not last-wins)
 	});
 
 	it('still returns null on zero results and never throws (posture preserved)', async () => {
@@ -160,15 +165,18 @@ describe('resolveStub — t2s rescue-on-miss (quick-260808-urx)', () => {
 		const hit = mk('kuwo', 'hit', '周杰伦', { title: '止战之殇' });
 		const spy = vi
 			.spyOn(catalog, 'searchAll')
-			.mockResolvedValueOnce(result([])) // Traditional query → miss (the production failure)
+			.mockResolvedValueOnce(result([])) // Traditional tier-1 → miss
+			.mockResolvedValueOnce(result([])) // Traditional full → miss (tier-1 had no official)
 			.mockResolvedValueOnce(result([hit])); // Simplified retry → hit
 
 		const out = await resolveStub('周傑倫', '止戰之殤');
 		expect(out?.uid).toBe(hit.uid);
-		expect(spy).toHaveBeenCalledTimes(2);
+		// quick-261020-speed: tiered search = 2 calls per attempt (tier-1 + full on miss).
+		expect(spy).toHaveBeenCalledTimes(3);
 		expect(spy.mock.calls[0][0]).toBe('周傑倫 止戰之殤');
+		expect(spy.mock.calls[1][0]).toBe('周傑倫 止戰之殤');
 		// The production-verified pair from quick-260807-vl1's /api/og probe.
-		expect(spy.mock.calls[1][0]).toBe('周杰伦 止战之殇');
+		expect(spy.mock.calls[2][0]).toBe('周杰伦 止战之殇');
 	});
 
 	it('does NOT retry when the first Chinese query already hits', async () => {
@@ -183,21 +191,27 @@ describe('resolveStub — t2s rescue-on-miss (quick-260808-urx)', () => {
 		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
 
 		await expect(resolveStub('Adele', 'Hello')).resolves.toBeNull();
-		expect(spy).toHaveBeenCalledTimes(1);
+		// quick-261020-speed: tiered search = 2 calls (tier-1 + full) on a miss; the t2s
+		// retry itself adds zero (non-Chinese → no retry).
+		expect(spy).toHaveBeenCalledTimes(2);
 	});
 
 	it('does NOT retry an already-Simplified miss (identity conversion → nothing to re-search)', async () => {
 		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
 
 		await expect(resolveStub('周杰伦', '止战之殇')).resolves.toBeNull();
-		expect(spy).toHaveBeenCalledTimes(1);
+		// quick-261020-speed: tiered search = 2 calls (tier-1 + full) on a miss; the t2s
+		// retry itself adds zero (already Simplified → nothing to re-search).
+		expect(spy).toHaveBeenCalledTimes(2);
 	});
 
 	it('retries at most ONCE — a miss on the retry returns null, never loops', async () => {
 		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
 
 		await expect(resolveStub('周傑倫', '止戰之殤')).resolves.toBeNull();
-		expect(spy).toHaveBeenCalledTimes(2);
+		// quick-261020-speed: tiered search = 2 calls per attempt (tier-1 + full).
+		// Traditional attempt (2) + Simplified retry (2) = 4; never loops beyond the one retry.
+		expect(spy).toHaveBeenCalledTimes(4);
 	});
 
 	it('scores the retry against the CONVERTED query (the terms actually searched)', async () => {
@@ -249,22 +263,30 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 
-	it('English zero-result miss + lookup null → null; searchAll 1, lookup 1 with the ORIGINAL names', async () => {
+	it('English zero-result miss + lookup null → null; searchAll 2, lookup 1 with the ORIGINAL names', async () => {
 		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
 		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(null);
 
 		await expect(resolveStub('Eric Chou', 'Zai Ai Ni')).resolves.toBeNull();
-		expect(search).toHaveBeenCalledTimes(1);
+		// quick-261020-speed: tiered search = 2 calls (tier-1 + full) on a miss.
+		expect(search).toHaveBeenCalledTimes(2);
 		expect(look).toHaveBeenCalledTimes(1);
 		expect(look).toHaveBeenCalledWith('Eric Chou', 'Zai Ai Ni');
 	});
 
-	it('weak English hit + lookup null → the weak row (never worse); searchAll 1, lookup 1', async () => {
+	it('weak English hit by a DIFFERENT artist + lookup null → null (cov1 supersedes "never worse"); searchAll 1, lookup 1', async () => {
+		// quick-261102-cov1 SUPERSEDES the wa7 "weak row (never worse)" expectation for
+		// this fixture: the weak row is NCT DREAM's 'Graduation' — a DIFFERENT artist's
+		// different song standing in for an Eric Chou tap. Under Hector's rule (always
+		// the original song by the original artist) a different-artist row is a cover-
+		// class substitution and resolves to null; the rescue remains the recovery path
+		// when the lookup DOES find the Chinese names (cases below). Call counts are
+		// unchanged — the gate filters the pick, it does not add searches.
 		const weak = nct();
 		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([weak]));
 		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(null);
 
-		expect((await resolveStub('Eric Chou', GRAD))?.uid).toBe(weak.uid);
+		await expect(resolveStub('Eric Chou', GRAD)).resolves.toBeNull();
 		expect(search).toHaveBeenCalledTimes(1);
 		expect(look).toHaveBeenCalledTimes(1);
 	});
@@ -309,7 +331,10 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		expect(search).toHaveBeenCalledTimes(2);
 	});
 
-	it('weak hit + lookup hit + unrelated re-search row → the ORIGINAL weak row; searchAll 2', async () => {
+	it('weak hit + lookup hit + unrelated re-search row → null (cov1: the different-artist weak row is no longer the fallback); searchAll 2', async () => {
+		// quick-261102-cov1: previously this returned the ORIGINAL weak row (NCT DREAM) —
+		// a different artist. The re-search row (Alpha) is unrelated and the rescue
+		// rightly discards it; with no same-artist row anywhere the resolve is null.
 		const weak = nct();
 		const search = vi
 			.spyOn(catalog, 'searchAll')
@@ -317,39 +342,47 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 			.mockResolvedValueOnce(result([mk('qq', 'aaa', 'Alpha', { title: 'Aaa' })]));
 		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zhGrad);
 
-		expect((await resolveStub('Eric Chou', GRAD))?.uid).toBe(weak.uid);
+		await expect(resolveStub('Eric Chou', GRAD)).resolves.toBeNull();
 		expect(search).toHaveBeenCalledTimes(2);
 	});
 
-	it('weak hit + lookup hit + empty re-search → the original weak row', async () => {
+	it('weak hit + lookup hit + empty re-search → null (cov1: no same-artist row anywhere)', async () => {
 		const weak = nct();
 		const search = vi
 			.spyOn(catalog, 'searchAll')
 			.mockResolvedValueOnce(result([weak]))
+			.mockResolvedValueOnce(result([]))
 			.mockResolvedValueOnce(result([]));
 		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zhGrad);
 
-		expect((await resolveStub('Eric Chou', GRAD))?.uid).toBe(weak.uid);
-		expect(search).toHaveBeenCalledTimes(2);
+		// quick-261102-cov1: was "the original weak row" — that row is a different
+		// artist (NCT DREAM), so the resolve now ends null. The never-worse guarantee
+		// survives for SAME-artist weak rows (the gate only vetoes a different act).
+		await expect(resolveStub('Eric Chou', GRAD)).resolves.toBeNull();
+		// quick-261020-speed: tiered search. Initial tier-1 hits (1 call, no full search).
+		// Re-search: tier-1 miss (1) + full miss (1) = 3 total.
+		expect(search).toHaveBeenCalledTimes(3);
 	});
 
-	it('weak hit + lookup hit + re-search THROWS → resolves (never throws) to the original weak row', async () => {
+	it('weak hit + lookup hit + re-search THROWS → resolves (never throws) to null', async () => {
 		const weak = nct();
 		vi.spyOn(catalog, 'searchAll')
 			.mockResolvedValueOnce(result([weak]))
 			.mockRejectedValueOnce(new Error('search down'));
 		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zhGrad);
 
+		// quick-261102-cov1: never-throws posture unchanged; the VALUE is now null
+		// because the only row anywhere is a different artist's (see above).
 		const out = await resolveStub('Eric Chou', GRAD);
-		expect(out?.uid).toBe(weak.uid);
+		expect(out).toBeNull();
 	});
 
-	it('Japanese miss → null; searchAll 1, lookup 0 (kana gate)', async () => {
+	it('Japanese miss → null; searchAll 2, lookup 0 (kana gate)', async () => {
 		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
 		const look = vi.spyOn(nameRescue, 'lookupChineseName');
 
 		await expect(resolveStub('YOASOBI', '夜に駆ける')).resolves.toBeNull();
-		expect(search).toHaveBeenCalledTimes(1);
+		expect(search).toHaveBeenCalledTimes(2);
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 
@@ -358,12 +391,14 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		const search = vi
 			.spyOn(catalog, 'searchAll')
 			.mockResolvedValueOnce(result([]))
+			.mockResolvedValueOnce(result([]))
 			.mockResolvedValueOnce(result([hit]));
 		const look = vi.spyOn(nameRescue, 'lookupChineseName');
 
 		expect((await resolveStub('周傑倫', '止戰之殤'))?.uid).toBe(hit.uid);
-		expect(search).toHaveBeenCalledTimes(2);
-		expect(search.mock.calls[1][0]).toBe('周杰伦 止战之殇');
+		// quick-261020-speed: tiered = Traditional tier-1 (1) + Traditional full (2) + Simplified tier-1 hit (3).
+		expect(search).toHaveBeenCalledTimes(3);
+		expect(search.mock.calls[2][0]).toBe('周杰伦 止战之殇');
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 
@@ -372,17 +407,28 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		const look = vi.spyOn(nameRescue, 'lookupChineseName');
 
 		await expect(resolveStub('Jay Chou', '珊瑚海')).resolves.toBeNull();
-		expect(search).toHaveBeenCalledTimes(1);
+		// quick-261020-speed: tiered = 2 calls (tier-1 + full). No t2s retry — '珊瑚海'
+		// is already Simplified, so the conversion is identity and there's nothing to re-search.
+		expect(search).toHaveBeenCalledTimes(2);
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 
-	it('a weak hit on a CJK query is returned as before (no rescue)', async () => {
+	it('a weak hit on a CJK query by a DIFFERENT artist → null (no rescue; cov1 supersedes "returned as before")', async () => {
+		// quick-261102-cov1 SUPERSEDES this case's old expectation: the weak row is a
+		// piano rendition by 酷客音乐 — a different artist's version of 周杰伦's 珊瑚海，
+		// i.e. exactly the cover-class substitution the artist gate now vetoes. The
+		// resolve ends null (the caller's skip path), no rescue fires, and the call
+		// counts below are unchanged.
 		const weak = mk('qq', 'w', '酷客音乐', { title: '珊瑚海(钢琴曲)' });
 		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([weak]));
 		const look = vi.spyOn(nameRescue, 'lookupChineseName');
 
-		expect((await resolveStub('周杰伦', '珊瑚海'))?.uid).toBe(weak.uid);
-		expect(search).toHaveBeenCalledTimes(1);
+		await expect(resolveStub('周杰伦', '珊瑚海')).resolves.toBeNull();
+		// quick-261101-ring1: the call count moves 1 → 2. （钢琴曲） is a bracketed rendition
+		// qualifier, which the parenthetical rule now classifies as a VARIANT (it previously
+		// counted as "official" because 钢琴曲 matched no known tag), so the tiered search
+		// widens past tier-1 exactly as designed for "tier-1 has no official version".
+		expect(search).toHaveBeenCalledTimes(2);
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 });
@@ -483,24 +529,33 @@ describe('resolveStub — eligible-first selection (quick-260926-c69)', () => {
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 
-	it('T9 CJK, nothing strong: weak eligible beats weak ytmusic; searchAll 1, lookup 0', async () => {
+	it('T9 CJK, nothing strong: weak eligible is a DIFFERENT artist → null (cov1 supersedes "weak eligible wins"); searchAll 1, lookup 0', async () => {
+		// quick-261102-cov1: the weak eligible row is 酷客音乐's piano rendition of
+		// 周杰伦's 珊瑚海 — a different artist's version, gated out like any cover; the
+		// weak ytmusic row ('Someone'/'Other') is neither the artist nor the song.
+		// Nothing acceptable exists → null. Counts unchanged (the gate filters picks,
+		// it does not add searches; the 'Other' row still counts as official for the
+		// tier-width decision, which runs on raw rows).
 		const weak = mk('qq', 'w2', '酷客音乐', { title: '珊瑚海(钢琴曲)' });
 		const search = vi
 			.spyOn(catalog, 'searchAll')
 			.mockResolvedValue(result([mk('ytmusic', 'w', 'Someone', { title: 'Other' }), weak]));
 		const look = vi.spyOn(nameRescue, 'lookupChineseName');
 
-		expect((await resolveStub('周杰伦', '珊瑚海'))?.uid).toBe(weak.uid);
+		await expect(resolveStub('周杰伦', '珊瑚海')).resolves.toBeNull();
 		expect(search).toHaveBeenCalledTimes(1);
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 
-	it('T10 ONLY a weak ytmusic row on a Traditional query → that row, no t2s retry; searchAll 1', async () => {
+	it('T10 ONLY a weak ytmusic row with unrelated title → null (never wrong song); searchAll 2', async () => {
+		// quick-261020-wrong1: query 周傑倫/珊瑚海, only candidate is Someone/Other —
+		// completely unrelated, so null instead of the wrong song. The T2S retry still
+		// runs (Traditional → Simplified), so searchAll is called twice.
 		const only = mk('ytmusic', 'w', 'Someone', { title: 'Other' });
 		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([only]));
 
-		expect((await resolveStub('周傑倫', '珊瑚海'))?.uid).toBe(only.uid);
-		expect(search).toHaveBeenCalledTimes(1);
+		expect(await resolveStub('周傑倫', '珊瑚海')).toBeNull();
+		expect(search).toHaveBeenCalledTimes(2);
 	});
 
 	it('T11 the t2s retry follows the same rule (eligible over a same-song ytmusic row); searchAll 2', async () => {
@@ -512,6 +567,60 @@ describe('resolveStub — eligible-first selection (quick-260926-c69)', () => {
 
 		expect((await resolveStub('周傑倫', '止戰之殤'))?.uid).toBe(cnRow.uid);
 		expect(search).toHaveBeenCalledTimes(2);
+	});
+});
+
+// quick-261102-cov1 (user report 2026-11-02): the artist-identity gate on the tap
+// resolve. Hector tapped 《說了再見》·周杰倫 on Your Radio and heard 阿傑's 同人 cover
+// (netease 3388515483): the netease pool for that query is covers-only, scoreMatch only
+// ranks (every plain-titled cover earns the same title-only credit), and the weak
+// fallback verified title overlap but never the artist. These cases pin the rule:
+// original artist or null — never a different artist's version.
+describe('resolveStub — artist-identity gate (quick-261102-cov1)', () => {
+	it('(d) INCIDENT VERBATIM: covers-only netease pool → null, the 阿傑 cover is never returned', async () => {
+		// Pool shape live-probed from the Meting netease search for "周杰倫 說了再見"
+		// (2026-11-02): the first rows are ALL fan covers; row #1 is the incident track.
+		const pool = [
+			mk('netease', '3388515483', '阿傑', { title: '說了再見' }),
+			mk('netease', '2098186082', '張錫陽', { title: '說了再見' }),
+			mk('netease', '2714751792', '旺仔小喬', { title: '說了再見' })
+		];
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result(pool));
+
+		await expect(resolveStub('周杰倫', '說了再見')).resolves.toBeNull();
+	});
+
+	it('(a-shape) covers + the original on another source → the ORIGINAL row, cover never picked', async () => {
+		const cover = mk('netease', '3388515483', '阿傑', { title: '說了再見' });
+		const official = mk('qq', 'official', '周杰倫', { title: '說了再見' });
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([cover, official]));
+
+		const out = await resolveStub('周杰倫', '說了再見');
+		expect(out?.uid).toBe(official.uid);
+	});
+
+	it('(c) a duet credit containing the target artist counts as the original', async () => {
+		const duet = mk('qq', 'duet', '周杰倫/蔡依林', { title: '說了再見' });
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([duet]));
+
+		const out = await resolveStub('周杰倫', '說了再見');
+		expect(out?.uid).toBe(duet.uid);
+	});
+
+	it('preferEligible: a weak SAME-title row by a different artist is vetoed even when handed in directly', async () => {
+		const cover = mk('netease', '3388515483', '阿傑', { title: '說了再見' });
+		await expect(
+			preferEligible({ artist: '周杰倫', title: '說了再見' }, { eligible: cover, ineligible: null })
+		).resolves.toBeNull();
+	});
+
+	it('preferEligible: a weak same-artist row with an overlapping title still passes (gate is artist-only)', async () => {
+		// The weak path survives for the SAME act: a script-variant credit of the target
+		// artist with a qualified (longer) title — title containment carries it as before.
+		const weak = mk('qq', 'w', '周杰伦', { title: '珊瑚海 (Live)' });
+		await expect(
+			preferEligible({ artist: '周杰倫', title: '珊瑚海' }, { eligible: weak, ineligible: null })
+		).resolves.toBe(weak);
 	});
 });
 
@@ -529,11 +638,15 @@ describe('preferEligible (quick-260926-c69)', () => {
 	it('(b) eligible weak + ineligible strong → ineligible', async () => {
 		expect(await pick({ eligible: weakE, ineligible: strongI })).toBe(strongI);
 	});
-	it('(c) both weak → eligible', async () => {
-		expect(await pick({ eligible: weakE, ineligible: weakI })).toBe(weakE);
+	it('(c) both weak with unrelated titles → null (never play wrong song)', async () => {
+		// quick-261020-wrong1: weakE is 汪苏泷/左转灯 vs query Eric Chou/Zai Ai Ni —
+		// completely different, so null instead of the wrong song.
+		expect(await pick({ eligible: weakE, ineligible: weakI })).toBeNull();
 	});
-	it('(d) no eligible + ineligible weak → ineligible (last resort)', async () => {
-		expect(await pick({ eligible: null, ineligible: weakI })).toBe(weakI);
+	it('(d) no eligible + ineligible weak with unrelated title → null', async () => {
+		// quick-261020-wrong1: same as (c) — a weak ineligible with an unrelated title
+		// must not be returned as "last resort".
+		expect(await pick({ eligible: null, ineligible: weakI })).toBeNull();
 	});
 	it('(e) both null → null', async () => {
 		expect(await pick({ eligible: null, ineligible: null })).toBeNull();

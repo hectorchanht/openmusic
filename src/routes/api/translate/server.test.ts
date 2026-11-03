@@ -13,13 +13,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // (2) Azure non-2xx / echo advances to DeepL; (3) no Azure/DeepL key ⇒ ONLY Google is fetched
 // (skip-absent-tier); (4) all-echo/fail ⇒ originals returned with all-false flags and
 // out.length === lines.length (contract preserved); (5) no provider key leaks into the body
-// (T-25c-01 / T-25c-05).
+// (T-25c-01 / T-25c-05). quick-261020-cjk: (6) MyMemory is the keyless last resort after Google.
 
 import { POST } from './+server';
 
 // A translated reply is the source text plus a provider tag so a test can prove WHICH tier
 // produced the result (and that the output differs from the input — a genuine translation).
-const TAG = { azure: '·az', deepl: '·dl', google: '·gg' } as const;
+const TAG = { azure: '·az', deepl: '·dl', google: '·gg', ai: '·ai' } as const;
 type Kind = keyof typeof TAG;
 type Mode = 'translate' | 'echo' | 'fail';
 
@@ -74,11 +74,23 @@ function wire(modes: { azure?: Mode; deepl?: Mode; google?: Mode }) {
 }
 
 // Invoke the POST handler with a fabricated CF request event.
-async function callPost(lines: unknown, to: unknown, env?: Record<string, string>) {
+async function callPost(lines: unknown, to: unknown, env?: Record<string, unknown>) {
 	const request = { json: async () => ({ lines, to }) };
 	const platform = { env: env ?? {} };
 	const event = { request, platform } as unknown as Parameters<typeof POST>[0];
 	return (await POST(event)) as Response;
+}
+
+// Mock Workers AI binding: run() returns a translation tagged like the others,
+// plus a usage.neurons count so the budget guard can be exercised.
+function mockAi(mode: Mode = 'translate', neurons = 0.34) {
+	return {
+		run: async (_model: string, input: { text: string }) => {
+			if (mode === 'fail') throw new Error('AI unavailable');
+			const out = mode === 'echo' ? input.text : input.text + TAG.ai;
+			return { translated_text: out, usage: { neurons } };
+		}
+	};
 }
 
 beforeEach(() => {
@@ -135,7 +147,7 @@ describe('/api/translate provider cascade', () => {
 	});
 
 	it('preserves the contract when every provider echoes/fails (originals, all-false flags, aligned length)', async () => {
-		// No keys → only Google attempted; Google echoes every request (batched + per-line).
+		// No keys → Google then MyMemory attempted; both echo every request (batched + per-line).
 		wire({ google: 'echo' });
 		const lines = ['简体一', '简体二', '简体三'];
 		const res = await callPost(lines, 'zh-Hant', {});
@@ -146,6 +158,8 @@ describe('/api/translate provider cascade', () => {
 		expect(body.flags.length).toBe(lines.length);
 		expect(fetchedProviders().every((h) => h === 'google')).toBe(true); // absent tiers skipped
 	});
+
+
 
 	it('never leaks a provider key into the response body', async () => {
 		wire({ azure: 'translate' });
@@ -167,5 +181,32 @@ describe('/api/translate provider cascade', () => {
 		expect(body.translated).toEqual(['x', 'y']);
 		expect(body.flags).toEqual([false, false]);
 		expect(fetchMock).not.toHaveBeenCalled(); // validated before any provider fetch
+	});
+
+	// quick-261020-wai: Workers AI tier — used when bound and no Azure/DeepL key; sits
+	// between DeepL and Google in the cascade.
+	it('uses Workers AI when bound and Azure/DeepL keys are absent', async () => {
+		wire({ google: 'translate' }); // google would work, but AI comes first
+		const res = await callPost(['Hello world'], 'zh-Hant', { AI: mockAi('translate') });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated[0]).toBe('Hello world' + TAG.ai); // came from Workers AI
+		expect(body.flags).toEqual([true]);
+		expect(fetchedProviders()).toEqual([]); // no HTTP fetch — binding, not REST
+	});
+
+	it('skips Workers AI when the binding is absent (falls through to Google)', async () => {
+		wire({ google: 'translate' });
+		const res = await callPost(['Hello world'], 'zh-Hant', {}); // no AI in env
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated[0]).toBe('Hello world' + TAG.google); // google, not AI
+		expect(body.flags).toEqual([true]);
+	});
+
+	it('advances past a Workers AI echo to Google', async () => {
+		wire({ google: 'translate' });
+		const res = await callPost(['Hello world'], 'zh-Hant', { AI: mockAi('echo') });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated[0]).toBe('Hello world' + TAG.google); // AI echoed → google
+		expect(body.flags).toEqual([true]);
 	});
 });

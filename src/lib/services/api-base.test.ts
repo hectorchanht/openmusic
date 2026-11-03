@@ -5,6 +5,8 @@ import {
 	MAX_CONCURRENT_REQUESTS,
 	CIRCUIT_FAILURE_THRESHOLD,
 	CIRCUIT_COOLDOWN_MS,
+	apiPipelineBusyCount,
+	onApiPipelineIdle,
 	__resetGovernor
 } from './api-base';
 import { netease } from '../sources/netease';
@@ -350,5 +352,156 @@ describe('apiFetch — circuit breaker (debug-nowbar-frozen-audius-spam round 2)
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+});
+
+describe('apiFetch — priority lane (quick-261020-authprio)', () => {
+	// Trip the breaker the same way the existing suite does: THRESHOLD failing GETs.
+	async function tripBreaker(): Promise<ReturnType<typeof vi.fn>> {
+		vi.stubEnv('VITE_API_BASE', '');
+		const netFail = vi.fn(async () => {
+			throw new TypeError('network error');
+		});
+		vi.stubGlobal('fetch', netFail as unknown as typeof fetch);
+		const calls = Array.from({ length: CIRCUIT_FAILURE_THRESHOLD }, (_, i) =>
+			apiFetch(`/api/x?i=${i}`).catch(() => null)
+		);
+		await Promise.all(calls);
+		return netFail;
+	}
+
+	it('a priority request BYPASSES an open breaker (auth is never fast-rejected)', async () => {
+		const netFail = await tripBreaker();
+		const callsAtTrip = netFail.mock.calls.length;
+
+		// Breaker is OPEN: a normal request is fast-rejected without touching fetch…
+		await apiFetch('/api/blocked').catch(() => null);
+		expect(netFail.mock.calls.length).toBe(callsAtTrip);
+
+		// …but the priority lane goes straight through to a working fetch.
+		const ok = vi.fn(async () => new Response('{}', { status: 200 }));
+		vi.stubGlobal('fetch', ok);
+		const resp = await apiFetch('/api/auth/magic-link', { method: 'POST', priorityLane: true });
+		expect(resp.status).toBe(200);
+		expect(ok).toHaveBeenCalledTimes(1);
+	});
+
+	it('a priority request does NOT wait on the FIFO concurrency queue', async () => {
+		vi.stubEnv('VITE_API_BASE', '');
+		const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+			if (String(input).includes('/api/hung')) return new Promise<Response>(() => {});
+			return new Response('{}', { status: 200 });
+		});
+		vi.stubGlobal('fetch', fetchImpl as unknown as typeof fetch);
+
+		// Occupy every concurrency slot with hung GETs (unique URLs — no dedupe).
+		const hung = Array.from({ length: MAX_CONCURRENT_REQUESTS }, (_, i) =>
+			apiFetch(`/api/hung?i=${i}`).catch(() => null)
+		);
+		await Promise.resolve(); // let the 8 acquire their slots
+		expect(fetchImpl.mock.calls.length).toBe(MAX_CONCURRENT_REQUESTS);
+
+		// The priority request must NOT queue behind them.
+		const resp = await apiFetch('/api/auth/session', { priorityLane: true });
+		expect(resp.status).toBe(200);
+		expect(fetchImpl.mock.calls.length).toBe(MAX_CONCURRENT_REQUESTS + 1);
+		// The 8 hung promises never settle — __resetGovernor() in afterEach frees their slots.
+	});
+
+	it('a priority outcome still feeds breaker classification (a downed /api/* trips it for the rest)', async () => {
+		vi.stubEnv('VITE_API_BASE', '');
+		const down = vi.fn(async () => new Response('{}', { status: 500 }));
+		vi.stubGlobal('fetch', down as unknown as typeof fetch);
+		const calls = Array.from({ length: CIRCUIT_FAILURE_THRESHOLD }, (_, i) =>
+			apiFetch(`/api/auth?i=${i}`, { priorityLane: true }).catch(() => null)
+		);
+		await Promise.all(calls);
+
+		// THRESHOLD priority-500s tripped the breaker: a NORMAL request is now fast-rejected.
+		let rejected = false;
+		await apiFetch('/api/blocked').catch(() => {
+			rejected = true;
+		});
+		expect(rejected).toBe(true);
+		expect(down.mock.calls.length).toBe(CIRCUIT_FAILURE_THRESHOLD);
+	});
+
+	it('priority GETs are NOT deduped (each is its own call)', async () => {
+		vi.stubEnv('VITE_API_BASE', '');
+		const ok = vi.fn(async () => new Response('{}', { status: 200 }));
+		vi.stubGlobal('fetch', ok);
+		const [a, b] = await Promise.all([
+			apiFetch('/api/auth/session', { priorityLane: true }),
+			apiFetch('/api/auth/session', { priorityLane: true })
+		]);
+		expect(a.status).toBe(200);
+		expect(b.status).toBe(200);
+		expect(ok).toHaveBeenCalledTimes(2);
+	});
+});
+
+// quick-261102-idle1: the pipeline-idle seam the player's next-song prefetch schedules on —
+// "buffer ASAP when no other fetching is stalling". Busy = slots held + FIFO waiters; the
+// one-shot callback fires only when the count fully drains (or async-immediately when the
+// pipeline is already idle), and an unsubscribe cancels a pending callback.
+describe('apiFetch — pipeline idle seam (quick-261102-idle1)', () => {
+	const tick = () => new Promise((r) => setTimeout(r, 0));
+
+	it('busy count tracks in-flight governed requests; the idle callback fires once on drain', async () => {
+		vi.stubEnv('VITE_API_BASE', '');
+		let resolveFetch!: (r: Response) => void;
+		const spy = vi.fn(
+			(_input: RequestInfo | URL, _init?: RequestInit) =>
+				new Promise<Response>((res) => {
+					resolveFetch = res;
+				})
+		);
+		vi.stubGlobal('fetch', spy);
+
+		const p = apiFetch('/api/qq/search?key=x');
+		await tick();
+		expect(apiPipelineBusyCount()).toBe(1);
+
+		const idle = vi.fn();
+		onApiPipelineIdle(idle);
+		await tick();
+		expect(idle).not.toHaveBeenCalled(); // still busy — must wait for the drain
+
+		resolveFetch(new Response('{}', { status: 200 }));
+		await p;
+		await tick();
+		expect(apiPipelineBusyCount()).toBe(0);
+		expect(idle).toHaveBeenCalledTimes(1);
+	});
+
+	it('already-idle pipeline fires the callback asynchronously (never synchronously)', async () => {
+		const idle = vi.fn();
+		onApiPipelineIdle(idle);
+		expect(idle).not.toHaveBeenCalled(); // not sync — callers never re-enter mid-stack
+		await tick();
+		expect(idle).toHaveBeenCalledTimes(1);
+	});
+
+	it('an unsubscribed callback never fires', async () => {
+		vi.stubEnv('VITE_API_BASE', '');
+		let resolveFetch!: (r: Response) => void;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(
+				(_input: RequestInfo | URL, _init?: RequestInit) =>
+					new Promise<Response>((res) => {
+						resolveFetch = res;
+					})
+			)
+		);
+		const p = apiFetch('/api/qq/search?key=y');
+		await tick();
+		const idle = vi.fn();
+		const off = onApiPipelineIdle(idle);
+		off();
+		resolveFetch(new Response('{}', { status: 200 }));
+		await p;
+		await tick();
+		expect(idle).not.toHaveBeenCalled();
 	});
 });

@@ -1,10 +1,16 @@
 // Recently-played history (Svelte 5 runes singleton). WRAPS the pure node-testable
 // logic module (src/lib/history/history-logic.ts) — same separation as t() over the
-// pure i18n helpers. Standalone: imports NOTHING from player/library so the edge is
-// one-way (player imports history, never the reverse → no circular dep). Persisted
-// to localStorage `openmusic:history:v1`, SSR-guarded.
+// pure i18n helpers.
+//
+// quick-261023-syncmerge: imports the library singleton ONE-WAY (library never imports
+// history — no cycle) to record h: tombstones on clear, so a wiped history is not
+// resurrected by another device's copy on the next merge. Persisted to localStorage
+// `openmusic:history:v1`, SSR-guarded.
 import { browser } from '$app/environment';
 import type { Track } from '$lib/sources/types';
+import { library } from '$lib/stores/library.svelte';
+import { tombHistory } from '$lib/sync/merge-logic';
+import { dedupeShelfList, isSameShelfSong } from '$lib/services/dedupe';
 import {
 	HISTORY_KEY,
 	parseHistory,
@@ -27,16 +33,31 @@ class History {
 		} catch {
 			/* corrupt/unavailable — start empty */
 		}
+		// quick-261031-dedup: history is a shelf too — collapse same-song rows persisted by
+		// uid-only dedupe (the same song played from two sources sat twice).
+		const deduped = dedupeShelfList(this.entries);
+		if (deduped.length !== this.entries.length) {
+			this.entries = deduped;
+			this.save();
+		}
 	}
 
 	/** Record a played track: prepend (dedupe-by-uid → replay moves to top), cap, persist. */
 	record(track: Track) {
-		this.entries = recordEntry(this.entries, toEntry(track));
+		const entry = toEntry(track);
+		// quick-261031-dedup: a replay of the same song+rendition from ANOTHER source replaces
+		// the old row (it moves to the top as the new entry) instead of duplicating it.
+		const rest = this.entries.filter((x) => !isSameShelfSong(x, entry));
+		this.entries = recordEntry(rest, entry);
 		this.save();
 	}
 
-	/** Wipe history. */
+	/** Wipe history — and tombstone every entry so the wipe survives the next merge
+	 *  (quick-261023-syncmerge: a bare [] would be resurrected by another device's copy). */
 	clear() {
+		if (this.entries.length > 0) {
+			library.tombstone(this.entries.map((e) => e.uid).filter((u) => !!u).map(tombHistory));
+		}
 		this.entries = [];
 		this.save();
 	}

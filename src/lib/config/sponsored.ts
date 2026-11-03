@@ -85,3 +85,50 @@ export function isSupporter(): boolean {
 		return false;
 	}
 }
+
+/**
+ * quick-261023-perks — SUPPORTER TIERS. Three tiers by tip amount; the badge
+ * renders from the stored tier. HONEST LIMITATION: Gumroad's keyless license
+ * verify (/v2/licenses/verify) returns NO amount — only success/uses/refunded.
+ * Sale amounts need a Gumroad access token (server-side /v2/sales), which
+ * Hector has not provided. Until then every verified tip lands on 'bronze'
+ * and the tier only upgrades when the amount becomes readable (or Hector's
+ * admin key, which lands on 'gold'). The plumbing (stored tier, badge render,
+ * wall entry) is real; the thresholds below are the activation spec.
+ */
+export type SupporterTier = 'bronze' | 'silver' | 'gold';
+
+export const SUPPORTER_TIER_KEY = 'dawn_supporter_tier';
+
+export const SUPPORTER_TIERS: Record<SupporterTier, { badge: string; minTipUSD: number }> = {
+	bronze: { badge: '☕', minTipUSD: 0 },
+	silver: { badge: '🥈', minTipUSD: 10 },
+	gold: { badge: '🥇', minTipUSD: 25 }
+};
+
+/** SSR-safe read of the stored tier — 'bronze' unless a higher tier was recorded. */
+export function getSupporterTier(): SupporterTier {
+	if (typeof localStorage === 'undefined') return 'bronze';
+	try {
+		const v = localStorage.getItem(SUPPORTER_TIER_KEY);
+		if (v === 'silver' || v === 'gold') return v;
+		return 'bronze';
+	} catch {
+		return 'bronze';
+	}
+}
+
+/** Persist the tier. Best-effort — a quota failure just keeps the old tier. */
+export function setSupporterTier(tier: SupporterTier): void {
+	if (typeof localStorage === 'undefined') return;
+	try {
+		localStorage.setItem(SUPPORTER_TIER_KEY, tier);
+	} catch {
+		/* ignore */
+	}
+}
+
+/** The badge glyph for the current tier — what the Settings card renders. */
+export function supporterBadge(): string {
+	return SUPPORTER_TIERS[getSupporterTier()].badge;
+}

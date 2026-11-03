@@ -13,13 +13,22 @@ import {
 	TRANSLATION_DEFAULTS,
 	PLAYBACK_DEFAULTS,
 	UPNEXT_DEFAULTS,
+	PACK_CONTEXTS,
+	VIDEO_QUALITIES,
 	HOME_DEFAULTS,
+	SYNC_DEFAULTS,
 	type UpnextMode,
-	type QueueContext
+	type UpnextSettingKey,
+	type VideoQuality,
+	type QueueContext,
+	type SyncItems
 } from '$lib/config/defaults';
+// quick-261023-perks: pure config module (no store imports) — the LEAF invariant holds.
+// Used only to demote supporter themes when the status is gone.
+import { isSupporter } from '$lib/config/sponsored';
 // Pure util (no DOM/browser/store imports) — settings stays a LEAF store. Used by
 // applyTheme() to derive --color-primary-hover from the chosen accent (UX-07 root-cause fix).
-import { darken } from '$lib/services/color';
+import { darken, onColor, focusColor } from '$lib/services/color';
 import { CHART_REGIONS, HOME_LAYOUT_VERSION, clampShelfSize, migrateDensity, migrateHomeLayout, type ChartRegion, type HomeDensity, type HomeLandingTab, type HomeSectionId } from '$lib/services/home-layout';
 // quick-261006-mnu: pure catalog + order normalizer for the customizable TrackMenu grid.
 // PURE (imports nothing from stores) — the LEAF invariant holds, same as home-layout above.
@@ -53,8 +62,31 @@ export type TranslateMode = 'replace' | 'below';
 export type DefaultQuality = 'auto' | 'lossless' | '320' | '128';
 export type DefaultSource = 'auto' | SourceId;
 /** UI theme. Light theme overrides surface/text/border tokens via `[data-theme='light']`
- *  in app.css; dark is the default (no data-theme attribute). */
-export type Theme = 'dark' | 'light';
+ *  in app.css; dark is the default (no data-theme attribute).
+ *  quick-261023-perks: 'gold' + 'sakura' are SUPPORTER-EXCLUSIVE themes — warm and
+ *  pink dark variants with their own signature primary (THEME_PRIMARY below). Gated
+ *  by isSupporter(): the appearance page locks them for non-supporters, load()
+ *  demotes a stored supporter theme back to dark when the status is gone, and
+ *  applyTheme() carries the theme-owned primary so the look is complete. */
+export type Theme = 'dark' | 'light' | 'gold' | 'sakura';
+
+/** Supporter-exclusive themes (quick-261023-perks) — never selectable without status. */
+export const SUPPORTER_THEMES: readonly Theme[] = ['gold', 'sakura'];
+
+/** Signature primary per supporter theme (applied instead of the accent pick). */
+export const THEME_PRIMARY: Partial<Record<Theme, string>> = {
+	gold: '#d9a821',
+	sakura: '#ef7fb4'
+};
+
+/** quick-261102-s0k: per-theme [--color-bg, --color-surface-2], used to pick a focus colour
+ *  that clears 3:1 on both. KEEP IN SYNC with the theme blocks in src/app.css. */
+export const THEME_SURFACES: Record<Theme, [string, string]> = {
+	dark: ['#0b0b0f', '#1d1d27'],
+	light: ['#f7f7fa', '#ececf2'],
+	gold: ['#100c06', '#241b0e'],
+	sakura: ['#120b10', '#261722']
+};
 
 const KEY = 'openmusic:settings:v1';
 // (WR-10: the accent default lives in defaults.ts as GENERAL_DEFAULTS.accent / DEFAULT_ACCENT —
@@ -148,10 +180,11 @@ class Settings {
 	upnextMode = $state<UpnextMode>(UPNEXT_DEFAULTS.mode);
 	/** Per-context up-next sourcing overrides (D-01). Absent key → falls back to `upnextMode`.
 	 *  Persisted (load/save) with a defensive parse mirroring `enabledSources`.
-	 *  quick-260831-jtw: seeded from UPNEXT_DEFAULTS.perContext (album → 'same-list') instead of
+	 *  quick-260831-jtw: seeded from UPNEXT_DEFAULTS.perContext (album + artist + ranked packs → 'same-list'
+	 *  since quick-261024-sets) instead of
 	 *  the old bare `{}`, so a fresh install and a post-`resetPlayback()` install agree. WR-10:
 	 *  the literal still lives only in defaults.ts. */
-	upnextPerContext = $state<Partial<Record<Exclude<QueueContext, null>, UpnextMode>>>({
+	upnextPerContext = $state<Partial<Record<UpnextSettingKey, UpnextMode>>>({
 		...UPNEXT_DEFAULTS.perContext
 	});
 	/** Bio (Last.fm artist bio) target language. `'auto'` = follow appLang; `'off'` = untranslated
@@ -230,6 +263,14 @@ class Settings {
 	/** quick-260831-k5y: render the resolved track's quality tag on the Now-Playing page.
 	 *  Default lives in PLAYBACK_DEFAULTS.showQualityTag (ON since quick-260925-vtg). */
 	showQualityTag = $state<boolean>(PLAYBACK_DEFAULTS.showQualityTag);
+	/** quick-261102-srcpill: render the current track's source pill before the quality
+	 *  tag on the Now-Playing page. Default lives in PLAYBACK_DEFAULTS.showSourceTag
+	 *  (ON — the pill was requested; hiding it is the opt-out). */
+	showSourceTag = $state<boolean>(PLAYBACK_DEFAULTS.showSourceTag);
+	/** quick-261024-vid1: the Now Playing MV layer master switch + its height cap. The NP
+	 *  quality menu and Settings → Playback write the SAME field (one setting, two surfaces). */
+	videoEnabled = $state<boolean>(PLAYBACK_DEFAULTS.videoEnabled);
+	videoQuality = $state<VideoQuality>(PLAYBACK_DEFAULTS.videoQuality);
 	/** quick-260919-1we (D-7): the docked Nowbar shows the currently-sung lyric line INSTEAD of the
 	 *  artist name. Off by default (PLAYBACK_DEFAULTS.nowbarLyrics) — it replaces information
 	 *  already on screen, so it is opt-in. */
@@ -273,6 +314,10 @@ class Settings {
 	homeShowSearchPill = $state<boolean>(HOME_DEFAULTS.homeShowSearchPill);
 	/** Show the Randomize button on home (default TRUE = today). */
 	homeShowRandomize = $state<boolean>(HOME_DEFAULTS.homeShowRandomize);
+	// quick-261020-sync: ACCOUNT-level cross-device sync item selection. Lives inside the
+	// settings blob so the choice follows the user, but is NOT in the DEFAULTS aggregate —
+	// no reset-group method may touch it (resetAppearance/resetGeneral/… are unchanged).
+	syncItems = $state<SyncItems>({ ...SYNC_DEFAULTS.items });
 	/** 39-D-40: persisted home-layout version. A PLAIN field, not $state: the UI never reads it —
 	 *  it only gates the one-time layout migration in load() and is written by save(). */
 	homeLayoutVersion: number = HOME_DEFAULTS.homeLayoutVersion;
@@ -324,7 +369,7 @@ class Settings {
 				// enabledSources (T-17-01 — malformed → safe defaults); mode validated against the
 				// 2-value union, else the global default.
 				// quick-260831-jtw: MERGE over UPNEXT_DEFAULTS.perContext rather than replacing it,
-				// so an absent key (or a malformed blob) picks up the album → 'same-list' default
+				// so an absent key (or a malformed blob) picks up the album/artist/pack → 'same-list' default
 				// instead of silently falling through to the global 'generated'.
 				// DECISION (quick-260831-jtw) — a persisted per-context value WINS; there is NO
 				// migration. A key can only be in here because the user tapped that segment in
@@ -336,7 +381,7 @@ class Settings {
 				this.upnextPerContext = {
 					...UPNEXT_DEFAULTS.perContext,
 					...(v.upnextPerContext && typeof v.upnextPerContext === 'object' && !Array.isArray(v.upnextPerContext)
-						? (v.upnextPerContext as Partial<Record<Exclude<QueueContext, null>, UpnextMode>>)
+						? (v.upnextPerContext as Partial<Record<UpnextSettingKey, UpnextMode>>)
 						: {})
 				};
 				this.upnextMode =
@@ -408,12 +453,27 @@ class Settings {
 				// string like 'yes' must NOT flip the share payload shape (quick-260808-vzu).
 				this.shareIncludeTitle =
 					typeof v.shareIncludeTitle === 'boolean' ? v.shareIncludeTitle : GENERAL_DEFAULTS.shareIncludeTitle;
-				// Theme is validated against the 2-value union; anything else → the default.
-				this.theme = v.theme === 'light' || v.theme === 'dark' ? v.theme : GENERAL_DEFAULTS.theme;
+				// Theme is validated against the 4-value union; anything else → the default.
+				// quick-261023-perks: a stored supporter theme without supporter status
+				// demotes to dark (status is per-device localStorage — never trust it blind).
+				this.theme =
+					v.theme === 'light' || v.theme === 'dark' || v.theme === 'gold' || v.theme === 'sakura'
+						? v.theme
+						: GENERAL_DEFAULTS.theme;
+				if ((this.theme === 'gold' || this.theme === 'sakura') && !isSupporter()) {
+					this.theme = GENERAL_DEFAULTS.theme;
+				}
 				this.autoExpandOnPlay =
 					typeof v.autoExpandOnPlay === 'boolean' ? v.autoExpandOnPlay : PLAYBACK_DEFAULTS.autoExpandOnPlay;
 				this.showQualityTag =
 					typeof v.showQualityTag === 'boolean' ? v.showQualityTag : PLAYBACK_DEFAULTS.showQualityTag;
+				this.showSourceTag =
+					typeof v.showSourceTag === 'boolean' ? v.showSourceTag : PLAYBACK_DEFAULTS.showSourceTag;
+				this.videoEnabled =
+					typeof v.videoEnabled === 'boolean' ? v.videoEnabled : PLAYBACK_DEFAULTS.videoEnabled;
+				this.videoQuality = (VIDEO_QUALITIES as readonly number[]).includes(v.videoQuality as number)
+					? (v.videoQuality as VideoQuality)
+					: PLAYBACK_DEFAULTS.videoQuality;
 				this.nowbarLyrics =
 					typeof v.nowbarLyrics === 'boolean' ? v.nowbarLyrics : PLAYBACK_DEFAULTS.nowbarLyrics;
 				// --- home layout (w87) — every default reproduces today's home -----------
@@ -502,6 +562,25 @@ class Settings {
 				// an ABSENT field to false and HIDE the chrome for a returning user (regression).
 				this.homeShowSearchPill = v.homeShowSearchPill ?? HOME_DEFAULTS.homeShowSearchPill;
 				this.homeShowRandomize = v.homeShowRandomize ?? HOME_DEFAULTS.homeShowRandomize;
+				// quick-261020-sync: per-key BOOLEAN guards — localStorage is user/extension
+				// writable, so anything that is not an explicit boolean falls back to the
+				// default (same posture as the booleans above). An absent `syncItems` blob
+				// (pre-picker installs) reads all-true; unknown extra keys are dropped.
+				this.syncItems = (() => {
+					const s = v.syncItems;
+					const d = SYNC_DEFAULTS.items;
+					if (!s || typeof s !== 'object' || Array.isArray(s)) return { ...d };
+					// TS narrows `s` to the SyncItems field type — the cast passes through
+					// `unknown` (never `as any`) because localStorage is external data.
+					const r = s as unknown as Record<string, unknown>;
+					return {
+						settings: typeof r.settings === 'boolean' ? r.settings : d.settings,
+						library: typeof r.library === 'boolean' ? r.library : d.library,
+						history: typeof r.history === 'boolean' ? r.history : d.history,
+						searchHistory: typeof r.searchHistory === 'boolean' ? r.searchHistory : d.searchHistory,
+						nameTr: typeof r.nameTr === 'boolean' ? r.nameTr : d.nameTr
+					} satisfies SyncItems;
+				})();
 			} else {
 				// Truly first visit (nothing saved yet): auto-detect UI language once.
 				this.appLang = detectAppLang(navigator.language);
@@ -562,6 +641,9 @@ class Settings {
 					theme: this.theme,
 					autoExpandOnPlay: this.autoExpandOnPlay,
 					showQualityTag: this.showQualityTag,
+					showSourceTag: this.showSourceTag,
+					videoEnabled: this.videoEnabled,
+					videoQuality: this.videoQuality,
 					nowbarLyrics: this.nowbarLyrics,
 					// --- home layout (w87) ---
 					homeSectionOrder: this.homeSectionOrder,
@@ -577,7 +659,11 @@ class Settings {
 					homeSectionDensity: this.homeSectionDensity,
 					homeShowSearchPill: this.homeShowSearchPill,
 					homeShowRandomize: this.homeShowRandomize,
-					homeLayoutVersion: this.homeLayoutVersion
+					homeLayoutVersion: this.homeLayoutVersion,
+					// quick-261020-sync: the selection itself travels in the blob (account-level —
+					// follows the user). It is NOT in the DEFAULTS aggregate and no reset-group
+					// method writes it; the sync engine filters the envelope by it instead.
+					syncItems: this.syncItems
 				})
 			);
 		} catch {
@@ -590,11 +676,21 @@ class Settings {
 	applyTheme() {
 		if (!browser) return;
 		const r = document.documentElement;
-		r.style.setProperty('--color-primary', this.accent);
+		// quick-261023-perks: supporter themes carry their own signature primary
+		// (THEME_PRIMARY) so the look is complete; the accent pick only drives the
+		// two free themes.
+		const primary = THEME_PRIMARY[this.theme] ?? this.accent;
+		r.style.setProperty('--color-primary', primary);
 		// UX-07 ROOT-CAUSE FIX: the hover var was pinned at #6a48f0 in app.css and never set at
 		// runtime, so hover surfaces (buttons/tabs/chips) ignored the chosen accent. Derive it from
-		// the accent — ~12% darken matches today's #7c5cff → #6a48f0 relationship (A3).
-		r.style.setProperty('--color-primary-hover', darken(this.accent, 0.12));
+		// the accent — ~12% darken matches today's #0abab5 → #09a49f relationship (A3).
+		r.style.setProperty('--color-primary-hover', darken(primary, 0.12));
+		// quick-261102-rrb: text/icons on a primary fill read this — dark or white, whichever
+		// contrasts more with the effective primary (tiffany needs dark; white was 2.41:1).
+		r.style.setProperty('--color-on-primary', onColor(primary));
+		// quick-261102-s0k: focus rings read this — the primary, adjusted until it clears 3:1
+		// against the theme's bg + surface-2 (light-theme tiffany was 2.05–2.26:1).
+		r.style.setProperty('--color-focus', focusColor(primary, THEME_SURFACES[this.theme]));
 		// Appearance scales (fnp) — multipliers off the per-rule base sizes. 100% → 1 (no change).
 		// quick-260920-kxz: the ROOT multiplier — app.css turns it into
 		// `html { font-size: calc(100% * var(--fs-app, 1)) }`, so it moves every rem rule at once
@@ -611,8 +707,10 @@ class Settings {
 		else delete r.dataset.reduceMotion;
 		// Light/dark theme: set `data-theme="light"` for the light token set; remove the attr
 		// for the default dark theme so `:root` rules apply without any extra specificity.
-		if (this.theme === 'light') r.dataset.theme = 'light';
-		else delete r.dataset.theme;
+		// quick-261023-perks: supporter themes set their own data-theme value for the
+		// matching token block in app.css.
+		if (this.theme === 'dark') delete r.dataset.theme;
+		else r.dataset.theme = this.theme;
 	}
 
 	/** Reset the Appearance settings group — theme, accent, reduce-motion, the global + five
@@ -681,6 +779,9 @@ class Settings {
 		this.defaultSource = d.defaultSource;
 		this.autoExpandOnPlay = d.autoExpandOnPlay;
 		this.showQualityTag = d.showQualityTag;
+		this.showSourceTag = d.showSourceTag;
+		this.videoEnabled = d.videoEnabled;
+		this.videoQuality = d.videoQuality;
 		this.nowbarLyrics = d.nowbarLyrics;
 		this.enabledSources = { ...d.enabledSources };
 		this.upnextPerContext = { ...DEFAULTS.upnext.perContext };
@@ -698,7 +799,20 @@ class Settings {
 		// force-generate airtight (the 'remix' QueueContext carries no other behaviour).
 		if (ctx === 'remix') return 'generated';
 		if (!ctx) return this.upnextMode;
-		return this.upnextPerContext[ctx] ?? this.upnextMode;
+		// quick-261024-sets4: exact key wins; a country-pack context then falls back to the
+		// single 'pack' family key before the global mode.
+		return (
+			this.upnextPerContext[ctx] ??
+			((PACK_CONTEXTS as readonly string[]).includes(ctx) ? this.upnextPerContext.pack : undefined) ??
+			this.upnextMode
+		);
+	}
+
+	/** Display value for one Settings → Playback row (quick-261024-sets4): the 'pack' row
+	 *  shows the family resolution — what a tap on any country pack would do. */
+	upnextModeForKey(key: UpnextSettingKey): UpnextMode {
+		if (key === 'pack') return this.effectiveUpnextMode('cantopop-2026');
+		return this.effectiveUpnextMode(key);
 	}
 
 	/** Reset the Home layout settings (section order/hidden + tag/country selection + size +
@@ -735,4 +849,5 @@ export function effectiveTarget(target: 'auto' | LyricsLang): LyricsLang {
 	return target === 'auto' ? (settings.appLang as LyricsLang) : target;
 }
 
-export const ACCENT_PRESETS = ['#7c5cff', '#1db954', '#ff0033', '#00c2b8', '#ff8a00', '#ff4d6d'];
+// tiffany-261020: Tiffany blue first (the default); teal #00c2b8 dropped — visually redundant next to #0abab5.
+export const ACCENT_PRESETS = ['#0abab5', '#7c5cff', '#1db954', '#ff0033', '#ff8a00', '#ff4d6d'];

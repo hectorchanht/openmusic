@@ -12,14 +12,12 @@
 // Edge cache via Cloudflare's caches.default at TTL 10min: best-match search ranking is
 // stable enough that a 10-minute window avoids hammering upstream on repeat searches.
 import type { RequestHandler } from './$types';
-import { fetchWithRetry, corsHeaders, jsonResponse } from '$lib/proxy/http';
-import { edgeCache } from '$lib/proxy/edge-cache';
+import { fetchWithRetry, jsonResponse, corsPreflight } from '$lib/proxy/http';
+import { cachedUpstreamJson } from '$lib/proxy/edge-cache';
 
 const AUDIUS_SEARCH = 'https://api.audius.co/v1/tracks/search';
 const APP_NAME = 'musicsquare';
 const TTL = 600; // 10min
-
-// edgeCache() shared from $lib/proxy/edge-cache (quick-260713-mqv).
 
 // Shared JSON responder (src/lib/proxy/http.ts).
 const jsonPassthrough = (body: unknown, origin: string | null, ttl?: number): Response =>
@@ -34,35 +32,18 @@ export const GET: RequestHandler = async ({ url, request }) => {
 	// (no command construction); `app_name` appended server-side. No arbitrary client params.
 	const upstream = `${AUDIUS_SEARCH}?query=${encodeURIComponent(query)}&app_name=${APP_NAME}`;
 
-	// Edge cache key = own-origin Request (NOT the upstream URL). Guarded for the dev runtime.
-	const cache = edgeCache();
-	const cacheReq = new Request(url.toString());
-
-	if (cache) {
-		const hit = await cache.match(cacheReq);
-		if (hit) {
-			const cached = await hit.json();
-			return jsonPassthrough(cached, origin, TTL);
+	// quick-261020-batch2: the edge-cache → upstream → cache-put → passthrough spine moved to
+	// cachedUpstreamJson ($lib/proxy/edge-cache); the route keeps only its param guard + upstream.
+	return cachedUpstreamJson({
+		origin,
+		url,
+		ttl: TTL,
+		empty: { data: [] },
+		fetchUpstream: async () => {
+			const res = await fetchWithRetry(upstream, { signal: AbortSignal.timeout(8000) }, 2);
+			return res.json();
 		}
-	}
-
-	try {
-		const res = await fetchWithRetry(upstream, { signal: AbortSignal.timeout(8000) }, 2);
-		const body = await res.json();
-		if (cache) {
-			const cached = new Response(JSON.stringify(body), {
-				status: 200,
-				headers: { 'content-type': 'application/json', 'Cache-Control': `public, max-age=${TTL}` }
-			});
-			await cache.put(cacheReq, cached);
-		}
-		return jsonPassthrough(body, origin, TTL);
-	} catch {
-		// Upstream error → empty list (NO cache write so the next retry can succeed).
-		return jsonPassthrough({ data: [] }, origin);
-	}
+	});
 };
 
-export const OPTIONS: RequestHandler = ({ request }) => {
-	return new Response(null, { status: 204, headers: corsHeaders(request.headers.get('origin')) });
-};
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

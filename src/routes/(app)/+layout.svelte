@@ -7,6 +7,7 @@
 	import { player, SKIP_REASON_KEY } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
+	import { auth } from '$lib/stores/auth.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { warmScript } from '$lib/services/zh-convert';
 	import { online } from '$lib/stores/online.svelte';
@@ -20,6 +21,9 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { t, ensureLocale, type TranslationKey } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
+	// quick-261022-spring: iOS-style rubber-band overscroll on the window scroller (Android /
+	// WebView have no native band — this layers the stretch + spring release on top).
+	import { rubberOverscroll } from '$lib/actions/rubberOverscroll';
 	// quick-260919-npfix (Fix 2): the pure Space / left / right -> transport mapping. All of the
 	// "may I steal this key?" branching lives there so it is node-testable; this file keeps only
 	// the listener.
@@ -34,6 +38,7 @@
 	import NowPlaying from '$lib/components/NowPlaying.svelte';
 	import Nowbar from '$lib/components/Nowbar.svelte';
 	import SleepTimerSheet from '$lib/components/SleepTimerSheet.svelte';
+	import SupporterSheet from '$lib/components/SupporterSheet.svelte';
 	import ToastHost from '$lib/components/ToastHost.svelte';
 
 	let { children } = $props();
@@ -194,6 +199,21 @@
 	onMount(() => {
 		library.load();
 		settings.load();
+
+		// quick-261021-zh1 (user): backend matching ALWAYS normalizes to Simplified (zhs).
+		// Warm the T2S/S2T dicts at startup so foldScript() never hits the cold-dict
+		// fallback (which returns the original string and causes 周杰倫 vs 周杰伦 mismatches
+		// in sameSongKey/findOfficial). Display layer (applyLock) uses the user's zhScript
+		// setting separately — backend is zhs-only, display is user-choice.
+		void import('$lib/services/zh-convert').then((m) => {
+			m.warmT2S();
+			m.warmS2T();
+		});
+
+		// quick-261020-acct: probe the account session (cookie on web, bearer on native) and,
+		// when signed in, start the cross-device sync engine. Fire-and-forget: auth must never
+		// block the shell, and anonymous use stays exactly as before (the engine no-ops).
+		void auth.load();
 
 		// quick-261006-i18n: fetch the active locale's dictionary chunk now (`en` is
 		// already in the bundle). Fire-and-forget — t() serves the en fallback until
@@ -419,7 +439,9 @@
 		</div>
 	{/if}
 
-	<main class="content">
+	<!-- quick-261022-spring: rubber-band overscroll lives on the content (not .app) so the
+	     fixed nowbar/tabbar never shift — only the scrolled page stretches. -->
+	<main class="content" use:rubberOverscroll>
 		{@render children()}
 	</main>
 
@@ -450,6 +472,10 @@
 	<!-- Sleep-timer sheet: mounted ONCE, UNGATED — reachable from the nowbar (collapsed) AND the
 	     expanded now-playing. Driven by the shared sleepTimer.sheetOpen flag (TIMER-01). -->
 	<SleepTimerSheet />
+
+	<!-- Donor wall (2026-10-14 donor-wall-ui): mounted ONCE, UNGATED — opened from the
+	     album "Download all" gate and the Settings support card via support.sheetOpen. -->
+	<SupporterSheet />
 
 	<!-- Single global toast host (D-15): mounted ONCE here so every page shares it. Pages call
 	     toast.show(msg); this is the only place the message is rendered. -->
@@ -627,7 +653,7 @@
 	.update-btn {
 		flex: none;
 		background: var(--color-primary, #7c5cff);
-		color: #fff;
+		color: var(--color-on-primary); /* quick-261102-rrb */
 		border: none;
 		border-radius: 999px;
 		padding: 4px 14px;
@@ -673,7 +699,7 @@
 	.notice-toast .retry {
 		flex: none;
 		background: var(--color-primary, #7c5cff);
-		color: #fff;
+		color: var(--color-on-primary); /* quick-261102-rrb */
 		border: none;
 		border-radius: 999px;
 		padding: 5px 14px;

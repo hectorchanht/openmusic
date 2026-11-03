@@ -1,6 +1,7 @@
-// 1984 年選 — year-end charts (United States、United Kingdom).
+// 1984 年選 — year-end charts (United States、United Kingdom、Hong Kong).
 // - United States: Billboard Year-End Hot 100 (rank order = published year-end rank).
 // - United Kingdom: Official Charts Company End of Year Singles Chart (rank order = published year-end rank).
+// - Hong Kong: 香港電台 十大中文金曲獎 (rank order = published 十大中文金曲 rank).
 // Rendered as SongRow stubs; taps resolve through the normal multi-source
 // search (resolveStub), so the pack ships no audio of its own.
 
@@ -14,6 +15,16 @@ export const PACK_META_SOY_1984_US = {
   free: true,
   year: 1984,
   country: 'United States'
+} as const;
+
+export const PACK_META_SOY_1984_HK = {
+  id: 'soy-1984-hk',
+  title: '1984 香港年選',
+  titleEn: 'Hong Kong 1984',
+  description: '香港電台 十大中文金曲獎',
+  free: true,
+  year: 1984,
+  country: 'Hong Kong'
 } as const;
 
 export const SOY_1984: Record<string, PackSong[]> = {
@@ -120,10 +131,24 @@ export const SOY_1984: Record<string, PackSong[]> = {
     { artist: "Limahl", title: "The NeverEnding Story", note: "#48 Official Charts 年終" },
     { artist: "Billy Ocean", title: "Caribbean Queen (No More Love on the Run)", note: "#49 Official Charts 年終" },
     { artist: "Hazell Dean", title: "Whatever I Do (Wherever I Go)", note: "#50 Official Charts 年終" },
-  ]
+  ],
+  'Hong Kong': [
+    { artist: "張國榮", title: "Monica", note: "#1 十大中文金曲第1首" },
+    { artist: "林志美", title: "偶遇", note: "#2 十大中文金曲第2首" },
+    { artist: "梅艷芳", title: "似水流年", note: "#3 十大中文金曲第3首" },
+    { artist: "蘇芮", title: "酒干倘賣無", note: "#4 十大中文金曲第4首" },
+    { artist: "譚詠麟", title: "愛的根源", note: "#5 十大中文金曲第5首" },
+    { artist: "關正傑", title: "天籟", note: "#6 十大中文金曲第6首" },
+    { artist: "陳百強", title: "摘星", note: "#7 十大中文金曲第7首" },
+    { artist: "甄妮", title: "再度孤獨", note: "#8 十大中文金曲第8首" },
+    { artist: "譚詠麟", title: "愛在深秋", note: "#9 十大中文金曲第9首" },
+    { artist: "林子祥", title: "愛到發燒", note: "#10 十大中文金曲第10首" },
+  ],
+
 };
 
 export const SOY_SOURCES_1984: Record<string, { name: string; url: string }> = {
+  'Hong Kong': { name: "香港電台 十大中文金曲獎", url: "https://zh.wikipedia.org/wiki/十大中文金曲頒獎音樂會十大中文金曲獎" },
   'United States': { name: "Billboard Year-End Hot 100", url: "https://en.wikipedia.org/wiki/Billboard_Year-End_Hot_100_singles_of_1984" },
   'United Kingdom': { name: "Official Charts Company End of Year Singles Chart", url: "https://en.wikipedia.org/wiki/1984_in_British_music" }
 };

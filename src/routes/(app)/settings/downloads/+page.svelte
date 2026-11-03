@@ -27,7 +27,7 @@
 	import { settings } from '$lib/stores/settings.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
-	import { blobStore, replayPendingDeviceWrites } from '$lib/services/blob-store';
+	import { blobStore } from '$lib/services/blob-store';
 	// quick-260919-ejm: the sweep now includes imported songs, so this page has to be able to COUNT
 	// them before it asks. PURE module (the sole owner of the `device:` literal).
 	import { isDeviceUid } from '$lib/services/device-track';
@@ -62,8 +62,11 @@
 	// cancel the job, coming back must re-attach to it, and a queue resumed on boot must render
 	// here (same contract as the device-import scan above).
 	const busy = $derived(retagQueue.phase === 'running');
+	// quick-261020-rtg: the queue is stoppable/resumable now — progress shows in BOTH running and
+	// paused phases (a paused job is still a live job the user can resume or cancel).
+	const paused = $derived(retagQueue.phase === 'paused');
 	const progress = $derived(
-		retagQueue.phase === 'running' ? { done: retagQueue.done, total: retagQueue.total } : null
+		retagQueue.phase === 'idle' ? null : { done: retagQueue.done, total: retagQueue.total }
 	);
 
 	// 34-UI-SPEC contract 7: the FIRST UI-layer native gate in the app (every other isNativePlatform
@@ -136,17 +139,13 @@
 		patternDraft = deviceImport.rules.customPattern;
 		native = Capacitor.isNativePlatform();
 		excluded = Object.entries(readExclusions());
-		// quick-260919-ejm (D-2) — RECOVERY POINT. The in-place rewrite of an imported file is
-		// temp-then-stream, and the ONE window it cannot make atomic is a process death MID-STREAM:
-		// the user's file is left partial and the complete new bytes sit in the temp file beside a
-		// journal entry. This is one of exactly two places that finishes the job (the other is the
-		// top of the next `overwriteDeviceFile`). No app-boot hook, deliberately — a file write in
-		// the app shell's mount is the class of automatic write this codebase keeps out.
-		//
-		// FIRE-AND-FORGET: `replayPendingDeviceWrites` never throws and never rejects, and a page
-		// mount must never await a file write. On the overwhelmingly common path the journal is
-		// empty and this is a single localStorage read.
-		void replayPendingDeviceWrites();
+		// quick-261020-rtg: NO eager replayPendingDeviceWrites() here any more. The in-place
+		// rewrite of an imported file is temp-then-stream, and the ONE window it cannot make
+		// atomic is a process death MID-STREAM — but replaying it from a page mount could pop a
+		// per-file system consent dialog with no batch consent in place (the 531-dialogs bug).
+		// Recovery is now LAZY only: the top of the next `overwriteDeviceFile`, which always runs
+		// behind the retag queue's consent gate. A truncated file waits for the next retag run
+		// instead of ambushing a settings visit.
 		// 36-D-18: the scope is the app's OWN downloads it STILL HOLDS A COPY OF — never a device-wide
 		// sweep. `library.downloads` is the reference list (a row survives a failed/cancelled save), so
 		// `blobStore.has` is what makes the count honest. Sequential because the list is small and
@@ -245,7 +244,11 @@
 		// Enqueue — the background runner takes it from here, persisting progress so a killed app
 		// resumes on the next start. Lyrics ride each entry (built in onMount above), so the offline
 		// files get lyrics written too.
-		retagQueue.enqueue(list);
+		//
+		// quick-261020-rtg: consentBypass — this tap flow ALREADY ran the batch ask above (and
+		// dropped the device files on deny), so the queue's own gate must not pop a second system
+		// dialog for the same files. Boot-resume never bypasses: it always re-gates.
+		retagQueue.enqueue(list, { consentBypass: true });
 	}
 
 	// Completion flash. The queue may finish while this page is mounted, or it may have finished
@@ -465,7 +468,23 @@
 		<Tags size={18} /> {t('settings.retagDownloads', { count: eligible.length })}
 	</button>
 	<p class="hint">{t('settings.retagDownloadsDesc')}</p>
-	{#if progress}<p class="muted">{t('settings.retagProgress', { done: progress.done, total: progress.total })}</p>{/if}
+	{#if progress}
+		<p class="muted">
+			{paused
+				? t('settings.retagPaused', { done: progress.done, total: progress.total })
+				: t('settings.retagProgress', { done: progress.done, total: progress.total })}
+		</p>
+		<!-- quick-261020-rtg: the queue is stoppable and resumable. Pause keeps the persisted queue
+		     (Resume continues it, re-running the consent gate); Cancel wipes it. -->
+		<div class="row-btns">
+			{#if busy}
+				<button class="chip" onclick={() => retagQueue.pause()} use:tapBounce>{t('settings.retagPause')}</button>
+			{:else if paused}
+				<button class="chip" onclick={() => retagQueue.resume()} use:tapBounce>{t('settings.retagResume')}</button>
+			{/if}
+			<button class="chip" onclick={() => retagQueue.cancel()} use:tapBounce>{t('settings.retagCancel')}</button>
+		</div>
+	{/if}
 	{#if eligible.length > 0}
 		<!-- 2026-10-06, Hector: show WHAT will be retagged — song name, artist, cover — before the
 		     user commits. A <details> so 460 rows don't dominate the page; the list scrolls. -->
@@ -519,6 +538,8 @@
 	.item { width: 100%; display: flex; align-items: center; gap: 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 14px; border-radius: 12px; font-size: 0.9375rem; cursor: pointer; text-align: left; margin-bottom: 8px; }
 	.item:disabled { opacity: 0.5; cursor: default; }
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
+	/* quick-261020-rtg: the retag pause/resume/cancel row — same chips as the rules panel. */
+	.row-btns { display: flex; gap: 8px; margin: 8px 0 0; }
 	.advanced { margin: 22px 0; padding: 10px 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; }
 	.advanced summary { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); cursor: pointer; padding: 4px 0; min-height: 44px; }
 	/* quick-260919-30x: the recovery row reuses `.item`'s surface tokens and the page's existing
@@ -528,8 +549,8 @@
 	.flash { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + 70px); background: #000; color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 0.8125rem; }
 
 	/* Contract 3/4 + UI-SPEC Color: the import CTA is this page's single accent-filled action. */
-	.cta { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--color-primary); color: #fff; border: none; border-radius: 12px; font-size: 0.9375rem; font-weight: 600; cursor: pointer; }
-	.cta:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+	.cta { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border: none; border-radius: 12px; font-size: 0.9375rem; font-weight: 600; cursor: pointer; }
+	.cta:focus-visible { /* quick-261102-s0k: focus token, >=3:1 on every theme */ outline: 2px solid var(--color-focus); outline-offset: 2px; }
 	.cta.busy { background: var(--color-surface-2); color: var(--color-text); border: 1px solid var(--color-border); justify-content: space-between; padding: 0 8px 0 14px; gap: 12px; font-weight: 400; }
 	.lbl-prog { font-size: 0.8125rem; color: var(--color-text-muted); white-space: nowrap; }
 	.rail { flex: 1; height: 6px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 999px; overflow: hidden; position: relative; }
@@ -569,7 +590,7 @@
 		flex: none;
 		white-space: nowrap;
 	}
-	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.chip.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	.row-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 13px 14px; border-radius: 12px; font-size: 0.875rem; cursor: pointer; margin: 8px 0 0; }
 	.sw { width: 40px; height: 22px; border-radius: 999px; background: var(--color-border); position: relative; transition: background 0.15s ease; flex: none; }
 	.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.15s ease; }
@@ -577,7 +598,7 @@
 	.sw.on::after { transform: translateX(18px); }
 	.txt { width: 100%; min-height: 44px; padding: 12px 14px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; color: var(--color-text); font-family: inherit; font-size: 0.875rem; }
 	.txt::placeholder { color: var(--color-text-muted); }
-	.txt:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+	.txt:focus-visible { /* quick-261102-s0k: focus token, >=3:1 on every theme */ outline: 2px solid var(--color-focus); outline-offset: 2px; }
 	.txt[aria-invalid='true'] { border-color: #ff7a90; }
 	/* A regex is code: in Inter, `\s` and `\5` are ambiguous. The only monospace in the phase. */
 	.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8125rem; }
@@ -593,5 +614,5 @@
 	.retag-list .t strong { font-size: 0.875rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.retag-list .t .a { font-size: 0.75rem; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-	.chip:focus-visible, .row-toggle:focus-visible, .advanced summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+	.chip:focus-visible, .row-toggle:focus-visible, .advanced summary:focus-visible { /* quick-261102-s0k: focus token, >=3:1 on every theme */ outline: 2px solid var(--color-focus); outline-offset: 2px; }
 </style>

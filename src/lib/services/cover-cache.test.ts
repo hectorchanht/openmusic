@@ -7,6 +7,8 @@ import {
 	getCachedArtistCover,
 	setCachedArtistCover,
 	uidCoverCacheKey,
+	aliasCoverCacheKey,
+	aliasArtistCoverCacheKey,
 	getCachedCoverByUid,
 	setCachedCoverByUid,
 	removeCachedCoverByUid,
@@ -26,6 +28,7 @@ import {
 	getCrowdCover
 } from './cover-cache';
 import { matchKey } from './match-key';
+import { t2sConvertLines } from './zh-convert';
 
 // cover-cache is the pure localStorage-backed store of lazily-resolved CN-source covers
 // (quick-260606-rvy FIX-A). Keyed by matchKey(artist,title) so a normalized {artist,title}
@@ -586,11 +589,11 @@ describe('cover-cache — TTL expiry, LRU cap, legacy grandfathering (quick-2607
 
 // coverAgeByUidOrName — the pure freshness reader lazyCover uses to decide whether a WARM cache HIT
 // is fresh enough to paint WITHOUT the new Image() self-heal probe (quick-260704-4fr, backlog #8).
-// It mirrors the URL readers' uid-first → name read order + the SAME 14-day TTL guard, honors the
-// empty-uid guard (an empty uid never reads the shared 'uid:' slot), and returns the RAW age in ms
-// (Date.now() - t) for the first fresh {u,t} hit — null for miss / legacy-bare-string / expired. Like
-// the 2xq block, fake timers are scoped HERE only; TTL_MS is pinned locally with the "MUST mirror"
-// comment (the module constant is private).
+// It mirrors the URL readers' name-first → uid read order (quick-261020-latest) + the SAME 14-day
+// TTL guard, honors the empty-uid guard (an empty uid never reads the shared 'uid:' slot), and
+// returns the RAW age in ms (Date.now() - t) for the first fresh {u,t} hit — null for miss /
+// legacy-bare-string / expired. Like the 2xq block, fake timers are scoped HERE only; TTL_MS is
+// pinned locally with the "MUST mirror" comment (the module constant is private).
 const TTL_MS_4FR = 14 * 24 * 60 * 60 * 1000; // 14 days — MUST mirror cover-cache.ts TTL_MS
 
 describe('cover-cache — coverAgeByUidOrName freshness reader (quick-260704-4fr)', () => {
@@ -654,15 +657,16 @@ describe('cover-cache — coverAgeByUidOrName freshness reader (quick-260704-4fr
 		expect(coverAgeByUidOrName('', 'A', 'B')).toBeNull();
 	});
 
-	// (E-i) uid-first → name order: with BOTH a fresh uid entry and a fresh name entry at different
-	// write-times, the UID age wins.
-	it('uid-first order: the uid age wins when both a uid and a name entry are fresh', () => {
+	// (E-i) name-first → uid order (quick-261020-latest): with BOTH a fresh uid entry and a fresh
+	// name entry at different write-times, the NAME age wins — the age must describe the entry the
+	// read will actually return (the name layer holds the latest write for the song).
+	it('name-first order: the name age wins when both a uid and a name entry are fresh', () => {
 		setCachedCoverByUid('netease:12345', 'https://cdn.example/by-uid.jpg'); // written at T0
 		vi.setSystemTime(T0 + 10_000);
 		setCachedCover('Jay Chou', 'Dao Xiang', 'https://cdn.example/by-name.jpg'); // written at T0+10s
 		vi.setSystemTime(T0 + 30_000);
-		// uid age = 30_000 (T0), name age = 20_000 (T0+10s) — the uid layer is consulted FIRST and wins.
-		expect(coverAgeByUidOrName('netease:12345', 'Jay Chou', 'Dao Xiang')).toBe(30_000);
+		// name age = 20_000 (T0+10s), uid age = 30_000 (T0) — the name layer is consulted FIRST and wins.
+		expect(coverAgeByUidOrName('netease:12345', 'Jay Chou', 'Dao Xiang')).toBe(20_000);
 	});
 
 	// (E-ii) uid absent → the name age is returned (name-layer fallback).
@@ -959,5 +963,91 @@ describe('crowd: family (Phase 40 D-14)', () => {
 		vi.setSystemTime(T0 + TTL_MS + 1);
 		expect(getCrowdCoverByUid('qq:1')).toBeNull();
 		expect(getCrowdCoverByName('A', 'T')).toBeNull();
+	});
+});
+
+// quick-261020-covsync — the Traditional↔Simplified script bridge on the name layer. The stub
+// surfaces (packs, charts) carry the Traditional name; the track resolveStub actually plays
+// carries the Simplified one (CN catalogs index Simplified). matchKey folds case/punct only, so
+// without the alias the two scripts' keys never meet and a play-resolved cover can never repaint
+// the row. Warming: the alias rides the SYNC tongwen handle, published by any async convert —
+// the tests warm it once via t2sConvertLines (the dict loads natively under Vitest).
+describe('cover-cache script alias (quick-261020-covsync)', () => {
+	const T_ARTIST = '告五人';
+	const T_TITLE = '在這裡等你';
+	const S_TITLE = '在这里等你';
+	const URL = 'https://img.example/cover.jpg';
+	// Same in-memory localStorage stub discipline as the main describe above (its install is
+	// describe-scoped, so this block installs its own).
+	const originalLocalStorage = (globalThis as { localStorage?: Storage }).localStorage;
+
+	beforeEach(async () => {
+		Object.defineProperty(globalThis, 'localStorage', {
+			value: new MemStorage(),
+			configurable: true,
+			writable: true
+		});
+		await t2sConvertLines([T_TITLE]); // warm the t2s dict so the sync handle can fold
+	});
+	afterEach(() => {
+		Object.defineProperty(globalThis, 'localStorage', {
+			value: originalLocalStorage,
+			configurable: true,
+			writable: true
+		});
+	});
+
+	it('alias key exists only when the fold differs', () => {
+		expect(aliasCoverCacheKey(T_ARTIST, T_TITLE)).toBe(coverCacheKey(T_ARTIST, S_TITLE));
+		expect(aliasCoverCacheKey(T_ARTIST, S_TITLE)).toBeNull(); // already Simplified → no alias
+		expect(aliasCoverCacheKey('Adele', 'Hello')).toBeNull(); // non-CJK → no alias
+	});
+
+	it('a Simplified write answers a Traditional read (play → row sync)', () => {
+		setCachedCover(T_ARTIST, S_TITLE, URL); // the played track's identity (Simplified)
+		expect(getCachedCover(T_ARTIST, T_TITLE)).toBe(URL); // the stub row's identity (Traditional)
+	});
+
+	it('a Traditional write answers a Simplified read (row chain → hero sync)', () => {
+		setCachedCover(T_ARTIST, T_TITLE, URL);
+		expect(getCachedCover(T_ARTIST, S_TITLE)).toBe(URL);
+	});
+
+	it('a pre-existing single-script entry answers the other script via the read-side alias', () => {
+		// Plant ONLY the Simplified entry, bypassing the dual-write (a pre-fix cache state).
+		localStorage.setItem(
+			'openmusic:cover-cache:v1',
+			JSON.stringify({ [coverCacheKey(T_ARTIST, S_TITLE)]: { u: URL, t: Date.now() } })
+		);
+		expect(getCachedCover(T_ARTIST, T_TITLE)).toBe(URL);
+	});
+
+	it('the exact key still leads over the alias', () => {
+		localStorage.setItem(
+			'openmusic:cover-cache:v1',
+			JSON.stringify({
+				[coverCacheKey(T_ARTIST, T_TITLE)]: { u: 'https://img.example/trad.jpg', t: Date.now() },
+				[coverCacheKey(T_ARTIST, S_TITLE)]: { u: 'https://img.example/simp.jpg', t: Date.now() }
+			})
+		);
+		expect(getCachedCover(T_ARTIST, T_TITLE)).toBe('https://img.example/trad.jpg');
+	});
+
+	it('remove evicts BOTH script keys', () => {
+		setCachedCover(T_ARTIST, T_TITLE, URL);
+		removeCachedCover(T_ARTIST, T_TITLE);
+		expect(getCachedCover(T_ARTIST, T_TITLE)).toBeNull();
+		expect(getCachedCover(T_ARTIST, S_TITLE)).toBeNull();
+	});
+
+	it('the age read sees the alias entry', () => {
+		setCachedCover(T_ARTIST, S_TITLE, URL); // Simplified write only (exact for that call)
+		expect(coverAgeByUidOrName('', T_ARTIST, T_TITLE)).not.toBeNull();
+	});
+
+	it('artist layer bridges too', () => {
+		setCachedArtistCover('周杰倫', URL);
+		expect(getCachedArtistCover('周杰伦')).toBe(URL);
+		expect(aliasArtistCoverCacheKey('周杰倫')).toBe(artistCoverCacheKey('周杰伦'));
 	});
 });

@@ -4,6 +4,7 @@
 // src/routes/api/comments/+server.ts.
 
 import { apiFetch } from '$lib/services/api-base';
+import { sha256hexN } from '$lib/auth/auth-core';
 import { songKey } from '$lib/services/dedupe';
 import { warmScript, t2sConvertLineSync } from '$lib/services/zh-convert';
 
@@ -34,8 +35,8 @@ export async function commentThreadKey(artist: string, title: string): Promise<s
 		}
 		const s = songKey(artist, title);
 		if (!s || !s.split('|')[0]) return null;
-		const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
-		return Array.from(new Uint8Array(buf).slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('');
+		// quick-261020-batch4: canonical truncated-hash helper (was an inline digest+hex loop).
+		return await sha256hexN(s, 32);
 	} catch {
 		return null;
 	}

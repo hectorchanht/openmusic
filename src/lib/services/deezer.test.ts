@@ -4,6 +4,7 @@ import {
 	deezerSongCover,
 	deezerArtistCover,
 	deezerArtist,
+	deezerArtistWithFallbacks,
 	deezerAlbum,
 	deezerArtistAlbums,
 	downsizeDeezerCover
@@ -284,6 +285,56 @@ describe('deezerArtist — resolve artist info via the own-origin proxy', () => 
 			)
 		);
 		await expect(deezerArtist('Malformed Artist')).resolves.toBeNull();
+	});
+});
+
+describe('deezerArtistWithFallbacks — name-form retries (2026-11-02 sunkis hero fix)', () => {
+	const NO_INFO = { picture: null, fans: null, albums: null };
+	/** Route the mock by the `name` param the client sent, like the real proxy search. */
+	function byName(table: Record<string, unknown>) {
+		return vi.fn(async (url: string) => {
+			const params = new URLSearchParams(String(url).split('?')[1]);
+			return jsonResponse(table[params.get('name') ?? ''] ?? NO_INFO);
+		});
+	}
+
+	it('rescues a combined credited name via the canonical form (the sunkis shape)', async () => {
+		const fetchMock = byName({ sunkis: ARTIST_INFO });
+		vi.stubGlobal('fetch', fetchMock);
+		const out = await deezerArtistWithFallbacks('sunkis 宋秉勤', ['sunkis', '宋秉勤', 'Chris Sung']);
+		expect(out).toEqual(ARTIST_INFO);
+		const names = fetchMock.mock.calls.map((c) => new URLSearchParams(String(c[0]).split('?')[1]).get('name'));
+		// Primary search under the credited name first, then the canonical retry — the
+		// alias that hits first stops the chain, so Chris Sung is never searched.
+		expect(names).toEqual(['sunkis 宋秉勤', 'sunkis']);
+	});
+
+	it('does not retry at all when the primary lookup already has a picture', async () => {
+		const fetchMock = byName({ 'Daft Punk': ARTIST_INFO });
+		vi.stubGlobal('fetch', fetchMock);
+		const out = await deezerArtistWithFallbacks('Daft Punk', ['Daft Punk Form Two']);
+		expect(out).toEqual(ARTIST_INFO);
+		expect(fetchMock.mock.calls.length).toBe(1);
+	});
+
+	it('keeps the first non-null result when no form yields a picture', async () => {
+		const countsOnly = { picture: null, fans: 12, albums: 3 };
+		const fetchMock = byName({ 'Form One': countsOnly });
+		vi.stubGlobal('fetch', fetchMock);
+		const out = await deezerArtistWithFallbacks('Form One', ['Form Two']);
+		expect(out).toEqual(countsOnly);
+	});
+
+	it('yields no picture when every form misses, and an empty name short-circuits without fetching', async () => {
+		const fetchMock = byName({});
+		vi.stubGlobal('fetch', fetchMock);
+		// The proxy answers a miss with a 200 null-fields body, so the contract the page
+		// relies on is "no picture", whether the wrapper returns that body or null.
+		const out = await deezerArtistWithFallbacks('Nobody', ['No One']);
+		expect(out?.picture ?? null).toBeNull();
+		const before = fetchMock.mock.calls.length;
+		await expect(deezerArtistWithFallbacks('   ', ['No One'])).resolves.toBeNull();
+		expect(fetchMock.mock.calls.length).toBe(before);
 	});
 });
 

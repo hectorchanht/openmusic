@@ -8,8 +8,16 @@
 // stayed a gradient forever. This module fixes (a) by restoring a multi-tier fall-through chain and
 // (b) by lifting the default cap (the home now passes a cap = the full gathered gradient set).
 //
-// MULTI-TIER CHAINS (stop at the first SOLID — non-empty, https — cover):
-//  - TRACK: iTunes → QQ → Deezer → other CN → YouTube Music (Phase 40 D-08, amended).
+// MULTI-TIER CHAINS:
+//  - TRACK: quick-261021-cov3 (user, 2026-10-21) SUPERSEDED the sequential stop-at-first
+//    chain below with a PARALLEL prioritised race in resolveTrackChain: iTunes, the CN
+//    fan-out (JOOX/Migu preferred inside it), QQ, Deezer and YouTube Music ALL launch at
+//    once; a 300ms priority window lets a slower accurate source beat a faster one, and
+//    the winner is picked by priority iTunes > CN(JOOX/Migu) > QQ > Deezer > YTM. The
+//    per-tier notes below remain the record of what each tier IS (endpoint, cost, art
+//    quality) — read "tier N" as "priority N", not "runs only if N-1 missed". The
+//    historical sequential order was: iTunes → QQ → Deezer → other CN → YouTube Music
+//    (Phase 40 D-08, amended).
 //    Phase 40 D-08: QQ art leads the CJK catalog the user cares about, so QQ became its OWN tier,
 //    aimed via onlySource('qq') exactly like the YTM tier. QQ search rows carry `cover:null`
 //    (qq.ts search), so the tier costs a search + a qq detail resolve (~1.7s; up to 3 governed
@@ -110,8 +118,19 @@ import { itunesSongCover, itunesArtistCover, DISPLAY_ARTWORK_SIZE } from '$lib/s
 import { onlySource, SOURCES } from '$lib/sources/registry';
 import { createHealthGate } from '$lib/services/source-health';
 import { combinedSignal } from '$lib/services/abort-signal';
+import { t2sConvertLines, isChineseLine } from '$lib/services/zh-convert';
 import type { Track } from '$lib/sources/types';
 import { hasHttpsScheme } from './url-safety';
+
+// quick-261021-cache1 (user): in-memory memo for collectCoverCandidates.
+// Cover candidates don't change frequently — repeat picker opens are instant.
+const coverCandidatesMemo = new Map<string, CoverCandidate[]>();
+
+/** Test hook (mirrors __resetCoverMissCache): the memo is session-scoped by design, so
+ *  suites that re-drive collectCoverCandidates with fixture uids must reset it. */
+export function __clearCoverCandidatesCache(): void {
+	coverCandidatesMemo.clear();
+}
 
 /** A cover-needing row — callers pass DiscoveryTrack rows (artist tiles are excluded). */
 export interface CoverNeed {
@@ -298,6 +317,26 @@ async function qqSongCover(
  * Editing this one function moves every consumer — resolveCoverForTrack, backfillCovers.resolveOne,
  * lazyCover, the player's resolveCoverAsync and healCover all route through here.
  */
+/**
+ * quick-261020-covsync — the SEARCH-side script fold for the chain below. The CN catalogs index
+ * the SIMPLIFIED name (proven for /api/og by quick-260807-vl1: a Traditional query missed every
+ * tier 3/3, the t2s output hit 4/4), and the same holds client-side — a Traditional query
+ * (在這裡等你， from a pack stub / Last.fm chart) misses iTunes/deezer search AND scores as a
+ * different song against Simplified rows in dedupeBest. So the tiers SEARCH with the t2s-folded
+ * pair while callers keep WRITING the cache under the caller's own identity (resolveCoverForTrack
+ * writes track.artist/title verbatim) — plus cover-cache's alias key bridges the two scripts on
+ * the read side. Per-field gate: only Chinese-detected fields convert (a kana/hangul field is
+ * Japanese/Korean, never folded); t2sConvertLines never throws → identity on any failure.
+ * Deliberately scoped to resolveTrackChain: resolveShareCover's subset must NOT follow (its
+ * documented divergence), and the artist chain is name-keyed by the artist layer instead.
+ * Exported for a direct unit test of the fold + per-field gate.
+ */
+export async function coverSearchTerms(artist: string, title: string): Promise<[string, string]> {
+	if (!isChineseLine(artist) && !isChineseLine(title)) return [artist, title];
+	const [a2, t2] = await t2sConvertLines([artist, title]);
+	return [isChineseLine(artist) ? a2 : artist, isChineseLine(title) ? t2 : title];
+}
+
 async function resolveTrackChain(
 	artist: string,
 	title: string,
@@ -305,50 +344,87 @@ async function resolveTrackChain(
 ): Promise<string | null> {
 	if (signal?.aborted) return null;
 	try {
-		// Tier 1 — iTunes (PRIMARY: fastest hop, zero edge cost). quick-261006-o9t: asks for the
-		// 400px display variant (DISPLAY_ARTWORK_SIZE) instead of the historic 1200x1200bb (~330 KB
-		// per cover) — a 400px image is plenty for every inline surface including the hero, and the
-		// bytes are several-fold smaller. A SOLID hit is used as-is; no later tier is issued.
-		let cover = await tier(() => itunesSongCover(artist, title, signal, DISPLAY_ARTWORK_SIZE));
+		// quick-261020-covsync: search with the Simplified fold (see coverSearchTerms); the
+		// caller's identity stays what gets cached by the caller-side writers.
+		const [qArtist, qTitle] = await coverSearchTerms(artist, title);
 		if (signal?.aborted) return null;
 
-		// Tier 2 — QQ (fires only on an iTunes miss; search + detail resolve, health-gated, 40-WR-06).
-		if (!cover) {
-			cover = await tier(() => qqSongCover(artist, title, signal));
-			if (signal?.aborted) return null;
-		}
+		// quick-261021-cov3 (user): PARALLEL + PRIORITISED race, not sequential tiers.
+		// All cover sources launch at once; the highest-priority valid cover wins.
+		// Priority (user 2026-10-21): iTunes / JOOX / Migu 》 rest.
+		// A 300ms priority window lets a slower accurate source beat a faster inaccurate one.
+		const PRIORITY_WINDOW_MS = 300;
+		const results = new Map<string, string>();
 
-		// Tier 3 — Deezer (fires only on an iTunes+QQ miss). quick-261006-o9t: prefers the 500px
-		// cover_big rung (~73 KB measured) over the historic cover_xl 1000px (~208 KB) — same art,
-		// far fewer bytes, still plenty for every inline surface.
-		if (!cover) {
-			cover = await tier(() => deezerSongCover(artist, title, signal, 'big'));
-			if (signal?.aborted) return null;
-		}
+		const tasks: Array<{ key: string; fn: () => Promise<string | null> }> = [
+			{ key: 'itunes', fn: () => tier(() => itunesSongCover(qArtist, qTitle, signal, DISPLAY_ARTWORK_SIZE)) },
+			{
+				key: 'joox-migu',
+				fn: async () => {
+					// CN tier, but prefer JOOX/Migu covers specifically (user: most accurate).
+					const r = await searchAll(`${qArtist} ${qTitle}`, 3, { qq: false, ytmusic: false }, signal);
+					if (signal?.aborted) return null;
+					// quick-261021-cov5 (user): gdnetease + suyin seldom have good covers —
+					// exclude them from auto-resolve too, not just the picker.
+					const tracks = r.interleaved.filter((t) => t.source !== 'gdnetease' && t.source !== 'suyin');
+					// Prefer JOOX, then Migu, then dedupeBest's pick.
+					const joox = tracks.find((t) => t.source === 'joox' && t.cover);
+					if (joox?.cover) return joox.cover;
+					const migu = tracks.find((t) => t.source === 'migu' && t.cover);
+					if (migu?.cover) return migu.cover;
+					return dedupeBest(tracks, settings.preferredSource)[0]?.cover ?? null;
+				}
+			},
+			{ key: 'qq', fn: () => tier(() => qqSongCover(qArtist, qTitle, signal)) },
+			{ key: 'deezer', fn: () => tier(() => deezerSongCover(qArtist, qTitle, signal, 'big')) },
+			{ key: 'ytmusic', fn: () => tier(() => ytmusicSongCover(qArtist, qTitle, signal)) },
+		];
 
-		// Tier 4 — other CN (fires only on an iTunes+QQ+Deezer miss). Carries the netease/kuwo/joox
-		// long tail the tiers above do not.
-		if (!cover) {
-			cover = await tier(async () => {
-				// WR-01: thread `signal` so the CN fan-out is cancelled on supersede/unmount like the
-				// tiers above. Phase 40 D-08: qq + ytmusic explicitly off (explicit false
-				// beats user prefs) — qq was already tried, and dedupeBest could otherwise pick a
-				// ytmusic row; it also saves a second qq search + an InnerTube POST per miss. Cost: the
-				// searchAll cache key no longer matches resolveStub's `{}` key — accepted.
-				const r = await searchAll(`${artist} ${title}`, 1, { qq: false, ytmusic: false }, signal);
-				return dedupeBest(r.interleaved, settings.preferredSource)[0]?.cover ?? null;
-			});
-			if (signal?.aborted) return null;
-		}
+		const priorityOrder = ['itunes', 'joox-migu', 'qq', 'deezer', 'ytmusic'];
 
-		// Tier 5 — YouTube Music (fires only when every tier above missed — a 120px thumbnail on a
-		// host many users cannot reach is a last resort, not a lead; quick-260920-nyq).
-		if (!cover) {
-			cover = await tier(() => ytmusicSongCover(artist, title, signal));
-			if (signal?.aborted) return null;
-		}
+		await new Promise<void>((resolve) => {
+			let remaining = tasks.length;
+			let done = false;
+			let windowTimer: ReturnType<typeof setTimeout> | null = null;
+			const finish = () => {
+				if (done) return;
+				done = true;
+				if (windowTimer) clearTimeout(windowTimer);
+				resolve();
+			};
+			// quick-261024-sets: attach the abort listener BEFORE launching the tasks and
+			// honour an already-aborted signal explicitly — addEventListener never fires for
+			// a signal that aborted before the listener attached (e.g. during
+			// coverSearchTerms or a task's synchronous launch), and without this the race
+			// promise could only ever settle when every task settled on its own timeouts.
+			if (signal?.aborted) finish();
+			else signal?.addEventListener('abort', () => finish(), { once: true });
+			for (const task of tasks) {
+				task.fn()
+					.then((cover) => {
+						if (done || signal?.aborted) return;
+						if (cover && hasHttpsScheme(cover)) {
+							results.set(task.key, cover);
+							// First valid cover: start priority window for higher-priority sources.
+							if (windowTimer === null) {
+								windowTimer = setTimeout(finish, PRIORITY_WINDOW_MS);
+							}
+						}
+						if (--remaining === 0) finish();
+					})
+					.catch(() => {
+						if (--remaining === 0 && !done) finish();
+					});
+			}
+		});
 
-		return hasHttpsScheme(cover) ? cover : null;
+		if (signal?.aborted) return null;
+		// Pick highest-priority valid cover.
+		for (const key of priorityOrder) {
+			const cover = results.get(key);
+			if (cover && hasHttpsScheme(cover)) return cover;
+		}
+		return null;
 	} catch {
 		// Backstop — a miss leaves the gradient (never a broken image / never blocks).
 		return null;
@@ -642,6 +718,11 @@ export async function collectCoverCandidates(
 	signal?: AbortSignal
 ): Promise<CoverCandidate[]> {
 	if (signal?.aborted) return [];
+	// quick-261021-cache1 (user): memoize cover candidates by UID — repeat opens instant.
+	const memoKey = track.uid;
+	if (memoKey && coverCandidatesMemo.has(memoKey)) {
+		return coverCandidatesMemo.get(memoKey)!;
+	}
 	const artist = track.artist ?? '';
 	const title = track.title ?? '';
 	const term = `${artist} ${title}`.trim();
@@ -700,6 +781,9 @@ export async function collectCoverCandidates(
 			// Phase 40 D-10: qq + ytmusic have their own tiers, so each source appears exactly once.
 			const r = await searchAll(term, 1, { qq: false, ytmusic: false }, signal);
 			// Every CN result carries its own `source`, so each source is labelled for free.
+			// quick-261021-cov5 (user, revised): the MANUAL picker shows all sources —
+			// gdnetease/suyin stay here for the user to choose. Only the AUTO-RESOLVE
+			// chain (resolveTrackChain) excludes them.
 			return r.interleaved.map((t) => ({ url: t.cover ?? '', source: String(t.source) }));
 		})
 	]);
@@ -726,5 +810,7 @@ export async function collectCoverCandidates(
 		out.push(c);
 		if (out.length >= MAX_CANDIDATES) break;
 	}
+	// quick-261021-cache1: memoize for instant repeat opens.
+	if (memoKey) coverCandidatesMemo.set(memoKey, out);
 	return out;
 }
