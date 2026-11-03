@@ -16,6 +16,8 @@
 import type { RequestHandler } from './$types';
 import { fetchWithRetry, corsHeaders, jsonResponse, corsPreflight } from '$lib/proxy/http';
 import { edgeCache } from '$lib/proxy/edge-cache';
+import { isCoverOf } from '$lib/services/song-variant';
+import { ensureFoldReady } from '$lib/services/zh-convert';
 
 const DEEZER_ALBUM_SEARCH = 'https://api.deezer.com/search/album';
 const DEEZER_ALBUM_BYID = 'https://api.deezer.com/album';
@@ -54,6 +56,7 @@ const jsonResult = (body: unknown, origin: string | null, ttl?: number): Respons
 interface DzAlbumHit {
 	id?: number;
 	title?: string;
+	artist?: { name?: string };
 }
 interface DzSearchResp {
 	data?: DzAlbumHit[];
@@ -104,9 +107,15 @@ export const GET: RequestHandler = async ({ url, request }) => {
 
 	try {
 		// 1. Resolve album TITLE+ARTIST → album.id (V5: encodeURIComponent guards SSRF).
-		const searchUrl = `${DEEZER_ALBUM_SEARCH}?q=${encodeURIComponent(query)}&limit=1`;
+		// quick-261102-tdc (DECISIONS.md §6): scan a few hits through THE cover identity gate
+		// (song-variant isCoverOf on album title + artist) instead of trusting data[0] — its art
+		// becomes every queued song's cover via the album hero.
+		const searchUrl = `${DEEZER_ALBUM_SEARCH}?q=${encodeURIComponent(query)}&limit=5`;
 		const searchRes = await fetchWithRetry(searchUrl, { signal: AbortSignal.timeout(8000) }, 2);
-		const id = ((await searchRes.json()) as DzSearchResp)?.data?.[0]?.id;
+		await ensureFoldReady();
+		const id = ((await searchRes.json()) as DzSearchResp)?.data?.find((h) =>
+			isCoverOf({ artist, title }, { artist: h?.artist?.name, title: h?.title })
+		)?.id;
 		// Miss → empty shape, do NOT long-cache (T-17-13: negative TTL is worse UX).
 		if (id === undefined || id === null) return jsonResult(EMPTY, origin);
 

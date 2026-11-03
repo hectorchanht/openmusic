@@ -30,6 +30,7 @@
 // proxy is the artist's top ALBUM cover via `entity=album&attribute=artistTerm&limit=1` →
 // `results[0].artworkUrl100`. itunesArtistCover uses that album-art path.
 
+import { isCoverOf } from '$lib/services/song-variant';
 import { getCachedItunesId, setCachedItunesId } from '$lib/services/cover-cache';
 import { combinedSignal as combineWithTimeout } from './abort-signal';
 
@@ -54,6 +55,9 @@ const combinedSignal = (caller?: AbortSignal) => combineWithTimeout(FETCH_TIMEOU
 /** Shape we read off an iTunes Search result (everything optional — untrusted external JSON). */
 interface ItunesResult {
 	artworkUrl100?: string;
+	/** quick-261102-tdc: the candidate's own identity, checked by the cover gate. */
+	trackName?: string;
+	artistName?: string;
 	/** quick-260809-3uo — the numeric ids the share carrier tokenizes by (see rememberItunesId). */
 	collectionId?: unknown;
 	trackId?: unknown;
@@ -186,7 +190,8 @@ export function recallItunesId(coverUrl: string | null | undefined): string | nu
 async function fetchTopArtwork(
 	url: string,
 	signal?: AbortSignal,
-	size = '1200x1200bb'
+	size = '1200x1200bb',
+	accept?: (r: ItunesResult) => boolean
 ): Promise<string | null> {
 	if (signal?.aborted) return null;
 	try {
@@ -195,7 +200,8 @@ async function fetchTopArtwork(
 		const res = await fetch(url, { signal: combinedSignal(signal) });
 		if (!res.ok) return null;
 		const data = (await res.json()) as ItunesResponse;
-		const top = data?.results?.[0];
+		// quick-261102-tdc: with `accept`, the first result passing the cover identity gate.
+		const top = accept ? data?.results?.find(accept) : data?.results?.[0];
 		const art = upgradeArtwork(top?.artworkUrl100, size);
 		// quick-260809-3uo: retain the numeric id beside the URL — the ONE moment both are in hand.
 		// The retention keys on the SIZE-INDEPENDENT artwork key (itunesArtworkKey), so a 400px
@@ -224,7 +230,12 @@ export async function itunesSongCover(
 	if (signal?.aborted) return null;
 	const term = `${artist ?? ''} ${title ?? ''}`.trim();
 	if (!term) return null;
-	return fetchTopArtwork(buildItunesSearchUrl(term, 'song'), signal, size);
+	// quick-261102-tdc (DECISIONS.md §6): scan a few results through THE cover identity gate
+	// (song-variant isCoverOf) instead of trusting results[0].
+	const song = { artist: artist ?? '', title: title ?? '' };
+	return fetchTopArtwork(buildItunesSearchUrl(term, 'song', undefined, 5), signal, size, (r) =>
+		isCoverOf(song, { artist: r.artistName, title: r.trackName })
+	);
 }
 
 /**

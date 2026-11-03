@@ -7,7 +7,7 @@ import {
 } from '$lib/services/cover-cache';
 import { resolveCoverForTrack } from '$lib/services/cover-backfill';
 import { itunesSongCover, DISPLAY_ARTWORK_SIZE } from '$lib/services/itunes-cover';
-import { removeCoverBoth, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
+import { removeCoverBoth, bumpCoverVersion, writeCoverBoth } from '$lib/stores/cover-version.svelte';
 import { hasHttpsScheme, isRenderableCover } from '$lib/services/url-safety';
 
 // quick-261020-itn1: Netease covers come via the meting pic proxy and are frequently
@@ -122,8 +122,11 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 		// ACCEPTED TRADE-OFF (T-4fr-02): a fresh entry whose CDN url dies WITHIN the FRESH_MS window will
 		// not self-heal via lazyCover until it ages past FRESH_MS — but player.healCover (now-playing)
 		// and later visits still catch it. This is the intended cost of skipping the warm-row probe.
-		const byUid = track.uid ? getCachedCoverByUid(track.uid) : null;
-		const cached = byUid ?? getCachedCover(track.artist, track.title);
+		// quick-261102-tdc (DECISIONS.md §6): NAME layer first, then uid — readCoverByUidOrName's
+		// latest-wins order (every writer writes both layers, so the name layer holds the newest
+		// cover for the song). This read was uid-first, the one reader that disagreed.
+		const cached =
+			getCachedCover(track.artist, track.title) ?? (track.uid ? getCachedCoverByUid(track.uid) : null);
 		// quick-261008-cov1: an INLINE (data:) cover is terminal wherever it sits — the track's own
 		// or the cache's. It is the file's embedded front cover, already the shown art: paint it and
 		// return with no probe (it cannot 404) and no chain (a re-resolve would displace it at rung 1
@@ -169,6 +172,9 @@ async function resolveCoverForRow(track: Track, onResolved: (uid: string, url: s
 					DISPLAY_ARTWORK_SIZE
 				);
 				if (hasHttpsScheme(itunes)) {
+					// quick-261102-tdc: through the ONE writer — the row-local onResolved alone was
+					// invisible to every other surface (pickRowCover ranks `cached` above `resolved`).
+					writeCoverBoth(track.uid, track.artist, track.title, itunes);
 					onResolved(track.uid, itunes);
 					return;
 				}

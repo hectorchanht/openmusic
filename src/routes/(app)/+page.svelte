@@ -81,7 +81,6 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 		// folded only into the cache read would lose on every one of them.
 		// Phase 40 D-14: readChosenCover — the pin, then the crowd pick — replaces readPinnedCover.
 		readChosenCover,
-		readCoverByName,
 		readArtistCover,
 		bumpCoverVersion
 	} from '$lib/stores/cover-version.svelte';
@@ -393,7 +392,8 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 			undefined, // no component-local resolved result (backfill only bumps here)
 			item.image, // seeded Last.fm image — dead-skipped inside pickRowCover
 			item.artist && item.title
-				? readCoverByName(item.artist, item.title)
+				? // quick-261102-tdc: the shared reader (chosen-by-name → name layer), was the name layer alone
+					readCoverByUidOrName('', item.artist, item.title)
 				: item.artistName
 					? readArtistCover(item.artistName)
 					: null
@@ -1245,7 +1245,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 			{#each fallbackSongs as track (track.uid)}
 				<!-- quick-260915-w4f: a pin outranks the tile's inline cover. {@const} must be the immediate
 				     child of the {#each}, not of the <button>. -->
-				{@const art = readChosenCover(track.uid, track.artist, track.title) ?? track.cover}
+				{@const art = readCoverByUidOrName(track.uid, track.artist, track.title) ?? track.cover}
 				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); menuTrack = track; menuOpen = true; }} onclick={() => { player.setQueue(fallbackSongs, 'home-discovery'); player.play(track, { fresh: true }); }}>
 					<!-- quick-261102-sfc: cover as a lazy <img> over the gradient (was a CSS url() background,
 					     which is never lazy and has no onerror — a dead URL left a blank tile and never reached

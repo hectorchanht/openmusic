@@ -37,7 +37,7 @@
 	// quick-260920-nyq: readCoverByUidOrName dropped — the hero's cache read moved into the store's
 	// displayCover getter, so this file no longer reads the cache for the CURRENT track directly.
 	// Phase 40 D-14: readChosenCover (pin, then crowd pick) replaces readPinnedCover as the display rung.
-	import { readChosenCover } from '$lib/stores/cover-version.svelte';
+	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
 	// quick-260919-0mw: the ONE shared tri-state download affordance. It already owns the idle /
 	// downloading / downloaded / unavailable states, the shared downloadTrack path, its own toasts,
 	// its own t() keys and tapBounce — so this is a mount, never a re-implementation.
@@ -417,7 +417,9 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	// url() use the same value (they previously restated the same expression twice).
 	const cellBg = (tk: Track | null) => {
 		if (!tk) return 'none';
-		const u = readChosenCover(tk.uid, tk.artist, tk.title) ?? resolvedCovers[tk.uid] ?? tk.cover;
+		// quick-261102-tdc (DECISIONS.md §6): the shared reader (chosen → name → uid), not the pin alone —
+		// a neighbour cell skipped the cache every other surface reads.
+		const u = readCoverByUidOrName(tk.uid, tk.artist, tk.title) ?? resolvedCovers[tk.uid] ?? tk.cover;
 		// quick-260920-nyq: gradient UNDER the image here too — see the hero comment below.
 		return u ? `url(${u}), ${fallbackCover(tk)}` : fallbackCover(tk);
 	};
@@ -505,8 +507,10 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		if (!t) return null;
 		return songShareUrl(
 			{ title: names.dnTitle(t.title, t.artist), artist: names.dnArtist(t.artist) },
-			player.resolvedCover,
-			recallItunesId(player.resolvedCover),
+			// quick-261102-tdc: the cover every surface shows (displayCover), as TrackMenu's share does —
+			// resolvedCover alone missed the cache's latest write. coverToken drops a non-https (data:) art.
+			player.displayCover,
+			recallItunesId(player.displayCover),
 			t
 		);
 	});

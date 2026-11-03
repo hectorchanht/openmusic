@@ -231,7 +231,8 @@
 	<!-- Round-avatar rows, tap → /artist/{name}; no swipe, no ⋮ (an artist is not a track, D-09). -->
 	<ul class="list">
 		{#each visibleArtists as a (a.name)}
-			{@const img = a.image ?? readArtistCover(a.name)}
+			<!-- quick-261102-tdc: cache first (latest-wins, the backfilled + gated artist cover), seed last -->
+			{@const img = readArtistCover(a.name) ?? a.image}
 			<li>
 				<button class="row" use:tapBounce onclick={() => goto(names.artistHref(a.name))}>
 					<span class="art round" style:background-image={img ? `url(${img})` : coverGradient(a.name)}></span>

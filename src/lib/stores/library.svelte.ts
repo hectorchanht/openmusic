@@ -4,7 +4,7 @@
 import { browser } from '$app/environment';
 import { trackLike } from '$lib/analytics';
 import { blobStore } from '$lib/services/blob-store';
-import { setCachedCover } from '$lib/services/cover-cache';
+import { writeCoverBoth } from '$lib/stores/cover-version.svelte';
 import { hasHttpsScheme } from '$lib/services/url-safety';
 import { matchKey, versionedMatchKey, dedupeShelfList, isSameShelfSong, sameSongStrings, songKey } from '$lib/services/dedupe';
 import { isDeviceUid } from '$lib/services/device-track';
@@ -259,7 +259,9 @@ class Library {
 		// http source cover poisoned the cache and re-seeded player.resolvedCover on every replay.
 		// quick-261008-cov1: the Phase 40 D-11b YT Music name-layer exclusion is retired by the
 		// same directive — a shown YTM thumbnail now bridges every source's copy like any cover.
-		if (hasHttpsScheme(cover)) setCachedCover(src.artist, src.title, cover);
+		// quick-261102-tdc (DECISIONS.md §6): through the ONE writer (both layers + version bump) — this
+		// was the last writer that skipped the uid layer and the repaint signal.
+		if (hasHttpsScheme(cover)) writeCoverBoth(src.uid, src.artist, src.title, cover);
 	}
 
 	/**

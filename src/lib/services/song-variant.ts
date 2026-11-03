@@ -1,7 +1,7 @@
 // SUBSTITUTION VARIANT GUARD — "is this candidate an acceptable stand-in for the song that failed?"
 // OFFICIAL SONG PRIORITIZER lives at the bottom (quick-261020-off1).
 
-import { variantTag, sameArtistCredit, sameSongStrings, sameSongByCredit } from '$lib/services/dedupe';
+import { variantTag, sameArtistCredit, sameSongStrings, sameSongByCredit, titleKeys } from '$lib/services/dedupe';
 import { foldScript } from '$lib/services/zh-convert';
 import { VARIANT_KEYWORDS, scoreMatch } from '$lib/services/score-match';
 //
@@ -428,4 +428,40 @@ export function rankAutoCandidates<T extends Named & { duration?: number }>(
 		target.title,
 		{ expectedSec: opts?.expectedSec, score: (c) => scoreMatch(target, c) }
 	);
+}
+
+// quick-261102-tdc (DECISIONS.md §6): bare trailing words a cover candidate may carry without
+// being a different release — Deezer literally titles a pressing "Without you explicit", and a
+// clean/remastered/live/acoustic pressing shares the song's art.
+const COVER_TITLE_TAIL = ['explicit', 'clean', 'remastered', 'remaster', 'live', 'acoustic'];
+
+function coverTitleKeys(title: string): string[] {
+	return titleKeys(title).map((k) => {
+		for (const w of COVER_TITLE_TAIL) while (k.length > w.length && k.endsWith(w)) k = k.slice(0, -w.length);
+		return k;
+	});
+}
+
+/**
+ * quick-261102-tdc (DECISIONS.md §6) — THE cover identity gate: may a cover candidate whose own
+ * metadata reads (cand.artist, cand.title) be shown as `song`'s cover? Every cover rung — the
+ * in-app race (iTunes / Deezer / CN / QQ / YTM), the artist and album heroes and /api/og — asks
+ * this one question, so a miss means the branded/gradient fallback, never another song's cover.
+ *   - artist: sameArtistCredit — whole credited segment or script-run alias (高爾宣 OSN ≡ Osn ≡
+ *     高爾宣), never substring (product call 2026-11-03: was ≥2-char containment in /api/og);
+ *   - title: the identity title key (script-folded, brackets dropped, either half of a bilingual
+ *     title) after stripping a bare trailing explicit/clean/remaster/live/acoustic word.
+ * A field the candidate does not carry cannot convict it; a candidate carrying neither is
+ * accepted (a synthetic body, not a real catalog row — see og-cover's gate history).
+ */
+export function isCoverOf(song: Named, cand: { artist?: string | null; title?: string | null }): boolean {
+	const ca = (cand.artist ?? '').trim();
+	const ct = (cand.title ?? '').trim();
+	if (!ca && !ct) return true;
+	if (ca && song.artist.trim() && !sameArtistCredit(song.artist, ca)) return false;
+	if (ct && song.title.trim()) {
+		const want = coverTitleKeys(song.title);
+		if (!coverTitleKeys(ct).some((k) => want.includes(k))) return false;
+	}
+	return true;
 }

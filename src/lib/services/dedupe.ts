@@ -286,6 +286,14 @@ export function sameSongStrings(aArtist: string, aTitle: string, bArtist: string
 	return titleMatch && (aa === ab || aliasArtist(aa, ab));
 }
 
+/** quick-261102-tdc: every title key a title answers to — songKey's title half plus, for a
+ *  bilingual title, the half it dropped (see altTitleKey). Empty for an untitled input. */
+export function titleKeys(titleIn: string): string[] {
+	const k = titleKey(titleIn || '');
+	const alt = altTitleKey(titleIn || '');
+	return [k, alt].filter((x): x is string => !!x);
+}
+
 /** quick-261102-sy0: the half of a bilingual title that stripTranslation DROPPED (the ASCII tail
  *  of "<Han> - <ascii>", the Han run of "<Han> <Latin ≥2 words>"), keyed like songKey's title
  *  half — or null when the title is not bilingual. */

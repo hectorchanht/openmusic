@@ -65,8 +65,11 @@ function mk(source: SourceId, songid: string, extra: Partial<Track> = {}): Track
 		uid: makeUid(source, songid),
 		source,
 		songid,
-		title: `${source}-${songid}`,
-		artist: 'a',
+		// quick-261102-tdc: identity-less by default — the cover rungs now gate every row through
+		// isCoverOf, and a row carrying no artist/title cannot be convicted (tests that exercise
+		// the gate set both explicitly).
+		title: '',
+		artist: '',
 		album: '',
 		cover: null,
 		audioUrl: null,
@@ -476,7 +479,8 @@ describe('QQ cover tier (Phase 40 D-08)', () => {
 	it('three consecutive qq detail failures trip the gate: the next miss skips the QQ tier entirely', async () => {
 		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
 		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(DZ);
-		mockSearch({ qq: [mk('qq', 'q1', { artist: 'Jay Chou', title: 'Qing Hua Ci' })] });
+		// quick-261102-tdc: identity-less row — these pin the gate, not the cover identity check.
+		mockSearch({ qq: [mk('qq', 'q1')] });
 		qqResolve().mockRejectedValue(new Error('qq detail error (invalid response)'));
 		for (let i = 0; i < 3; i++) {
 			__resetCoverMissCache();
@@ -492,7 +496,7 @@ describe('QQ cover tier (Phase 40 D-08)', () => {
 	it('a caller abort is a supersede, not a failure: it never trips the gate', async () => {
 		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
 		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(DZ);
-		mockSearch({ qq: [mk('qq', 'q1', { artist: 'Jay Chou', title: 'Qing Hua Ci' })] });
+		mockSearch({ qq: [mk('qq', 'q1')] });
 		for (let i = 0; i < 3; i++) {
 			const ac = new AbortController();
 			qqResolve().mockImplementationOnce(async () => {

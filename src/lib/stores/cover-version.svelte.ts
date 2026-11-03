@@ -70,7 +70,7 @@ export function coverVersion(): number {
  * resolve up to N covers and each fires this synchronously → without batching that is N full grid
  * re-evaluations; batched, it is one grid re-render per frame.
  *
- * RATIONALE (why deferring the bump is safe): the reactive READS (readCoverByUidOrName / readCoverByName /
+ * RATIONALE (why deferring the bump is safe): the reactive READS (readCoverByUidOrName /
  * readArtistCover) pull the cover URL DIRECTLY from the cache via getCachedCover*, and only call
  * coverVersion() to TAKE the dependency — so a one-frame-deferred bump merely defers the repaint
  * (imperceptible), it never serves stale or missing data. rAF naturally pauses while the tab is hidden,
@@ -202,12 +202,6 @@ export function pinCover(uid: string, url: string): void {
 export function unpinCover(uid: string): void {
 	removePinnedCover(uid);
 	bumpCoverVersion();
-}
-
-/** Reactive read of a {artist,title} name-key cover (discovery tiles carry no uid). Depends on coverVersion(). */
-export function readCoverByName(artist: string, title: string): string | null {
-	coverVersion();
-	return getCachedCover(artist, title);
 }
 
 /** Reactive read of an ARTIST-only cover. Depends on coverVersion(). */

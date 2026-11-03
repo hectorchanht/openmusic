@@ -58,6 +58,10 @@ const TTL_ARTIST = 7 * 24 * 60 * 60 * 1000;
  *  quick-261101-chk: the re-export alone never brought the names into THIS module's scope —
  *  the internal annotations below need the matching `import type` (svelte-check baseline fix). */
 import type { DeezerCover, DeezerHit } from '$lib/proxy/deezer-cover';
+import { isCoverOf } from '$lib/services/song-variant';
+
+/** quick-261102-tdc: how many hits a song-cover lookup scans through the identity gate. */
+const COVER_CANDIDATES = 5;
 export type { DeezerCover, DeezerHit } from '$lib/proxy/deezer-cover';
 
 /** Chart item shapes (mirror the /api/deezer/chart +server.ts reshape + lastfm Discovery* shapes). */
@@ -124,8 +128,10 @@ export async function deezerGenreChart(genreId: number, signal?: AbortSignal): P
  * (no raw spaces / special chars leak into the query). Points at /api/deezer/search — NEVER
  * api.deezer.com (the browser fetch to Deezer is CORS-blocked, so it must be proxied).
  */
-export function buildDeezerSearchUrl(term: string): string {
-	return `${PROXY_PATH}?${new URLSearchParams({ q: term }).toString()}`;
+export function buildDeezerSearchUrl(term: string, limit?: number): string {
+	const params = new URLSearchParams({ q: term });
+	if (limit && limit > 1) params.set('limit', String(limit));
+	return `${PROXY_PATH}?${params.toString()}`;
 }
 
 /**
@@ -143,8 +149,8 @@ export function buildDeezerSearchUrl(term: string): string {
  * failure must REJECT inside cached() so the sentinel is never pinned for the TTL — the
  * exported callers map the rejection to null OUTSIDE the cache.
  */
-async function fetchDeezerOrThrow(term: string, signal?: AbortSignal): Promise<DeezerCover> {
-	const res = await apiFetch(buildDeezerSearchUrl(term), { signal: combinedSignal(signal) });
+async function fetchDeezerOrThrow(term: string, signal?: AbortSignal, limit?: number): Promise<DeezerCover> {
+	const res = await apiFetch(buildDeezerSearchUrl(term, limit), { signal: combinedSignal(signal) });
 	if (!res.ok) throw new Error(String(res.status));
 	return (await res.json()) as DeezerCover;
 }
@@ -186,8 +192,12 @@ export async function deezerSongCover(
 	// k3y client cache: memo the resolved cover so repeat lookups skip the edge round-trip.
 	const key = prefer === 'big' ? `dz:cover:song:500:${term}` : `dz:cover:song:${term}`;
 	return cached(key, TTL_COVER, async () => {
-		const result = await fetchDeezerOrThrow(term, signal);
-		const cover = result?.cover ?? null;
+		// quick-261102-tdc (DECISIONS.md §6): scan a few hits through THE cover identity gate
+		// (song-variant isCoverOf) instead of trusting data[0] — the first hit for
+		// "高爾宣 OSN Without You (Explicit)" was a stranger's "Without you".
+		const result = await fetchDeezerOrThrow(term, signal, COVER_CANDIDATES);
+		const song = { artist: artist ?? '', title: title ?? '' };
+		const cover = (result?.results ?? []).find((h) => h.cover && isCoverOf(song, h))?.cover ?? null;
 		return prefer === 'big' ? downsizeDeezerCover(cover) : cover;
 	}).catch(() => null);
 }
@@ -209,8 +219,11 @@ export async function deezerArtistCover(
 	if (!term) return null;
 	const key = prefer === 'big' ? `dz:cover:artist:500:${term}` : `dz:cover:artist:${term}`;
 	return cached(key, TTL_COVER, async () => {
-		const result = await fetchDeezerOrThrow(term, signal);
-		const pic = result?.artistPicture ?? null;
+		// quick-261102-tdc (DECISIONS.md §6): artistPicture belongs to the TOP hit's artist — accept it
+		// only when that artist IS the requested one (THE cover identity gate, artist-only).
+		const result = await fetchDeezerOrThrow(term, signal, COVER_CANDIDATES);
+		const top = result?.results?.[0];
+		const pic = top && isCoverOf({ artist: term, title: '' }, { artist: top.artist }) ? (result?.artistPicture ?? null) : null;
 		return prefer === 'big' ? downsizeDeezerCover(pic) : pic;
 	}).catch(() => null);
 }

@@ -48,6 +48,19 @@ describe('buildDeezerSearchUrl — own-origin URL build + encoding', () => {
 		expect(params.get('q')).toBe('Jay Chou Simple Love');
 	});
 
+	it('quick-261102-tdc: a different artist\'s hit never lends its cover', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () =>
+				jsonResponse({
+					cover: COVER,
+					results: [{ id: '9', title: 'Without you', artist: 'Lilcory_offical', album: '', cover: COVER, preview: null }]
+				})
+			)
+		);
+		await expect(deezerSongCover('高爾宣 OSN', 'Without You (Explicit)')).resolves.toBeNull();
+	});
+
 	it('encodes special chars in q (no raw spaces / & / / leak)', () => {
 		const url = buildDeezerSearchUrl('A&B C/D');
 		expect(url).not.toContain(' ');
@@ -61,9 +74,10 @@ describe('buildDeezerSearchUrl — own-origin URL build + encoding', () => {
 });
 
 describe('deezerSongCover — resolve cover via the proxy', () => {
-	it('fetches the proxy for `${artist} ${title}` and returns .cover', async () => {
+	// quick-261102-tdc: the cover now comes from the first identity-matching hit in `results`.
+	it('fetches the proxy for `${artist} ${title}` and returns the matching hit\'s cover', async () => {
 		const fetchMock = vi.fn(async (_url: string) =>
-			jsonResponse({ cover: COVER, artistPicture: PIC })
+			jsonResponse({ cover: COVER, artistPicture: PIC, results: [{ id: '1', title: 'Simple Love', artist: 'Jay Chou', album: '', cover: COVER, preview: null }] })
 		);
 		vi.stubGlobal('fetch', fetchMock);
 
@@ -132,14 +146,17 @@ describe('deezerSongCover — resolve cover via the proxy', () => {
 });
 
 describe('deezerArtistCover — resolve artist picture via the proxy', () => {
+	// quick-261102-tdc: the picture is accepted only when the top hit's artist IS the request.
 	it('fetches the proxy for the artist name and returns .artistPicture', async () => {
 		const fetchMock = vi.fn(async (_url: string) =>
-			jsonResponse({ cover: COVER, artistPicture: PIC })
+			jsonResponse({ cover: COVER, artistPicture: PIC, results: [{ id: '1', title: 'x', artist: 'Taylor Swift', album: '', cover: COVER, preview: null }] })
 		);
 		vi.stubGlobal('fetch', fetchMock);
 
 		const out = await deezerArtistCover('Taylor Swift');
 		expect(out).toBe(PIC);
+		vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ artistPicture: PIC, results: [{ id: '2', title: 'x', artist: 'Someone Else', album: '', cover: null, preview: null }] })));
+		await expect(deezerArtistCover('Taylor Swift Gate')).resolves.toBeNull();
 		const called = String(fetchMock.mock.calls[0][0]);
 		const params = new URLSearchParams(called.split('?')[1]);
 		expect(params.get('q')).toBe('Taylor Swift');
@@ -569,19 +586,19 @@ describe('downsizeDeezerCover — 1000x1000- → 500x500- (quick-261006-o9t)', (
 
 describe("deezerSongCover prefer — 'xl' vs 'big' (quick-261006-o9t)", () => {
 	it("default ('xl') keeps the historic 1000px URL byte-identical", async () => {
-		vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ cover: COVER, artistPicture: PIC })));
+		vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ cover: COVER, artistPicture: PIC, results: [{ id: '1', title: 'Simple Love', artist: 'Jay Chou', album: '', cover: COVER, preview: null }] })));
 		await expect(deezerSongCover('Jay Chou', 'Simple Love')).resolves.toBe(COVER);
 	});
 
 	it("'big' returns the 500px variant", async () => {
-		vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ cover: COVER, artistPicture: PIC })));
+		vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ cover: COVER, artistPicture: PIC, results: [{ id: '1', title: 'Simple Love', artist: 'Jay Chou', album: '', cover: COVER, preview: null }] })));
 		await expect(deezerSongCover('Jay Chou', 'Simple Love', undefined, 'big')).resolves.toBe(
 			'https://cdn-images.dzcdn.net/images/cover/abc/500x500-000000-80-0-0.jpg'
 		);
 	});
 
 	it("'big' and 'xl' do not read each other's cache entries", async () => {
-		const fetchMock = vi.fn(async () => jsonResponse({ cover: COVER, artistPicture: PIC }));
+		const fetchMock = vi.fn(async () => jsonResponse({ cover: COVER, artistPicture: PIC, results: [{ id: '1', title: 'Song', artist: 'Cache Split', album: '', cover: COVER, preview: null }] }));
 		vi.stubGlobal('fetch', fetchMock);
 		// Same term, different rungs → two network calls (distinct cache keys), distinct sizes.
 		const xl = await deezerSongCover('Cache Split', 'Song', undefined, 'xl');
@@ -599,14 +616,14 @@ describe("deezerSongCover prefer — 'xl' vs 'big' (quick-261006-o9t)", () => {
 
 describe("deezerArtistCover prefer — 'xl' vs 'big' (quick-261006-o9t)", () => {
 	it("'big' returns the 500px artist-picture variant", async () => {
-		vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ cover: COVER, artistPicture: PIC })));
+		vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ cover: COVER, artistPicture: PIC, results: [{ id: '1', title: 'x', artist: 'Jay Chou', album: '', cover: COVER, preview: null }] })));
 		await expect(deezerArtistCover('Jay Chou', undefined, 'big')).resolves.toBe(
 			'https://cdn-images.dzcdn.net/images/artist/def/500x500-000000-80-0-0.jpg'
 		);
 	});
 
 	it("default ('xl') keeps the historic 1000px URL byte-identical", async () => {
-		vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ cover: COVER, artistPicture: PIC })));
+		vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ cover: COVER, artistPicture: PIC, results: [{ id: '1', title: 'x', artist: 'Jay Chou', album: '', cover: COVER, preview: null }] })));
 		await expect(deezerArtistCover('Jay Chou')).resolves.toBe(PIC);
 	});
 });

@@ -120,6 +120,7 @@ import { createHealthGate } from '$lib/services/source-health';
 import { combinedSignal } from '$lib/services/abort-signal';
 import { foldScriptReady } from '$lib/services/zh-convert';
 import { COVER_ORDER, COVER_SKIP, COVER_RACE_TIERS, PRIORITY_WINDOW_MS } from '$lib/sources/source-order';
+import { isCoverOf } from '$lib/services/song-variant';
 import type { Track } from '$lib/sources/types';
 import { hasHttpsScheme } from './url-safety';
 
@@ -245,7 +246,9 @@ async function ytmusicSongCover(
 	signal?: AbortSignal
 ): Promise<string | null> {
 	const r = await searchAll(`${artist} ${title}`, 1, onlySource('ytmusic'), signal);
-	return dedupeBest(r.interleaved, settings.preferredSource)[0]?.cover ?? null;
+	// quick-261102-tdc: only rows passing THE cover identity gate may lend their art.
+	const song = { artist, title };
+	return dedupeBest(r.interleaved.filter((t) => isCoverOf(song, t)), settings.preferredSource)[0]?.cover ?? null;
 }
 
 /**
@@ -289,7 +292,9 @@ async function qqSongCover(
 			qqCoverGate.recordFail();
 			return null;
 		}
-		const row = dedupeBest(r.interleaved, settings.preferredSource)[0];
+		// quick-261102-tdc: only a row passing THE cover identity gate may lend its art.
+		const song = { artist, title };
+		const row = dedupeBest(r.interleaved.filter((t) => isCoverOf(song, t)), settings.preferredSource)[0];
 		if (!row) {
 			qqCoverGate.recordOk(); // a healthy search that simply has no such song
 			return null;
@@ -364,7 +369,10 @@ async function resolveTrackChain(
 					if (signal?.aborted) return null;
 					// quick-261021-cov5 (user): COVER_SKIP sources seldom have good covers —
 					// excluded from auto-resolve too, not just the picker.
-					const tracks = r.interleaved.filter((t) => !COVER_SKIP.includes(t.source));
+					// quick-261102-tdc (DECISIONS.md §6): plus THE cover identity gate — `find(joox && cover)`
+					// used to lend ANY joox row's art (a different artist's same-title song included).
+					const song = { artist: qArtist, title: qTitle };
+					const tracks = r.interleaved.filter((t) => !COVER_SKIP.includes(t.source) && isCoverOf(song, t));
 					// quick-261102-sqn: COVER_ORDER, then dedupeBest's pick (no local joox/migu literal).
 					for (const src of COVER_ORDER) {
 						const hit = tracks.find((t) => t.source === src && t.cover);

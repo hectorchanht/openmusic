@@ -83,8 +83,8 @@ import {
 } from '$lib/proxy/safe-image-url';
 import { buildKuwoSearchUrl, mapSearch } from '$lib/proxy/kuwo';
 import { buildItunesSearchUrl, upgradeArtwork } from '$lib/services/itunes-cover';
-import { isChineseLine, s2tConvertLines, foldScriptReady } from '$lib/services/zh-convert';
-import { normField as norm } from '$lib/services/dedupe';
+import { isChineseLine, foldScriptReady } from '$lib/services/zh-convert';
+import { isCoverOf } from '$lib/services/song-variant';
 
 /** The closed set of card kinds /api/og understands. */
 export const OG_TYPES = ['song', 'album', 'artist'] as const;
@@ -419,63 +419,19 @@ function pickLastfmImage(images: unknown): string | null {
 // validated on the fields it does carry. Tighten this only alongside a fixture-wide contract
 // change — the endpoint suite's minimal bodies rely on it.
 
-/** Title comparison key: norm() plus bare trailing version-word stripping (see gate header). */
-function ogTitleKey(s: string): string {
-	let k = norm(s);
-	for (const w of ['explicit', 'clean', 'remastered', 'remaster', 'live', 'acoustic']) {
-		while (k.length > w.length && k.endsWith(w)) k = k.slice(0, -w.length);
-	}
-	return k;
-}
-
-/** Artist comparison: equality, credited-segment equality, or containment (see gate header). */
-function ogArtistMatches(req: string, cand: string): boolean {
-	const r = norm(req);
-	const c = norm(cand);
-	if (!r || !c) return false;
-	if (r === c) return true;
-	const segs = (s: string) =>
-		s
-			.split(/[、,&/·・×]|feat\.?|ft\.?/i)
-			.map(norm)
-			.filter(Boolean);
-	const rs = segs(req);
-	const cs = segs(cand);
-	if (rs.some((x) => cs.includes(x))) return true;
-	// Containment either way (Osn ⊂ 高爾宣 OSN), with a 2-char floor so a single letter or a
-	// lone CJK character can never "contain" its way into a match.
-	if (r.length >= 2 && c.includes(r)) return true;
-	if (c.length >= 2 && r.includes(c)) return true;
-	return false;
-}
-
 /**
- * Does candidate (candArtist, candTitle) canonically identify as the wanted song? Each field
- * is validated against the UNION of the wanted pairs' values for that field: the pairs differ
- * only by script (original vs t2s), and real catalog rows mix scripts per field (a kuwo row
- * for the converted query can carry a Simplified artist beside a Traditional title), so a
- * pair-as-unit comparison would reject the very song it was asked for. A field the CANDIDATE
- * carries is validated whenever some want carries it; a field the candidate does not carry
- * cannot convict it (partial bodies validate on what they have). Both fields absent → the
- * gate header's absent-identity accept.
+ * quick-261102-tdc (DECISIONS.md §6): the gate is the SHARED cover identity predicate
+ * (song-variant isCoverOf) — the same one every in-app cover rung asks — so /api/og renders the
+ * in-app decision instead of keeping its own. Artist identity is whole-segment / script-run alias
+ * (product call 2026-11-03), no longer ≥2-char containment; keys fold script, so one want covers
+ * both scripts.
  */
 function ogIdentityMatches(
 	wants: readonly OgIdentity[],
 	candArtist: string,
 	candTitle: string
 ): boolean {
-	const ca = (candArtist ?? '').trim();
-	const ct = (candTitle ?? '').trim();
-	if (!ca && !ct) return true;
-	if (ca) {
-		const artists = wants.map((w) => w.artist.trim()).filter(Boolean);
-		if (artists.length > 0 && !artists.some((a) => ogArtistMatches(a, ca))) return false;
-	}
-	if (ct) {
-		const titles = wants.map((w) => w.title.trim()).filter(Boolean);
-		if (titles.length > 0 && !titles.some((t) => ogTitleKey(t) === ogTitleKey(ct))) return false;
-	}
-	return true;
+	return wants.some((w) => isCoverOf(w, { artist: candArtist, title: candTitle }));
 }
 
 /**
@@ -743,22 +699,11 @@ export async function resolveCoverTiered(
 		}
 	}
 
-	// quick-261102-covgate — the wants list, widened BOTH script directions. The chain only ever
-	// SEARCHES with the t2s pair (the CN catalogs), but the global catalogs (iTunes/Deezer)
-	// often credit the OTHER script: a Simplified request whose wants stopped at the converted
-	// pair false-rejected the artist's own Traditional-credited rows (probed live 2026-11-02:
-	// Simplified 陈奕迅/孤勇者 requests gated out every non-kuwo tier). Identity exists in every
-	// script form, so validation accepts original + t2s + s2t, deduped — the SEARCH behaviour
-	// above is untouched, and a non-Chinese request never loads the s2t dict either.
-	const wantList: OgIdentity[] = [{ artist: qArtist, title: qTitle }];
-	if (qArtist !== artist || qTitle !== title) wantList.push(wantOriginal);
-	if (isChineseLine(artist) || isChineseLine(title)) {
-		const [tArtist, tTitle] = await s2tConvertLines([artist, title]);
-		if (!wantList.some((w) => w.artist === tArtist && w.title === tTitle)) {
-			wantList.push({ artist: tArtist, title: tTitle });
-		}
-	}
-	const wants: readonly OgIdentity[] = wantList;
+	// quick-261102-covgate widened the wants across scripts (original + t2s + s2t) because its own
+	// comparison did not fold. quick-261102-tdc: isCoverOf compares script-folded identity keys
+	// (the fold is warm — foldScriptReady above), so the original identity alone covers every
+	// script form a catalog may credit.
+	const wants: readonly OgIdentity[] = [wantOriginal];
 
 	for (const tier of [deezerTier, itunesTier, kuwoTier]) {
 		if (deadline.aborted) break;

@@ -4735,18 +4735,21 @@ class Player {
 		if (this.adoptedCoverUid === resolved.uid) return;
 		if (!url || !hasHttpsScheme(url)) return; // total miss — keep the seeded Netease art
 		this.resolvedCover = url;
-		bumpCoverVersion();
+		// quick-261102-tdc (DECISIONS.md §6): write through the ONE writer. The iTunes hit used to set
+		// resolvedCover only, so displayCover (cache-first) kept showing the cached Netease seed on
+		// the hero/Nowbar while the lock screen showed iTunes. writeCoverBoth bumps the version.
+		writeCoverBoth(resolved.uid, resolved.artist, resolved.title, url);
 		const ms = this.ms;
 		if (ms) {
-			try {
-				ms.metadata = new MediaMetadata({
-					title: resolved.title ?? '',
-					artist: resolved.artist ?? '',
-					artwork: [{ src: url, sizes: '400x400', type: 'image/jpeg' }]
-				});
-			} catch {
-				// MediaSession is best-effort
-			}
+			// Same metadata write as resolveCoverAsync — display names + the shared displayCover
+			// (was raw catalog title/artist and the bare url).
+			ms.metadata = makeMetadata({
+				title: names.dnTitle(resolved.title, resolved.artist),
+				artist: names.dnArtist(resolved.artist),
+				album: resolved.album,
+				artwork: buildArtwork(this.displayCover)
+			});
+			ms.playbackState = playbackStateFor(!!this.current, this.playing);
 		}
 	}
 
