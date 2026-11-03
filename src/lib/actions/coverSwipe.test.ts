@@ -121,6 +121,18 @@ describe('coverSwipe — horizontal axis-locked prev/next swipe (Phase 20 NP-01/
 		expect(o.onnext).not.toHaveBeenCalled();
 	});
 
+	// quick-261102-u05 (DECISIONS.md §12): the settle discipline — an abandoned gesture never commits.
+	it.each(['pointercancel', 'lostpointercapture'])('%s past the commit distance springs back — no prev/next', (ev) => {
+		const o = opts();
+		const m = mount(o);
+		m.fire('pointerdown', pe(100, 50, 0));
+		m.fire('pointermove', pe(112, 52, 16));
+		m.fire('pointermove', pe(200, 54, 400)); // dx = 100 > commitDist 84
+		m.fire(ev, pe(200, 54, 700));
+		expect(o.onprev).not.toHaveBeenCalled();
+		expect(o.onnext).not.toHaveBeenCalled();
+	});
+
 	it('horizontal drag LEFT past 0.28×width (84px), slow → onnext once, onprev not called (D-03)', () => {
 		const o = opts();
 		const m = mount(o);

@@ -299,14 +299,16 @@ describe('swipeAction — unconditional settle (quick-261102-settle)', () => {
 		expect(fakeWin.count('pointerup')).toBe(0); // safety net disarmed after the settle
 	});
 
-	it('lostpointercapture PAST the threshold commits like a release (pointercancel parity)', () => {
+	// quick-261102-u05 (DECISIONS.md §12): the settle discipline — lost capture / pointercancel are an
+	// ABANDONED gesture: spring back to rest and never commit, however far the row was dragged.
+	it.each(['lostpointercapture', 'pointercancel'])('%s PAST the threshold springs back WITHOUT committing', (ev) => {
 		const onSwipeRight = vi.fn();
 		const m = mount({ onSwipeRight, onSwipeLeft: vi.fn(), threshold: 96 });
 		m.fire('pointerdown', peb(100, 50, 0));
 		m.fire('pointermove', peb(112, 52, 16));
 		m.fire('pointermove', peb(220, 54, 200)); // dx = 120 > threshold
-		m.fire('lostpointercapture', peb(220, 54, 220));
-		expect(onSwipeRight).toHaveBeenCalledTimes(1);
+		m.fire(ev, peb(220, 54, 220));
+		expect(onSwipeRight).not.toHaveBeenCalled();
 		expect(['', 'translateX(0)']).toContain(m.style.transform ?? '');
 	});
 

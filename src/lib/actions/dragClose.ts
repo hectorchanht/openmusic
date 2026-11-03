@@ -115,14 +115,14 @@ export const dragClose: Action<HTMLElement, DragCloseOpts> = (node, opts) => {
 		dy = Math.max(0, rawDy);
 		node.style.transform = `translateY(${dy}px)`;
 	}
-	function up() {
+	function up(commit = true) {
 		if (!dragging) return;
 		dragging = false;
 		captured = false;
 		// Dismiss on a far drag OR a fast downward flick (v > 0 = moving DOWN). The dy > 8
 		// guard keeps the tap contract intact: a tap (dy < 8, low velocity) never dismisses.
 		const v = vel.velocity();
-		if (dy > threshold || (v > FLICK_V && dy > 8)) {
+		if (commit && (dy > threshold || (v > FLICK_V && dy > 8))) {
 			// Hand off to the host's transition:fly — reset our inline transform first
 			// so the fly-out animates from the resting position, not the dragged one.
 			resetTransform();
@@ -137,8 +137,16 @@ export const dragClose: Action<HTMLElement, DragCloseOpts> = (node, opts) => {
 
 	node.addEventListener('pointerdown', down);
 	node.addEventListener('pointermove', move);
-	node.addEventListener('pointerup', up);
-	node.addEventListener('pointercancel', up);
+	node.addEventListener('pointerup', release);
+	function release() {
+		up(true);
+	}
+	// quick-261102-u05 (DECISIONS.md §12): an abandoned drag never dismisses the sheet
+	function cancel() {
+		up(false);
+	}
+	node.addEventListener('pointercancel', cancel);
+	node.addEventListener('lostpointercapture', cancel);
 
 	return {
 		update(next: DragCloseOpts) {
@@ -150,8 +158,9 @@ export const dragClose: Action<HTMLElement, DragCloseOpts> = (node, opts) => {
 			snap.cancel(); // quick-261022-spring: never leave the pump writing to a dead node
 			node.removeEventListener('pointerdown', down);
 			node.removeEventListener('pointermove', move);
-			node.removeEventListener('pointerup', up);
-			node.removeEventListener('pointercancel', up);
+			node.removeEventListener('pointerup', release);
+			node.removeEventListener('pointercancel', cancel);
+			node.removeEventListener('lostpointercapture', cancel);
 			resetTransform();
 			node.style.touchAction = '';
 			node.style.overscrollBehavior = '';

@@ -151,7 +151,11 @@
 		dragStartX = e.clientX;
 		dragX = 0;
 		dragMoved = false;
-		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		try {
+			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		} catch {
+			/* quick-261102-u05 (DECISIONS.md §12): a refused capture must not abort the handler */
+		}
 	}
 	function pmove(e: PointerEvent) {
 		if (dragFrom < 0) return;
@@ -161,11 +165,12 @@
 		dragX = dx;
 		dragOver = slotIndexAt(e.clientX);
 	}
-	function up() {
+	function up(commitDrop = true) {
 		if (dragFrom < 0) return;
 		if (dragMoved) {
 			suppressClick = true; // WR-01: the trailing click must not also toggle the chip
-			if (dragOver >= 0 && dragOver !== dragFrom) {
+			// quick-261102-u05 (DECISIONS.md §12): a cancel / lost capture never reorders.
+			if (commitDrop && dragOver >= 0 && dragOver !== dragFrom) {
 				const next = [...enabled];
 				const [moved] = next.splice(dragFrom, 1);
 				next.splice(dragOver, 0, moved);
@@ -239,8 +244,9 @@
 			style:transform={on && enabled.indexOf(a) === dragFrom && dragX ? `translateX(${dragX}px)` : undefined}
 			onpointerdown={(e) => down(e, a)}
 			onpointermove={pmove}
-			onpointerup={up}
-			onpointercancel={up}
+			onpointerup={() => up()}
+			onpointercancel={() => up(false)}
+			onlostpointercapture={() => up(false)}
 			onclick={() => click(a)}
 			onkeydown={(e) => keydown(e, a)}
 		>

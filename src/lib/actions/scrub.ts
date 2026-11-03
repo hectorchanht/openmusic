@@ -61,7 +61,7 @@ export const scrub: Action<HTMLElement, ScrubOpts> = (node, opts) => {
 		if (!dragging) return;
 		onPreview?.(fracFrom(e.clientX));
 	}
-	function up(e: PointerEvent) {
+	function up(e: PointerEvent, commit = true) {
 		if (!dragging) return;
 		dragging = false;
 		if (pointerId !== null) {
@@ -72,14 +72,17 @@ export const scrub: Action<HTMLElement, ScrubOpts> = (node, opts) => {
 			}
 			pointerId = null;
 		}
-		onSeek(fracFrom(e.clientX)); // single audio commit (tap or release)
+		// quick-261102-u05 (DECISIONS.md §12): only a RELEASE seeks — a cancel / lost capture ends the scrub without moving audio.
+		if (commit) onSeek(fracFrom(e.clientX)); // single audio commit (tap or release)
 		onScrubEnd?.();
 	}
 
 	node.addEventListener('pointerdown', down);
 	node.addEventListener('pointermove', move);
 	node.addEventListener('pointerup', up);
-	node.addEventListener('pointercancel', up);
+	const cancel = (e: PointerEvent) => up(e, false);
+	node.addEventListener('pointercancel', cancel);
+	node.addEventListener('lostpointercapture', cancel); // quick-261102-u05 (DECISIONS.md §12): a lost capture no longer leaves the preview stuck
 
 	return {
 		update(next: ScrubOpts) {
@@ -93,7 +96,8 @@ export const scrub: Action<HTMLElement, ScrubOpts> = (node, opts) => {
 			node.removeEventListener('pointerdown', down);
 			node.removeEventListener('pointermove', move);
 			node.removeEventListener('pointerup', up);
-			node.removeEventListener('pointercancel', up);
+			node.removeEventListener('pointercancel', cancel);
+			node.removeEventListener('lostpointercapture', cancel);
 			if (pointerId !== null) {
 				try {
 					node.releasePointerCapture(pointerId);

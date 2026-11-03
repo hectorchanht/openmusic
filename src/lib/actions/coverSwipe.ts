@@ -207,7 +207,7 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 		ondrag?.(applied);
 	}
 
-	function up() {
+	function up(commit = true) {
 		if (!dragging) return;
 		dragging = false;
 		// A gesture that committed (captured) must NOT let its trailing click reach the host's
@@ -223,9 +223,11 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 		// At a TRUE BOUNDARY: ignore flick entirely and ALWAYS spring back — a hard flick into a
 		// wall must never commit (UI-SPEC §2). quick-261022-spring: real spring physics replace
 		// the old fixed 0.32s ease-out; re-seeds from the rubber-banded applied value.
-		if (resisting) {
+		if (resisting || !commit) {
+			// quick-261102-u05 (DECISIONS.md §12): a cancel / lost capture also springs back and NEVER commits a prev/next.
+			const from = resisting ? lastApplied : dx;
 			resisting = false;
-			snap.snap(lastApplied, 0);
+			snap.snap(from, 0);
 			dx = 0;
 			return;
 		}
@@ -253,8 +255,16 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 
 	node.addEventListener('pointerdown', down);
 	node.addEventListener('pointermove', move);
-	node.addEventListener('pointerup', up);
-	node.addEventListener('pointercancel', up);
+	node.addEventListener('pointerup', release);
+	function release() {
+		up(true);
+	}
+	// quick-261102-u05 (DECISIONS.md §12): an abandoned gesture never changes the track
+	function cancel() {
+		up(false);
+	}
+	node.addEventListener('pointercancel', cancel);
+	node.addEventListener('lostpointercapture', cancel);
 
 	return {
 		update(next: CoverSwipeOpts) {
@@ -272,8 +282,9 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 		destroy() {
 			node.removeEventListener('pointerdown', down);
 			node.removeEventListener('pointermove', move);
-			node.removeEventListener('pointerup', up);
-			node.removeEventListener('pointercancel', up);
+			node.removeEventListener('pointerup', release);
+			node.removeEventListener('pointercancel', cancel);
+			node.removeEventListener('lostpointercapture', cancel);
 			disarmSuppressor(); // drop an armed suppressor + its self-expiry timer (WR-05)
 			cancelGesture(); // release a still-held capture + reset state if unmounted mid-drag (WR-03/WR-04)
 			node.style.touchAction = '';

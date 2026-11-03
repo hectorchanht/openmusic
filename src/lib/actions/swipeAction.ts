@@ -75,11 +75,25 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 	// quick-261022-spring: the ALWAYS-spring-back (D-02, iOS-Mail full-commit-then-spring-back)
 	// settles with a real damped spring instead of the old fixed 0.28s ease-out. The pump drives
 	// the inline transform every frame; onSettled clears it so the host CSS resting state returns.
+	// quick-261102-u05 (DECISIONS.md §12): the swipe's data commit waits for the SETTLE frame (the
+	// shared settle discipline — chipReorder/TrackMenu). It used to fire at release, so a host that
+	// removes the row (NpUpNext's swipe-remove) deleted it while it was still springing.
+	let pendingCommit: (() => void) | null = null;
+	const flushCommit = () => {
+		const c = pendingCommit;
+		pendingCommit = null;
+		c?.();
+	};
 	const snap = createSpringSnap(
 		(v) => {
 			node.style.transform = v === 0 ? '' : `translateX(${v}px)`;
 		},
-		{ onSettled: resetTransform }
+		{
+			onSettled: () => {
+				resetTransform();
+				flushCommit();
+			}
+		}
 	);
 
 	// WR-01: swallow the trailing click after a COMMITTED horizontal drag. setPointerCapture
@@ -106,14 +120,19 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 	const winUp = (e: PointerEvent) => {
 		if (e.pointerId === activePointerId) up();
 	};
-	const winBlur = () => up();
+	// quick-261102-u05: cancel / blur / lost capture SPRING BACK and never commit (they used to route to
+	// up(), which committed a past-threshold drag the user never released).
+	const winCancel = (e: PointerEvent) => {
+		if (e.pointerId === activePointerId) cancel();
+	};
+	const winBlur = () => cancel();
 
 	function armWindow() {
 		const w = win();
 		if (!w) return;
 		w.addEventListener('pointermove', winMove);
 		w.addEventListener('pointerup', winUp);
-		w.addEventListener('pointercancel', winUp);
+		w.addEventListener('pointercancel', winCancel);
 		w.addEventListener('blur', winBlur);
 	}
 
@@ -122,7 +141,7 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 		if (!w) return;
 		w.removeEventListener('pointermove', winMove);
 		w.removeEventListener('pointerup', winUp);
-		w.removeEventListener('pointercancel', winUp);
+		w.removeEventListener('pointercancel', winCancel);
 		w.removeEventListener('blur', winBlur);
 	}
 
@@ -145,6 +164,7 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 		// Capture only once an actual horizontal drag begins (in move()).
 		// quick-261022-spring: interrupt an in-flight spring settle so the pump can't fight the finger.
 		snap.cancel();
+		flushCommit(); // quick-261102-u05: a superseded settle still lands the previous swipe's commit
 		node.style.transition = 'none';
 	}
 
@@ -191,7 +211,7 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 		// NOTE: no opacity fade — these rows are never removed (drop swipeRemove's FADE_DISTANCE).
 	}
 
-	function up() {
+	function up(commit = true) {
 		if (!dragging) return;
 		dragging = false;
 		disarmWindow();
@@ -204,10 +224,11 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 		// Commit on a far drag OR a fast horizontal flick. The |dx| > SLOP guard keeps the tap
 		// contract intact: a tap (sub-slop, low velocity) never commits.
 		const v = vel.velocity();
-		const committed = Math.abs(dx) > threshold || (Math.abs(v) > FLICK_V && Math.abs(dx) > SLOP);
+		const committed =
+			commit && (Math.abs(dx) > threshold || (Math.abs(v) > FLICK_V && Math.abs(dx) > SLOP));
 		if (committed) {
-			if (dx > 0) onSwipeRight?.(); // queue (D-03) — host fires haptics.tick()
-			else onSwipeLeft?.(); // like toggle (D-04) — host fires haptics.tick()
+			// quick-261102-u05: committed at the settle frame (flushCommit in onSettled), not here.
+			pendingCommit = dx > 0 ? (onSwipeRight ?? null) : (onSwipeLeft ?? null); // queue (D-03) / like (D-04)
 		}
 		// ALWAYS spring back to rest — the row is NEVER removed (D-02). The shared springSnap
 		// settles with real spring physics (quick-261022-spring) regardless of whether we committed.
@@ -221,13 +242,21 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 	// swipe ends the same way). After a NORMAL pointerup this fires with dragging already
 	// false and no-ops.
 	function lostCapture() {
-		if (dragging) up();
+		if (dragging) cancel(); // quick-261102-u05: lost capture is an abandoned gesture — spring back, no commit
+	}
+
+	function cancel() {
+		up(false);
+	}
+
+	function release() {
+		up(true);
 	}
 
 	node.addEventListener('pointerdown', down);
 	node.addEventListener('pointermove', move);
-	node.addEventListener('pointerup', up);
-	node.addEventListener('pointercancel', up);
+	node.addEventListener('pointerup', release);
+	node.addEventListener('pointercancel', cancel);
 	node.addEventListener('lostpointercapture', lostCapture);
 
 	return {
@@ -242,8 +271,8 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 			disarmWindow(); // quick-261102-settle: never leak the window safety net
 			node.removeEventListener('pointerdown', down);
 			node.removeEventListener('pointermove', move);
-			node.removeEventListener('pointerup', up);
-			node.removeEventListener('pointercancel', up);
+			node.removeEventListener('pointerup', release);
+			node.removeEventListener('pointercancel', cancel);
 			node.removeEventListener('lostpointercapture', lostCapture);
 			node.removeEventListener('click', suppressClick, true); // WR-01: drop an armed suppressor
 			resetTransform();

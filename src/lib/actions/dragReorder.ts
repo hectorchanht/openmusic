@@ -116,7 +116,7 @@ export const dragReorder: Action<HTMLElement, DragReorderOpts> = (node, opts) =>
 		e.preventDefault(); // we own the vertical gesture (touch-action:none on the handle)
 	}
 
-	function up(e: PointerEvent) {
+	function up(e: PointerEvent, commit = true) {
 		if (!dragging) return;
 		dragging = false;
 		const { tops, heights } = measure();
@@ -127,13 +127,15 @@ export const dragReorder: Action<HTMLElement, DragReorderOpts> = (node, opts) =>
 		}
 		const from = fromIndex;
 		fromIndex = -1;
-		if (from >= 0 && to !== from) onReorder(from, to);
+		// quick-261102-u05 (DECISIONS.md §12): a cancel never reorders (it used to commit with the cancel event's coordinates).
+		if (commit && from >= 0 && to !== from) onReorder(from, to);
 	}
 
 	node.addEventListener('pointerdown', down);
 	node.addEventListener('pointermove', move);
 	node.addEventListener('pointerup', up);
-	node.addEventListener('pointercancel', up);
+	const cancel = (e: PointerEvent) => up(e, false);
+	node.addEventListener('pointercancel', cancel);
 
 	return {
 		update(next: DragReorderOpts) {
@@ -144,7 +146,7 @@ export const dragReorder: Action<HTMLElement, DragReorderOpts> = (node, opts) =>
 			node.removeEventListener('pointerdown', down);
 			node.removeEventListener('pointermove', move);
 			node.removeEventListener('pointerup', up);
-			node.removeEventListener('pointercancel', up);
+			node.removeEventListener('pointercancel', cancel);
 		}
 	};
 };

@@ -160,17 +160,22 @@
 		dragOver = index;
 		rowDragStartY = e.clientY;
 		rowDragY = 0;
-		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		try {
+			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		} catch {
+			/* quick-261102-u05 (DECISIONS.md §12): a refused capture must not abort the handler */
+		}
 	}
 	function gripDragMove(e: PointerEvent) {
 		if (dragFrom < 0) return;
 		rowDragY = e.clientY - rowDragStartY;
 		dragOver = rowIndexAt(e.clientY);
 	}
-	function gripDragUp() {
+	function gripDragUp(commit = true) {
 		if (dragFrom < 0) return;
 		// list is sliced from the anchor (startIndex); reorderQueue needs queue-absolute indices.
-		if (dragOver >= 0 && dragOver !== dragFrom)
+		// quick-261102-u05 (DECISIONS.md §12): a cancel / lost capture never reorders.
+		if (commit && dragOver >= 0 && dragOver !== dragFrom)
 			player.reorderQueue(dragFrom + startIndex, dragOver + startIndex);
 		dragFrom = -1;
 		dragOver = -1;
@@ -296,8 +301,9 @@
 					aria-label={t('nowplaying.reorderTrack')}
 					onpointerdown={(e) => gripDragDown(e, i)}
 					onpointermove={gripDragMove}
-					onpointerup={gripDragUp}
-					onpointercancel={gripDragUp}
+					onpointerup={() => gripDragUp()}
+					onpointercancel={() => gripDragUp(false)}
+					onlostpointercapture={() => gripDragUp(false)}
 					onclick={(e) => e.stopPropagation()}
 				><GripVertical size={18} /></button>
 			</li>
