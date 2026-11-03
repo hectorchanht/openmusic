@@ -95,7 +95,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-11-03 - Completed quick task 261103-2xk: impeccable polish pass on artist + album pages
+Last activity: 2026-11-03 - Completed quick task 261103-hdn: artist + album audit round 2
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -674,6 +674,7 @@ Recent decisions affecting current work:
 | 261102-w2q | Artist + album impeccable audit fixes: <html> lang/dir from appLang (+ .dir-flip chevrons, logical align); album.playAlbum label; supporter dot back on album download; 44px hit areas; hero/avatar covers over coverGradient; page shadows removed; hover gated; dead picker/like/stat code deleted (+ dzinfo skeleton width fix) | 2026-11-03 | 46118733 | [261102-w2q-impeccable-audit-fixes-artist-album-page](./quick/261102-w2q-impeccable-audit-fixes-artist-album-page/) |
 | 261102-wl9 | App-wide RTL (/impeccable adapt): logical CSS in 34 files, rail/badges/menus inset-inline, ShelfChevrons RTL scroll sign, marquee --marquee-sign, .dir-flip chevrons; gestures/scrubber/switches kept physical | 2026-11-03 | 974dd0f6 | [261102-wl9-app-wide-rtl-adaptation](./quick/261102-wl9-app-wide-rtl-adaptation/) |
 | 261103-2xk | impeccable polish pass on artist + album pages | 2026-11-03 | 0a21ba4f | [261103-2xk-polish-artist-album-pages](./quick/261103-2xk-polish-artist-album-pages/) |
+| 261103-hdn | Artist + album audit round 2: fav toggle a11y, new-tab cue, aria-disabled download, use:lazyBg shelf covers, 44px heading links, DESIGN.md type steps + rounded.tile | 2026-11-03 | b52069e7 | [261103-hdn-artist-album-audit-round2](./quick/261103-hdn-artist-album-audit-round2/) |
 
 > Note: off planned phase order (Phase-4-shaped UI pulled forward as a demo). Basic playback only; full audio engine = Phase 6, formal Mobile UI Shell = Phase 4. NOTE (2026-06-10): many of the quick-tasks above already exercise the v1.2 surfaces (failover/prefetch in gte/t5r/hvu, offline blob in kyf, Deezer enrichment plumbing in jau/jip, cover backfill in rvy/0bb/wv8, gesture machines in ggj/h4s/nqf) — v1.2 phases formalize, harden, and complete these rather than build from scratch.
 
