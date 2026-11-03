@@ -661,6 +661,7 @@ const ru: Dict = {
 	"artist.share": "Поделиться",
 	"album.title": "{name} · openmusic",
 	"album.back": "Назад",
+	"album.playAlbum": "Слушать альбом",
 	"album.derived": "Альбом · треков: {count} (по результатам поиска)",
 	"album.tracklistNote": "Альбом · треков: {count}",
 	"album.loading": "Загрузка альбома…",

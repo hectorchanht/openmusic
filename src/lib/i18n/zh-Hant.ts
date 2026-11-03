@@ -693,6 +693,7 @@ const zhHant: Dict = {
 	// --- album ---
 	"album.title": "{name} · openmusic",
 	"album.back": "返回",
+	"album.playAlbum": "播放專輯",
 	"album.derived": "專輯 · {count} 首歌曲（由搜尋衍生）",
 	"album.tracklistNote": "專輯 · {count} 首歌曲",
 	"album.loading": "載入專輯中…",

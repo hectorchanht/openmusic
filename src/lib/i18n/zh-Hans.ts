@@ -693,6 +693,7 @@ const zhHans: Dict = {
 	// --- album ---
 	"album.title": "{name} · openmusic",
 	"album.back": "返回",
+	"album.playAlbum": "播放专辑",
 	"album.derived": "专辑 · {count} 首歌曲（由搜索衍生）",
 	"album.tracklistNote": "专辑 · {count} 首歌曲",
 	"album.loading": "加载专辑中…",

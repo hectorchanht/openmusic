@@ -661,6 +661,7 @@ const vi: Dict = {
 	"artist.share": "Chia sẻ",
 	"album.title": "{name} · openmusic",
 	"album.back": "Quay lại",
+	"album.playAlbum": "Phát album",
 	"album.derived": "Album · {count} bản nhạc (bắt nguồn từ tìm kiếm)",
 	"album.tracklistNote": "Album · {count} bản nhạc",
 	"album.loading": "Đang tải anbom…",

@@ -661,6 +661,7 @@ const hi: Dict = {
 	"artist.share": "साझा करें",
 	"album.title": "{name} · openmusic",
 	"album.back": "वापस",
+	"album.playAlbum": "एल्बम चलाएँ",
 	"album.derived": "Album · {count} tracks (derived from search)",
 	"album.tracklistNote": "Album · {count} tracks",
 	"album.loading": "एल्बम लोड हो रहा है...",

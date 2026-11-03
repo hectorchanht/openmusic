@@ -661,6 +661,7 @@ const it: Dict = {
 	"artist.share": "Condividi",
 	"album.title": "{name} · openmusic",
 	"album.back": "Indietro",
+	"album.playAlbum": "Riproduci album",
 	"album.derived": "Album · {count} tracce (derivate dalla ricerca)",
 	"album.tracklistNote": "Album · {count} tracce",
 	"album.loading": "Caricamento dell'album...",

@@ -30,6 +30,7 @@
 	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
 	import { isCoverUrlDead } from '$lib/services/dead-cover-urls';
 	import { filterByType, typeLabelKey, releaseYear, albumHref, fallbackCoverSeed, type DiscographyEntry } from '$lib/services/discography';
+	import { coverGradient } from '$lib/services/cover-gradient';
 	import { loadDiscography, isCjkName } from '$lib/services/discography-source';
 	import { pickLocaleName, mbArtist } from '$lib/services/musicbrainz';
 	import { mergeEnrichArtist } from '$lib/services/enrich-merge';
@@ -489,8 +490,6 @@
 		}
 	});
 
-	// Deezer numbers display (fans / albums). Intl-formatted; only rendered when present (D-14).
-	const numFmt = new Intl.NumberFormat();
 </script>
 
 <!-- quick-261102-tlo (DECISIONS.md §8): every surface on this page shows the header's name -->
@@ -505,12 +504,15 @@
      plain <div> now — two <header> elements on one page, one of them holding only a back button,
      was never the right shape. -->
 <div class="hero">
+	<!-- quick-261102-w2q: the photo paints OVER the seeded placeholder (same two-layer trick as the
+	     album shelf), so a 404 hero shows the gradient instead of an empty circle. The fallback was a
+	     hard-coded purple that ignored the theme and every other surface's coverGradient. -->
 	{#if heroImg}
-		<div class="herocover" style:background-image={`url(${heroImg})`}></div>
+		<div class="herocover" style:background-image={`url(${heroImg}), ${coverGradient(name)}`}></div>
 	{:else if loading || enrichLoading}
 		<div class="herocover sk" aria-hidden="true"></div>
 	{:else}
-		<div class="herocover" style:background-image="linear-gradient(145deg,#3a2d63,#1a1326)"></div>
+		<div class="herocover" style:background-image={coverGradient(name)}></div>
 	{/if}
 	<!-- quick-260831-re9: displayArtist is the MusicBrainz locale-resolved name when MB identified
 	     this artist (so 周傑倫 / Jay Chou / 周杰倫 all render per the artist-language setting), else
@@ -520,7 +522,6 @@
 	     credited name (MB canonical "sunkis" for "sunkis 宋秉勤") can no longer shrink the
 	     header below the name the user arrived with. -->
 	<h1>{names.dnArtist(displayName)}</h1>
-	<!-- <p class="note">{t('artist.derived', { count: songs.length })}</p> -->
 
 	<!-- kmn: action bar — Favourite / Play (random hit) / Share. quick-260926-vdp: round icon-only
 	     buttons in the album-page action-bar visual language (34px circles, a 56px primary Play);
@@ -536,21 +537,6 @@
 			<Share2 size={20} />
 		</button>
 	</div>
-
-	<!-- Deezer info (ENRICH-04, D-14): fan count + album/discography count, beside the Last.fm
-	     enrichment. Shape-matched skeleton while resolving (D-17); silently absent on a miss
-	     (`dz` settles to null → neither stat renders). Counts sit side-by-side, source-labeled. -->
-	<!-- {#if dzLoading}
-		<div class="dzstats" aria-hidden="true">
-			<span class="sk sk-stat"></span>
-			<span class="sk sk-stat"></span>
-		</div>
-	{:else if merged.deezerFans != null || merged.albums != null}
-		<div class="dzstats">
-			{#if merged.deezerFans != null}<span class="dzstat"><strong>{numFmt.format(merged.deezerFans)}</strong> {t('deezer.fans')}</span>{/if}
-			{#if merged.albums != null}<span class="dzstat"><strong>{numFmt.format(merged.albums)}</strong> {t('deezer.albums')}</span>{/if}
-		</div>
-	{/if} -->
 
 	{#if enrich?.tags?.length}
 		<div class="herotags"><TagChips tags={enrich.tags} /></div>
@@ -568,9 +554,8 @@
 		</section>
 	{:else if enrich?.bio && enrich?.bioUrl && names.dnBio(enrich.bio) && names.dnBio(enrich.bio).length}
 		<section class="bio">
-			<h2><a class="" href={enrich.bioUrl} target="_blank" rel="noopener noreferrer">{t('lastfm.about')}<ChevronRight size={18}/></a></h2>
+			<h2><a class="" href={enrich.bioUrl} target="_blank" rel="noopener noreferrer">{t('lastfm.about')}<ChevronRight size={18} class="dir-flip" /></a></h2>
 			<p>{names.dnBio(enrich.bio)}</p>
-			<!-- <a class="readmore" href={enrich.bioUrl} target="_blank" rel="noopener noreferrer">{t('lastfm.readMore')}</a> -->
 		</section>
 	{/if}
 </div>
@@ -605,13 +590,11 @@
 			<a class="" href={names.artistHref(name) + '/albums'}>
 				{t('artist.albums')}
 				<span class="count">{shelfAlbums.length}</span>
-				<ChevronRight size={18}/>
+				<ChevronRight size={18} class="dir-flip" />
 			</a>
 			<!-- quick-261023-discmerge: the Pack page is merged into /albums (the single album
-			     entrance) — no separate "Pack" link anymore; the heading link above goes there. -->
-			<!-- quick-260831-qkx: the shelf is albums+EPs only; the full discography (every record
-			     type, filterable) lives on its own page so nothing is hidden, just de-noised. -->
-			<!-- <a class="see-all" href={names.artistHref(name) + '/albums'}>{t('artist.seeAllAlbums')}</a> -->
+			     entrance); the heading link goes there. quick-260831-qkx: the shelf is albums+EPs
+			     only; the full discography (every record type, filterable) lives on that page. -->
 		</h2>
 		<div class="albumrow" use:dragScroll>
 			{#each shelfAlbums as al (al.mbid ?? al.id ?? al.name)}
@@ -635,7 +618,6 @@
 			{#each Array(8) as _, i (i)}
 				<li>
 					<span class="row" aria-hidden="true">
-						<!-- <span class="sk sk-rank"></span> -->
 						<span class="art sk"></span>
 						<span class="meta"><span class="sk sk-rtitle"></span><span class="sk sk-rsub"></span></span>
 					</span>
@@ -700,7 +682,8 @@
 		<div class="albumrow" use:dragScroll>
 			{#each related as a (a.name)}
 				<button class="album" onclick={() => goto(names.artistHref(a.name))} use:tapBounce>
-					<span class="al-cover round" style:background-image={a.image ? `url(${a.image})` : fallbackCoverSeed(a.name)}></span>
+					<!-- quick-261102-w2q: two layers like the album tiles — a dead avatar URL shows the gradient. -->
+					<span class="al-cover round" style:background-image={a.image ? `url(${a.image}), ${fallbackCoverSeed(a.name)}` : fallbackCoverSeed(a.name)}></span>
 					<span class="al-name center" use:marquee><span class="marquee-inner">{names.dnArtist(a.name)}</span></span>
 				</button>
 			{/each}
@@ -713,42 +696,35 @@
 
 <style>
 	.hero { padding: 0px; text-align: center; }
-	.herocover { width: 160px; height: 160px; border-radius: 50%; margin: 4px auto; background-size: cover; background-position: center; box-shadow: 0 12px 34px rgba(0,0,0,0.5); }
+	.herocover { width: 160px; height: 160px; border-radius: 50%; margin: 4px auto; background-size: cover; background-position: center; } /* quick-261102-w2q: no shadow — Flat-Until-It-Floats */
 	.hero h1 { font-size: calc(1.7rem * var(--fs-title, 1)); margin: 0; }
-	.note { color: var(--color-text-muted); font-size: 0.75rem; margin-top: 4px; }
 	.herotags { display: flex; justify-content: center; margin: 4px; }
-	/* Deezer info stats (ENRICH-04) — fan/album counts under the hero, source-labeled. */
-	.dzstats { display: flex; justify-content: center; gap: 18px; margin-top: 10px; flex-wrap: wrap; }
-	.dzstat { color: var(--color-text-muted); font-size: 0.75rem; }
-	.dzstat strong { color: var(--color-text); font-weight: 600; }
-	.dzstats .sk-stat { display: inline-block; width: 64px; height: 13px; }
 	/* kmn: action bar centered under the hero title/note. quick-260926-vdp: round icon buttons with
 	   the album page's values. The round look is scoped to `.actions` because the "Show more" button
 	   further down also uses `.act` and must stay a text pill. */
 	.actions { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 8px 0; }
 	.act { display: inline-flex; align-items: center; gap: 8px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 9px 16px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
-	.act:hover { background: var(--color-surface); }
+	@media (hover: hover) { .act:hover { background: var(--color-surface); } }
 	.act:disabled { opacity: 0.45; cursor: default; }
 	.act.on { color: var(--color-primary); border-color: var(--color-primary); }
-	.actions .act { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; gap: 0; border-radius: 50%; border-color: transparent; transition: background 0.15s, transform 0.1s; }
+	.actions .act { position: relative; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; gap: 0; border-radius: 50%; border-color: transparent; transition: background 0.15s, transform 0.1s; }
+	/* quick-261102-w2q: the 34px circle stays the visual; the hit area grows to the 44px floor. */
+	.actions .act::before { content: ''; position: absolute; inset: -5px; border-radius: 50%; }
 	.actions .act.on { border-color: var(--color-primary); }
 	@media (hover: hover) { .actions .act:active { transform: scale(0.92); } }
-	.actions .act.play { width: 56px; height: 56px; background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); }
-	.actions .act.play:hover { filter: brightness(1.06); }
-	.bio { text-align: left; margin: 18px 0; }
+	.actions .act.play { width: 56px; height: 56px; background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ }
+	@media (hover: hover) { .actions .act.play:hover { filter: brightness(1.06); } }
+	.bio { text-align: start; margin: 18px 0; }
 	.bio h2 { font-size: calc(1.1rem * var(--fs-title, 1)); margin: 0;  display: flex; align-items: center; }
 	.bio p { color: var(--color-text-muted); font-size: 0.8125rem; line-height: 1.55; margin: 0; }
-	.readmore { display: inline-block; margin-top: 8px; color: var(--color-primary); font-size: 0.8125rem; }
 	section { margin: 18px 0; }
 	section h2 { font-size: calc(1.1rem * var(--fs-title, 1)); margin: 0 0 12px; }
 	/* quick-260831-re9: album covers are painted as TWO layers — the cover URL over the deterministic
 	   gradient. MusicBrainz albums get their art from Cover Art Archive, which can 404 (8/8 hit on a
 	   sample, but not guaranteed); a failed image layer simply does not paint, so the gradient shows
 	   through instead of a blank tile. No probe request needed to know whether art exists. */
-	/* quick-260831-qkx: the Albums heading now carries a "See all" link to the full discography. */
+	/* quick-260831-qkx: the Albums heading is the link to the full discography. */
 	.albums-head a { display: flex; align-items: center; justify-content: start; width: fit-content; }
-	.see-all { font-size: 0.8rem; font-weight: 600; color: var(--color-primary); text-decoration: none; white-space: nowrap; }
-	.see-all:active { opacity: 0.6; }
 	.albumrow { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; }
 	/* min-width:0 + max-width:130px lock the tile width even when a long artist/album name's
 	   intrinsic content-width would otherwise stretch it. flex-basis alone is a hint — the
@@ -757,13 +733,13 @@
 	   overflow:hidden produces a real clientWidth < scrollWidth, so the use:marquee action
 	   detects the overflow and bounce-scrolls the text (instead of a static ellipsis). Same
 	   pattern as home .album. */
-	.album { flex: 0 0 130px; min-width: 0; max-width: 130px; background: none; border: none; padding: 0; cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 4px; }
+	.album { flex: 0 0 130px; min-width: 0; max-width: 130px; background: none; border: none; padding: 0; cursor: pointer; text-align: start; display: flex; flex-direction: column; gap: 4px; }
 	.al-cover { width: 130px; height: 130px; border-radius: 10px; background-size: cover; background-position: center; }
 	.al-cover.round { border-radius: 50%; }
 	.al-name { font-size: calc(0.75rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.al-name.center { text-align: center; }
 	.al-count { font-size: calc(0.6875rem * var(--fs-artist, 1)); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.count { color: var(--color-text-muted); font-size: 0.75rem; font-weight: 400; padding: 1px 4px; margin-left: 8px; border-radius: 999px; background: var(--color-surface); color: var(--color-text-muted); font-size: 0.6875rem; }
+	.count { color: var(--color-text-muted); font-size: 0.6875rem; font-weight: 400; padding: 1px 4px; margin-inline-start: 8px; border-radius: 999px; background: var(--color-surface); }
 	/* Marquee animation lives globally in app.css (transform-based .marquee-inner). The
 	   .al-name / .al-count clips above + the use:marquee action + inner .marquee-inner span
 	   in the markup are the only per-file pieces — the global rule animates them. */
@@ -773,7 +749,7 @@
 	   SKELETON above still renders `<span class="row">` with `.art` / `.meta` / the .sk-* bars —
 	   8 rows tall, and the first thing a user sees on a cold artist page. The interactive-only
 	   rules (.rank, .r-title, .r-sub and the :hover) are gone with the markup that used them. */
-	.row { width: 100%; text-align: left; background: none; border: none; padding: 6px; border-radius: 8px; display: flex; align-items: center; gap: 12px; }
+	.row { width: 100%; text-align: start; background: none; border: none; padding: 6px; border-radius: 8px; display: flex; align-items: center; gap: 12px; }
 	.art { width: 44px; height: 44px; border-radius: 6px; background-size: cover; background-position: center; flex: none; }
 	.meta { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 	.muted { color: var(--color-text-muted); font-size: 0.875rem; }
@@ -799,8 +775,7 @@
 	/* album-row skeleton tiles: .al-cover sizes the square (130px), bars sit under it */
 	.sk-albumname { display: block; width: 78%; height: 12px; }
 	.sk-albumcount { display: block; width: 48%; height: 11px; }
-	/* hit-songs skeleton rows: reuse .row/.art/.meta layout, grey the rank + bars */
-	.sk-rank { width: 14px; height: 12px; flex: none; border-radius: 3px; }
+	/* hit-songs skeleton rows: reuse .row/.art/.meta layout, grey the bars */
 	.meta .sk-rtitle { display: block; width: 80%; height: 13px; margin-bottom: 7px; }
 	.meta .sk-rsub { display: block; width: 45%; height: 11px; }
 </style>

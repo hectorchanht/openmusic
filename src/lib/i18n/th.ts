@@ -661,6 +661,7 @@ const th: Dict = {
 	"artist.share": "แชร์",
 	"album.title": "{name} · openmusic",
 	"album.back": "กลับ",
+	"album.playAlbum": "เล่นอัลบั้ม",
 	"album.derived": "อัลบั้ม · {count} แทร็ก (ได้มาจากการค้นหา)",
 	"album.tracklistNote": "อัลบั้ม · {count} แทร็ก",
 	"album.loading": "กำลังโหลดอัลบั้ม...",

@@ -5,17 +5,12 @@
 	// resolved to a playable Track lazily, ON TAP, via resolveStub (D-05/D-03) — the same
 	// resolve-on-tap path the home shelves use.
 	import { page } from '$app/state';
-	import { untrack } from 'svelte';
-	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
-	import { Play, Download, ListPlus, Heart, Share2, Plus, X, Shuffle } from '@lucide/svelte';
+	import { Play, Download, Share2, Shuffle } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
-	import { overlays } from '$lib/stores/overlays.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { entityCardUrl } from '$lib/services/share';
-	import { dragClose } from '$lib/actions/dragClose';
-	import { focusTrap } from '$lib/actions/focusTrap';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { shouldRun } from '$lib/actions/inflightGuard';
 	import { toast as globalToast } from '$lib/stores/toast.svelte';
@@ -38,6 +33,7 @@
 	import { mbTracks } from '$lib/services/musicbrainz';
 	import { hasCjk, lookupChineseName } from '$lib/services/name-rescue';
 	import { mergeEnrichAlbum } from '$lib/services/enrich-merge';
+	import { coverGradient } from '$lib/services/cover-gradient';
 	import { marquee } from '$lib/actions/marquee';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import DownloadRing from '$lib/components/DownloadRing.svelte';
@@ -131,7 +127,6 @@
 	// Prefer the best-quality enrichment cover (Deezer hi-res > Last.fm art, via the merge).
 	// The stub tracklist carries no source cover, so this is the only hero art source.
 	const heroImg = $derived(merged.cover ?? null);
-	const numFmt = new Intl.NumberFormat();
 	// Format Deezer total duration (seconds) → "M:SS" or "H:MM:SS" for the album info row.
 	function fmtDuration(sec: number): string {
 		const h = Math.floor(sec / 3600);
@@ -375,8 +370,8 @@
 	}
 
 	// ---- Album-level actions (between hero + tracklist) ----
-	// The tracklist is {artist,title} STUBS; the whole-album actions (download/playlist/like)
-	// need playable Tracks, so they batch-resolve every stub via the SAME resolveStub path used
+	// The tracklist is {artist,title} STUBS; the whole-album download
+	// needs playable Tracks, so they batch-resolve every stub via the SAME resolveStub path used
 	// on tap, concurrency-capped (album-scoped fan-out is user-initiated, not eager per Pitfall
 	// 11).
 	//
@@ -387,9 +382,9 @@
 	// debug download-state-lost-on-page-return: 'download' is NOT here on purpose — an album download
 	// outlives this page, so its busy state lives in `library.albumJobs` (see `albumDownloading`),
 	// never in component $state. Nothing that survives navigation may be keyed on `busyAction`.
-	type AlbumAction = 'play' | 'shuffle' | 'like' | 'addToPlaylist' | 'share';
+	// quick-261102-w2q: 'like' / 'addToPlaylist' went with their (long commented-out) buttons.
+	type AlbumAction = 'play' | 'shuffle' | 'share';
 	let busyAction = $state<AlbumAction | null>(null);
-	let pickerOpen = $state(false);
 
 	// quick-260930-uia: the resolved Track per row, index-aligned to `tracks` (null = not resolved /
 	// no match), handed to each SongRow as `resolved` so its DownloadControl keys on the real uid —
@@ -450,13 +445,6 @@
 		await Promise.all(Array.from({ length: Math.min(4, list.length || 1) }, worker));
 		return out.filter((t): t is Track => t !== null);
 	}
-
-	// Album-like state (ii6 #5): "all resolved tracks are liked". Nothing resolved yet → false →
-	// outline heart. After likeAlbum() resolves + likes, the store memory + library.liked mutate →
-	// derived recomputes to true → filled heart. Tapping again unlikes → false → outline.
-	const albumLiked = $derived(
-		resolvedRows.some(Boolean) && resolvedRows.every((tr) => !tr || library.isLiked(tr.uid))
-	);
 
 	// quick-260919-alb: the album tracklist as LAZY name-only Tracks — the SAME `resolveByName` stub
 	// shape Up Next is already built from (similar.ts nameStub), so the whole album can be installed
@@ -587,6 +575,12 @@
 	// quick-261023-bulklock: bulk ZIP downloads are a supporter perk — per-song
 	// download stays free for everyone. Non-supporters get the tip sheet instead
 	// (re-locks what quick-261020-nogate opened; Hector 2026-10-23).
+	// quick-261102-w2q: read in an effect, not at module time — this route SSRs (no localStorage
+	// there), so a top-level read would paint the dot on the server and drop it on hydration.
+	let supporter = $state(false);
+	$effect(() => {
+		supporter = isSupporter();
+	});
 	function onDownloadTap() {
 		if (!isSupporter()) {
 			globalToast.show(t('support.bulkLocked'));
@@ -594,33 +588,6 @@
 			return;
 		}
 		void downloadAlbum();
-	}
-
-	// Like the album → resolve all + apply idempotent like-all (gte: AskUserQuestion):
-	// if any track is unliked → like the missing ones; if EVERY track is already liked →
-	// unlike them all (so the user has an undo). The resolveAll fan-out can take ~10s for a
-	// long album so we flash a "loading" toast immediately for visible feedback.
-	async function likeAlbum() {
-		if (!tracks.length || busyAction === 'like') return;
-		busyAction = 'like';
-		globalToast.show(t('toast.preparingDownload'));
-		try {
-			const resolved = await resolveAll();
-			if (!resolved.length) {
-				globalToast.show(t('home.unplayable'));
-				return;
-			}
-			const allLiked = resolved.every((tr) => library.isLiked(tr.uid));
-			if (allLiked) {
-				for (const tr of resolved) library.toggleLike(tr);
-				globalToast.show(t('toast.unliked')); // ii6: past-tense; matches the heart returning to outline
-			} else {
-				for (const tr of resolved) if (!library.isLiked(tr.uid)) library.toggleLike(tr);
-				globalToast.show(t('toast.liked'));
-			}
-		} finally {
-			busyAction = null;
-		}
 	}
 
 	// Share the album = the two-segment album page URL `/album/{artist}/{name}` (both halves of the
@@ -688,40 +655,9 @@
 		}
 	}
 
-	// Add the whole album to a playlist (existing or new) → resolve all + add each.
-	// resolveAll is ~10s for long albums; flash a "working on it" toast immediately so the
-	// user gets visible feedback while the fan-out runs (hvu).
-	async function addAlbumToPlaylist(id: string) {
-		pickerOpen = false;
-		if (busyAction === 'addToPlaylist') return;
-		busyAction = 'addToPlaylist';
-		globalToast.show(t('toast.preparingDownload'));
-		try {
-			const resolved = await resolveAll();
-			for (const tr of resolved) library.addToPlaylist(id, tr);
-			globalToast.show(resolved.length ? t('toast.addedToPlaylist') : t('home.unplayable'));
-		} finally {
-			busyAction = null;
-		}
-	}
-	function newPlaylistForAlbum() {
-		const nm = prompt(t('menu.newPlaylistPrompt'));
-		if (!nm) return;
-		const pl = library.createPlaylist(nm);
-		globalToast.show(t('toast.playlistCreated'));
-		void addAlbumToPlaylist(pl.id);
-	}
-
-	// Playlist picker is a back-to-close overlay (same single-dismiss idiom as TrackMenu).
-	$effect(() => {
-		if (pickerOpen) {
-			untrack(() => overlays.open('album-picker', () => (pickerOpen = false)));
-			return () => untrack(() => overlays.dismiss('album-picker'));
-		}
-	});
 </script>
 
-<svelte:head><title>{t('album.title', { name })}</title></svelte:head>
+<svelte:head><title>{t('album.title', { name: names.dnTitle(name) })}</title></svelte:head>
 {#if data.og}
 	<PageOg og={data.og} />
 {/if}
@@ -737,25 +673,17 @@
 />
 
 <div class="hero">
+	<!-- quick-261102-w2q: the art paints OVER the seeded placeholder, so a dead cover URL shows the
+	     gradient rather than an empty square (was a hard-coded purple that ignored the theme). -->
 	{#if heroImg}
-		<div class="cover" style:background-image={`url(${heroImg})`}></div>
+		<div class="cover" style:background-image={`url(${heroImg}), ${coverGradient(name)}`}></div>
 	{:else if loading || enrichLoading}
 		<div class="cover sk" aria-hidden="true"></div>
 	{:else}
-		<div class="cover" style:background-image="linear-gradient(145deg,#3a2d63,#1a1326)"></div>
+		<div class="cover" style:background-image={coverGradient(name)}></div>
 	{/if}
 	<h1>{names.dnTitle(name)}</h1>
 	{#if albumArtist}<p class="artist">{names.dnArtist(albumArtist)}</p>{/if}
-
-	<!-- Last.fm album info (D-01c). Rendered only when present; degrades silently. -->
-	<!-- {#if enrichLoading}
-		<p class="info" aria-hidden="true"><span class="sk sk-info"></span></p>
-	{:else if enrich?.listeners != null || enrich?.playcount != null}
-		<p class="info">
-			{#if enrich?.listeners != null}<span>{t('lastfm.listeners')}: {numFmt.format(enrich.listeners)}</span>{/if}
-			{#if enrich?.playcount != null}<span>{t('lastfm.playcount')}: {numFmt.format(enrich.playcount)}</span>{/if}
-		</p>
-	{/if} -->
 
 	<!-- Deezer album info (ENRICH-04, D-14): release date / label / genres / track count /
 	     duration / fans, beside the Last.fm enrichment. Shape-matched skeleton while resolving
@@ -772,7 +700,6 @@
 			{#if merged.genres.length}<span class="dzrow"><b>{t('deezer.genres')}</b> {merged.genres.join(', ')}</span>{/if}
 			{#if merged.duration != null}<span class="dzrow"><b>{t('deezer.duration')}</b> {fmtDuration(merged.duration)}</span>{/if}
 			{#if merged.label}<span class="dzrow label"><b>{t('deezer.label')}</b> <span class="lbl" use:marquee><span class="marquee-inner">{merged.label}</span></span></span>{/if}
-			<!-- {#if merged.deezerFans != null}<span class="dzrow"><b>{t('deezer.fans')}</b> {numFmt.format(merged.deezerFans)}</span>{/if} -->
 		</div>
 	{/if}
 </div>
@@ -795,24 +722,25 @@
 	<div class="offline-state">
 		<p class="offline-title">{t('offline.title')}</p>
 		<p class="offline-body">{t('offline.body')}</p>
-		<button type="button" class="offline-cta" onclick={() => goto('/library')}>{t('offline.goToLibrary')}</button>
+		<button type="button" class="offline-cta" onclick={() => goto('/library')} use:tapBounce>{t('offline.goToLibrary')}</button>
 	</div>
 {:else if tracks.length}
 	<!-- Album-level actions. ii6: PER-BUTTON disable (busyAction === id) so only the
-	     clicked button greys out while its action runs — other buttons stay live. Heart
-	     fill state reflects albumLiked (derived from the store's stub memory + library.liked). -->
+	     clicked button greys out while its action runs — other buttons stay live. -->
 	<div class="album-actions">
 		<!-- debug download-state-lost-on-page-return: busy = the STORE's album job (survives leaving and
 		     coming back), shown with the same DownloadRing the rows use so "still downloading" reads the
 		     same everywhere. -->
-		<!-- quick-261020-nogate: the album download — free for everyone now, no supporter dot. -->
+		<!-- quick-261102-w2q: the album download is a supporter perk again (quick-261023-bulklock), so
+		     non-supporters see the accent dot that marks it as one — before, it looked like a plain
+		     download and only revealed the lock after the tap. -->
 		<button class="act" aria-label={t('support.downloadAlbum')} aria-busy={albumDownloading} disabled={albumDownloading} onclick={onDownloadTap} use:tapBounce>
 			{#if albumDownloading}<DownloadRing><Download size={20} /></DownloadRing>{:else}<Download size={20} />{/if}
+			{#if !supporter}<span class="sup-dot" aria-hidden="true"></span>{/if}
 		</button>
-		<!-- <button class="act" aria-label={albumLiked ? t('menu.liked') : t('menu.like')} disabled={busyAction === 'like'} onclick={likeAlbum} use:tapBounce><Heart size={20} fill={albumLiked ? 'currentColor' : 'none'} /></button> -->
 		<button class="act" aria-label={t('nowplaying.shuffle')} disabled={busyAction === 'shuffle'} onclick={shuffleAlbum} use:tapBounce><Shuffle size={20} /></button>
-		<!-- <button class="act" aria-label={t('menu.addToPlaylist')} disabled={busyAction === 'addToPlaylist'} onclick={() => (pickerOpen = true)} use:tapBounce><ListPlus size={20} /></button> -->
-		<button class="act play" aria-label={t('nowplaying.playPause')} disabled={busyAction === 'play'} onclick={playAlbum} use:tapBounce><Play size={20} /></button>
+		<!-- quick-261102-w2q: named for what it does (play the album), not the transport toggle. -->
+		<button class="act play" aria-label={t('album.playAlbum')} disabled={busyAction === 'play'} onclick={playAlbum} use:tapBounce><Play size={20} fill="currentColor" /></button>
 		<!-- quick-260930-uy0: Shuffle-play right of Play balances the row 3 | PLAY | 3. -->
 		<!-- quick-260919-alb: append the whole album to the end of the queue. ListEnd is the same icon
 		     the row swipe-right (add-to-queue) reveal uses, so the two surfaces read as one action. -->
@@ -875,34 +803,22 @@
      resolveStub runs while menuLoading=true → menu shows its skeleton placeholder. -->
 <TrackMenu track={menuTrack} open={menuOpen} loading={menuLoading} onclose={() => { menuOpen = false; menuTrack = null; menuLoading = false; }} />
 
-<!-- Add-album-to-playlist picker (back-to-close sheet, mirrors the track menu's picker). -->
-{#if pickerOpen}
-	<button class="scrim" aria-label={t('menu.close')} onclick={() => (pickerOpen = false)}></button>
-	<div class="picker" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (pickerOpen = false) }} use:focusTrap>
-		<div class="picker-head">{t('menu.addToPlaylist')}</div>
-		<button class="mi" onclick={newPlaylistForAlbum} use:tapBounce><Plus size={18} /> {t('menu.newPlaylist')}</button>
-		{#each library.playlists as pl (pl.id)}
-			<button class="mi" onclick={() => addAlbumToPlaylist(pl.id)} use:tapBounce><ListPlus size={18} /> {pl.name}</button>
-		{/each}
-		<button class="mi close" onclick={() => (pickerOpen = false)} use:tapBounce><X size={18} /> {t('menu.close')}</button>
-	</div>
-{/if}
-
 <style>
 	/* `position: relative` went with the absolutely-positioned .back (quick-260919-hdr) — the
 	   chevron is in-flow above the hero now, like every other page. */
 	.hero { padding: 0 0 12px; text-align: center; }
-	.cover { width: 160px; height: 160px; border-radius: 12px; margin: 4px auto; background-size: cover; background-position: center; box-shadow: 0 12px 34px rgba(0,0,0,0.5); }
+	.cover { width: 160px; height: 160px; border-radius: 12px; margin: 4px auto; background-size: cover; background-position: center; } /* quick-261102-w2q: no shadow — Flat-Until-It-Floats */
 	.hero h1 { font-size: calc(1.5rem * var(--fs-title, 1)); margin: 0; }
 	.artist { color: var(--color-text); font-size: calc(0.875rem * var(--fs-artist, 1)); margin: 4px 0 0; opacity: 0.85; }
-	.note { color: var(--color-text-muted); font-size: 0.75rem; margin-top: 4px; }
-	.info { color: var(--color-text-muted); font-size: 0.75rem; margin-top: 6px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
 	/* Deezer album info (ENRICH-04) — release/label/genres/tracks/duration/fans rows. */
 	.dzinfo { color: var(--color-text-muted); font-size: 0.75rem; margin-top: 8px; display: flex; gap: 6px 16px; justify-content: center; flex-wrap: wrap; }
 	.dzrow { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; }
 	.dzrow b { color: var(--color-text); font-weight: 600; }
 	.dzrow.label { max-width: 220px; }
 	.dzrow .lbl { display: inline-block; max-width: 150px; min-width: 0; overflow: hidden; white-space: nowrap; }
+	/* quick-261102-w2q: the size rule used to target `.info .sk-info` — the long-dead Last.fm row —
+	   so the live dzinfo skeleton bars had no width and never painted. */
+	.dzinfo .sk-info { display: inline-block; width: 150px; height: 12px; }
 	.dzinfo .sk-info.short { width: 90px; }
 	.muted { color: var(--color-text-muted); font-size: 0.875rem; }
 
@@ -926,7 +842,7 @@
 	.swipe-wrap { position: relative; overflow: hidden; border-radius: 8px; }
 	.reveal {
 		position: absolute; top: 0; bottom: 0; width: 96px; display: flex; align-items: center;
-		justify-content: center; color: #fff; pointer-events: none;
+		justify-content: center; pointer-events: none;
 	}
 	.reveal-queue { left: 0; color: var(--color-text-muted); }
 	.reveal-next { right: 0; color: var(--color-text-muted); }
@@ -935,13 +851,12 @@
 	   renders `<span class="row">` with them and the .sk-* bars. The rank number is gone from both
 	   the rows and the skeleton (user call 2026-10-06), so `.sk-rank` went with it. The
 	   interactive-only rules (:hover, .r-title, .r-sub) went with the markup. */
-	.row { width: 100%; text-align: left; background: var(--color-bg); position: relative; z-index: 1; border: none; padding: 6px; border-radius: 8px; display: flex; align-items: center; gap: 12px; color: var(--color-text); }
+	.row { width: 100%; text-align: start; background: var(--color-bg); position: relative; z-index: 1; border: none; padding: 6px; border-radius: 8px; display: flex; align-items: center; gap: 12px; color: var(--color-text); }
 	.art { width: 44px; height: 44px; border-radius: 6px; background-size: cover; background-position: center; flex: none; }
 	.meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 
 	/* ---- loading skeletons (global .sk in app.css supplies the grey + shimmer; these size the
 	   blocks to match the real content) ---- */
-	.info .sk-info { display: inline-block; width: 150px; height: 12px; }
 	.meta .sk-rtitle { display: block; width: 80%; height: 13px; margin-bottom: 7px; }
 	.meta .sk-rsub { display: block; width: 45%; height: 11px; }
 
@@ -949,18 +864,15 @@
 	/* quick-260930-uy0: 7 buttons = 260px + 6 gaps; 16px gaps overflow a 343px (375px) content box,
 	   12px fits. clamp keeps 16px from ~500px up. */
 	.album-actions { display: flex; align-items: center; justify-content: center; gap: clamp(12px, 3.2vw, 16px); margin: 2px 0 20px; }
-	.act { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--color-surface-2); border: 1px solid transparent; color: var(--color-text); cursor: pointer; transition: background 0.15s, transform 0.1s; }
-	.act:hover { background: var(--color-surface); }
+	.act { position: relative; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--color-surface-2); border: 1px solid transparent; color: var(--color-text); cursor: pointer; transition: background 0.15s, transform 0.1s; }
+	/* quick-261102-w2q: the 34px circle stays the visual; the hit area grows to the 44px floor. */
+	.act::before { content: ''; position: absolute; inset: -5px; border-radius: 50%; }
+	@media (hover: hover) { .act:hover { background: var(--color-surface); } }
 	/* MENU-03 / D-12: hover-capable devices only — avoids the held-finger latch on touch
 	   (use:tapBounce supplies the one-shot touch press feedback). */
 	@media (hover: hover) { .act:active { transform: scale(0.92); } }
 	.act:disabled { opacity: 0.4; cursor: default; }
-	.act.play { width: 56px; height: 56px; background: var(--color-primary); border-color: transparent; color: var(--color-on-primary); /* quick-261102-rrb */ box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); }
-	/* ---- add-to-playlist picker (mirrors the track menu sheet) ---- */
-	.scrim { position: fixed; inset: 0; z-index: 80; background: rgba(0, 0, 0, 0.45); border: none; }
-	.picker { position: fixed; left: 12px; right: 12px; bottom: 16px; z-index: 81; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 16px; padding: 8px; max-width: 680px; margin: 0 auto; box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5); max-height: 70vh; overflow-y: auto; }
-	.picker-head { font-size: 0.8125rem; color: var(--color-text-muted); padding: 8px 10px; }
-	.mi { width: 100%; display: flex; align-items: center; gap: 12px; background: none; border: none; color: var(--color-text); font-size: 0.9375rem; padding: 12px; border-radius: 10px; cursor: pointer; text-align: left; }
-	.mi:hover { background: var(--color-surface); }
-	.mi.close { color: var(--color-text-muted); }
+	.act.play { width: 56px; height: 56px; background: var(--color-primary); border-color: transparent; color: var(--color-on-primary); /* quick-261102-rrb */ }
+	/* donor-wall-ui 2026-10-14, restored quick-261102-w2q: accent dot, top corner = supporter perk. */
+	.sup-dot { position: absolute; top: 2px; inset-inline-end: 2px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
 </style>

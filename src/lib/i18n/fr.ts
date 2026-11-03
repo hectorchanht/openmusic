@@ -661,6 +661,7 @@ const fr: Dict = {
 	"artist.share": "Partager",
 	"album.title": "{name} · openmusic",
 	"album.back": "Retour",
+	"album.playAlbum": "Lire l'album",
 	"album.derived": "Album · {count} pistes (dérivé de la recherche)",
 	"album.tracklistNote": "Album · {count} titres",
 	"album.loading": "Chargement de l'album…",

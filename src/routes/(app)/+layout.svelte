@@ -125,6 +125,16 @@
 		});
 	});
 
+	// quick-261102-w2q (impeccable audit, WCAG 3.1.1): <html> was frozen at lang="en" with no `dir`,
+	// so the shipped Arabic locale rendered LTR and screen readers voiced every language with an
+	// English engine. Mirror the app language onto the root element. Writes DOM attributes only,
+	// never $state, so it cannot self-invalidate.
+	$effect(() => {
+		const lang = settings.appLang;
+		document.documentElement.lang = lang;
+		document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+	});
+
 	// --- Device-import notice host (34) ------------------------------------------------------
 	// The second, much smaller store→UI channel, mirroring the player-notice host above: the store
 	// emits a TranslationKey + params, this host localises it. UI-SPEC contract 3 is why it lives

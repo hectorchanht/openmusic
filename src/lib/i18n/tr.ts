@@ -661,6 +661,7 @@ const tr: Dict = {
 	"artist.share": "Paylaş",
 	"album.title": "{name} · openmusic",
 	"album.back": "Geri",
+	"album.playAlbum": "Albümü oynat",
 	"album.derived": "Albüm · {count} parça (aramadan türetilmiştir)",
 	"album.tracklistNote": "Albüm · {count} parça",
 	"album.loading": "Albüm yükleniyor…",

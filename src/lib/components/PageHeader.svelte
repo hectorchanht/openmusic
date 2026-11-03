@@ -76,7 +76,7 @@
 		class="back"
 		aria-label={backLabel ?? t('common.back')}
 		onclick={() => (onback ? onback() : history.back())}
-		use:tapBounce><ChevronLeft size={22} /></button
+		use:tapBounce><ChevronLeft size={22} class="dir-flip" /></button
 	>
 	{#if title !== undefined}
 		<!-- use:marquee so a long/CJK title SCROLLS instead of wrapping the header to two rows or

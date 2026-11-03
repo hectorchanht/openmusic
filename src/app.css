@@ -150,6 +150,12 @@ button, a, [role="button"] { -webkit-tap-highlight-color: transparent; }
    rather than polish — same call as .tap-bouncing below. It also survives the app's own
    reduce-motion setting; see the re-assert under the blanket rule. */
 
+/* quick-261102-w2q: directional glyphs (back / "more" chevrons) point the reading direction, so
+   they mirror when the app language is RTL. Add `class="dir-flip"` to the icon. */
+:root[dir='rtl'] .dir-flip {
+	transform: scaleX(-1);
+}
+
 /* Reduce-motion setting: kill nonessential transitions/animations app-wide. `.motion-always` is
    the opt-out for motion that MEANS something rather than decorates: loading spinners (nothing
    else tells you the app is still working) opt in by carrying that class. Everything unmarked

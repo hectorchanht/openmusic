@@ -661,6 +661,7 @@ const id: Dict = {
 	"artist.share": "Bagikan",
 	"album.title": "{name} · openmusic",
 	"album.back": "Kembali",
+	"album.playAlbum": "Putar album",
 	"album.derived": "Album · {count} lagu (berasal dari pencarian)",
 	"album.tracklistNote": "Album · {count} lagu",
 	"album.loading": "Memuat album…",

@@ -754,6 +754,7 @@ const en = {
 	// --- album ---
 	"album.title": "{name} · openmusic",
 	"album.back": "Back",
+	"album.playAlbum": "Play album",
 	"album.derived": "Album · {count} tracks (derived from search)",
 	"album.tracklistNote": "Album · {count} tracks",
 	"album.loading": "Loading album…",

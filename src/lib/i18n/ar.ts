@@ -661,6 +661,7 @@ const ar: Dict = {
 	"artist.share": "مشاركة",
 	"album.title": "{name} · openmusic",
 	"album.back": "العودة",
+	"album.playAlbum": "تشغيل الألبوم",
 	"album.derived": "الألبوم · {count} من المقاطع الصوتية (المشتقة من البحث)",
 	"album.tracklistNote": "الألبوم · {count} من الأغاني",
 	"album.loading": "جارٍ تحميل الألبوم…",
