@@ -9,14 +9,8 @@
 // exactly ONE source — keeping the per-source attempts cheap and isolating any source failure.
 
 import { searchAll, ensureTrackDetails } from '$lib/services/catalog';
-import { sameSongKey, sameSongByCredit } from '$lib/services/dedupe';
-import {
-	rankAcceptable,
-	isAcceptableSubstitute,
-	candidateTier,
-	isAutoAcceptableArtist
-} from '$lib/services/song-variant';
-import { getEnabledAdapters, onlySource, isAutoResolveEligible } from '$lib/sources/registry';
+import { rankAutoCandidates, candidateTier } from '$lib/services/song-variant';
+import { SOURCES, getEnabledAdapters, onlySource, isAutoResolveEligible } from '$lib/sources/registry';
 import { PRIORITY_WINDOW_MS } from '$lib/sources/source-order';
 import { isDeviceUid } from '$lib/services/device-track';
 import type { SourceId, Track } from '$lib/sources/types';
@@ -114,7 +108,7 @@ export async function tryFallback(
 	// the first to return a playable URL wins. Worst case drops from sum(latencies) to
 	// max(latency) — typically 3s instead of 10s+. The per-source gates (sameSongKey,
 	// isAcceptableSubstitute, rankAcceptable) still ensure authenticity; speed decides ties.
-	const race = await raceSources(order, (src, sig) => tryOneSource(src, query, failed, sig), signal);
+	const race = await raceSources(order, (src, sig) => walkSource(src, query, failed, sig), signal);
 	// quick-261102-exh1: only GENUINELY tried sources join the attempted set (see the
 	// doc-block above). A source the race aborted mid-flight or whose search threw was
 	// never really tried — it stays eligible for this call's second pass AND for the
@@ -138,7 +132,7 @@ export async function tryFallback(
 		const v = race.verdicts.get(src);
 		if (v && v !== 'inconclusive') continue;
 		if (sig.aborted) return null;
-		const attempt = await tryOneSource(src, query, failed, sig);
+		const attempt = await walkSource(src, query, failed, sig);
 		if (attempt.verdict !== 'inconclusive') attempted?.add(src);
 		if (attempt.hit) return attempt.hit.track;
 	}
@@ -302,7 +296,7 @@ const MAX_CANDIDATE_RESOLVES = 3;
  * so the caller can tell a genuine rejection from a source that was never really
  * tried (quick-261102-exh1).
  */
-async function tryOneSource(
+export async function walkSource(
 	src: SourceId,
 	query: string,
 	failed: Track,
@@ -333,7 +327,13 @@ async function tryOneSource(
 	// partition ever ran — the partition was arbitrating a pool of one. The sameSongKey
 	// predicate below is the identity gate, so uncollapsed rows are safe here.
 	const candidates = result.interleaved;
-	if (candidates.length === 0) return { hit: null, verdict: 'empty' };
+	// quick-261102-sy0: a health-gated adapter short-circuits to [] WITHOUT asking upstream —
+	// that is "never tried", not "the pool is empty". Counting it as tried poisoned the source
+	// for the episode (the 別問很可怕 false-unplayable shape); it stays inconclusive and gets
+	// the sequential pass (where the gate's own probe window may have reopened it).
+	if (candidates.length === 0) {
+		return { hit: null, verdict: SOURCES[src].health?.isGated() ? 'inconclusive' : 'empty' };
+	}
 	// WR-06: a fuzzy upstream search can return a DIFFERENT song; adopting candidates[0]
 	// unconditionally would silently auto-play the wrong track under the original's
 	// identity (successful failover is silent by design). Gate adoption on a normalized
@@ -358,15 +358,9 @@ async function tryOneSource(
 	// outright, so a 周杰倫/蔡依林 original could never substitute for the 周杰倫
 	// track — sameSongByCredit admits it via whole-segment containment (same title key
 	// + same artist by credit), which still refuses every different act.
-	const ranked = rankAcceptable(
-		candidates,
-		failed.title,
-		(c) =>
-			(sameSongKey(c, failed) || sameSongByCredit(c, failed)) &&
-			isAcceptableSubstitute(failed.title, c.title) &&
-			isAutoAcceptableArtist(failed.artist, c.artist),
-		{ expectedSec: failed.duration }
-	);
+	// quick-261102-sy0: those three gates are ONE predicate now (song-variant isAutoAcceptable),
+	// shared with the name-stub walk, discovery, JBSou and the edge resolve.
+	const ranked = rankAutoCandidates(candidates, failed, { expectedSec: failed.duration });
 	// The pool was genuinely fetched and considered; the gates refused every row in it.
 	if (ranked.length === 0) return { hit: null, verdict: 'rejected' };
 	// CANDIDATE WALK (quick-261102-exh1): resolve the acceptable rows in ranked order

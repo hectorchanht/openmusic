@@ -40,6 +40,7 @@ export function archiveDownloadUrl(identifier: string, file: string): string {
 
 export const archive: SourceAdapter = {
 	id: 'archive',
+	health: archiveHealth,
 	label: 'Internet Archive',
 	enabledByDefault: true,
 	// Legal-catalog source: searchable, but never a silent stand-in on the floor.

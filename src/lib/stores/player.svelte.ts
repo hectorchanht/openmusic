@@ -1828,7 +1828,9 @@ class Player {
 				this.fallbackEpisodeKey = key;
 				this.fallbackAttempted = new Set<SourceId>();
 			}
-			this.fallbackAttempted.add(failed.source);
+			// quick-261102-sy0: a name stub's `source` is a PLACEHOLDER (similar.ts primarySourceId) —
+			// seeding it as attempted excluded that source from the episode without ever trying it.
+			if (!failed.resolveByName) this.fallbackAttempted.add(failed.source);
 			// Generation guard (the walk's own discipline): snapshot before the await, re-check after. A
 			// retry for a track the user has already moved past must discard silently — re-entering the
 			// strike logic on a superseded walk would strike a track nobody is waiting on.
@@ -5518,7 +5520,9 @@ class Player {
 			this.fallbackEpisodeKey = key;
 			this.fallbackAttempted = new Set<SourceId>();
 		}
-		this.fallbackAttempted.add(failed.source);
+		// quick-261102-sy0: a name stub's `source` is a PLACEHOLDER (similar.ts primarySourceId) —
+		// seeding it as attempted excluded that source from the episode without ever trying it.
+		if (!failed.resolveByName) this.fallbackAttempted.add(failed.source);
 		this.loading = true;
 		this.error = null;
 		const ac = new AbortController();

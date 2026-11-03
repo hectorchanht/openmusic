@@ -67,6 +67,7 @@ function toSongType(raw: string | undefined): 'fc' | 'bz' | 'yc' {
 
 export const fivesing: SourceAdapter = {
 	id: 'fivesing',
+	health: fivesingHealth,
 	label: '5sing',
 	// Ships enabled by default (1bf113c); toggleable off via prefs (Settings → Playback →
 	// Advanced → Sources) for users who want a cleaner search, since UGC supply (covers/karaoke)

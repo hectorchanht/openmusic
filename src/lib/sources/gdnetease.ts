@@ -60,6 +60,7 @@ function qualityFromBr(br: number | undefined): { quality: string | null; qualit
 
 export const gdnetease: SourceAdapter = {
 	id: 'gdnetease',
+	health: gdneteaseHealth,
 	label: 'Netease（GD）',
 	enabledByDefault: true,
 

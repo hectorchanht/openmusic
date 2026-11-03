@@ -106,12 +106,12 @@ describe('parseJbsouRows', () => {
 describe('pickJbsouRow', () => {
 	it('songid identity wins outright — even over a same-title cover listed first', () => {
 		const reordered = [...rows(NETEASE_SEARCH_BODY)].reverse();
-		const picked = pickJbsouRow(reordered, { id: '3440441479', title: '晴天', artist: 'Jay' }, 'netease');
+		const picked = pickJbsouRow(reordered, { id: '3440441479', title: '晴天', artist: 'Jay' });
 		expect(picked?.songid).toBe('3440441479');
 	});
 
 	it('matchKey identity picks the same artist+title row when the id is unknown', () => {
-		const picked = pickJbsouRow(rows(QQ_SEARCH_BODY), { title: '晴天', artist: '周杰伦' }, 'qq');
+		const picked = pickJbsouRow(rows(QQ_SEARCH_BODY), { title: '晴天', artist: '周杰伦' });
 		expect(picked?.songid).toBe('0039MnYb0qxYhV');
 	});
 
@@ -119,19 +119,20 @@ describe('pickJbsouRow', () => {
 		// Only the cover rows: identity set for {Jay, 晴天} is empty (the 梦里啥都有 row has the
 		// same TITLE but a different artist; the RyaVocal row's title differs too).
 		const covers = rows(NETEASE_SEARCH_BODY).filter((r) => r.songid !== '3440441479');
-		expect(pickJbsouRow(covers, { title: '晴天', artist: 'Jay' }, 'netease')).toBeNull();
+		expect(pickJbsouRow(covers, { title: '晴天', artist: 'Jay' })).toBeNull();
 	});
 
-	it('rejects an identity-equal LIVE variant when the studio row is absent', () => {
-		// norm() folds "(Live)" out of the matchKey, so the Live row IS in the identity set —
-		// the scoreMatch variant penalty (10−4=6) must hold it under the JBSOU_MIN_SCORE floor.
+	it('a LIVE-only pool rescues the live take as the last resort (quick-261102-sy0)', () => {
+		// THE auto-play acceptance demotes variants below every clean full version but does not
+		// refuse them (product call 2026-11-03) — the same rule the fallback race and name-stub
+		// walk apply, so JBSou no longer keeps its own stricter scoreMatch floor.
 		const liveOnly = rows(QQ_SEARCH_BODY).filter((r) => r.songid !== '0039MnYb0qxYhV');
-		expect(pickJbsouRow(liveOnly, { title: '晴天', artist: '周杰伦' }, 'qq')).toBeNull();
+		expect(pickJbsouRow(liveOnly, { title: '晴天', artist: '周杰伦' })).not.toBeNull();
 	});
 
 	it('returns null on an empty row set / empty want', () => {
-		expect(pickJbsouRow([], { id: '1', title: '晴天', artist: '周杰伦' }, 'qq')).toBeNull();
-		expect(pickJbsouRow(rows(QQ_SEARCH_BODY), { title: '', artist: '' }, 'qq')).toBeNull();
+		expect(pickJbsouRow([], { id: '1', title: '晴天', artist: '周杰伦' })).toBeNull();
+		expect(pickJbsouRow(rows(QQ_SEARCH_BODY), { title: '', artist: '' })).toBeNull();
 	});
 });
 

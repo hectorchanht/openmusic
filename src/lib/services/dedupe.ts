@@ -271,8 +271,28 @@ export function sameSongStrings(aArtist: string, aTitle: string, bArtist: string
 	// every key has exactly one. Splitting the finished key keeps songKey literally untouched.
 	const ia = ka.indexOf('|');
 	const ib = kb.indexOf('|');
-	const title = ka.slice(0, ia);
-	return !!title && title === kb.slice(0, ib) && aliasArtist(ka.slice(ia + 1), kb.slice(ib + 1));
+	const ta = ka.slice(0, ia);
+	const tb = kb.slice(0, ib);
+	const aa = ka.slice(ia + 1);
+	const ab = kb.slice(ib + 1);
+	if (!ta) return false;
+	// quick-261102-sy0: a bilingual title is the same song under EITHER of its halves —
+	// "再愛你 - Zai Ai Ni" keys on its head (再爱你) but must still match a romanized
+	// "Zai Ai Ni" stub. altTitleKey is the half songKey dropped.
+	const titleMatch = ta === tb || altTitleKey(aTitle) === tb || ta === altTitleKey(bTitle);
+	return titleMatch && (aa === ab || aliasArtist(aa, ab));
+}
+
+/** quick-261102-sy0: the half of a bilingual title that stripTranslation DROPPED (the ASCII tail
+ *  of "<Han> - <ascii>", the Han run of "<Han> <Latin ≥2 words>"), keyed like songKey's title
+ *  half — or null when the title is not bilingual. */
+function altTitleKey(titleIn: string): string | null {
+	const s = preNorm(titleIn).trim();
+	const kept = stripTranslation(s);
+	if (kept === s) return null;
+	const dropped = s.startsWith(kept) ? s.slice(kept.length) : s.slice(0, s.length - kept.length);
+	const k = stripPunct(dropped);
+	return k || null;
 }
 
 /**
@@ -330,18 +350,37 @@ export function sameSongByCredit(
 	return sameArtistCredit(a.artist ?? '', b.artist ?? '');
 }
 
-function better(a: Track, b: Track, preferred?: SourceId): Track {
+/**
+ * quick-261102-sy0: the source/quality preference as a comparator (negative = a first):
+ * quality → user-preferred source → PLAYBACK_ORDER. better() is its pairwise winner, so dedupe's
+ * collapse and preferenceOrder's NON-collapsing sort share one rule.
+ */
+function comparePreference(a: Track, b: Track, preferred?: SourceId): number {
 	const qa = qualityRank(a);
 	const qb = qualityRank(b);
-	if (qa !== qb) return qa > qb ? a : b;
+	if (qa !== qb) return qb - qa;
 	// quality tie → a user-preferred source wins, else the static source ranking
 	if (preferred) {
-		if (a.source === preferred && b.source !== preferred) return a;
-		if (b.source === preferred && a.source !== preferred) return b;
+		if (a.source === preferred && b.source !== preferred) return -1;
+		if (b.source === preferred && a.source !== preferred) return 1;
 	}
 	// quick-261102-sqn (DECISIONS.md §5): the source tie-break is PLAYBACK_ORDER — the old local
 	// SOURCE_RANK (qq > joox > kuwo > kugou) contradicted the fallback ladder.
-	return playbackRank(a.source) >= playbackRank(b.source) ? a : b;
+	return playbackRank(b.source) - playbackRank(a.source);
+}
+
+function better(a: Track, b: Track, preferred?: SourceId): Track {
+	return comparePreference(a, b, preferred) <= 0 ? a : b;
+}
+
+/**
+ * quick-261102-sy0 (DECISIONS.md §3/§4): the pool in preference order WITHOUT collapsing — a
+ * stable sort by the same rule dedupeBest picks group winners with. For rankers that must see a
+ * clean cut and its variants side by side (dedupeBest's bracket-dropping key would merge
+ * 偏偏喜歡你 into its 320K ringtone before any official/variant partition ran).
+ */
+export function preferenceOrder(tracks: Track[], preferred?: SourceId): Track[] {
+	return [...tracks].sort((a, b) => comparePreference(a, b, preferred));
 }
 
 /**

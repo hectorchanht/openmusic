@@ -140,6 +140,7 @@ function pickFormat(it: MgSearchItem): MgFormat | null {
 
 export const migu: SourceAdapter = {
 	id: 'migu',
+	health: miguHealth,
 	label: 'Migu',
 	enabledByDefault: true,
 

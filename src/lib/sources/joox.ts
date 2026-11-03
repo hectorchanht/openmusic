@@ -248,6 +248,7 @@ async function fetchJooxDetailData(
 
 export const joox: SourceAdapter = {
 	id: 'joox',
+	health: jooxHealth,
 	label: 'JOOX',
 	enabledByDefault: true,
 

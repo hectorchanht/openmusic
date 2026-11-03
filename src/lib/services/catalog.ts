@@ -9,9 +9,9 @@ import { makeUid, type SourceId, type Track, type SettledSourceResult } from '$l
 import type { DefaultQuality } from '$lib/stores/settings.svelte';
 import { sleep } from '$lib/proxy/http';
 import { cached, evictCached, __clearSearchCache } from './ttl-cache';
-import { matchKey, sameSongKey, sameSongByCredit } from './dedupe';
+import { matchKey } from './dedupe';
 import { scoreMatch } from './score-match';
-import { rankAcceptable, isAcceptableSubstitute, isAutoAcceptableArtist } from './song-variant';
+import { walkSource } from './fallback';
 import { readResolveCache, registerServedResolve } from './resolve-cache-client';
 import { logAction } from '$lib/stores/actionLog.svelte';
 import { isTrackReady } from './track-ready';
@@ -241,11 +241,9 @@ function interleave(perSource: SettledSourceResult[]): Track[] {
 /**
  * RESOLVE-02 (POLICY.md / spikes 001+002+004): resolve a sourceless name-only stub (`{artist,title}`
  * — the shape Plan 26-03's Last.fm `track.getSimilar` Up-Next emits) to a playable Track by walking
- * the PLAYBACK_ORDER (quick-261102-sqn) ONE source at a time. For each source: a SINGLE-source `searchAll`
- * (`onlySource` prefs — never an all-enabled fan-out), rank the RAW results via `rankAcceptable`
- * (quick-261101-ring1 — no dedupeBest collapse), adopt only a
- * candidate that is the SAME song via `sameSongKey` (WR-06 — a fuzzy upstream search can return a
- * different track), `ensureTrackDetails` it, and return the FIRST that yields a truthy `audioUrl`.
+ * the PLAYBACK_ORDER (quick-261102-sqn) ONE source at a time through fallback.ts walkSource
+ * (quick-261102-sy0): single-source search, isAutoAcceptable gate + rankAutoCandidates order over the
+ * RAW rows, up to three candidate resolves, return the FIRST that yields a truthy `audioUrl`.
  * Never-throws (per-source failures are swallowed), AbortSignal-honoring (bails after every await),
  * and stops at the first playable hit — so ~all plays resolve in ONE kuwo call (the ~59→~3 floor).
  *
@@ -277,7 +275,7 @@ export async function resolveNameStub(
 	// hint must degrade to the full walk, never to an empty one that resolves nothing.
 	const kept = avail ? eligible.filter((id) => avail[id] !== 'dry') : eligible;
 	const order = kept.length ? kept : eligible;
-	// A minimal comparison target for sameSongKey (reads title+artist only). Fully typed, no cast.
+	// The walker's target (isAutoAcceptable reads title+artist; walkSource the duration). Typed, no cast.
 	const want: Track = {
 		uid: '',
 		source: order[0] ?? 'kuwo',
@@ -295,46 +293,16 @@ export async function resolveNameStub(
 		keyword: query,
 		displayIndex: 1
 	};
+	// quick-261102-sy0 (DECISIONS.md §3): the SAME per-source walker the cross-source fallback
+	// races (fallback.ts walkSource) — same pool depth, same isAutoAcceptable gate + ranking, same
+	// per-candidate continue-on-throw, same verdicts. This loop is the sequential exhaustive pass:
+	// every eligible source gets one genuine attempt, so a name stub is never called unplayable
+	// because a source merely errored.
 	for (const src of order) {
 		if (sig.aborted) return null;
-		try {
-			const result = await searchAll(query, 1, onlySource(src), sig);
-			if (sig.aborted) return null;
-			// quick-261101-ring1: RAW rows, not dedupeBest's collapse (same fix as fallback.ts):
-			// dedupe's bracket-stripping key collapsed a source's clean cut and its variants
-			// into one quality/first-order winner before the official partition could choose,
-			// so a name stub could resolve to a ringtone/clip its source also carries clean.
-			const candidates = result.interleaved;
-			// Same two gates as the cross-source failover (see fallback.ts): sameSongKey cannot tell a
-			// rendition apart because dedupe's key() strips bracketed suffixes, so an Up-Next name stub
-			// would otherwise resolve to the instrumental or a cover of the song it asked for.
-			// quick-261020-off1: the ranking prefers the plain original over live/remix/DJ variants.
-			// quick-261102-exh1: walk up to THREE acceptable candidates per source, not just the
-			// first pick — one failed resolve (locked tiers, positional-id mismatch, transient
-			// detail error) must not burn a source whose #2 row would have played (the same
-			// false-skip shape as fallback's candidate walk; see song-variant rankAcceptable).
-			// quick-261102-cov1: plus the artist-identity gate, stated explicitly at this
-			// adoption seam for the same reason as fallback.ts — a name stub credited to
-			// 周杰倫 must never come back as a different artist's 同人 cover, however
-			// playable that cover's row is. Identity is `sameSongKey OR sameSongByCredit`
-			// (see fallback.ts): the credit form admits a duet original
-			// (周杰倫/蔡依林 for a 周杰倫 stub) that the strict key excludes by shape.
-			const ranked = rankAcceptable(
-				candidates,
-				title,
-				(c) =>
-					(sameSongKey(c, want) || sameSongByCredit(c, want)) &&
-					isAcceptableSubstitute(title, c.title) &&
-					isAutoAcceptableArtist(artist, c.artist)
-			);
-			for (const stub of ranked.slice(0, 3)) {
-				const resolved = await ensureTrackDetails(stub, sig);
-				if (sig.aborted) return null;
-				if (resolved.audioUrl) return resolved;
-			}
-		} catch {
-			/* this source dry / threw — walk on to the next (never-throw) */
-		}
+		const attempt = await walkSource(src, query, want, sig);
+		if (sig.aborted) return null;
+		if (attempt.hit) return attempt.hit.track;
 	}
 	return null;
 }

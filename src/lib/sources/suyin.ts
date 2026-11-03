@@ -108,6 +108,7 @@ function toTrack(it: SuyinItem, keyword: string, idx: number): Track | null {
 
 export const suyin: SourceAdapter = {
 	id: 'suyin',
+	health: suyinHealth,
 	label: 'Kuwo（溯音）',
 	enabledByDefault: true,
 

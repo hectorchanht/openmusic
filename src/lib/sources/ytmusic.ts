@@ -213,6 +213,7 @@ export function parseSearchEnvelope(json: unknown, keyword: string): Track[] {
 
 export const ytmusic: SourceAdapter = {
 	id: 'ytmusic',
+	health: ytmusicHealth,
 	label: 'YouTube Music',
 	// Discoverable in the normal search fan-out (an extra Promise.allSettled source can never break
 	// the existing ones — a ytmusic failure is isolated to its own settled slot).

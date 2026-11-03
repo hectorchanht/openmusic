@@ -53,6 +53,7 @@ function pickQueryParam(rawUrl: string | undefined | null, key: string): string 
 
 export const netease: SourceAdapter = {
 	id: 'netease',
+	health: neteaseHealth,
 	label: '网易云音乐',
 	enabledByDefault: true,
 

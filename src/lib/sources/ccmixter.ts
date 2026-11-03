@@ -39,6 +39,7 @@ interface CcmResponse {
 
 export const ccmixter: SourceAdapter = {
 	id: 'ccmixter',
+	health: ccmixterHealth,
 	label: 'CCMixter',
 	// Ships enabled by default; toggleable off via the Playback Advanced — Sources
 	// accordion (registry-driven, no per-source UI). CC remix/indie is a different

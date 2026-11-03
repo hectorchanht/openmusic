@@ -36,7 +36,7 @@
 // Same `+server.ts`-may-only-export-verbs reason as resolve-cache.ts for living in $lib.
 import { qqProxy } from './qq';
 import { fetchWithRetry } from './http';
-import { matchKey } from '$lib/services/dedupe';
+import { rankAutoCandidates } from '$lib/services/song-variant';
 import { ensureFoldReady } from '$lib/services/zh-convert';
 import { RESOLVE_URL_TTL_S, type ResolveEntry } from './resolve-cache';
 
@@ -105,13 +105,16 @@ export async function resolveOnEdge(
 				: null;
 		if (rows === null) return null;
 
-		// matchKey — never a local lowercase/strip — so the edge normalizes IDENTICALLY to the
-		// client's dedupe, cover cache and lyric fallback, and to resolveCacheKey's key folding.
-		await ensureFoldReady(); // quick-261102-sjg: matchKey folds script — never key cold
-		const want = matchKey(artist, title);
-		const row = (rows as QQSearchRow[]).find(
-			(r) => matchKey(String(r?.singer_name ?? ''), String(r?.song_title ?? '')) === want
-		);
+		// quick-261102-sy0 (DECISIONS.md §3): THE auto-play acceptance — the same gate + ranking the
+		// client's fallback / name-stub walk / discovery use. The old first-matchKey-equal pick took
+		// `X（鈴聲版）` for `X` (matchKey drops brackets) and refused duet credits.
+		await ensureFoldReady(); // quick-261102-sjg: identity keys fold script — never key cold
+		const named = (rows as QQSearchRow[]).map((r) => ({
+			artist: String(r?.singer_name ?? ''),
+			title: String(r?.song_title ?? ''),
+			row: r
+		}));
+		const row = rankAutoCandidates(named, { artist, title })[0]?.row;
 		const mid = row?.song_mid;
 		// A clean "not here" — genuinely negative, so the caller caches it and the repeat costs zero.
 		// A matching row WITHOUT a song_mid lands here too: there is no identifier to cache, and qq

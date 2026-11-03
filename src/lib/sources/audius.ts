@@ -32,6 +32,7 @@ interface AudiusResponse {
 
 export const audius: SourceAdapter = {
 	id: 'audius',
+	health: audiusHealth,
 	label: 'Audius',
 	// Verified-working, zero-overlap net-new supply — enabled in the default resolver
 	// (parallel Promise.allSettled fan-out means an extra source can't break existing ones).

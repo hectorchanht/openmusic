@@ -16,17 +16,15 @@
 //   3. Follow the picked row's signed path (same cookie) with redirect:'manual' → Location
 //      is the final CDN URL (music.126.net / qqmusic hosts).
 //
-// Matching is deliberately STRICT (a wrong-song URL is worse than a failure):
+// Matching (a wrong-song URL is worse than a failure):
 //   1. songid identity — a row whose songid IS the wanted upstream id wins outright.
-//   2. matchKey(artist, title) identity — the same gate resolve-edge.ts and catalog's
-//      lyricFromSource use; scoreMatch only RANKS within that identity set.
-//   3. Nothing looser. JBSou's netease rows are cover-heavy (the live probe's first page
-//      for 晴天 was mostly covers), so a fuzzy tier would rescue the WRONG recording.
+//   2. quick-261102-sy0: THE auto-play acceptance (song-variant rankAutoCandidates) — the same
+//      gate + ranking every other automatic path uses. JBSou's netease rows are cover-heavy
+//      (the live probe's first page for 晴天 was mostly covers): the artist gate refuses them,
+//      while a duet credit containing the wanted artist is accepted as the original.
 import { fetchWithRetry } from './http';
-import { matchKey } from '$lib/services/dedupe';
 import { foldScriptReady } from '$lib/services/zh-convert';
-import { scoreMatch } from '$lib/services/score-match';
-import type { Track } from '$lib/sources/types';
+import { rankAutoCandidates } from '$lib/services/song-variant';
 
 export const JBSOU_BASE = 'https://www.jbsou.cn/';
 const JBSOU_UA =
@@ -85,55 +83,23 @@ export function parseJbsouRows(body: unknown): JbsouRow[] {
 	return rows;
 }
 
-/** Minimal Track stub so scoreMatch can rank a row (it reads artist/title/duration only). */
-function rowTrack(row: JbsouRow, type: JbsouType): Track {
-	return {
-		uid: `${type}:${row.songid}`,
-		source: type,
-		songid: row.songid,
-		title: row.name,
-		artist: row.artist,
-		album: '',
-		cover: null,
-		audioUrl: null,
-		lrc: null,
-		lrcUrl: null,
-		detailsLoaded: false,
-		quality: null,
-		qualityLabel: null,
-		keyword: '',
-		displayIndex: 0
-	};
-}
+
 
 
 /**
- * Acceptance floor for the matchKey tier. Every identity-set member scores SIM_EXACT (10)
- * on similarity, so the only way down is scoreMatch's variant penalty (−4 per un-asked-for
- * variant keyword in the candidate title: live / remix / 伴奏 …). ≥8 therefore means
- * "identity-equal AND variant-clean" — an identity-equal LIVE row (10−4=6) is refused:
- * rescuing a different rendition is a wrong-song rescue.
+ * Pick the ONE row that is the wanted song, or null: songid identity first, then the first row
+ * of THE auto-play acceptance ranking (quick-261102-sy0 — clean full versions before variants,
+ * which play only when nothing clean exists, product call 2026-11-03).
  */
-export const JBSOU_MIN_SCORE = 8;
-
-/**
- * Pick the ONE row that is confidently the wanted song, or null. Strict by design (see the
- * header): songid identity first, then matchKey identity ranked by scoreMatch with the
- * JBSOU_MIN_SCORE floor.
- */
-export function pickJbsouRow(rows: JbsouRow[], want: JbsouWant, type: JbsouType): JbsouRow | null {
+export function pickJbsouRow(rows: JbsouRow[], want: JbsouWant): JbsouRow | null {
 	if (want.id) {
 		const byId = rows.find((r) => r.songid === want.id);
 		if (byId) return byId;
 	}
-	const wantKey = matchKey(want.artist, want.title);
-	if (!want.title || wantKey === '|') return null;
-	const q = { artist: want.artist || '', title: want.title || '' };
-	const identity = rows.filter((r) => matchKey(r.artist, r.name) === wantKey);
-	if (identity.length === 0) return null;
-	identity.sort((a, b) => scoreMatch(q, rowTrack(b, type)) - scoreMatch(q, rowTrack(a, type)));
-	const best = identity[0];
-	return scoreMatch(q, rowTrack(best, type)) >= JBSOU_MIN_SCORE ? best : null;
+	if (!want.title) return null;
+	const target = { artist: want.artist || '', title: want.title };
+	const named = rows.map((row) => ({ artist: row.artist, title: row.name, row }));
+	return rankAutoCandidates(named, target)[0]?.row ?? null;
 }
 
 /** Audio extensions a JBSou redirect may legitimately land on (the signed path's only job). */
@@ -248,7 +214,7 @@ export async function resolveViaJbsou(type: JbsouType, want: JbsouWant): Promise
 			}
 			return { kind: 'fail' };
 		}
-		const row = pickJbsouRow(rows, want, type);
+		const row = pickJbsouRow(rows, want);
 		if (!row) return { kind: 'nomatch' }; // retrying with a new cookie cannot help
 
 		try {

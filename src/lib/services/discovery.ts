@@ -11,8 +11,8 @@
 // Graceful degrade (D-03): null → caller shows unplayable / skips, never breaks the
 // surface or the player. catalog.ts / dedupe.ts are pure reuse — NOT modified here.
 import { searchAll } from '$lib/services/catalog';
-import { dedupeBest, normField } from '$lib/services/dedupe';
-import { pickOfficial, partitionOfficial, isAutoAcceptableArtist } from '$lib/services/song-variant';
+import { dedupeBest, normField, preferenceOrder } from '$lib/services/dedupe';
+import { pickOfficial, partitionOfficial, isAutoAcceptable, isAutoAcceptableArtist } from '$lib/services/song-variant';
 import { tier1Only } from '$lib/sources/registry';
 import { scoreMatch } from '$lib/services/score-match';
 import { isChineseLine, ensureFoldReady, foldScriptReady } from '$lib/services/zh-convert';
@@ -56,29 +56,29 @@ async function attempt(
 	// "cold dictionary got official versions rejected" incident).
 	await foldScriptReady(`${artist} ${title}`);
 	const tier1 = await searchAll(`${artist} ${title}`, 1, tier1Only());
-	const { official } = partitionOfficial(tier1.interleaved, title);
+	// quick-261102-sy0: only ACCEPTABLE rows can satisfy tier-1 — a plain-titled cover by another
+	// artist used to count as "official", suppress the full fan-out, then get filtered out of the
+	// pick, so kugou/migu were never searched and the song came back null.
+	const { official } = partitionOfficial(
+		tier1.interleaved.filter((t) => isAutoAcceptable(query, t)),
+		title
+	);
 	const useFull = official.length === 0;
 	const r = useFull ? await searchAll(`${artist} ${title}`, 1) : tier1;
 	const pick = (rows: Track[]): Track | null => {
-		// dedupeBest = the deduped, quality/preferredSource-ordered candidate list (FINAL
-		// tie-break). quick-261020-off1: pickOfficial ranks the OFFICIAL pool first — a plain
-		// original recording always beats a 伴奏/live/DJ/cover variant of the same song.
-		// Variants are only considered when no official version exists. scoreMatch still
-		// ranks within each pool, and the stable-max keeps dedupeBest order on ties.
-		let candidates = dedupeBest(rows, settings.preferredSource);
-		// quick-261102-cov1 (user report 2026-11-02): the ARTIST-IDENTITY gate runs BEFORE
-		// ranking. scoreMatch only re-orders — every plain-titled cover earns the same
-		// title-only credit, so on a covers-only pool (netease's pool for 周杰倫《說了再見》
-		// is exactly that: 10 fan covers, no official row) the stable max simply took the
-		// first cover and the tap played 阿傑 under 周杰倫's name. A candidate credited to
-		// a clearly different artist is not a candidate at all for an automatic resolve:
-		// filter it out here so the pick walks past covers to the original artist's row
-		// whenever any source in the pool carries one, and returns null when none does.
-		candidates = candidates.filter((t) => isAutoAcceptableArtist(artist, t.artist));
+		// quick-261102-sy0 (DECISIONS.md §3): THE auto-play acceptance predicate gates the pool
+		// BEFORE ranking — same song (identity or duet credit), same kind of recording, same
+		// artist (quick-261102-cov1: a covers-only pool — netease's 10 fan covers of
+		// 周杰倫《說了再見》 — returns null instead of 阿傑's cover).
+		let candidates = rows.filter((t) => isAutoAcceptable(query, t));
 		// quick-260925-wa7: the name rescue ranks only the rows it would accept (see rescueLatin).
 		if (accept) candidates = candidates.filter(accept);
 		if (candidates.length === 0) return null;
-		return pickOfficial(candidates, query, scoreMatch);
+		// quick-261020-off1: pickOfficial ranks the OFFICIAL pool first. quick-261102-sy0: the
+		// tie-break order is preferenceOrder (quality → preferred source → PLAYBACK_ORDER) WITHOUT
+		// dedupeBest's collapse — that collapse merged 偏偏喜歡你 into its 320K 鈴聲 copy before
+		// the partition ran, so the 48-second ringtone was the only row left to pick.
+		return pickOfficial(preferenceOrder(candidates, settings.preferredSource), query, scoreMatch);
 	};
 	// quick-260926-c69: partition BEFORE dedupeBest. Its same-key collapse is decided by quality →
 	// settings.preferredSource → SOURCE_RANK, so a user-preferred ineligible source could otherwise

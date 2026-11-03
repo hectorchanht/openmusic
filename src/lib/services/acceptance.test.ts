@@ -6,6 +6,7 @@ import { warmScript } from '$lib/services/zh-convert';
 import * as catalog from '$lib/services/catalog';
 import { resolveStub } from '$lib/services/discovery';
 import { pickJbsouRow } from '$lib/proxy/jbsou';
+import { isAutoAcceptable } from '$lib/services/song-variant';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 
 vi.mock('$lib/stores/actionLog.svelte', () => ({ logAction: vi.fn() }));
@@ -35,16 +36,36 @@ describe('acceptance invariants (hold before and after)', () => {
 	});
 });
 
-describe('acceptance divergences (characterization: current behaviour)', () => {
-	it('discovery collapses the clean cut into its 320K ringtone before ranking (偏偏喜歡你)', async () => {
+describe('one acceptance predicate on every automatic path (quick-261102-sy0)', () => {
+	it('discovery ranks the clean cut over its 320K ringtone (no collapse before ranking — 偏偏喜歡你)', async () => {
 		const clean = mk('qq', 'clean', '陳百強', '偏偏喜歡你', { duration: 236 });
 		const ring = mk('suyin', 'ring', '陳百強', '偏偏喜歡你（鈴聲）', { duration: 48, qualityLabel: '320K' });
 		vi.spyOn(catalog, 'searchAll').mockResolvedValue(pool([clean, ring]));
+		expect((await resolveStub('陳百強', '偏偏喜歡你'))?.uid).toBe(clean.uid);
+	});
+
+	it('a junk-only pool still plays the junk as last resort (product call 2026-11-03)', async () => {
+		const ring = mk('suyin', 'ring', '陳百強', '偏偏喜歡你（鈴聲）', { duration: 48 });
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(pool([ring]));
 		expect((await resolveStub('陳百強', '偏偏喜歡你'))?.uid).toBe(ring.uid);
 	});
 
-	it('JBSou refuses a duet credit that contains the target artist', () => {
+	it('duet credit containing the target is accepted as the original — discovery and JBSou agree', async () => {
+		const duet = mk('qq', 'd', '周杰倫/蔡依林', '不能說的秘密');
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(pool([duet]));
+		expect((await resolveStub('周杰倫', '不能說的秘密'))?.uid).toBe(duet.uid);
 		const rows = [{ songid: '1', name: '不能說的秘密', artist: '周杰倫/蔡依林', urlPath: 'x' }];
-		expect(pickJbsouRow(rows, { title: '不能說的秘密', artist: '周杰倫' }, 'netease')).toBeNull();
+		expect(pickJbsouRow(rows, { title: '不能說的秘密', artist: '周杰倫' })?.songid).toBe('1');
+	});
+
+	it('JBSou never takes a different artist with the same title', () => {
+		const rows = [{ songid: '9', name: '說了再見', artist: '阿傑', urlPath: 'x' }];
+		expect(pickJbsouRow(rows, { title: '說了再見', artist: '周杰倫' })).toBeNull();
+	});
+
+	it('isAutoAcceptable: 阿傑 ≠ 阿傑正傳, Jay ≠ Jay Park, an instrumental is not the song', () => {
+		expect(isAutoAcceptable({ artist: '阿傑', title: 'X' }, { artist: '阿傑正傳', title: 'X' })).toBe(false);
+		expect(isAutoAcceptable({ artist: 'Jay', title: 'X' }, { artist: 'Jay Park', title: 'X' })).toBe(false);
+		expect(isAutoAcceptable({ artist: 'A', title: '告白氣球' }, { artist: 'A', title: '告白氣球（純音樂版）' })).toBe(false);
 	});
 });

@@ -253,7 +253,9 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(null);
 
 		await expect(resolveStub('Eric Chou', GRAD)).resolves.toBeNull();
-		expect(search).toHaveBeenCalledTimes(1);
+		// quick-261102-sy0: the weak row is not ACCEPTABLE, so tier-1 holds no acceptable official and
+		// the full fan-out runs too (+1 search) — it used to stop at tier-1 on any plain-titled row.
+		expect(search).toHaveBeenCalledTimes(2);
 		expect(look).toHaveBeenCalledTimes(1);
 	});
 
@@ -262,19 +264,23 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		const search = vi
 			.spyOn(catalog, 'searchAll')
 			.mockResolvedValueOnce(result([nct()]))
+			.mockResolvedValueOnce(result([nct()]))
 			.mockResolvedValueOnce(result([rescued]));
 		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zhGrad);
 
 		expect((await resolveStub('Eric Chou', GRAD))?.uid).toBe(rescued.uid);
-		expect(search).toHaveBeenCalledTimes(2);
+		// quick-261102-sy0: the weak row is not ACCEPTABLE, so tier-1 holds no acceptable official and
+		// the full fan-out runs too (+1 search) — it used to stop at tier-1 on any plain-titled row.
+		expect(search).toHaveBeenCalledTimes(3);
 		expect(look).toHaveBeenCalledTimes(1);
 		// t2s is applied BEFORE the re-search (accepted convert-first deviation).
-		expect(search.mock.calls[1][0]).toBe('周兴哲 最后一堂课');
+		expect(search.mock.calls[2][0]).toBe('周兴哲 最后一堂课');
 	});
 
 	it('a Traditional re-search row still strong-matches (candidate folded to Simplified)', async () => {
 		const rescued = mk('kuwo', 'trad', '周興哲', { title: '最後一堂課' });
 		vi.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([nct()]))
 			.mockResolvedValueOnce(result([nct()]))
 			.mockResolvedValueOnce(result([rescued]));
 		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zhGrad);
@@ -290,11 +296,12 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		const search = vi
 			.spyOn(catalog, 'searchAll')
 			.mockResolvedValueOnce(result([nct()]))
+			.mockResolvedValueOnce(result([nct()]))
 			.mockResolvedValueOnce(result([cover, real]));
 		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zhGrad);
 
 		expect((await resolveStub('Eric Chou', GRAD))?.uid).toBe(real.uid);
-		expect(search).toHaveBeenCalledTimes(2);
+		expect(search).toHaveBeenCalledTimes(3);
 	});
 
 	it('weak hit + lookup hit + unrelated re-search row → null (cov1: the different-artist weak row is no longer the fallback); searchAll 2', async () => {
@@ -305,17 +312,22 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		const search = vi
 			.spyOn(catalog, 'searchAll')
 			.mockResolvedValueOnce(result([weak]))
-			.mockResolvedValueOnce(result([mk('qq', 'aaa', 'Alpha', { title: 'Aaa' })]));
+			.mockResolvedValueOnce(result([weak]))
+			.mockResolvedValueOnce(result([mk('qq', 'aaa', 'Alpha', { title: 'Aaa' })]))
+			.mockResolvedValueOnce(result([]));
 		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zhGrad);
 
 		await expect(resolveStub('Eric Chou', GRAD)).resolves.toBeNull();
-		expect(search).toHaveBeenCalledTimes(2);
+		// quick-261102-sy0: each attempt whose tier-1 holds no ACCEPTABLE official also runs the
+		// full fan-out — 2 for the original names + 2 for the rescue re-search.
+		expect(search).toHaveBeenCalledTimes(4);
 	});
 
 	it('weak hit + lookup hit + empty re-search → null (cov1: no same-artist row anywhere)', async () => {
 		const weak = nct();
 		const search = vi
 			.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([weak]))
 			.mockResolvedValueOnce(result([weak]))
 			.mockResolvedValueOnce(result([]))
 			.mockResolvedValueOnce(result([]));
@@ -325,9 +337,9 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		// artist (NCT DREAM), so the resolve now ends null. The never-worse guarantee
 		// survives for SAME-artist weak rows (the gate only vetoes a different act).
 		await expect(resolveStub('Eric Chou', GRAD)).resolves.toBeNull();
-		// quick-261020-speed: tiered search. Initial tier-1 hits (1 call, no full search).
-		// Re-search: tier-1 miss (1) + full miss (1) = 3 total.
-		expect(search).toHaveBeenCalledTimes(3);
+		// quick-261102-sy0: the initial tier-1 row is not acceptable → full search too (2);
+		// re-search: tier-1 miss (1) + full miss (1) = 4 total.
+		expect(search).toHaveBeenCalledTimes(4);
 	});
 
 	it('weak hit + lookup hit + re-search THROWS → resolves (never throws) to null', async () => {
@@ -489,13 +501,13 @@ describe('resolveStub — eligible-first selection (quick-260926-c69)', () => {
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 
-	it('T9 CJK, nothing strong: weak eligible is a DIFFERENT artist → null (cov1 supersedes "weak eligible wins"); searchAll 1, lookup 0', async () => {
+	it('T9 CJK, nothing strong: weak eligible is a DIFFERENT artist → null (cov1 supersedes "weak eligible wins"); searchAll 2, lookup 0', async () => {
 		// quick-261102-cov1: the weak eligible row is 酷客音乐's piano rendition of
 		// 周杰伦's 珊瑚海 — a different artist's version, gated out like any cover; the
 		// weak ytmusic row ('Someone'/'Other') is neither the artist nor the song.
-		// Nothing acceptable exists → null. Counts unchanged (the gate filters picks,
-		// it does not add searches; the 'Other' row still counts as official for the
-		// tier-width decision, which runs on raw rows).
+		// Nothing acceptable exists → null. quick-261102-sy0: the tier-width decision now
+		// runs on ACCEPTABLE rows too, so the unrelated 'Other' row no longer stops the
+		// fan-out at tier-1 — the full search runs (2 calls) before declaring null.
 		const weak = mk('qq', 'w2', '酷客音乐', { title: '珊瑚海(钢琴曲)' });
 		const search = vi
 			.spyOn(catalog, 'searchAll')
@@ -503,11 +515,11 @@ describe('resolveStub — eligible-first selection (quick-260926-c69)', () => {
 		const look = vi.spyOn(nameRescue, 'lookupChineseName');
 
 		await expect(resolveStub('周杰伦', '珊瑚海')).resolves.toBeNull();
-		expect(search).toHaveBeenCalledTimes(1);
+		expect(search).toHaveBeenCalledTimes(2);
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 
-	it('T10 ONLY a weak ytmusic row with unrelated title → null (never wrong song); searchAll 1', async () => {
+	it('T10 ONLY a weak ytmusic row with unrelated title → null (never wrong song); searchAll 2', async () => {
 		// quick-261020-wrong1: query 周傑倫/珊瑚海, only candidate is Someone/Other —
 		// completely unrelated, so null instead of the wrong song. quick-261102-sdm: no t2s
 		// re-search any more (searchAll already searched in Simplified) → one call.
@@ -515,7 +527,8 @@ describe('resolveStub — eligible-first selection (quick-260926-c69)', () => {
 		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([only]));
 
 		expect(await resolveStub('周傑倫', '珊瑚海')).toBeNull();
-		expect(search).toHaveBeenCalledTimes(1);
+		// quick-261102-sy0: the unrelated row is not acceptable → tier-1 + full fan-out.
+		expect(search).toHaveBeenCalledTimes(2);
 	});
 
 	it('T11 the t2s retry follows the same rule (eligible over a same-song ytmusic row); searchAll 2', async () => {

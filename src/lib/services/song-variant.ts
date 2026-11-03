@@ -1,7 +1,7 @@
 // SUBSTITUTION VARIANT GUARD — "is this candidate an acceptable stand-in for the song that failed?"
 // OFFICIAL SONG PRIORITIZER lives at the bottom (quick-261020-off1).
 
-import { variantTag, sameArtistCredit } from '$lib/services/dedupe';
+import { variantTag, sameArtistCredit, sameSongStrings, sameSongByCredit } from '$lib/services/dedupe';
 import { foldScript } from '$lib/services/zh-convert';
 //
 // WHY (user report, debug `slow-cold-start-first-playing`): when a source truly cannot serve a track,
@@ -444,4 +444,39 @@ export function isAutoAcceptableArtist(targetArtist: string, candidateArtist: st
 	const c = (candidateArtist ?? '').trim();
 	if (!c) return true;
 	return sameArtistCredit(t, c);
+}
+
+type Named = { artist: string; title: string };
+
+/**
+ * quick-261102-sy0 (DECISIONS.md §3) — THE auto-play acceptance predicate: may `cand` be
+ * played automatically AS `target` (the song the user tapped / the queue asked for)? Every
+ * automatic path consumes this one function — the cross-source fallback, the name-stub walk,
+ * discovery.resolveStub, the JBSou pipe and the edge resolve — so none keeps its own copy.
+ *   1. same song: sameSongStrings (script-folded identity + artist alias) OR sameSongByCredit
+ *      (same title, a duet/featuring credit that CONTAINS the target artist as a whole segment);
+ *   2. same kind of recording: isAcceptableSubstitute (never an instrumental/karaoke/cover
+ *      the target did not ask for);
+ *   3. same artist: isAutoAcceptableArtist (a different credited act is a cover — never
+ *      substituted while ALLOW_COVER_AS_AUTO_SUBSTITUTE is false).
+ * Junk variants / short clips are NOT rejected here — rankAutoCandidates demotes them below
+ * every clean full version (product call 2026-11-03: a junk-only pool still plays).
+ */
+export function isAutoAcceptable(target: Named, cand: Named): boolean {
+	return (
+		(sameSongStrings(cand.artist, cand.title, target.artist, target.title) || sameSongByCredit(cand, target)) &&
+		isAcceptableSubstitute(target.title, cand.title) &&
+		isAutoAcceptableArtist(target.artist, cand.artist)
+	);
+}
+
+/** quick-261102-sy0: a pool's auto-acceptable rows in rankAcceptable order (official-plausible
+ *  → variant-plausible → official-short → variant-short). The one ranked view every automatic
+ *  path walks. */
+export function rankAutoCandidates<T extends Named & { duration?: number }>(
+	pool: T[],
+	target: Named,
+	opts?: { expectedSec?: number }
+): T[] {
+	return rankAcceptable(pool, target.title, (c) => isAutoAcceptable(target, c), opts);
 }

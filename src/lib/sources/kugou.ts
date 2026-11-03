@@ -96,6 +96,7 @@ interface KgTier {
 
 export const kugou: SourceAdapter = {
 	id: 'kugou',
+	health: kugouHealth,
 	label: 'Kugou',
 	enabledByDefault: true,
 

@@ -42,6 +42,7 @@ interface JmResponse {
 
 export const jamendo: SourceAdapter = {
 	id: 'jamendo',
+	health: jamendoHealth,
 	label: 'Jamendo',
 	// Ships enabled by default (1bf113c); toggleable off via the Playback Advanced — Sources
 	// accordion (ii6). CC indie is a different intent than mainstream search.

@@ -75,6 +75,7 @@ function qualityFromBandwidth(bw: number | undefined): { tag: string; label: str
 
 export const bilibili: SourceAdapter = {
 	id: 'bilibili',
+	health: bilibiliHealth,
 	label: 'Bilibili',
 	enabledByDefault: true,
 	// Search-only: never let a video upload satisfy another source's resolve.

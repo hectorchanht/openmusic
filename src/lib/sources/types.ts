@@ -144,6 +144,10 @@ export interface SourceAdapter {
 	 *  right for region locks, where a retry just re-fetches the same refusal). Set only for a source
 	 *  whose failures are per-REQUEST, not per-song (ytmusic: the edge is bot-gated per invocation). */
 	loadRetries?: number;
+	/** quick-261102-sy0: the adapter's health gate, when it has one. While `isGated()` is true the
+	 *  adapter's search short-circuits to [] without asking upstream, so an empty pool from it is
+	 *  "never tried" (inconclusive), not "the source has nothing" — the fallback walker reads this. */
+	health?: { isGated(): boolean };
 	search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]>;
 	/** Lazy resolution: audioUrl + lrc + quality + detailsLoaded.
 	 *  `quality` (WR-07): an explicit per-call quality tier — used by the download path to

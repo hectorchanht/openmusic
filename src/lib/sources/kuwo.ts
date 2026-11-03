@@ -79,6 +79,7 @@ async function kuwoJson<T>(path: string, signal: AbortSignal): Promise<T> {
 
 export const kuwo: SourceAdapter = {
 	id: 'kuwo',
+	health: kuwoHealth,
 	label: '酷我音乐',
 	enabledByDefault: true,
 
