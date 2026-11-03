@@ -405,8 +405,8 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 	});
 });
 
-// quick-261103-cjk — bilingual title split. A "車匙 - Car Key" stub is unfindable on the
-// CN catalogs under its full spelling (live QQ probe, 2026-11-03: full string → junk,
+// quick-261103-cjk — bilingual title split. A "車匙 - Car Key" stub defeats the strict CN engines on the
+// CN catalogs under its full spelling (live probe, 2026-11-03: full string → junk or nothing on kuwo / migu / netease,
 // CJK half alone → the original), so with no strong eligible row the resolver retries
 // with the CJK half, and a Latin artist bridges via the wa7 name rescue.
 describe('resolveStub — bilingual title split (quick-261103-cjk)', () => {

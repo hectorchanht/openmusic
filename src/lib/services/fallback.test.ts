@@ -506,7 +506,7 @@ describe('tryFallback — artist-identity gate (quick-261102-cov1)', () => {
 });
 
 // quick-261103-cjk — bilingual title split: a failed track titled "車匙 - Car Key" is
-// unfindable on the CN catalogs under its full spelling (live QQ probe, 2026-11-03), so
+// unfindable on the strict CN engines under its full spelling (live probe, 2026-11-03), so
 // after the full-query pass misses, tryFallback runs ONE more pass with the CJK-half
 // search string. The identity gates still compare against the failed track itself.
 describe('tryFallback — bilingual title split (quick-261103-cjk)', () => {

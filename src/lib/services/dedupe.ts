@@ -97,13 +97,17 @@ function stripTranslation(title: string): string {
 /**
  * quick-261103-cjk (user report 2026-11-03 — 陳柏宇《車匙 - Car Key》 played only via
  * YouTube Music): the CJK half of a bilingual title, for SEARCHING the CN catalogs.
- * Identity already keys a bilingual title on one half (stripTranslation above), but the
- * CN search engines do not: probed live on QQ, "Jason Chan 車匙 - Car Key" and even
- * "Jason Chan 車匙" return junk, while "車匙" alone hits 陳柏宇's original at #2 and
- * "陳柏宇 車匙" hits it at #1. So a resolver that searches the full bilingual string
- * finds NOTHING on qq/netease/kuwo/kugou/migu and the song appears to exist only on
- * ytmusic. Returns the Han side of "<Han> - <Latin>", "<Latin> - <Han>" or
- * "<Han> <Latin ≥2 words>", or null when the title is not bilingual in that shape.
+ * Identity already keys a bilingual title on one half (stripTranslation above), but
+ * the strict CN search engines do not: probed live 2026-11-03, the full bilingual
+ * string "Jason Chan 車匙 - Car Key" returns junk or nothing on kuwo / migu /
+ * netease, while "車匙" alone hits 陳柏宇's original at #1 on kuwo and migu (and
+ * "陳柏宇 車匙" likewise). qq / joox search is fuzzy enough to find the song under
+ * any spelling — but qq's copy is paid-locked (its resolve returns an empty URL),
+ * and every CN row is credited 陳柏宇, never "Jason Chan", so the artist gate
+ * rejects them for a Latin-credit stub anyway; between the strict engines and the
+ * gate, only ytmusic ever played it. Returns the Han side of "<Han> - <Latin>",
+ * "<Latin> - <Han>" or "<Han> <Latin ≥2 words>", or null when the title is not
+ * bilingual in that shape.
  * The qualifier guard is stripTranslation's: a Latin tail that names a RENDITION
  * (live / remix / part 2 …) is not a translation, so "玻璃 - Live" yields null and
  * keeps searching as-is.
@@ -134,9 +138,10 @@ export function cjkTitleOf(titleIn: string): string | null {
 /**
  * quick-261103-cjk: the SEARCH STRING a resolver should use for a bilingual-titled
  * song on the CN catalogs, or null when the title has no CJK half to split off.
- * A CJK artist stays in the query ("陳柏宇 車匙" was the probe's exact #1 hit); a
- * Latin artist is dropped — "Jason Chan 車匙" still missed on QQ, because the CN
- * engines tokenize the Latin credit into junk, while the CJK title alone hit. The
+ * A CJK artist stays in the query ("陳柏宇 車匙" was the probe's exact #1 hit on
+ * kuwo / migu); a Latin artist is dropped — "Jason Chan 車匙" still missed on the
+ * strict engines (kuwo returned other Jason Chan songs, migu junk), while the CJK
+ * title alone hit. The
  * callers' identity gates still compare candidates against the ORIGINAL
  * {artist, title}, so a title-only pool can only ever adopt a row the gates accept
  * for the original stub (same title key + same artist credit) — never a stranger's

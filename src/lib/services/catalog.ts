@@ -309,9 +309,10 @@ export async function resolveNameStub(
 	};
 	const hit = await walkAll(query);
 	if (hit || sig.aborted) return hit;
-	// quick-261103-cjk (user report 2026-11-03): a bilingual title ("車匙 - Car Key") is
-	// unfindable on the CN catalogs under its full spelling (live QQ probe: full string
-	// → junk, CJK half alone → the original), so a total miss earns ONE more walk with
+	// quick-261103-cjk (user report 2026-11-03): a bilingual title ("車匙 - Car Key")
+	// defeats the strict CN search engines under its full spelling (live probe
+	// 2026-11-03: junk or nothing on kuwo / migu / netease; the CJK half alone hits
+	// the original), so a total miss earns ONE more walk with
 	// the CJK-half search string (dedupe.cjkSearchQuery — CJK artist kept, Latin artist
 	// dropped). `want` is unchanged: the walker's gates still compare every candidate
 	// against the ORIGINAL stub, so the split pool can only adopt a row that is the

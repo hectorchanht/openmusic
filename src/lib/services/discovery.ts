@@ -209,9 +209,10 @@ export async function resolveStub(artist: string, title: string): Promise<Track 
 		// quick-260926-c69 COMMON PATH — a strong eligible row: one searchAll, zero lookups.
 		if (bests.eligible && (await strongFolded(query, bests.eligible))) return bests.eligible;
 		// quick-261103-cjk (user report 2026-11-03): BILINGUAL TITLE SPLIT. A title like
-		// "車匙 - Car Key" (ytmusic / label spelling) is unfindable on the CN catalogs as
-		// written — live QQ probe: the full string AND "Jason Chan 車匙" return junk,
-		// "車匙" alone hits the original. So when the title has a CJK half and the full
+		// "車匙 - Car Key" (ytmusic / label spelling) defeats the strict CN search
+		// engines as written — live probe 2026-11-03: the full string returns junk or
+		// nothing on kuwo / migu / netease, while the CJK half alone hits the original
+		// (see dedupe.cjkTitleOf). So when the title has a CJK half and the full
 		// attempt produced no strong eligible row, ONE more attempt searches the CJK
 		// half alone (dedupe.cjkTitleOf). A Latin artist's CN rows are credited in
 		// Chinese (陳柏宇, not Jason Chan), so the split pool's artist gate rejects

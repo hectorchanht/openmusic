@@ -769,8 +769,8 @@ describe('resolveNameStub — registry-first single-source name resolution (RESO
 		expect(out).toBeNull();
 	});
 
-	// quick-261103-cjk: a bilingual title is unfindable on the CN catalogs under its full
-	// spelling (live QQ probe, 2026-11-03), so a total miss earns ONE more walk with the
+	// quick-261103-cjk: a bilingual title defeats the strict CN engines under its full
+	// spelling (live probe, 2026-11-03), so a total miss earns ONE more walk with the
 	// CJK-half search string. searchAll folds keywords to Simplified, so the adapter sees
 	// "陈柏宇 车匙" on the split pass.
 	it('bilingual title: full walk dry → split walk (CJK half) resolves (quick-261103-cjk)', async () => {

@@ -146,9 +146,10 @@ export async function tryFallback(
 	};
 	const hit = await runPass(query);
 	if (hit || signal?.aborted) return hit;
-	// quick-261103-cjk (user report 2026-11-03): a bilingual title ("車匙 - Car Key") is
-	// unfindable on the CN catalogs under its full spelling (live QQ probe: full string
-	// → junk, CJK half alone → the original), so a total miss earns ONE more pass with
+	// quick-261103-cjk (user report 2026-11-03): a bilingual title ("車匙 - Car Key")
+	// defeats the strict CN search engines under its full spelling (live probe
+	// 2026-11-03: junk or nothing on kuwo / migu / netease; the CJK half alone hits
+	// the original), so a total miss earns ONE more pass with
 	// the CJK-half search string (dedupe.cjkSearchQuery). walkSource's gates still
 	// compare candidates against the FAILED track itself, so the split pool can only
 	// adopt the same song by the same artist — never a stranger's same-title cover.

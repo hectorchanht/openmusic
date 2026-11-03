@@ -498,7 +498,7 @@ describe('dedupeShelfList — one row per song+rendition (quick-261031-dedup)', 
 });
 
 // quick-261103-cjk: the CJK half of a bilingual title is the CN-catalog SEARCH string —
-// the full bilingual spelling is unfindable there (live QQ probe, 2026-11-03).
+// the full bilingual spelling defeats the strict CN engines there (live probe, 2026-11-03).
 describe('cjkTitleOf / cjkSearchQuery — bilingual title split (quick-261103-cjk)', () => {
 	it('splits "<CJK> - <Latin>" on the CJK half', () => {
 		expect(cjkTitleOf('車匙 - Car Key')).toBe('車匙');
