@@ -413,21 +413,85 @@ describe('resolveStub — bilingual title split (quick-261103-cjk)', () => {
 	const ytm = () => mk('ytmusic', 'yt1', 'Jason Chan', { title: '車匙 - Car Key' });
 	const qqRow = () => mk('qq', 'car', '陳柏宇', { title: '車匙' });
 
-	it('the reported song: ytmusic-only full attempt → name rescue finds the 陳柏宇 CN row', async () => {
-		const hit = qqRow();
+	it('the reported song: title-trust adopts the 陳柏宇 CN row — no lookup fetch at all', async () => {
+		const hit = mk('joox', 'car', '陳柏宇', { title: '車匙' });
 		const search = vi
 			.spyOn(catalog, 'searchAll')
 			.mockResolvedValueOnce(result([ytm()]))
+			.mockResolvedValueOnce(result([qqRow(), hit])); // 陳柏宇 on qq + joox = consensus
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		expect((await resolveStub('Jason Chan', '車匙 - Car Key'))?.uid).toBe(hit.uid);
+		// quick-261103-cjk3: the CJK half alone is searched and the cross-source consensus artist
+		// adopted by pure logic — the name-rescue fetch is never spent.
+		expect(look).toHaveBeenCalledTimes(0);
+		expect(search).toHaveBeenCalledTimes(2);
+		expect(search.mock.calls[1][0]).toBe('車匙');
+	});
+
+	it('title-trust fences: ineligible-source + qualifier-title rows do NOT adopt → rescue runs', async () => {
+		const hit = qqRow();
+		const upload = mk('ytmusic', 'up1', 'oupatpat', { title: '車匙' });
+		const version = mk('qq', 'v2016', '陳柏宇', { title: '車匙 (2016 Version)' });
+		const search = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([ytm()])) // full attempt
+			.mockResolvedValueOnce(result([upload, version])) // trust tier-1 scan — both fenced out
+			.mockResolvedValueOnce(result([])) // trust full scan
+			.mockResolvedValueOnce(result([hit])); // rescue re-search
+		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue({ artist: '陳柏宇', title: '車匙' });
+
+		expect((await resolveStub('Jason Chan', '車匙 - Car Key'))?.uid).toBe(hit.uid);
+		expect(look).toHaveBeenCalledTimes(1);
+		expect(search.mock.calls[1][0]).toBe('車匙');
+	});
+
+	it('title-trust: consensus artist beats a single-source stranger with the same title', async () => {
+		const hit = mk('joox', 'car', '陳柏宇', { title: '車匙' });
+		const stranger = mk('qq', 'other', '幸運王子', { title: '車匙' });
+		vi.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([ytm()]))
+			.mockResolvedValueOnce(result([stranger, qqRow(), hit])); // 陳柏宇 qq+joox, stranger qq only
+		const look = vi.spyOn(nameRescue, 'lookupChineseName');
+
+		expect((await resolveStub('Jason Chan', '車匙 - Car Key'))?.uid).toBe(hit.uid);
+		expect(look).toHaveBeenCalledTimes(0);
+	});
+
+	it('title-trust: a single-source exact-title artist is NOT trusted → rescue runs', async () => {
+		const hit = mk('joox', 'car', '陳柏宇', { title: '車匙' });
+		const search = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([ytm()]))
+			.mockResolvedValueOnce(result([qqRow()])) // trust tier-1: 陳柏宇 on qq only
+			.mockResolvedValueOnce(result([qqRow()])) // trust full: still one source
+			.mockResolvedValueOnce(result([hit])); // rescue re-search
+		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue({ artist: '陳柏宇', title: '車匙' });
+
+		expect((await resolveStub('Jason Chan', '車匙 - Car Key'))?.uid).toBe(hit.uid);
+		expect(look).toHaveBeenCalledTimes(1);
+		expect(search).toHaveBeenCalledTimes(4);
+	});
+
+	it('title-trust: two artists tied at two sources each → ambiguous, rescue decides', async () => {
+		const hit = mk('joox', 'car', '陳柏宇', { title: '車匙' });
+		const tiePool = () => [
+			qqRow(),
+			mk('joox', 'car2', '陳柏宇', { title: '車匙' }),
+			mk('kuwo', 'lw1', '幸運王子', { title: '車匙' }),
+			mk('migu', 'lw2', '幸運王子', { title: '車匙' })
+		];
+		const search = vi
+			.spyOn(catalog, 'searchAll')
+			.mockResolvedValueOnce(result([ytm()]))
+			.mockResolvedValueOnce(result(tiePool()))
+			.mockResolvedValueOnce(result(tiePool()))
 			.mockResolvedValueOnce(result([hit]));
 		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue({ artist: '陳柏宇', title: '車匙' });
 
 		expect((await resolveStub('Jason Chan', '車匙 - Car Key'))?.uid).toBe(hit.uid);
 		expect(look).toHaveBeenCalledTimes(1);
-		expect(look).toHaveBeenCalledWith('Jason Chan', '車匙 - Car Key');
-		// quick-261103-cjk2: the rescue re-search runs right after the full attempt — the split
-		// attempt (whose pool cannot settle for a Latin artist) is never spent.
-		expect(search).toHaveBeenCalledTimes(2);
-		expect(search.mock.calls[1][0]).toBe('陈柏宇 车匙');
+		expect(search).toHaveBeenCalledTimes(4);
 	});
 
 	it('CJK artist: the split attempt alone resolves, no lookup spent', async () => {

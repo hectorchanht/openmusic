@@ -15,7 +15,7 @@ import { dedupeBest, normField, preferenceOrder, cjkTitleOf } from '$lib/service
 import { rankPool, partitionOfficial, isAutoAcceptable, isAutoAcceptableArtist } from '$lib/services/song-variant';
 import { tier1Only } from '$lib/sources/registry';
 import { scoreMatch } from '$lib/services/score-match';
-import { isChineseLine, ensureFoldReady, foldScriptReady } from '$lib/services/zh-convert';
+import { foldScript, isChineseLine, ensureFoldReady, foldScriptReady } from '$lib/services/zh-convert';
 import { detectLang } from '$lib/i18n/detect';
 import { isStrongMatch, lookupChineseName, type ZhName } from '$lib/services/name-rescue';
 import { settings } from '$lib/stores/settings.svelte';
@@ -223,12 +223,20 @@ export async function resolveStub(artist: string, title: string): Promise<Track 
 		// cached lookup when the artist is Latin.
 		const cjkTitle = cjkTitleOf(title);
 		if (cjkTitle) {
-			// quick-261103-cjk2: for a Latin artist the rescue runs BEFORE the split attempt. Since
-			// cjk2 the lookup pairs deterministically by the CJK half (iTunes cross-store, ~1-4 s),
-			// while the split attempt's title-only pool can never settle for a Latin artist — its
-			// CN rows are credited in Chinese and gate out — so searching it first only added its
-			// latency ahead of the bridge that actually resolves the stub.
+			// quick-261103-cjk3 (Hector): TITLE-TRUST first for a Latin artist — pure logic, NO
+			// fetch. Search the CJK half ALONE; the ORIGINAL singer is the one multiple sources
+			// resolve at once (Hector's rule: with a title-only search, the artist several CN
+			// catalogues agree on IS the original — a cover artist sits on one source, the
+			// original sits on all of them). Adopt that artist's best row when the consensus
+			// is unambiguous (≥ 2 distinct sources, no tie). No name pairing is fetched — the
+			// wa7/cjk2 rescue below stays as the fallback for pools with no consensus. The
+			// artist-identity gate (quick-261102-cov1) is relaxed ONLY inside these fences:
+			// bilingual stub + title-only pool + title EXACTLY the CJK half (a qualifier/version
+			// tail fails the strict equality) + CJK credit + auto-resolve-eligible source
+			// (user-upload platforms are ineligible, so a stranger's upload can never vote).
 			if (detectLang(artist) === 'en') {
+				const trusted = await titleTrust(cjkTitle).catch(() => null);
+				if (trusted) return trusted;
 				const rescued = await rescueLatin(artist, title).catch(() => null);
 				if (rescued) return rescued;
 			}
@@ -260,6 +268,59 @@ export async function resolveStub(artist: string, title: string): Promise<Track 
 	} catch {
 		return null;
 	}
+}
+
+/** quick-261103-cjk3: fold + case + whitespace only — see titleTrust for why normField is too lax here. */
+function strictTitleKey(s: string): string {
+	return foldScript(s || '')
+		.toLowerCase()
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
+/**
+ * quick-261103-cjk3 — the title-trust pool scan (see the resolveStub call site for the rule and
+ * its fences). Tier-1 first (the ~2 s fan-out); the full fan-out only when tier-1 holds no
+ * trustable row. Never throws to the caller — the call site catch-guards it like the rescue.
+ */
+async function titleTrust(cjkTitle: string): Promise<Track | null> {
+	await foldScriptReady(cjkTitle);
+	// STRICT title equality: script fold + case + whitespace ONLY. normField would also strip
+	// bracketed qualifier tails, so "車匙 (2016 Version)" would pass as "車匙" — a rendition the
+	// stub never named must not be trusted in; it stays the rescue's job (which gates on the
+	// rescued identity, versions included deliberately there).
+	const key = strictTitleKey(cjkTitle);
+	const consensus = (rows: Track[]): Track | null => {
+		const hits = rows.filter(
+			(t) => isAutoResolveEligible(t.source) && isChineseLine(t.artist) && strictTitleKey(t.title) === key
+		);
+		// Cross-source consensus (Hector's rule): group the exact-title rows by artist and count
+		// DISTINCT sources per artist — suyin resolves through kuwo's catalogue, so the two
+		// count as ONE vote. The original is the artist the catalogues agree on.
+		const byArtist = new Map<string, { rows: Track[]; votes: Set<string> }>();
+		for (const t of hits) {
+			const a = normField(t.artist);
+			const e = byArtist.get(a) ?? { rows: [], votes: new Set<string>() };
+			e.rows.push(t);
+			e.votes.add(t.source === 'suyin' ? 'kuwo' : t.source);
+			byArtist.set(a, e);
+		}
+		let winner: { rows: Track[]; votes: Set<string> } | null = null;
+		let ambiguous = false;
+		for (const e of byArtist.values()) {
+			if (e.votes.size < 2) continue; // a single-source artist is a cover until proven original
+			if (!winner || e.votes.size > winner.votes.size) {
+				winner = e;
+				ambiguous = false;
+			} else if (e.votes.size === winner.votes.size) {
+				ambiguous = true; // two artists, equal catalogues — the rescue's identity evidence decides
+			}
+		}
+		if (!winner || ambiguous) return null;
+		return preferenceOrder(winner.rows, settings.preferredSource)[0] ?? null;
+	};
+	const tier1 = await searchAll(cjkTitle, 1, tier1Only());
+	return consensus(tier1.interleaved) ?? consensus((await searchAll(cjkTitle, 1)).interleaved);
 }
 
 /**
