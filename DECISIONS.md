@@ -107,7 +107,7 @@ Local copies that re-implement normalization instead of importing:
 ### Winner
 - **Conversion + warm state:** zh-convert.ts. Add the single identity fold there (`foldForIdentity` = per-character T→S, one gate) and an awaitable `ensureFoldReady()`; foldScript moves out of dedupe.ts.
 - **Matching:** always on Simplified-folded identity keys (§1). Any persisted or cache-keyed fold must `await ensureFoldReady()` first (comments.ts:32-34 pattern).
-- **Search widening:** `searchAll` builds the keyword set `{q, t2s(q), s2t(q)}` (deduped) and fans out, merging pools; cache key = folded keyword. Invariant: 周杰倫/周杰伦 and 陳奕迅/陈奕迅 return the same pool and same top pick.
+- **Search script (decided, see Product calls #4):** `searchAll` folds the keyword to Simplified once (awaiting the dictionary) and sends that single query; cache key = folded keyword. Invariant: 周杰倫/周杰伦 and 陳奕迅/陈奕迅 return the same pool and same top pick.
 - **Display:** names.svelte.ts (`dn*` → `applyLock`) is the only layer converting display script. `zhLock` stays only for URL/href building.
 
 ### Convergence plan
@@ -433,8 +433,8 @@ Golden fixtures → domains:
 
 Phase 3 invariant suite (permanent): same song ⇒ same cover URL on row, now bar, song page and OG card; same pool ⇒ same top pick in search, auto-play and VersionPicker; 繁/簡 queries ⇒ same pool; covers-only pool ⇒ song skipped, never substituted; duet credit ⇒ accepted as original; a reorder ⇒ current song still visible in Up Next.
 
-## Open questions (need a product call before converging)
-1. **Edge resolve cache (qq-only, adopted first):** obey PLAYBACK_ORDER, or keep as a documented speed exception? (§5)
-2. **Junk-only pools:** brief says junk "never beats a clean full version" — today a ringtone-only pool still auto-plays as last resort. Keep (demote) or reject (skip)? Plan assumes keep. (§3)
-3. **OG artist rule:** covgate uses substring ≥2; the identity module uses whole-segment. Plan converges OG to whole-segment (stricter: may turn some current OG hits into branded fallback). (§6)
-4. **Search widening cost:** fanning out up to 3 keyword variants triples upstream search calls for mixed-script queries; plan dedupes variants (most queries yield 1–2) and keeps the apiFetch governor in charge.
+## Product calls (decided 2026-11-03)
+1. **Edge resolve cache** obeys PLAYBACK_ORDER — no qq-first speed exception. (§5)
+2. **Junk-only pools** keep today's behaviour: demoted, still auto-play as the last resort when nothing clean exists. (§3)
+3. **OG artist rule** converges to whole-segment `sameArtist` (same predicate as playback and the in-app cover chain). (§6)
+4. **Search script:** NOT widened to both scripts. The query is folded to Simplified once (most providers index zhs) and sent as one search; display stays in the user's chosen script via names.svelte.ts. Supersedes the "s2t + t2s widening" plan in §2. (§2)
