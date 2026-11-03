@@ -100,7 +100,7 @@
 	   .item.danger — no --color-danger token exists and this phase does not add one; full opacity
 	   against the check's 0.6 is deliberate (this state must catch the eye). */
 	.rb.unavailable {
-		color: #ff7a90;
+		color: var(--color-danger-text);
 		opacity: 1;
 	}
 </style>

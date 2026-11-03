@@ -566,6 +566,7 @@ const es: Dict = {
 	"toast.radioStarted": "Radio started",
 	"toast.sharedPlaying": "Reproduciendo la canción compartida · tu cola se mantiene",
 	"toast.removedFromQueue": "Eliminado de la cola",
+	"toast.removed": "Eliminado",
 	"toast.undo": "Deshacer",
 	"toast.preparingDownload": "Preparando descarga…",
 	"toast.downloading": "Descargando · {label}",

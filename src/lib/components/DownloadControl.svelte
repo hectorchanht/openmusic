@@ -261,7 +261,7 @@ import { player } from '$lib/stores/player.svelte';
 	}
 	/* 34-D-06: full opacity against .downloaded's 0.4 — this one is meant to catch the eye. */
 	.dc.unavailable {
-		color: #ff7a90;
+		color: var(--color-danger-text);
 		opacity: 1;
 		cursor: default;
 	}

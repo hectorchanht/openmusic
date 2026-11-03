@@ -1703,7 +1703,7 @@
 	     downward-ish finger move on a cell, which the sheet would otherwise read as a close
 	     drag (DRAG_START is 8px, same as the reorder SLOP scale). The action's update() swaps
 	     `enabled` reactively, so no remount is needed. -->
-	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: close, enabled: !editing }} use:focusTrap>
+	<div class="menu" role="dialog" aria-modal="true" aria-label={track?.title ?? t('menu.options')} transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: close, enabled: !editing }} use:focusTrap>
 		<!-- D-08/D-09/D-10: two-row marquee header (song/artist, display-only) + a compact
 		     top-right icon cluster (Like / Download / Close, left to right). Replaces the old
 		     single ellipsised `{title} · {artist}` line, and (user call 2026-10-06) the
@@ -2074,7 +2074,7 @@
 
 {#if pickerOpen && track}
 	<button class="scrim" aria-label={t('menu.close')} onclick={() => (pickerOpen = false)}></button>
-	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (pickerOpen = false) }} use:focusTrap>
+	<div class="menu" role="dialog" aria-modal="true" aria-label={t('menu.addToPlaylist')} transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (pickerOpen = false) }} use:focusTrap>
 		<div class="menu-head">{t('menu.addToPlaylist')}</div>
 		{#each library.playlists as pl (pl.id)}
 			<MenuActionButton icon={ListPlus} onclick={() => addToPlaylist(pl.id)}>{pl.name} <span class="count">{pl.tracks.length}</span></MenuActionButton>
@@ -2092,7 +2092,7 @@
      dismiss route, only the explicit Remove button acts. -->
 {#if rmOpen && track}
 	<button class="scrim" aria-label={t('menu.close')} onclick={() => (rmOpen = false)}></button>
-	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (rmOpen = false) }} use:focusTrap>
+	<div class="menu" role="dialog" aria-modal="true" aria-label={t('menu.removeDownload')} transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (rmOpen = false) }} use:focusTrap>
 		<div class="menu-head">{t('menu.removeDownload')}</div>
 		<p class="hint">{t('menu.removeDownloadBody')}</p>
 		<SettingToggle label={t('menu.removeDownloadDeleteFile')} checked={rmDeleteFile} onchange={() => (rmDeleteFile = !rmDeleteFile)} />
@@ -2105,7 +2105,7 @@
 
 {#if detailTrack}
 	<button class="scrim" aria-label={t('menu.close')} onclick={() => (detailTrack = null)}></button>
-	<div class="modal" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (detailTrack = null) }} use:focusTrap>
+	<div class="modal" role="dialog" aria-modal="true" aria-label={t('menu.trackDetail')} transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (detailTrack = null) }} use:focusTrap>
 		<div class="menu-head row"><span>{t('menu.trackDetail')}</span><button class="x" aria-label={t('menu.close')} onclick={() => (detailTrack = null)} use:tapBounce><X size={18} /></button></div>
 		<dl class="detail">
 			<dt>{t('menu.detailTitle')}</dt><dd>{names.dnTitle(detailTrack.title, detailTrack.artist)}</dd>
@@ -2486,12 +2486,12 @@
 	/* quick-260919-vrq — the remove-download confirm's body copy + button pair. `.hint` and `.actions`
 	   are taken VERBATIM from MetadataEditor.svelte (its footer is the same shape: a paragraph of
 	   explanation over a Cancel/commit pair), so the two sheets read identically; noted here because
-	   that makes two files carrying the declaration. The danger tint is #ff7a90, the literal already
+	   that makes two files carrying the declaration. The danger tint is var(--color-danger-text) (was the #ff7a90 literal), the value already
 	   in system use by SettingRow's `.danger` and RowBadges' `.unavailable` — app.css defines no
 	   --color-danger token and this task does not invent one. */
 	.hint { color: var(--color-text-muted); font-size: 0.75rem; line-height: 1.4; padding: 10px 12px 4px; margin: 0; }
 	.actions { display: flex; gap: 8px; padding: 4px; }
-	.mi.danger { color: #ff7a90; }
+	.mi.danger { color: var(--color-danger-text); }
 	/* tabular-nums: the download percentage climbs digit by digit and would otherwise jitter the
 	   row's right edge on every repaint (quick-260913-omi). Harmless for the playlist counts. */
 	.mi .count { margin-left: auto; font-size: 0.75rem; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }

@@ -566,6 +566,7 @@ const hi: Dict = {
 	"toast.radioStarted": "Radio started",
 	"toast.sharedPlaying": "साझा गाना चल रहा है · आपकी कतार बनी हुई है",
 	"toast.removedFromQueue": "कतार से हटाया गया",
+	"toast.removed": "हटाया गया",
 	"toast.undo": "पूर्ववत करें",
 	"toast.preparingDownload": "डाउनलोड की तैयारी की जा रही है...",
 	"toast.downloading": "डाउनलोड हो रहा है · {label}",

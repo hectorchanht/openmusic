@@ -566,6 +566,7 @@ const ru: Dict = {
 	"toast.radioStarted": "Radio started",
 	"toast.sharedPlaying": "Играет присланный трек · ваша очередь сохранена",
 	"toast.removedFromQueue": "Удалено из очереди",
+	"toast.removed": "Удалено",
 	"toast.undo": "Отменить",
 	"toast.preparingDownload": "Подготовка загрузки…",
 	"toast.downloading": "Загрузка · {label}",

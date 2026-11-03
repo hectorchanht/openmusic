@@ -95,5 +95,5 @@
 	.mi { width: 100%; display: flex; align-items: center; gap: 12px; background: none; border: none; color: var(--color-text); font-size: 0.9375rem; padding: 12px; border-radius: 10px; cursor: pointer; text-align: left; }
 	.mi:hover { background: var(--color-surface); }
 	.mi.on { color: var(--color-primary); background: var(--color-surface); }
-	.mi.cancel { color: #ff7a90; justify-content: center; }
+	.mi.cancel { color: var(--color-danger-text); justify-content: center; }
 </style>

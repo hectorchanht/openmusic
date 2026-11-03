@@ -518,7 +518,7 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 	   `.row.edit-row.is-active` before it moved here. */
 	.srow.is-danger .r-title,
 	.srow.is-danger .r-sub {
-		color: #ff7a90;
+		color: var(--color-danger-text);
 	}
 	.srow.is-danger.is-active {
 		background: var(--color-bg);

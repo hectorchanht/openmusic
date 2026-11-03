@@ -566,6 +566,7 @@ const id: Dict = {
 	"toast.radioStarted": "Radio started",
 	"toast.sharedPlaying": "Memutar lagu yang dibagikan · antrean Anda tetap",
 	"toast.removedFromQueue": "Dihapus dari antrean",
+	"toast.removed": "Dihapus",
 	"toast.undo": "Urungkan",
 	"toast.preparingDownload": "Mempersiapkan pengunduhan…",
 	"toast.downloading": "Mengunduh · {label}",

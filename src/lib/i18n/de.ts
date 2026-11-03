@@ -566,6 +566,7 @@ const de: Dict = {
 	"toast.radioStarted": "Radio started",
 	"toast.sharedPlaying": "Geteilter Song wird gespielt · deine Warteschlange bleibt",
 	"toast.removedFromQueue": "Aus der Warteschlange entfernt",
+	"toast.removed": "Entfernt",
 	"toast.undo": "Rückgängig",
 	"toast.preparingDownload": "Download wird vorbereitet…",
 	"toast.downloading": "Wird heruntergeladen · {label}",

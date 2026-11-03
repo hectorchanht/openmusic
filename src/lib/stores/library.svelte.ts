@@ -355,6 +355,24 @@ class Library {
 		if (uid) this.tombstone([tombTrack(uid)]);
 		this.save();
 	}
+	/**
+	 * quick-261102-libaudit: Undo for a Library edit-mode removal — put `t` back at `index` in
+	 * the named list (clamped; -1 → top) and lift the tombstone the removal wrote, so the
+	 * restore survives the next cross-device merge. A no-op when the uid is already back.
+	 */
+	restoreAt(where: 'liked' | 'downloads' | { playlist: string }, t: Track, index: number) {
+		if (!t.uid) return;
+		const put = (arr: Track[]) => {
+			if (arr.some((x) => x.uid === t.uid)) return arr;
+			const i = Math.max(0, Math.min(index, arr.length));
+			return [...arr.slice(0, i), t, ...arr.slice(i)];
+		};
+		if (where === 'liked') this.liked = put(this.liked);
+		else if (where === 'downloads') this.downloads = put(this.downloads);
+		else this.playlists = this.playlists.map((p) => (p.id === where.playlist ? { ...p, tracks: put(p.tracks) } : p));
+		this.untombstone([tombTrack(t.uid)]);
+		this.save();
+	}
 	deletePlaylist(id: string) {
 		this.playlists = this.playlists.filter((p) => p.id !== id);
 		// quick-261023-syncmerge: tombstone the playlist id ONLY — never the track uids
