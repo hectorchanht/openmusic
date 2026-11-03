@@ -6259,17 +6259,24 @@ describe('player.upNextAnchorUid — Up-Next list anchor (quick-260618-lsw)', ()
 		player.upNextAnchorUid = b.uid;
 		player.current = b;
 
-		// Move `b` (index 1) to the back — the by-uid lookup tracks the move.
+		// Move `b` (index 1) to the back. UPDATED 2026-11-02 (Up-Next window-preservation fix):
+		// this used to assert the anchor tracks `b` BY UID to the back of the queue — but that
+		// by-uid tracking is exactly what erased rows from the rendered list (the slice start
+		// followed the dragged row past current). The contract now: the anchor re-seats to the
+		// earliest track of the pre-move window (`c`), so the window's track SET survives the
+		// move intact — [c, d, b], nothing sliced away.
 		player.reorderQueue(1, 3);
-		expect(player.queue.findIndex((t) => t.uid === player.upNextAnchorUid)).toBe(
-			player.queue.findIndex((t) => t.uid === b.uid)
-		);
-		expect(player.queue.find((t) => t.uid === player.upNextAnchorUid)?.uid).toBe(b.uid);
+		expect(player.upNextAnchorUid).toBe(c.uid);
+		expect(
+			player.queue
+				.slice(player.queue.findIndex((t) => t.uid === player.upNextAnchorUid))
+				.map((t) => t.uid)
+		).toEqual([c.uid, d.uid, b.uid]);
 
-		// Remove a non-current, non-anchor track — anchor still resolves to `b`.
+		// Remove a non-current, non-anchor track — the (re-seated) anchor still resolves to `c`.
 		player.removeFromQueue(d.uid);
 		expect(player.queue.findIndex((t) => t.uid === player.upNextAnchorUid)).toBe(
-			player.queue.findIndex((t) => t.uid === b.uid)
+			player.queue.findIndex((t) => t.uid === c.uid)
 		);
 
 		// Missing-anchor clamp: replicate the NowPlaying derivation inline. When the anchor uid is gone
@@ -6297,6 +6304,118 @@ describe('player.upNextAnchorUid — Up-Next list anchor (quick-260618-lsw)', ()
 
 		expect(player.current?.uid).toBe(a.uid);
 		expect(player.upNextAnchorUid).toBe(b.uid); // anchor put
+	});
+});
+
+describe('player.reorderQueue — Up-Next window preservation (user report 2026-11-02)', () => {
+	// BUG: dragging an already-played row to the next-song slot ERASED the current song from the
+	// Up-Next list. reorderQueue's splice-move is fine in isolation — the loss is in the ANCHOR:
+	// NowPlaying slices the visible list from upNextAnchorUid's LIVE index, and the anchor follows
+	// its uid across the move. Drag the anchor row (a played song) down past the current row and
+	// the slice start lands AFTER current, cutting current (and everything before the dragged row)
+	// out of the rendered list even though the queue itself is intact. The store contract these
+	// tests pin: after ANY reorder, the track SET the window showed before the move is still the
+	// set it shows after — the anchor re-seats to the earliest still-visible track.
+	beforeEach(() => {
+		player.upNextAnchorUid = null;
+		player.queue = [];
+		player.current = null;
+	});
+
+	/** Replicates NowPlaying.svelte's derivation verbatim (anchor slice + ci clamp). */
+	const viewList = () => {
+		const anchorIdx = player.upNextAnchorUid
+			? player.queue.findIndex((t) => t.uid === player.upNextAnchorUid)
+			: -1;
+		const ci = player.queue.findIndex((t) => t.uid === player.current?.uid);
+		const upNextStart = anchorIdx >= 0 ? anchorIdx : ci >= 0 ? ci : 0;
+		return player.queue.slice(upNextStart);
+	};
+	/** Component mapping (NpUpNext.gripDragUp): visible row i → queue-absolute startIndex + i. */
+	const dragVisible = (fromRow: number, toRow: number) => {
+		const anchorIdx = player.upNextAnchorUid
+			? player.queue.findIndex((t) => t.uid === player.upNextAnchorUid)
+			: -1;
+		const ci = player.queue.findIndex((t) => t.uid === player.current?.uid);
+		const startIndex = anchorIdx >= 0 ? anchorIdx : ci >= 0 ? ci : 0;
+		player.reorderQueue(fromRow + startIndex, toRow + startIndex);
+	};
+
+	it('dragging a PLAYED song to the next-song slot keeps the current song (and every row) in the list', () => {
+		const a = mk('netease', 'ra1', 'A', 'Played One');
+		const b = mk('qq', 'ra2', 'B', 'Played Two');
+		const c = mk('kuwo', 'ra3', 'C', 'Current');
+		const d = mk('joox', 'ra4', 'D', 'Next');
+		const e = mk('migu', 'ra5', 'E', 'Tail');
+		player.queue = [a, b, c, d, e];
+		player.upNextAnchorUid = a.uid;
+		player.current = c;
+		expect(viewList().map((t) => t.uid)).toEqual([a.uid, b.uid, c.uid, d.uid, e.uid]);
+
+		// Hector's gesture: grab played row A (visible 0) and drop it just after current C — the
+		// pointer hovers D (visible 3) when the drop commits.
+		dragVisible(0, 3);
+
+		expect(player.queue).toHaveLength(5); // the queue itself never lost a track
+		expect(player.current?.uid).toBe(c.uid); // playback state untouched
+		const view = viewList().map((t) => t.uid);
+		expect(view).toContain(c.uid); // ← THE BUG: current was sliced out of the Up-Next list
+		expect(new Set(view)).toEqual(new Set([a.uid, b.uid, c.uid, d.uid, e.uid])); // ALL rows preserved
+		// …and A really did land in the next-song region (after current), not back in history.
+		expect(player.queue.findIndex((t) => t.uid === a.uid)).toBeGreaterThan(
+			player.queue.findIndex((t) => t.uid === c.uid)
+		);
+		const manual = (player as unknown as { manualUids: Set<string> }).manualUids;
+		expect(manual.has(a.uid)).toBe(true); // the moved track stays pinned manual
+	});
+
+	it('dragging the anchor row WITHIN the played history keeps every history row visible', () => {
+		const a = mk('netease', 'rb1', 'A', 'Played One');
+		const b = mk('qq', 'rb2', 'B', 'Played Two');
+		const c = mk('kuwo', 'rb3', 'C', 'Current');
+		const d = mk('joox', 'rb4', 'D', 'Next');
+		player.queue = [a, b, c, d];
+		player.upNextAnchorUid = a.uid;
+		player.current = c;
+
+		// Drop A just before current (pointer hovers C, visible 2) — A stays in history, yet the
+		// by-uid anchor used to slide to index 2 and slice B and C out of the list.
+		dragVisible(0, 2);
+
+		const view = viewList().map((t) => t.uid);
+		expect(new Set(view)).toEqual(new Set([a.uid, b.uid, c.uid, d.uid]));
+		expect(view).toContain(c.uid);
+	});
+
+	it('dragging a tail row to the very top keeps it (and everything else) in the list', () => {
+		const a = mk('netease', 'rc1', 'A', 'Played One');
+		const b = mk('qq', 'rc2', 'B', 'Played Two');
+		const c = mk('kuwo', 'rc3', 'C', 'Current');
+		const d = mk('joox', 'rc4', 'D', 'Tail');
+		player.queue = [a, b, c, d];
+		player.upNextAnchorUid = a.uid;
+		player.current = c;
+
+		dragVisible(3, 0); // D from the tail to the top row
+
+		const view = viewList().map((t) => t.uid);
+		expect(new Set(view)).toEqual(new Set([a.uid, b.uid, c.uid, d.uid]));
+		expect(view).toContain(d.uid); // the dragged row must not hide above the anchor
+	});
+
+	it('a reorder entirely inside the tail leaves the anchor (and the window) untouched', () => {
+		const a = mk('netease', 'rd1', 'A', 'Played One');
+		const b = mk('qq', 'rd2', 'B', 'Current');
+		const c = mk('kuwo', 'rd3', 'C', 'Next');
+		const d = mk('joox', 'rd4', 'D', 'Tail');
+		player.queue = [a, b, c, d];
+		player.upNextAnchorUid = a.uid;
+		player.current = b;
+
+		dragVisible(3, 2); // swap the two tail rows
+
+		expect(player.upNextAnchorUid).toBe(a.uid);
+		expect(viewList().map((t) => t.uid)).toEqual([a.uid, b.uid, d.uid, c.uid]);
 	});
 });
 

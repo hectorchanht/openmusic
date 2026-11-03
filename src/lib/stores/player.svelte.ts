@@ -5684,16 +5684,37 @@ class Player {
 	 * Move a queue entry from `from` to `to` (clamped) and pin the moved track as
 	 * manual so the next fresh-play regeneration preserves it. No-op if indices are
 	 * out of range or equal.
+	 *
+	 * ANCHOR RE-SEAT (user report 2026-11-02): the Up-Next window slices the queue from
+	 * upNextAnchorUid's LIVE index (quick-260618-lsw). When the dragged row IS the anchor
+	 * (an already-played song) and it moves DOWN past the current row — e.g. a played song
+	 * dragged to the next-song slot — a by-uid anchor lands AFTER current, so the slice
+	 * start jumps past it and the current song (plus every row before the drop point)
+	 * vanished from the rendered list while the queue itself stayed intact. The anchor
+	 * therefore denotes the WINDOW, not a track: capture the visible set before the move
+	 * and re-seat the anchor on whichever of those tracks sits earliest afterwards, so a
+	 * reorder preserves exactly the rows the user could see. Moves wholly inside the
+	 * window leave the earliest member (the old anchor) in place, so the common case is
+	 * unchanged; a missing anchor (cold/restore) is left for the view's ci clamp.
 	 */
 	reorderQueue(from: number, to: number) {
 		const n = this.queue.length;
 		if (from < 0 || from >= n) return;
 		const target = Math.max(0, Math.min(n - 1, to));
 		if (target === from) return;
+		const anchorIdx = this.upNextAnchorUid
+			? this.queue.findIndex((t) => t.uid === this.upNextAnchorUid)
+			: -1;
+		const windowUids =
+			anchorIdx >= 0 ? new Set(this.queue.slice(anchorIdx).map((t) => t.uid)) : null;
 		const next = [...this.queue];
 		const [moved] = next.splice(from, 1);
 		next.splice(target, 0, moved);
 		this.queue = next;
+		if (windowUids) {
+			const head = next.find((t) => windowUids.has(t.uid));
+			if (head) this.upNextAnchorUid = head.uid;
+		}
 		this.manualUids.add(moved.uid); // reordered = pinned manual
 		this.persist(); // WR-05: every queue mutation persists — a reload keeps the user's order
 	}
