@@ -172,7 +172,7 @@ const pt: Dict = {
 	"settings.groupAbout": "Sobre",
 	"settings.groupGeneralDesc": "Idioma e partilha",
 	"settings.groupTranslationDesc": "Letras e tradução de nomes",
-	"settings.groupPlaybackDesc": "Qualidade, origem, expansão automática",
+	"settings.groupPlaybackDesc": "Qualidade, fontes, A seguir, vídeos",
 	"settings.groupHistoryDesc": "Jogado recentemente",
 	"settings.groupLastfmDesc": "Scrobbling – em breve",
 	"settings.groupDataDesc": "Contagens de biblioteca, dados claros",
@@ -291,7 +291,8 @@ const pt: Dict = {
 	"settings.excludedNote": "Estes ficheiros continuam no teu telemóvel — apenas ficam de fora da importação. Permite um novamente e volta na próxima análise.",
 	"settings.excludedRestore": "Permitir novamente",
 	"settings.groupAppearance": "Aparência",
-	"settings.groupAppearanceDesc": "Tema, acento, texto e tamanho da capa",
+	"settings.groupAppearanceDesc": "Linhas, reprodução, letras e etiquetas",
+	"settings.songBadges": "Etiquetas e minileitor", // quick-261103-stg
 	"settings.appearanceText": "Tamanho do texto",
 	"settings.appearanceLayout": "Capas e layout",
 	"settings.rowButtons": "Botões da linha da música",
@@ -807,6 +808,7 @@ const pt: Dict = {
 	// --- support (donor wall, 2026-10-14 donor-wall-ui) ---
 	"support.title": "Support OpenMusic",
 	"support.tagline": "Keep the music free, sell the convenience.",
+	"support.wallLink": "Ver o mural de apoiadores →", // quick-261103-stg
 	"support.body": "Streaming is free, forever. Your support keeps the servers running and the music coming.",
 	"support.tipTitle": "Tip",
 	"support.tipNote": "One-time only — no subscriptions, no monthly fees.",

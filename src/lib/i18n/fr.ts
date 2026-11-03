@@ -172,7 +172,7 @@ const fr: Dict = {
 	"settings.groupAbout": "À propos",
 	"settings.groupGeneralDesc": "Langue et partage",
 	"settings.groupTranslationDesc": "Paroles et traduction du nom",
-	"settings.groupPlaybackDesc": "Qualité, source, expansion automatique",
+	"settings.groupPlaybackDesc": "Qualité, sources, À suivre, clips",
 	"settings.groupHistoryDesc": "Joué récemment",
 	"settings.groupLastfmDesc": "Scrobble — bientôt disponible",
 	"settings.groupDataDesc": "Nombre de bibliothèques, effacement des données",
@@ -291,7 +291,8 @@ const fr: Dict = {
 	"settings.excludedNote": "Ces fichiers sont toujours sur ton téléphone — ils sont seulement exclus de l'importation. Autorises-en un et il revient à la prochaine analyse.",
 	"settings.excludedRestore": "Autoriser de nouveau",
 	"settings.groupAppearance": "Apparence",
-	"settings.groupAppearanceDesc": "Thème, accent, texte et taille des pochettes",
+	"settings.groupAppearanceDesc": "Lignes, lecture, paroles et badges",
+	"settings.songBadges": "Badges et mini-lecteur", // quick-261103-stg
 	"settings.appearanceText": "Taille du texte",
 	"settings.appearanceLayout": "Pochettes et mise en page",
 	"settings.rowButtons": "Boutons de ligne de morceau",
@@ -807,6 +808,7 @@ const fr: Dict = {
 	// --- support (donor wall, 2026-10-14 donor-wall-ui) ---
 	"support.title": "Support OpenMusic",
 	"support.tagline": "Keep the music free, sell the convenience.",
+	"support.wallLink": "Voir le mur des soutiens →", // quick-261103-stg
 	"support.body": "Streaming is free, forever. Your support keeps the servers running and the music coming.",
 	"support.tipTitle": "Tip",
 	"support.tipNote": "One-time only — no subscriptions, no monthly fees.",

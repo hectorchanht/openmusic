@@ -206,7 +206,7 @@ const en = {
 	"settings.groupAbout": "About",
 	"settings.groupGeneralDesc": "Language & sharing",
 	"settings.groupTranslationDesc": "Lyrics & name translation",
-	"settings.groupPlaybackDesc": "Quality, source, auto-expand",
+	"settings.groupPlaybackDesc": "Quality, sources, Up Next, videos",
 	"settings.groupHistoryDesc": "Recently played",
 	"settings.groupLastfmDesc": "Scrobbling — coming soon",
 	"settings.groupDataDesc": "Library counts, clear data",
@@ -328,7 +328,8 @@ const en = {
 
 	// --- appearance / sizing (quick-260607-fnp) ---
 	"settings.groupAppearance": "Appearance",
-	"settings.groupAppearanceDesc": "Theme, accent, text & cover size",
+	"settings.groupAppearanceDesc": "Song rows, Now Playing, lyrics & tags",
+	"settings.songBadges": "Tags & now bar", // quick-261103-stg
 	"settings.appearanceText": "Text size",
 	"settings.appearanceLayout": "Covers & layout",
 	"settings.rowButtons": "Song row buttons",
@@ -868,6 +869,7 @@ const en = {
 	// --- support (donor wall, 2026-10-14 donor-wall-ui) ---
 	"support.title": "Support OpenMusic",
 	"support.tagline": "Keep the music free, sell the convenience.",
+	"support.wallLink": "See the Supporters wall →", // quick-261103-stg
 	"support.body": "Streaming is free, forever. Your support keeps the servers running and the music coming.",
 	"support.tipTitle": "Tip",
 	"support.tipNote": "One-time only — no subscriptions, no monthly fees.",

@@ -143,11 +143,12 @@ describe('shared settings rows (quick-260919-ebi F2)', () => {
 	});
 
 	it('the Theme preview is painted in LITERAL palette values, the one sanctioned exception', () => {
-		const page = readCode(`${ROUTES}/appearance/+page.svelte`);
+		// quick-261103-stg: the Theme picker moved to the /settings index General card.
+		const page = readCode(`${ROUTES}/+page.svelte`);
 		// The dark card must look dark while the LIGHT theme is active, so tokens cannot be used.
 		// These are the real app.css values; if they drift apart, the preview starts lying.
 		for (const hex of ['#0b0b0f', '#f4f4f6', '#f7f7fa', '#1a1a22']) {
-			expect(page, `appearance page should carry the literal ${hex}`).toContain(hex);
+			expect(page, `settings index should carry the literal ${hex}`).toContain(hex);
 		}
 		expect(page).toMatch(/variant="preview"/);
 	});
@@ -173,7 +174,8 @@ describe('shared settings rows (quick-260919-ebi F2)', () => {
 		const uses: [string, string][] = [
 			[`${ROUTES}/+page.svelte`, 'SettingRow'],
 			[`${ROUTES}/data/+page.svelte`, 'SettingRow'],
-			[`${ROUTES}/appearance/+page.svelte`, 'SettingToggle'],
+			[`${ROUTES}/+page.svelte`, 'SettingToggle'], // quick-261103-stg: reduce motion moved up
+			[`${ROUTES}/+page.svelte`, 'SettingPicker'], // quick-261103-stg: theme moved up
 			[`${ROUTES}/appearance/+page.svelte`, 'SettingPicker'],
 			[`${ROUTES}/playback/+page.svelte`, 'SettingPicker'],
 			[`${ROUTES}/playback/+page.svelte`, 'SettingHint'],

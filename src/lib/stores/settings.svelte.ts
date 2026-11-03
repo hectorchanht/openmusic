@@ -724,22 +724,19 @@ class Settings {
 		else r.dataset.theme = this.theme;
 	}
 
-	/** Reset the Appearance settings group — theme, accent, reduce-motion, the global + five
-	 *  per-part font scales (quick-260920-kxz added fontScaleApp) and cover size (k3y: reads `DEFAULTS.appearance`; theme/accent/reduceMotion read
-	 *  `DEFAULTS.general`). Used by the /settings/appearance reset button + Data tab.
+	/** Reset the Appearance settings group — the per-surface editors (song-row + Now Playing
+	 *  font scales, cover size, row actions, lyrics anchor) and the on-screen badges (quality tag,
+	 *  source tag, now-bar lyric line). Used by the /settings/appearance reset button + Data tab.
 	 *
 	 *  quick-260919-ebi: reset-group MEMBERSHIP follows the rows, so "Reset this group" keeps
-	 *  meaning "reset what this page shows". theme/accent/reduceMotion moved in from resetGeneral()
-	 *  and homeGridCols moved out to resetHome(), mirroring the four row moves. The fields
-	 *  themselves stay in GENERAL_DEFAULTS / APPEARANCE_DEFAULTS — defaults.ts is untouched, only
-	 *  which reset() touches which field changed. */
+	 *  meaning "reset what this page shows" — homeGridCols moved out to resetHome().
+	 *  quick-261103-stg: theme/accent/reduceMotion/fontScaleApp moved OUT to resetLook() (their rows
+	 *  now live in the /settings General card), and showQualityTag/showSourceTag/nowbarLyrics moved
+	 *  IN from resetPlayback() with their pickers. defaults.ts is untouched — the fields keep their
+	 *  DEFAULTS.general / .appearance / .playback homes; only which reset() touches them changed. */
 	resetAppearance() {
 		const d = DEFAULTS.appearance;
-		const g = DEFAULTS.general;
-		this.theme = g.theme;
-		this.accent = g.accent;
-		this.reduceMotion = g.reduceMotion;
-		this.fontScaleApp = d.fontScaleApp;
+		const p = DEFAULTS.playback;
 		this.fontScaleTitle = d.fontScaleTitle;
 		this.fontScaleArtist = d.fontScaleArtist;
 		this.fontScaleLyrics = d.fontScaleLyrics;
@@ -749,18 +746,33 @@ class Settings {
 		this.coverScale = d.coverScale;
 		this.rowActions = [...d.rowActions];
 		this.showRowMenu = d.showRowMenu;
+		this.showQualityTag = p.showQualityTag;
+		this.showSourceTag = p.showSourceTag;
+		this.nowbarLyrics = p.nowbarLyrics;
 		this.save();
 	}
 
-	/** Reset the General settings group (app language + share title).
+	/** quick-261103-stg: the app-wide LOOK — theme, accent, reduce motion, app text size. Part of
+	 *  resetGeneral(); also called on its own by the Data tab's "Reset appearance" (whose copy
+	 *  promises theme + accent + motion + text sizes, but NOT the app language). */
+	resetLook() {
+		const g = DEFAULTS.general;
+		this.theme = g.theme;
+		this.accent = g.accent;
+		this.reduceMotion = g.reduceMotion;
+		this.fontScaleApp = DEFAULTS.appearance.fontScaleApp;
+		this.save();
+	}
+
+	/** Reset the General settings group — the /settings index General card: app language, share
+	 *  title, and (quick-261103-stg) the look via resetLook().
 	 *  k3y; shareIncludeTitle added quick-260808-vzu — miss this touchpoint and "reset" silently
-	 *  leaves the setting stuck at the user's old value.
-	 *  quick-260919-ebi: accent / reduceMotion / theme left for resetAppearance() with their rows. */
+	 *  leaves the setting stuck at the user's old value. */
 	resetGeneral() {
 		const d = DEFAULTS.general;
 		this.appLang = d.appLang;
 		this.shareIncludeTitle = d.shareIncludeTitle;
-		this.save();
+		this.resetLook();
 	}
 
 	/** Reset the Translation settings (all per-part target langs + skip whitelists + mode). k3y. */
@@ -789,11 +801,9 @@ class Settings {
 		this.downloadQuality = d.downloadQuality;
 		this.defaultSource = d.defaultSource;
 		this.autoExpandOnPlay = d.autoExpandOnPlay;
-		this.showQualityTag = d.showQualityTag;
-		this.showSourceTag = d.showSourceTag;
+		// quick-261103-stg: showQualityTag/showSourceTag/nowbarLyrics moved to resetAppearance().
 		this.videoEnabled = d.videoEnabled;
 		this.videoQuality = d.videoQuality;
-		this.nowbarLyrics = d.nowbarLyrics;
 		this.enabledSources = { ...d.enabledSources };
 		this.upnextPerContext = { ...DEFAULTS.upnext.perContext };
 		this.upnextMode = DEFAULTS.upnext.mode;

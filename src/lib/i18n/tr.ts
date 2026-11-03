@@ -172,7 +172,7 @@ const tr: Dict = {
 	"settings.groupAbout": "Hakkında",
 	"settings.groupGeneralDesc": "Dil ve paylaşım",
 	"settings.groupTranslationDesc": "Şarkı sözleri ve isim çevirisi",
-	"settings.groupPlaybackDesc": "Kalite, kaynak, otomatik genişletme",
+	"settings.groupPlaybackDesc": "Kalite, kaynaklar, Sıradaki, videolar",
 	"settings.groupHistoryDesc": "Son oynanan",
 	"settings.groupLastfmDesc": "Scrobbling — çok yakında",
 	"settings.groupDataDesc": "Kütüphane sayıları, verileri temizle",
@@ -291,7 +291,8 @@ const tr: Dict = {
 	"settings.excludedNote": "Bu dosyalar hâlâ telefonunda — yalnızca içe aktarmanın dışında tutuluyor. Birine yeniden izin verdiğinde sonraki taramada geri gelir.",
 	"settings.excludedRestore": "Yeniden izin ver",
 	"settings.groupAppearance": "Görünüm",
-	"settings.groupAppearanceDesc": "Tema, vurgu, metin ve kapak boyutu",
+	"settings.groupAppearanceDesc": "Şarkı satırları, Çalan, şarkı sözleri ve etiketler",
+	"settings.songBadges": "Etiketler ve mini oynatıcı", // quick-261103-stg
 	"settings.appearanceText": "Metin boyutu",
 	"settings.appearanceLayout": "Kapaklar ve düzen",
 	"settings.rowButtons": "Şarkı satırı düğmeleri",
@@ -807,6 +808,7 @@ const tr: Dict = {
 	// --- support (donor wall, 2026-10-14 donor-wall-ui) ---
 	"support.title": "Support OpenMusic",
 	"support.tagline": "Keep the music free, sell the convenience.",
+	"support.wallLink": "Destekçiler duvarını gör →", // quick-261103-stg
 	"support.body": "Streaming is free, forever. Your support keeps the servers running and the music coming.",
 	"support.tipTitle": "Tip",
 	"support.tipNote": "One-time only — no subscriptions, no monthly fees.",

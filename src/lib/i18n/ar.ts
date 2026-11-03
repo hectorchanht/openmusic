@@ -172,7 +172,7 @@ const ar: Dict = {
 	"settings.groupAbout": "حول",
 	"settings.groupGeneralDesc": "اللغة والمشاركة",
 	"settings.groupTranslationDesc": "كلمات وترجمة الاسم",
-	"settings.groupPlaybackDesc": "الجودة والمصدر والتوسيع التلقائي",
+	"settings.groupPlaybackDesc": "الجودة، المصادر، التالي، الفيديو",
 	"settings.groupHistoryDesc": "لعبت مؤخرا",
 	"settings.groupLastfmDesc": "التمرير - قريبا",
 	"settings.groupDataDesc": "تعداد المكتبة، مسح البيانات",
@@ -291,7 +291,8 @@ const ar: Dict = {
 	"settings.excludedNote": "لا تزال هذه الملفات على هاتفك — يتم استبعادها من الاستيراد فقط. اسمح بأحدها مجددًا ليعود في الفحص التالي.",
 	"settings.excludedRestore": "السماح مجددًا",
 	"settings.groupAppearance": "المظهر",
-	"settings.groupAppearanceDesc": "المظهر ولون التمييز وحجم النص والغلاف",
+	"settings.groupAppearanceDesc": "صفوف الأغاني، التشغيل الآن، الكلمات والوسوم",
+	"settings.songBadges": "الوسوم والمشغّل المصغّر", // quick-261103-stg
 	"settings.appearanceText": "حجم النص",
 	"settings.appearanceLayout": "الأغلفة والتخطيط",
 	"settings.rowButtons": "أزرار صف الأغنية",
@@ -807,6 +808,7 @@ const ar: Dict = {
 	// --- support (donor wall, 2026-10-14 donor-wall-ui) ---
 	"support.title": "Support OpenMusic",
 	"support.tagline": "Keep the music free, sell the convenience.",
+	"support.wallLink": "عرض جدار الداعمين ←", // quick-261103-stg
 	"support.body": "Streaming is free, forever. Your support keeps the servers running and the music coming.",
 	"support.tipTitle": "Tip",
 	"support.tipNote": "One-time only — no subscriptions, no monthly fees.",

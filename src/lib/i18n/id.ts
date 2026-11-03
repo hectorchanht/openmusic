@@ -172,7 +172,7 @@ const id: Dict = {
 	"settings.groupAbout": "Tentang",
 	"settings.groupGeneralDesc": "Bahasa & berbagi",
 	"settings.groupTranslationDesc": "Lirik & terjemahan nama",
-	"settings.groupPlaybackDesc": "Kualitas, sumber, perluasan otomatis",
+	"settings.groupPlaybackDesc": "Kualitas, sumber, Berikutnya, video",
 	"settings.groupHistoryDesc": "Baru-baru ini diputar",
 	"settings.groupLastfmDesc": "Scrobbling — segera hadir",
 	"settings.groupDataDesc": "Jumlah perpustakaan, hapus data",
@@ -291,7 +291,8 @@ const id: Dict = {
 	"settings.excludedNote": "Berkas ini masih ada di ponsel kamu — hanya dikecualikan dari impor. Izinkan lagi salah satunya dan berkas itu kembali pada pemindaian berikutnya.",
 	"settings.excludedRestore": "Izinkan lagi",
 	"settings.groupAppearance": "Tampilan",
-	"settings.groupAppearanceDesc": "Tema, aksen, ukuran teks & sampul",
+	"settings.groupAppearanceDesc": "Baris lagu, Sedang diputar, lirik & tag",
+	"settings.songBadges": "Tag & pemutar mini", // quick-261103-stg
 	"settings.appearanceText": "Ukuran teks",
 	"settings.appearanceLayout": "Sampul & tata letak",
 	"settings.rowButtons": "Tombol baris lagu",
@@ -807,6 +808,7 @@ const id: Dict = {
 	// --- support (donor wall, 2026-10-14 donor-wall-ui) ---
 	"support.title": "Support OpenMusic",
 	"support.tagline": "Keep the music free, sell the convenience.",
+	"support.wallLink": "Lihat dinding pendukung →", // quick-261103-stg
 	"support.body": "Streaming is free, forever. Your support keeps the servers running and the music coming.",
 	"support.tipTitle": "Tip",
 	"support.tipNote": "One-time only — no subscriptions, no monthly fees.",

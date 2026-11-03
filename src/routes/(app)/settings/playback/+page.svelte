@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { Music, Radio, Zap, Maximize2, BadgeCheck, Download, Sliders, ListMusic, SquareActivity, Mic2, RotateCcw, Clapperboard, MonitorPlay, History } from '@lucide/svelte';
+	import { Music, Radio, Maximize2, Download, Sliders, ListMusic, SquareActivity, RotateCcw, Clapperboard, MonitorPlay, History } from '@lucide/svelte';
 	import { settings, type DefaultQuality, type DefaultSource } from '$lib/stores/settings.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingPicker from '$lib/components/SettingPicker.svelte';
@@ -52,13 +52,6 @@
 	// quick-260919-ebi: the preview picker hands back the PICKED state ('off'|'on'), so tapping the
 	// card that is already selected must be a no-op — a bare `!x` flip would toggle it off again.
 	function toggleExpand(v: 'off' | 'on') { settings.autoExpandOnPlay = v === 'on'; settings.save(); }
-	// quick-260831-k5y: opt-in quality tag on the Now-Playing page.
-	function toggleQualityTag(v: 'off' | 'on') { settings.showQualityTag = v === 'on'; settings.save(); }
-	// quick-261102-srcpill: the Now-Playing source pill, rendered before the quality tag —
-	// ON by default; this is the opt-out, same off/on picker idiom as its neighbour.
-	function toggleSourceTag(v: 'off' | 'on') { settings.showSourceTag = v === 'on'; settings.save(); }
-	// quick-260919-1we (D-7): opt-in lyric line in the docked mini player.
-	function toggleNowbarLyrics(v: 'off' | 'on') { settings.nowbarLyrics = v === 'on'; settings.save(); }
 	// ii6: per-source enable/disable. Precedence in getEnabledAdapters: explicit prefs >
 	// settings.enabledSources > adapter.enabledByDefault. Helper resolves the effective state.
 	function sourceEnabled(id: SourceId): boolean {
@@ -174,16 +167,6 @@
 </section>
 
 <section>
-	<h2><Clapperboard size={15} /> {t('settings.musicVideos')}<SettingHint label={t('settings.musicVideos')} text={t('settings.musicVideosDesc')} /></h2>
-	<SettingPicker label={t('settings.musicVideos')} options={offOn} value={boolValue(settings.videoEnabled)} onpick={toggleVideos} />
-</section>
-
-<section>
-	<h2><MonitorPlay size={15} /> {t('settings.videoQuality')}</h2>
-	<SettingPicker label={t('settings.videoQuality')} options={videoQualityOptions} value={String(settings.videoQuality)} onpick={setVideoQuality} />
-</section>
-
-<section>
 	<h2><Radio size={15} /> {t('settings.defaultSource')}<SettingHint label={t('settings.defaultSource')} text={t('settings.defaultSourceNote')} /></h2>
 	<div class="chips">
 		{#each sources as s (s.v)}
@@ -191,6 +174,22 @@
 		{/each}
 	</div>
 </section>
+
+<!-- quick-261103-stg: Advanced > Sources moved up beside Default source — both answer "where
+     does the music come from". -->
+<!-- ii6: Advanced > Sources — tucked behind a <details> accordion so the Playback tab
+	   stays speed/quality-first. Per-source enable/disable chips (5sing ships enabled by default). -->
+<details class="advanced">
+	<summary><Sliders size={15} /> {t('settings.sourcesAdvanced')}<SettingHint label={t('settings.sourcesAdvanced')} text={t('settings.sourcesAdvancedNote')} /></summary>
+	<div class="chips">
+		{#each Object.values(SOURCES) as adapter (adapter.id)}
+			<!-- quick-261006-zh: source labels ride the tongwentang script lock like all page content. -->
+			<button class="chip" class:on={sourceEnabled(adapter.id)} onclick={() => toggleSource(adapter.id)} use:tapBounce>{names.zhLock(adapter.label)}</button>
+		{/each}
+	</div>
+</details>
+
+
 
 <!-- quick-260919-ebi (F3): three booleans that are PURELY about what lands on screen, so each
      one is now picked by tapping the state you want rather than reading a paragraph about it.
@@ -235,98 +234,11 @@
 	</span>
 {/snippet}
 
-<!-- showQualityTag — the same title line with and without the FLAC badge. Literally the
-     difference. `FLAC` is a format name, not chrome, so it needs no i18n key. -->
-{#snippet tagOff()}
-	<span class="mock-chrome" style:justify-content="center">
-		<span class="mock-row">
-			<span class="mock-tile" style:width="16px"></span>
-			<span class="mock-col">
-				<span class="mock-text">Stargazing</span>
-				<span class="mock-line dim" style:width="50%"></span>
-			</span>
-		</span>
-	</span>
-{/snippet}
-{#snippet tagOn()}
-	<span class="mock-chrome" style:justify-content="center">
-		<span class="mock-row">
-			<span class="mock-tile" style:width="16px"></span>
-			<span class="mock-col">
-				<span class="mock-row">
-					<span class="mock-text">Stargazing</span>
-					<span class="mock-badge">FLAC</span>
-				</span>
-				<span class="mock-line dim" style:width="50%"></span>
-			</span>
-		</span>
-	</span>
-{/snippet}
-
-<!-- showSourceTag (quick-261102-srcpill) — the same title line with just the quality
-     badge vs with the SOURCE badge added immediately BEFORE it, exactly as the pills
-     render on Now Playing. `JOOX` is a brand name, not chrome, so it needs no i18n key. -->
-{#snippet srcTagOff()}
-	<span class="mock-chrome" style:justify-content="center">
-		<span class="mock-row">
-			<span class="mock-tile" style:width="16px"></span>
-			<span class="mock-col">
-				<span class="mock-row">
-					<span class="mock-text">Stargazing</span>
-					<span class="mock-badge">FLAC</span>
-				</span>
-				<span class="mock-line dim" style:width="50%"></span>
-			</span>
-		</span>
-	</span>
-{/snippet}
-{#snippet srcTagOn()}
-	<span class="mock-chrome" style:justify-content="center">
-		<span class="mock-row">
-			<span class="mock-tile" style:width="16px"></span>
-			<span class="mock-col">
-				<span class="mock-row">
-					<span class="mock-text">Stargazing</span>
-					<span class="mock-badge">JOOX</span>
-					<span class="mock-badge">FLAC</span>
-				</span>
-				<span class="mock-line dim" style:width="50%"></span>
-			</span>
-		</span>
-	</span>
-{/snippet}
-
-<!-- nowbarLyrics — the mini bar showing the artist name vs showing a lyric line. The demo text
-     is the same static fallback the Appearance demos use (Stargazing / Myles Smith), and the
-     lyric is a generic stand-in rather than an invented lyric string, so nothing needs
-     translating into 15 languages to draw a two-line mock. -->
-{#snippet lyricsOff()}
-	<span class="mock-chrome" style:justify-content="center">
-		<span class="mock-bar">
-			<span class="mock-tile" style:width="14px"></span>
-			<span class="mock-col">
-				<span class="mock-text">Stargazing</span>
-				<span class="mock-text dim">Myles Smith</span>
-			</span>
-		</span>
-	</span>
-{/snippet}
-{#snippet lyricsOn()}
-	<span class="mock-chrome" style:justify-content="center">
-		<span class="mock-bar">
-			<span class="mock-tile" style:width="14px"></span>
-			<span class="mock-col">
-				<span class="mock-text">Stargazing</span>
-				<span class="mock-text dim">&#9834; &#8212;&#8212;&#8212;&#8212;</span>
-			</span>
-		</span>
-	</span>
-{/snippet}
-
+<!-- quick-261103-stg: auto-expand is the one "Playback & motion" row that is BEHAVIOUR (what
+     happens when you tap play), so it stays here as its own section. The quality tag, source tag
+     and now-bar lyric pickers are pure display and moved to Appearance. -->
 <section>
-	<h2><Zap size={15} /> {t('settings.playbackMotion')}</h2>
-
-	<h3 class="sub"><Maximize2 size={14} /> {t('settings.autoExpand')}<SettingHint label={t('settings.autoExpand')} text={t('settings.autoExpandDesc')} /></h3>
+	<h2><Maximize2 size={15} /> {t('settings.autoExpand')}<SettingHint label={t('settings.autoExpand')} text={t('settings.autoExpandDesc')} /></h2>
 	<SettingPicker
 		variant="preview"
 		label={t('settings.autoExpand')}
@@ -338,43 +250,6 @@
 		onpick={toggleExpand}
 	/>
 
-	<h3 class="sub"><BadgeCheck size={14} /> {t('settings.showQualityTag')}<SettingHint label={t('settings.showQualityTag')} text={t('settings.showQualityTagDesc')} /></h3>
-	<SettingPicker
-		variant="preview"
-		label={t('settings.showQualityTag')}
-		options={[
-			{ ...offOn[0], preview: tagOff },
-			{ ...offOn[1], preview: tagOn }
-		]}
-		value={boolValue(settings.showQualityTag)}
-		onpick={toggleQualityTag}
-	/>
-
-	<h3 class="sub"><Music size={14} /> {t('settings.showSourceTag')}<SettingHint label={t('settings.showSourceTag')} text={t('settings.showSourceTagDesc')} /></h3>
-	<SettingPicker
-		variant="preview"
-		label={t('settings.showSourceTag')}
-		options={[
-			{ ...offOn[0], preview: srcTagOff },
-			{ ...offOn[1], preview: srcTagOn }
-		]}
-		value={boolValue(settings.showSourceTag)}
-		onpick={toggleSourceTag}
-	/>
-
-	<h3 class="sub"><Mic2 size={14} /> {t('settings.nowbarLyrics')}</h3>
-	<!-- quick-260919-ebi: no hint here — the two mini bars ARE the sentence this used to carry
-	     ("shows the current lyric line instead of the artist name"), word for word. -->
-	<SettingPicker
-		variant="preview"
-		label={t('settings.nowbarLyrics')}
-		options={[
-			{ ...offOn[0], preview: lyricsOff },
-			{ ...offOn[1], preview: lyricsOn }
-		]}
-		value={boolValue(settings.nowbarLyrics)}
-		onpick={toggleNowbarLyrics}
-	/>
 </section>
 
 <section>
@@ -420,17 +295,18 @@
 	{/each}
 </section>
 
-<!-- ii6: Advanced > Sources — tucked behind a <details> accordion so the Playback tab
-	   stays speed/quality-first. Per-source enable/disable chips (5sing ships enabled by default). -->
-<details class="advanced">
-	<summary><Sliders size={15} /> {t('settings.sourcesAdvanced')}<SettingHint label={t('settings.sourcesAdvanced')} text={t('settings.sourcesAdvancedNote')} /></summary>
-	<div class="chips">
-		{#each Object.values(SOURCES) as adapter (adapter.id)}
-			<!-- quick-261006-zh: source labels ride the tongwentang script lock like all page content. -->
-			<button class="chip" class:on={sourceEnabled(adapter.id)} onclick={() => toggleSource(adapter.id)} use:tapBounce>{names.zhLock(adapter.label)}</button>
-		{/each}
-	</div>
-</details>
+<section>
+	<h2><Clapperboard size={15} /> {t('settings.musicVideos')}<SettingHint label={t('settings.musicVideos')} text={t('settings.musicVideosDesc')} /></h2>
+	<SettingPicker label={t('settings.musicVideos')} options={offOn} value={boolValue(settings.videoEnabled)} onpick={toggleVideos} />
+</section>
+
+<!-- quick-261103-stg: video quality only matters while music videos are on. -->
+{#if settings.videoEnabled}
+<section>
+	<h2><MonitorPlay size={15} /> {t('settings.videoQuality')}</h2>
+	<SettingPicker label={t('settings.videoQuality')} options={videoQualityOptions} value={String(settings.videoQuality)} onpick={setVideoQuality} />
+</section>
+{/if}
 
 <style>
 	/* quick-261006-ico: icon-only reset — 40px ghost circle. */
@@ -463,7 +339,6 @@
 	.chip.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	/* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte; .row-toggle/.sw went with the
 	   three toggle rows the previews replaced. */
-	.sub { display: flex; align-items: center; gap: 6px; font-size: 0.8125rem; font-weight: 600; margin: 16px 0 8px; position: relative; }
 	.upnext-desc { color: var(--color-text-muted); font-size: 0.8125rem; line-height: 1.5; margin: 8px 0 4px; }
 	.upnext-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; }
 	.upnext-row .ctx-label { font-size: 0.875rem; color: var(--color-text); }

@@ -172,7 +172,7 @@ const th: Dict = {
 	"settings.groupAbout": "เกี่ยวกับ",
 	"settings.groupGeneralDesc": "ภาษาและการแชร์",
 	"settings.groupTranslationDesc": "เนื้อเพลงและการแปลชื่อ",
-	"settings.groupPlaybackDesc": "คุณภาพ แหล่งที่มา ขยายอัตโนมัติ",
+	"settings.groupPlaybackDesc": "คุณภาพ แหล่งที่มา ถัดไป วิดีโอ",
 	"settings.groupHistoryDesc": "เพิ่งเล่น",
 	"settings.groupLastfmDesc": "การดิ้นรน - เร็ว ๆ นี้",
 	"settings.groupDataDesc": "จำนวนห้องสมุด ข้อมูลที่ชัดเจน",
@@ -291,7 +291,8 @@ const th: Dict = {
 	"settings.excludedNote": "ไฟล์เหล่านี้ยังอยู่ในเครื่องของคุณ — เพียงแต่ถูกกันออกจากการนำเข้า อนุญาตอีกครั้งแล้วไฟล์จะกลับมาในการสแกนครั้งถัดไป",
 	"settings.excludedRestore": "อนุญาตอีกครั้ง",
 	"settings.groupAppearance": "ลักษณะที่ปรากฏ",
-	"settings.groupAppearanceDesc": "ธีม สีเน้น ขนาดข้อความและปก",
+	"settings.groupAppearanceDesc": "แถวเพลง กำลังเล่น เนื้อเพลงและแท็ก",
+	"settings.songBadges": "แท็กและแถบเล่นย่อ", // quick-261103-stg
 	"settings.appearanceText": "ขนาดข้อความ",
 	"settings.appearanceLayout": "ปกและเลย์เอาต์",
 	"settings.rowButtons": "ปุ่มในแถวเพลง",
@@ -807,6 +808,7 @@ const th: Dict = {
 	// --- support (donor wall, 2026-10-14 donor-wall-ui) ---
 	"support.title": "Support OpenMusic",
 	"support.tagline": "Keep the music free, sell the convenience.",
+	"support.wallLink": "ดูกำแพงผู้สนับสนุน →", // quick-261103-stg
 	"support.body": "Streaming is free, forever. Your support keeps the servers running and the music coming.",
 	"support.tipTitle": "Tip",
 	"support.tipNote": "One-time only — no subscriptions, no monthly fees.",

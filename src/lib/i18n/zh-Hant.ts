@@ -183,7 +183,7 @@ const zhHant: Dict = {
 	"settings.groupAbout": "關於",
 	"settings.groupGeneralDesc": "語言與分享",
 	"settings.groupTranslationDesc": "歌詞與名稱翻譯",
-	"settings.groupPlaybackDesc": "音質、來源、自動展開",
+	"settings.groupPlaybackDesc": "音質、來源、接下來播放、MV",
 	"settings.groupHistoryDesc": "最近播放",
 	"settings.groupLastfmDesc": "同步記錄 — 即將推出",
 	"settings.groupDataDesc": "音樂庫統計、清除資料",
@@ -304,7 +304,8 @@ const zhHant: Dict = {
 
 	// --- appearance / sizing (quick-260607-fnp) ---
 	"settings.groupAppearance": "外觀",
-	"settings.groupAppearanceDesc": "主題、強調色、文字與封面大小",
+	"settings.groupAppearanceDesc": "歌曲列、播放畫面、歌詞與標籤",
+	"settings.songBadges": "標籤與迷你播放列", // quick-261103-stg
 	"settings.appearanceText": "文字大小",
 	"settings.appearanceLayout": "封面與版面",
 	"settings.rowButtons": "歌曲列按鈕",
@@ -839,6 +840,7 @@ const zhHant: Dict = {
 	// --- support (donor wall, 2026-10-14 donor-wall-ui) ---
 	"support.title": "支持 OpenMusic",
 	"support.tagline": "Keep the music free, sell the convenience.",
+	"support.wallLink": "查看支持者名單 →", // quick-261103-stg
 	"support.body": "串流永遠免費。你的支持讓伺服器繼續運作，音樂不斷。",
 	"support.tipTitle": "打賞",
 	"support.tipNote": "單次打賞，無訂閱、無月費。",

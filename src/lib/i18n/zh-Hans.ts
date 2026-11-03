@@ -183,7 +183,7 @@ const zhHans: Dict = {
 	"settings.groupAbout": "关于",
 	"settings.groupGeneralDesc": "语言与分享",
 	"settings.groupTranslationDesc": "歌词与名称翻译",
-	"settings.groupPlaybackDesc": "音质、来源、自动展开",
+	"settings.groupPlaybackDesc": "音质、来源、接下来播放、MV",
 	"settings.groupHistoryDesc": "最近播放",
 	"settings.groupLastfmDesc": "同步记录 — 即将推出",
 	"settings.groupDataDesc": "音乐库统计、清除数据",
@@ -304,7 +304,8 @@ const zhHans: Dict = {
 
 	// --- appearance / sizing (quick-260607-fnp) ---
 	"settings.groupAppearance": "外观",
-	"settings.groupAppearanceDesc": "主题、强调色、文字与封面大小",
+	"settings.groupAppearanceDesc": "歌曲行、播放界面、歌词与标签",
+	"settings.songBadges": "标签与迷你播放栏", // quick-261103-stg
 	"settings.appearanceText": "文字大小",
 	"settings.appearanceLayout": "封面与布局",
 	"settings.rowButtons": "歌曲行按钮",
@@ -839,6 +840,7 @@ const zhHans: Dict = {
 	// --- support (donor wall, 2026-10-14 donor-wall-ui) ---
 	"support.title": "支持 OpenMusic",
 	"support.tagline": "Keep the music free, sell the convenience.",
+	"support.wallLink": "查看支持者名单 →", // quick-261103-stg
 	"support.body": "流媒体永远免费。你的支持让服务器继续运行，音乐不断。",
 	"support.tipTitle": "打赏",
 	"support.tipNote": "单次打赏，无订阅、无月费。",

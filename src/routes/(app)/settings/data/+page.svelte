@@ -175,7 +175,10 @@
 	}
 	let resetOpen = $state(false);
 	function doResetAppearance() {
+		// quick-261103-stg: theme/accent/motion/app text size left resetAppearance() for the
+		// General card; this row's copy still promises them, so reset the look too.
 		settings.resetAppearance();
+		settings.resetLook();
 		flash(t('settings.appearanceReset'));
 	}
 	function clearLibrary() {

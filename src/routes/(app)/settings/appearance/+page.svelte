@@ -8,33 +8,25 @@
     import {
         ListMusic,
         Disc3,
-        Sun,
-        Palette,
-        Zap,
         Mic2,
+        BadgeCheck,
+        Music,
         RotateCcw,
     } from "@lucide/svelte";
     import {
         settings,
-        ACCENT_PRESETS,
-        SUPPORTER_THEMES,
         FONT_SCALE_MIN,
         FONT_SCALE_MAX,
         COVER_SCALE_MIN,
         COVER_SCALE_MAX,
         LYRICS_ANCHOR_MIN,
         LYRICS_ANCHOR_MAX,
-        type Theme,
     } from "$lib/stores/settings.svelte";
-    // quick-261023-perks: supporter gating for the exclusive themes.
-    import { isSupporter } from "$lib/config/sponsored";
-    import { support } from "$lib/stores/support.svelte";
     // Demo text is sourced from the current/last-played track (D-12). The page may import the
     // player — settings stays a LEAF store because the player read happens HERE, not in the
     // settings store (Pitfall 6 / SSR-leak rule).
     import { player } from "$lib/stores/player.svelte";
     import PageHeader from "$lib/components/PageHeader.svelte";
-    import SettingToggle from "$lib/components/SettingToggle.svelte";
     import SettingPicker from "$lib/components/SettingPicker.svelte";
     import SettingHint from "$lib/components/SettingHint.svelte";
     import RowActionsConfig, {
@@ -45,15 +37,7 @@
     import { t } from "$lib/i18n";
     import ConfirmModal from "$lib/components/ConfirmModal.svelte";
 
-    onMount(() => {
-        settings.load();
-        // quick-261023-perks: supporter status for the theme lock (SSR-safe — false pre-hydration).
-        try {
-            supporter = isSupporter();
-        } catch {
-            supporter = false;
-        }
-    });
+    onMount(() => settings.load());
 
     // User call 2026-10-06: the reset button opens an in-app confirm modal (not the
     // native window.confirm).
@@ -119,75 +103,22 @@
         else settings.coverScale = v;
         settings.save();
     }
-    // quick-260919-ebi: theme / accent / reduce-motion handlers moved here from
-    // /settings/general along with their rows.
-    // quick-261023-perks: supporter themes are locked for non-supporters — tapping
-    // one opens the support sheet instead of applying it (the store ALSO demotes a
-    // stored supporter theme on load when the status is gone — defence in depth).
-    let supporter = $state(false);
-    function setTheme(v: Theme) {
-        if (!supporter && (SUPPORTER_THEMES as readonly string[]).includes(v)) {
-            support.openSheet();
-            return;
-        }
-        settings.theme = v;
-        settings.save();
-    }
-    function setAccent(hex: string) {
-        settings.accent = hex;
-        settings.save();
-    }
-    function toggleMotion() {
-        settings.reduceMotion = !settings.reduceMotion;
-        settings.save();
-    }
-
-    // quick-260919-ebi (F3): THE sanctioned literal-colour exception to the mock-primitive rule.
-    // Every other preview in the app paints itself from theme tokens so it is automatically correct
-    // in both themes. These two cards must do the OPPOSITE: the dark card has to look dark while
-    // the LIGHT theme is active, and vice versa — that contrast IS the thing being previewed, and a
-    // token would make both cards identical and the picker useless. The values are the real palette
-    // from app.css (`:root` and `:root[data-theme='light']`, the blocks applyTheme() drives), not
-    // eyeballed approximations; if app.css changes, these change with it.
-    type Palette = {
-        bg: string;
-        surface2: string;
-        border: string;
-        text: string;
-        muted: string;
-    };
-    const PALETTE: Record<Theme, Palette> = {
-        dark: {
-            bg: "#0b0b0f",
-            surface2: "#1d1d27",
-            border: "#888888",
-            text: "#f4f4f6",
-            muted: "#a0a0ad",
-        },
-        light: {
-            bg: "#f7f7fa",
-            surface2: "#ececf2",
-            border: "#80808a", // quick-261103-pga: track app.css light --color-border (rrb raised it)
-            text: "#1a1a22",
-            muted: "#5a5a66",
-        },
-        // quick-261023-perks: literal values from the app.css data-theme blocks —
-        // same sanctioned exception as dark/light (the card must show the theme).
-        gold: {
-            bg: "#100c06",
-            surface2: "#241b0e",
-            border: "#6b5a2e",
-            text: "#f7f0dd",
-            muted: "#b3a684",
-        },
-        sakura: {
-            bg: "#120b10",
-            surface2: "#261722",
-            border: "#6e4a5a",
-            text: "#faeef3",
-            muted: "#bd9fab",
-        },
-    };
+    // quick-261103-stg: theme / accent / reduce-motion (+ their handlers and the theme-card
+    // PALETTE) moved UP to the /settings index General card — they change every screen, not one
+    // surface. The display pickers below moved IN from Playback ("Playback & motion" held three
+    // pure-display booleans). Handlers carried verbatim from there.
+    // The preview picker hands back the PICKED state, so re-tapping the selected card is a no-op.
+    // quick-260831-k5y: opt-in quality tag on the Now-Playing page.
+    function toggleQualityTag(v: "off" | "on") { settings.showQualityTag = v === "on"; settings.save(); }
+    // quick-261102-srcpill: the Now-Playing source pill, rendered before the quality tag.
+    function toggleSourceTag(v: "off" | "on") { settings.showSourceTag = v === "on"; settings.save(); }
+    // quick-260919-1we (D-7): opt-in lyric line in the docked mini player.
+    function toggleNowbarLyrics(v: "off" | "on") { settings.nowbarLyrics = v === "on"; settings.save(); }
+    const offOn = $derived([
+        { v: "off" as const, label: t("settings.optOff") },
+        { v: "on" as const, label: t("settings.optOn") },
+    ]);
+    const boolValue = (b: boolean) => (b ? "on" : "off");
     const num = (e: Event) =>
         Number((e.currentTarget as HTMLInputElement).value);
 </script>
@@ -216,147 +147,8 @@
     onclose={() => (resetOpen = false)}
 />
 
-<!-- quick-260919-ebi: Theme / Accent colour / Motion moved here from /settings/general — a page
-     literally named Appearance that did not contain dark mode was the single worst findability bug
-     in Settings. They sit ABOVE Text size because theme and accent frame everything below them. -->
-<!-- quick-260919-ebi (F3): one mini app-chrome mock, rendered twice in the two real palettes —
-     header bar, two content lines with a cover tile, and the docked now-bar. The paragraph that
-     used to explain "switches the whole app between a dark and a light look" is gone, because the
-     two cards show exactly that and the sentence could only restate it. -->
-{#snippet chrome(p: Palette)}
-    <span
-        class="mock-chrome"
-        style:background={p.bg}
-        style:border-radius="3px"
-        style:padding="5px"
-    >
-        <span class="mock-bar" style:background={p.surface2}>
-            <span class="mock-line" style:background={p.text} style:width="40%"
-            ></span>
-        </span>
-        <span class="mock-row">
-            <span
-                class="mock-tile"
-                style:background={p.surface2}
-                style:border-color={p.border}
-                style:width="18px"
-            ></span>
-            <span class="mock-col">
-                <span
-                    class="mock-line"
-                    style:background={p.text}
-                    style:width="80%"
-                ></span>
-                <span
-                    class="mock-line"
-                    style:background={p.muted}
-                    style:width="55%"
-                ></span>
-            </span>
-        </span>
-        <span class="mock-bar" style:background={p.surface2}>
-            <span
-                class="mock-tile"
-                style:background={p.bg}
-                style:border-color={p.border}
-                style:width="10px"
-            ></span>
-            <span class="mock-col">
-                <span
-                    class="mock-line"
-                    style:background={p.text}
-                    style:width="70%"
-                ></span>
-                <span
-                    class="mock-line"
-                    style:background={p.muted}
-                    style:width="45%"
-                ></span>
-            </span>
-        </span>
-    </span>
-{/snippet}
-
-<section>
-    <h2><Sun size={15} /> {t("settings.theme")}</h2>
-    <SettingPicker
-        variant="preview"
-        label={t("settings.theme")}
-        value={settings.theme}
-        onpick={setTheme}
-        options={[
-            {
-                v: "dark" as Theme,
-                label: t("settings.themeDark"),
-                preview: darkCard,
-            },
-            {
-                v: "light" as Theme,
-                label: t("settings.themeLight"),
-                preview: lightCard,
-            },
-            // quick-261023-perks: supporter-exclusive themes — locked cards for
-            // non-supporters (tap opens the support sheet via setTheme).
-            {
-                v: "gold" as Theme,
-                label: t("settings.themeGold"),
-                preview: goldCard,
-                locked: !supporter,
-                lockLabel: t("settings.themeLocked"),
-            },
-            {
-                v: "sakura" as Theme,
-                label: t("settings.themeSakura"),
-                preview: sakuraCard,
-                locked: !supporter,
-                lockLabel: t("settings.themeLocked"),
-            },
-        ]}
-    />
-</section>
-{#snippet darkCard()}{@render chrome(PALETTE.dark)}{/snippet}
-{#snippet lightCard()}{@render chrome(PALETTE.light)}{/snippet}
-{#snippet goldCard()}{@render chrome(PALETTE.gold)}{/snippet}
-{#snippet sakuraCard()}{@render chrome(PALETTE.sakura)}{/snippet}
-
-<section>
-    <h2><Palette size={15} /> {t("settings.accentColor")}<SettingHint label={t("settings.accentColor")} text={t("settings.accentColorDesc")} /></h2>
-    <div class="swatches">
-        {#each ACCENT_PRESETS as c (c)}
-            <button
-                class="swatch"
-                class:on={settings.accent === c}
-                style:background={c}
-                aria-label={c}
-                onclick={() => setAccent(c)}
-                use:tapBounce
-            ></button>
-        {/each}
-    </div>
-    <!-- quick-261023-perks: supporter themes carry their own signature primary — the
-         accent pick only drives the two free themes. -->
-    {#if (SUPPORTER_THEMES as readonly string[]).includes(settings.theme)}
-        <p class="themed-note">{t("settings.accentThemed")}</p>
-    {/if}
-</section>
-
-<!-- quick-260919-ebi: "Motion" (settings.appearanceMotion), not the "Playback & motion" heading
-     General borrowed — this page has no playback on it, so that key would have read as a lie. -->
-<section>
-    <h2><Zap size={15} /> {t("settings.appearanceMotion")}</h2>
-    <!-- quick-260919-ebi (F2): the one shared boolean row — inset + switch + accent edge. -->
-    <SettingToggle
-        icon={Zap}
-        label={t("settings.reduceMotion")}
-        checked={settings.reduceMotion}
-        onchange={toggleMotion}
-        hint={t("settings.reduceMotionDesc")}
-    />
-</section>
-
 <!-- quick-261024-sets: the ONE global slider (App text size) MOVED to the top-level
-     Settings page, directly below App language (Hector 2026-10-24) — it now lives in
-     $lib/components/AppTextSizeSetting.svelte. The surface-specific editors below
+     Settings page (quick-261103-stg: now inside its General card). The surface-specific editors below
      (Song rows, Now playing) stay here: they configure a replica of their own surface. -->
 <!-- quick-260920-kxz: the Song rows editor. The replica row carries BOTH controls now — the
      wings pick which part the single slider below resizes, and the button strip inside the same
@@ -438,6 +230,135 @@
     </div>
 </section>
 
+<!-- showQualityTag — the same title line with and without the FLAC badge. Literally the
+     difference. `FLAC` is a format name, not chrome, so it needs no i18n key. -->
+{#snippet tagOff()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-row">
+			<span class="mock-tile" style:width="16px"></span>
+			<span class="mock-col">
+				<span class="mock-text">Stargazing</span>
+				<span class="mock-line dim" style:width="50%"></span>
+			</span>
+		</span>
+	</span>
+{/snippet}
+{#snippet tagOn()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-row">
+			<span class="mock-tile" style:width="16px"></span>
+			<span class="mock-col">
+				<span class="mock-row">
+					<span class="mock-text">Stargazing</span>
+					<span class="mock-badge">FLAC</span>
+				</span>
+				<span class="mock-line dim" style:width="50%"></span>
+			</span>
+		</span>
+	</span>
+{/snippet}
+
+<!-- showSourceTag (quick-261102-srcpill) — the same title line with just the quality
+     badge vs with the SOURCE badge added immediately BEFORE it, exactly as the pills
+     render on Now Playing. `JOOX` is a brand name, not chrome, so it needs no i18n key. -->
+{#snippet srcTagOff()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-row">
+			<span class="mock-tile" style:width="16px"></span>
+			<span class="mock-col">
+				<span class="mock-row">
+					<span class="mock-text">Stargazing</span>
+					<span class="mock-badge">FLAC</span>
+				</span>
+				<span class="mock-line dim" style:width="50%"></span>
+			</span>
+		</span>
+	</span>
+{/snippet}
+{#snippet srcTagOn()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-row">
+			<span class="mock-tile" style:width="16px"></span>
+			<span class="mock-col">
+				<span class="mock-row">
+					<span class="mock-text">Stargazing</span>
+					<span class="mock-badge">JOOX</span>
+					<span class="mock-badge">FLAC</span>
+				</span>
+				<span class="mock-line dim" style:width="50%"></span>
+			</span>
+		</span>
+	</span>
+{/snippet}
+
+<!-- nowbarLyrics — the mini bar showing the artist name vs showing a lyric line. The demo text
+     is the same static fallback the Appearance demos use (Stargazing / Myles Smith), and the
+     lyric is a generic stand-in rather than an invented lyric string, so nothing needs
+     translating into 15 languages to draw a two-line mock. -->
+{#snippet lyricsOff()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-bar">
+			<span class="mock-tile" style:width="14px"></span>
+			<span class="mock-col">
+				<span class="mock-text">Stargazing</span>
+				<span class="mock-text dim">Myles Smith</span>
+			</span>
+		</span>
+	</span>
+{/snippet}
+{#snippet lyricsOn()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-bar">
+			<span class="mock-tile" style:width="14px"></span>
+			<span class="mock-col">
+				<span class="mock-text">Stargazing</span>
+				<span class="mock-text dim">&#9834; &#8212;&#8212;&#8212;&#8212;</span>
+			</span>
+		</span>
+	</span>
+{/snippet}
+
+<section>
+    <h2><BadgeCheck size={15} /> {t("settings.songBadges")}</h2>
+	<h3 class="sub"><BadgeCheck size={14} /> {t("settings.showQualityTag")}<SettingHint label={t("settings.showQualityTag")} text={t("settings.showQualityTagDesc")} /></h3>
+	<SettingPicker
+		variant="preview"
+		label={t("settings.showQualityTag")}
+		options={[
+			{ ...offOn[0], preview: tagOff },
+			{ ...offOn[1], preview: tagOn }
+		]}
+		value={boolValue(settings.showQualityTag)}
+		onpick={toggleQualityTag}
+	/>
+
+	<h3 class="sub"><Music size={14} /> {t("settings.showSourceTag")}<SettingHint label={t("settings.showSourceTag")} text={t("settings.showSourceTagDesc")} /></h3>
+	<SettingPicker
+		variant="preview"
+		label={t("settings.showSourceTag")}
+		options={[
+			{ ...offOn[0], preview: srcTagOff },
+			{ ...offOn[1], preview: srcTagOn }
+		]}
+		value={boolValue(settings.showSourceTag)}
+		onpick={toggleSourceTag}
+	/>
+
+	<h3 class="sub"><Mic2 size={14} /> {t("settings.nowbarLyrics")}</h3>
+	<!-- quick-260919-ebi: no hint here — the two mini bars ARE the sentence this used to carry
+	     ("shows the current lyric line instead of the artist name"), word for word. -->
+	<SettingPicker
+		variant="preview"
+		label={t("settings.nowbarLyrics")}
+		options={[
+			{ ...offOn[0], preview: lyricsOff },
+			{ ...offOn[1], preview: lyricsOn }
+		]}
+		value={boolValue(settings.nowbarLyrics)}
+		onpick={toggleNowbarLyrics}
+	/>
+</section>
+
 <style>
     /* quick-261006-ico: icon-only reset — 40px ghost circle. */
     .reset {
@@ -497,40 +418,10 @@
     .editor-lab {
         margin-top: 12px;
     }
-    .note {
-        color: var(--color-text-muted);
-        font-size: 0.75rem;
-        margin: 4px 0 0;
-    }
     /* quick-260920-kxz: the quick-260618-goe cover-demo tiles + `.demo-cap` (and the
        reduced-motion block that damped their transition) are gone with the section that held
        them — the replica row's cover wing replaced them. */
-    /* quick-260919-ebi: the segmented control, accent swatches and toggle row that arrived with
-       theme / accent / reduce-motion, carried VERBATIM from /settings/general so nothing jumps. */
-    /* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte; the accent swatches below
-       stay local because the swatch IS already its own preview (a colour is a colour). */
-    .swatches {
-        display: flex;
-        gap: 12px;
-    }
-    /* quick-261023-perks: note shown when a supporter theme owns the primary. */
-    .themed-note {
-        margin: 10px 0 0;
-        font-size: 0.75rem;
-        color: var(--color-text-muted);
-    }
-    .swatch {
-        width: 34px;
-        height: 34px;
-        border-radius: 50%;
-        border: 2px solid transparent;
-        cursor: pointer;
-    }
-    .swatch.on {
-        border-color: #fff;
-        box-shadow:
-            0 0 0 2px var(--color-bg),
-            0 0 0 4px currentColor;
-    }
+    /* quick-261103-stg: accent swatches moved to the /settings General card. */
+    .sub { display: flex; align-items: center; gap: 6px; font-size: 0.8125rem; font-weight: 600; margin: 16px 0 8px; position: relative; }
     /* quick-260919-ebi: the toggle-row CSS moved into SettingToggle.svelte. */
 </style>

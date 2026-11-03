@@ -115,11 +115,12 @@ describe('settings persistence round-trip — showSourceTag (quick-261102-srcpil
 		expect(JSON.parse(localStorage.getItem(KEY) as string).showSourceTag).toBe(false);
 	});
 
-	it('resetPlayback() reverts the field AND the persisted blob', async () => {
+	// quick-261103-stg: the source-tag picker moved to Appearance, and its reset with it.
+	it('resetAppearance() reverts the field AND the persisted blob', async () => {
 		const settings = await freshSettings();
 		settings.showSourceTag = false;
 		settings.save();
-		settings.resetPlayback();
+		settings.resetAppearance();
 		expect(settings.showSourceTag).toBe(true);
 		expect(JSON.parse(localStorage.getItem(KEY) as string).showSourceTag).toBe(true);
 	});
@@ -225,14 +226,14 @@ describe('settings persistence round-trip — fontScaleApp (quick-260920-kxz)', 
 
 	// T-kxz-01 (tampering): localStorage is user/extension-writable. An out-of-range value must
 	// land on the bound, not on <html> — 250% would push Settings itself off the screen.
-	it('an out-of-range value clamps to FONT_SCALE_MAX, and resetAppearance() returns it to 100', async () => {
+	it('an out-of-range value clamps to FONT_SCALE_MAX, and resetGeneral() returns it to 100 (quick-261103-stg: moved to the General card)', async () => {
 		memStore.set(KEY, JSON.stringify({ appLang: 'en', fontScaleApp: 250 }));
 		const settings = await freshSettings();
 		const { FONT_SCALE_MAX } = await import('./settings.svelte');
 		settings.load();
 		expect(settings.fontScaleApp).toBe(FONT_SCALE_MAX);
 		expect(FONT_SCALE_MAX).toBe(200);
-		settings.resetAppearance();
+		settings.resetGeneral();
 		expect(settings.fontScaleApp).toBe(100);
 		expect(JSON.parse(localStorage.getItem(KEY) as string).fontScaleApp).toBe(100);
 	});

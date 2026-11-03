@@ -172,7 +172,7 @@ const hi: Dict = {
 	"settings.groupAbout": "के बारे में",
 	"settings.groupGeneralDesc": "भाषा और साझाकरण",
 	"settings.groupTranslationDesc": "गीत और नाम अनुवाद",
-	"settings.groupPlaybackDesc": "गुणवत्ता, स्रोत, स्वतः-विस्तार",
+	"settings.groupPlaybackDesc": "गुणवत्ता, स्रोत, आगे क्या, वीडियो",
 	"settings.groupHistoryDesc": "हाल ही में खेला गया",
 	"settings.groupLastfmDesc": "स्क्रोब्लिंग - जल्द आ रहा है",
 	"settings.groupDataDesc": "लाइब्रेरी की गिनती, स्पष्ट डेटा",
@@ -291,7 +291,8 @@ const hi: Dict = {
 	"settings.excludedNote": "ये फ़ाइलें आपके फ़ोन पर ही हैं — इन्हें सिर्फ़ आयात से बाहर रखा गया है। किसी एक को फिर से अनुमति दें और वह अगले स्कैन में वापस आ जाएगी।",
 	"settings.excludedRestore": "फिर से अनुमति दें",
 	"settings.groupAppearance": "रूप",
-	"settings.groupAppearanceDesc": "थीम, एक्सेंट, टेक्स्ट और कवर आकार",
+	"settings.groupAppearanceDesc": "गीत पंक्तियाँ, अभी चल रहा, बोल और टैग",
+	"settings.songBadges": "टैग और मिनी प्लेयर", // quick-261103-stg
 	"settings.appearanceText": "टेक्स्ट आकार",
 	"settings.appearanceLayout": "कवर और लेआउट",
 	"settings.rowButtons": "गाने की पंक्ति के बटन",
@@ -807,6 +808,7 @@ const hi: Dict = {
 	// --- support (donor wall, 2026-10-14 donor-wall-ui) ---
 	"support.title": "Support OpenMusic",
 	"support.tagline": "Keep the music free, sell the convenience.",
+	"support.wallLink": "समर्थकों की दीवार देखें →", // quick-261103-stg
 	"support.body": "Streaming is free, forever. Your support keeps the servers running and the music coming.",
 	"support.tipTitle": "Tip",
 	"support.tipNote": "One-time only — no subscriptions, no monthly fees.",

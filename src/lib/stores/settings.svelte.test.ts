@@ -378,12 +378,17 @@ describe('reset groups follow their rows (quick-260919-ebi)', () => {
 		settings.coverScale = 130;
 	});
 
-	it('resetAppearance() restores theme, accent and reduceMotion (moved in from General)', () => {
+	// quick-261103-stg: theme/accent/reduceMotion/fontScaleApp moved to the /settings General card.
+	it('resetAppearance() restores coverScale and the display badges, NOT theme/accent/reduceMotion', () => {
+		settings.showSourceTag = !DEFAULTS.playback.showSourceTag;
+		settings.nowbarLyrics = !DEFAULTS.playback.nowbarLyrics;
 		settings.resetAppearance();
-		expect(settings.theme).toBe(DEFAULTS.general.theme);
-		expect(settings.accent).toBe(DEFAULTS.general.accent);
-		expect(settings.reduceMotion).toBe(DEFAULTS.general.reduceMotion);
 		expect(settings.coverScale).toBe(DEFAULTS.appearance.coverScale);
+		expect(settings.showSourceTag).toBe(DEFAULTS.playback.showSourceTag);
+		expect(settings.nowbarLyrics).toBe(DEFAULTS.playback.nowbarLyrics);
+		expect(settings.theme).toBe('light');
+		expect(settings.accent).toBe('#ff0033');
+		expect(settings.reduceMotion).toBe(true);
 	});
 
 	it('resetAppearance() does NOT touch homeGridCols (it moved to Home)', () => {
@@ -391,11 +396,20 @@ describe('reset groups follow their rows (quick-260919-ebi)', () => {
 		expect(settings.homeGridCols).toBe(5);
 	});
 
-	it('resetGeneral() does NOT touch theme, accent or reduceMotion (they moved to Appearance)', () => {
+	it('resetGeneral() restores theme, accent, reduceMotion and app text size (quick-261103-stg)', () => {
+		settings.fontScaleApp = 130;
 		settings.resetGeneral();
-		expect(settings.theme).toBe('light');
-		expect(settings.accent).toBe('#ff0033');
-		expect(settings.reduceMotion).toBe(true);
+		expect(settings.theme).toBe(DEFAULTS.general.theme);
+		expect(settings.accent).toBe(DEFAULTS.general.accent);
+		expect(settings.reduceMotion).toBe(DEFAULTS.general.reduceMotion);
+		expect(settings.fontScaleApp).toBe(DEFAULTS.appearance.fontScaleApp);
+		expect(settings.coverScale).toBe(130);
+	});
+
+	it('resetLook() leaves appLang alone (the Data tab "Reset appearance" row)', () => {
+		settings.resetLook();
+		expect(settings.theme).toBe(DEFAULTS.general.theme);
+		expect(settings.appLang).toBe('fr');
 	});
 
 	it('resetGeneral() still restores appLang and shareIncludeTitle (the rows it kept)', () => {

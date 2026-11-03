@@ -172,7 +172,7 @@ const vi: Dict = {
 	"settings.groupAbout": "Giới thiệu",
 	"settings.groupGeneralDesc": "Ngôn ngữ & chia sẻ",
 	"settings.groupTranslationDesc": "Lời bài hát và dịch tên",
-	"settings.groupPlaybackDesc": "Chất lượng, nguồn, tự động mở rộng",
+	"settings.groupPlaybackDesc": "Chất lượng, nguồn, Tiếp theo, video",
 	"settings.groupHistoryDesc": "Đã chơi gần đây",
 	"settings.groupLastfmDesc": "Scrobbled — sắp ra mắt",
 	"settings.groupDataDesc": "Đếm thư viện, xóa dữ liệu",
@@ -291,7 +291,8 @@ const vi: Dict = {
 	"settings.excludedNote": "Những tệp này vẫn nằm trên điện thoại của bạn — chúng chỉ bị loại khỏi lần nhập. Cho phép lại một tệp và nó sẽ quay lại ở lần quét tới.",
 	"settings.excludedRestore": "Cho phép lại",
 	"settings.groupAppearance": "Giao diện",
-	"settings.groupAppearanceDesc": "Chủ đề, màu nhấn, cỡ chữ & ảnh bìa",
+	"settings.groupAppearanceDesc": "Hàng bài hát, Đang phát, lời & nhãn",
+	"settings.songBadges": "Nhãn & trình phát mini", // quick-261103-stg
 	"settings.appearanceText": "Cỡ chữ",
 	"settings.appearanceLayout": "Ảnh bìa & bố cục",
 	"settings.rowButtons": "Nút trên hàng bài hát",
@@ -807,6 +808,7 @@ const vi: Dict = {
 	// --- support (donor wall, 2026-10-14 donor-wall-ui) ---
 	"support.title": "Support OpenMusic",
 	"support.tagline": "Keep the music free, sell the convenience.",
+	"support.wallLink": "Xem bức tường người ủng hộ →", // quick-261103-stg
 	"support.body": "Streaming is free, forever. Your support keeps the servers running and the music coming.",
 	"support.tipTitle": "Tip",
 	"support.tipNote": "One-time only — no subscriptions, no monthly fees.",
