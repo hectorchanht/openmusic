@@ -92,11 +92,16 @@
 		overflow-x: auto;
 		flex-wrap: nowrap;
 		scrollbar-width: none; /* Firefox */
-		padding: 2px 0 12px;
+		/* quick-261102-sfc: 12px top AND bottom (was 2px 0 12px) to make room for the chips' 48dp
+		   hit band below. overflow-x:auto forces overflow-y to auto as well, so a hit extension that
+		   leaves this padding box would add a VERTICAL scroll — do not trim this padding back down
+		   without shrinking .sp-btn::after with it. Keeping the band inside the strip also stops it
+		   overlapping the gear's / search pill's own hit boxes. */
+		padding: 12px 0;
 	}
 	.sponsored::-webkit-scrollbar { display: none; } /* Chrome/Safari */
 	.disclosure {
-		font-size: 9px;
+		font-size: 0.5625rem; /* 9px; quick-261102-sfc: rem-only font sizes */
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
@@ -105,8 +110,9 @@
 		padding: 0 2px;
 	}
 	.sp-btn {
+		position: relative;
 		flex-shrink: 0;
-		font-size: 11px;
+		font-size: 0.6875rem; /* 11px; quick-261102-sfc: rem-only font sizes */
 		font-weight: 700;
 		line-height: 1;
 		padding: 7px 11px;
@@ -116,4 +122,8 @@
 		text-decoration: none;
 		white-space: nowrap;
 	}
+	/* quick-261102-sfc: Android 48dp touch floor. The chip is ~25px tall (11px × line-height 1 +
+	   7px × 2); a 12px vertical extension gives a 49px hit band that the <a> owns for hit-testing.
+	   x stays 0 so neighbouring chips (6px gap) never overlap. */
+	.sp-btn::after { content: ''; position: absolute; inset: -12px 0; }
 </style>
