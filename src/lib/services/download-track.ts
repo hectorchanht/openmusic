@@ -30,6 +30,7 @@
 import { Capacitor } from '@capacitor/core';
 import type { SourceId, Track } from '$lib/sources/types';
 import { trackDownload } from '$lib/analytics';
+import { readLyrics } from '$lib/stores/lyric-pins.svelte';
 import { library } from '$lib/stores/library.svelte';
 import { player } from '$lib/stores/player.svelte';
 import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
@@ -505,7 +506,9 @@ async function runDownload(track: Track, opts?: DownloadOpts): Promise<DownloadR
 				album: albumTag(names.zhLock(r.album), r.title, dnTitle),
 				albumArtist: opts?.albumArtist ?? dnArtist,
 				trackNumber: opts?.trackNumber,
-				lyrics: r.lrc || undefined
+				// quick-261102-tvb (DECISIONS.md §9): THE lyric pick (readLyrics — the user's pin over the
+				// chain), so a song whose lyrics were fixed before download never gets the chain's copy.
+				lyrics: readLyrics(r) || undefined
 			},
 			artDataUrl
 		);

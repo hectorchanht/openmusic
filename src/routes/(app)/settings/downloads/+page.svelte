@@ -43,7 +43,7 @@
 	// quick-260919-3j1: the PURE pin read, not the `.svelte.ts` reactive wrapper — this is an onMount
 	// batch build, not a reactive render, and the page must not take a reactive dependency on the
 	// pin record while assembling a list.
-	import { getPinnedLyrics } from '$lib/services/lyric-pins';
+	import { readLyrics } from '$lib/stores/lyric-pins.svelte';
 	import {
 		PRESET_ORDER,
 		PRESET_LABELS,
@@ -189,7 +189,7 @@
 				// file's own lyrics are preserved; `RetagEntry.lyrics` has no clear verb, by design.
 				// Together with the cover ladder above this makes the opt-in sweep the repair path for
 				// every file downloaded before the embed seams existed.
-				lyrics: getPinnedLyrics(d.uid) ?? d.lrc ?? undefined
+				lyrics: readLyrics(d) ?? undefined // quick-261102-tvb: THE lyric pick, not a re-inlined copy
 			});
 		}
 		// 2026-10-06, Hector: "only tag songs that we have meta info of". A device file with no real

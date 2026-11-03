@@ -2128,7 +2128,8 @@
 			{#if detailTrack.duration}
 				<dt>{t('menu.detailDuration')}</dt><dd class="mono">{Math.floor(detailTrack.duration / 60)}:{String(Math.floor(detailTrack.duration % 60)).padStart(2, '0')}</dd>
 			{/if}
-			<dt>{t('menu.detailLyrics')}</dt><dd>{detailTrack.lrc ? t('menu.detailHasLyrics') : t('menu.detailNoLyrics')}</dd>
+			<!-- quick-261102-tvb (DECISIONS.md §9): THE lyric pick — a pinned song has lyrics here too -->
+			<dt>{t('menu.detailLyrics')}</dt><dd>{readLyrics(detailTrack) ? t('menu.detailHasLyrics') : t('menu.detailNoLyrics')}</dd>
 			{#if detailTrack.lrcUrl}
 				<dt>{t('menu.detailLyricsUrl')}</dt><dd class="mono break">{detailTrack.lrcUrl}</dd>
 			{/if}

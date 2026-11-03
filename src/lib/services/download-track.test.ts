@@ -780,12 +780,12 @@ describe('downloadTrack — quick-260915-062 lyrics through the seam', () => {
 		expect(fields().lyrics).toBe('[00:01.00]hi');
 	});
 
-	// quick-261102-tvb (DECISIONS.md §9) characterization: a pinned song downloads with the CHAIN lyrics.
-	it('characterization: a user-pinned LRC is ignored — the chain lyrics are written', async () => {
+	// quick-261102-tvb (DECISIONS.md §9): THE lyric pick — the user's pin outranks the chain on the file.
+	it('a user-pinned LRC is what the download embeds, not the chain lyrics', async () => {
 		pinned.get.mockImplementation((uid) => (uid ? '[00:09.00]pin' : null));
 		resolved('[00:01.00]chain');
 		await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }));
-		expect(fields().lyrics).toBe('[00:01.00]chain');
+		expect(fields().lyrics).toBe('[00:09.00]pin');
 		pinned.get.mockImplementation(() => null);
 	});
 

@@ -83,6 +83,8 @@ import {
 } from '$lib/stores/cover-version.svelte';
 // quick-260704-3ov: the pure serialize/parse codec was extracted out of this god-object into
 // a colocated, node-tested module (the "runes store thinly wraps a pure helper" precedent).
+import { readLyrics } from '$lib/stores/lyric-pins.svelte';
+import { getPinnedLyrics } from '$lib/services/lyric-pins';
 import { STATE_KEY, serializePlayerState, parsePlayerState } from '$lib/stores/player-persist';
 // quick-260910-piz: the same "runes store thinly wraps a pure helper" precedent — the album-scoped
 // cover seeding + attachment build live in a pure, node-tested sibling module.
@@ -1166,7 +1168,9 @@ class Player {
 	 *  ensureTrackDetails BYPASSES the edge cache — a second cache read would just return the same
 	 *  lyric-less url and the backfill would be a no-op. */
 	private backfillLyrics(track: Track) {
-		if (track.lrc) return; // already have lyrics — nothing to do
+		// quick-261102-tvb: readLyrics — a pinned song already has its lyrics; never walk the network
+		// (and never embed the chain copy) for it.
+		if (readLyrics(track)) return; // already have lyrics — nothing to do
 		// quick-260919-3j1 (F3 / D-5) — OFFLINE, THIS WALK CANNOT SUCCEED, SO IT DOES NOT RUN.
 		// Both branches below are network walks (up to ~5 source rungs). With no network they are a
 		// guaranteed 0-for-N, and the lyrics pane shows nothing either way — so skipping them makes
@@ -1259,7 +1263,10 @@ class Player {
 	 * cannot break the current play. If device UAT ever hears a hiccup, move the call to the `ended`
 	 * handler rather than adding a timer.
 	 */
-	private embedLyricsIntoFile(uid: string, lrc: string): void {
+	private embedLyricsIntoFile(uid: string, chainLrc: string): void {
+		// quick-261102-tvb (DECISIONS.md §9): THE lyric pick — a user pin outranks the chain result on
+		// the file too (this auto-embed used to write the chain LRC over a pinned song's file).
+		const lrc = getPinnedLyrics(uid) ?? chainLrc;
 		if (!lrc) return;
 		// Belt-and-braces: `retagOne` refuses a `device:` uid as its FIRST statement. An imported file
 		// is the USER'S file — never written, renamed, moved or deleted.
