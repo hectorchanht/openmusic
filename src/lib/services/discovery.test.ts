@@ -418,16 +418,16 @@ describe('resolveStub — bilingual title split (quick-261103-cjk)', () => {
 		const search = vi
 			.spyOn(catalog, 'searchAll')
 			.mockResolvedValueOnce(result([ytm()]))
-			.mockResolvedValueOnce(result([ytm()]))
 			.mockResolvedValueOnce(result([hit]));
 		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue({ artist: '陳柏宇', title: '車匙' });
 
 		expect((await resolveStub('Jason Chan', '車匙 - Car Key'))?.uid).toBe(hit.uid);
 		expect(look).toHaveBeenCalledTimes(1);
 		expect(look).toHaveBeenCalledWith('Jason Chan', '車匙 - Car Key');
-		expect(search).toHaveBeenCalledTimes(3);
-		// The split attempt searched the CJK half alone.
-		expect(search.mock.calls[1][0]).toBe('Jason Chan 車匙');
+		// quick-261103-cjk2: the rescue re-search runs right after the full attempt — the split
+		// attempt (whose pool cannot settle for a Latin artist) is never spent.
+		expect(search).toHaveBeenCalledTimes(2);
+		expect(search.mock.calls[1][0]).toBe('陈柏宇 车匙');
 	});
 
 	it('CJK artist: the split attempt alone resolves, no lookup spent', async () => {

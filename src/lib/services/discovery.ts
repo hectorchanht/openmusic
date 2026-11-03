@@ -223,13 +223,18 @@ export async function resolveStub(artist: string, title: string): Promise<Track 
 		// cached lookup when the artist is Latin.
 		const cjkTitle = cjkTitleOf(title);
 		if (cjkTitle) {
-			const splitQuery = { artist, title: cjkTitle };
-			const split = await attempt(artist, cjkTitle);
-			if (split.eligible && (await strongFolded(splitQuery, split.eligible))) return split.eligible;
+			// quick-261103-cjk2: for a Latin artist the rescue runs BEFORE the split attempt. Since
+			// cjk2 the lookup pairs deterministically by the CJK half (iTunes cross-store, ~1-4 s),
+			// while the split attempt's title-only pool can never settle for a Latin artist — its
+			// CN rows are credited in Chinese and gate out — so searching it first only added its
+			// latency ahead of the bridge that actually resolves the stub.
 			if (detectLang(artist) === 'en') {
 				const rescued = await rescueLatin(artist, title).catch(() => null);
 				if (rescued) return rescued;
 			}
+			const splitQuery = { artist, title: cjkTitle };
+			const split = await attempt(artist, cjkTitle);
+			if (split.eligible && (await strongFolded(splitQuery, split.eligible))) return split.eligible;
 			// Settle from the split pool only when it produced an ELIGIBLE row — an
 			// ineligible (ytmusic) split result must not pre-empt the full pool's own
 			// weak eligible row in the preferEligible fall-through below.

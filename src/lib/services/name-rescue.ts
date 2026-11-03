@@ -10,7 +10,7 @@
 // This module holds the PURE predicates + pairing rules + the bounded localStorage cache; the
 // never-throw fetch orchestrator sits at the bottom. No runes, no `$app/*` — node-testable.
 import { detectLang } from '$lib/i18n/detect';
-import { matchKey, normField as norm } from '$lib/services/dedupe';
+import { cjkTitleOf, matchKey, normField as norm } from '$lib/services/dedupe';
 import { apiFetch } from '$lib/services/api-base';
 import { combinedSignal } from '$lib/services/abort-signal';
 import { parseSearchEnvelope } from '$lib/sources/ytmusic';
@@ -336,6 +336,8 @@ function itunesResults(json: unknown): ItunesRow[] {
  *
  * Cost ceiling (T-wa7-04): ≤ 2 YTM + ≤ 4 iTunes GETs per COLD rescue, each 6 s-bounded, only for a
  * weak/miss Latin query; the outcome is cached (hit 30 d, miss 1 d), so a re-tap costs nothing.
+ * quick-261103-cjk2 raises the ceiling for a BILINGUAL title only (a CJK half exists): the half
+ * earns its own iTunes + YTM passes, ≤ 12 GETs cold, same caching.
  * Never throws; a failed hop counts as empty.
  */
 export async function lookupChineseName(artist: string, title: string): Promise<ZhName | null> {
@@ -345,13 +347,14 @@ export async function lookupChineseName(artist: string, title: string): Promise<
 		if (cached) return cached;
 		if (!norm(title)) return null; // nothing to look up (and nothing any pairing could verify)
 
-		const query = { artist, title };
-		const term = `${artist} ${title}`;
-		const ytm = '/api/ytmusic/search?q=' + encodeURIComponent(term);
-		const [en, zh] = await Promise.all([fetchJson(ytm + '&hl=en'), fetchJson(ytm + '&hl=zh-TW')]);
-		let found = pairYtmRows(ytmRows(en, term), ytmRows(zh, term), query);
-
-		if (!found) {
+		const viaYtm = async (t: string): Promise<ZhName | null> => {
+			const term = `${artist} ${t}`;
+			const ytm = '/api/ytmusic/search?q=' + encodeURIComponent(term);
+			const [en, zh] = await Promise.all([fetchJson(ytm + '&hl=en'), fetchJson(ytm + '&hl=zh-TW')]);
+			return pairYtmRows(ytmRows(en, term), ytmRows(zh, term), { artist, title: t });
+		};
+		const viaItunes = async (t: string): Promise<ZhName | null> => {
+			const term = `${artist} ${t}`;
 			const search = (country: string) =>
 				fetchJson(
 					`${ITUNES_SEARCH}?${new URLSearchParams({ term, entity: 'song', limit: '3', country })}`
@@ -366,8 +369,21 @@ export async function lookupChineseName(artist: string, title: string): Promise<
 				lookup(itunesIds(usSearch), 'hk'),
 				lookup(itunesIds(hkSearch), 'us')
 			]);
-			found = pairItunes(query, hkSearch, usSearch, hkLookup, usLookup);
-		}
+			return pairItunes({ artist, title: t }, hkSearch, usSearch, hkLookup, usLookup);
+		};
+
+		// quick-261103-cjk2 — a bilingual title pairs by its CJK half. iTunes store rows carry the
+		// CJK title ALONE in both stores (verified live 2026-11-03: 車匙 = trackId 446761002 as
+		// 陳柏宇 in HK and "Jason Chan" in US), so the half-title cross-store pairing is
+		// deterministic where the YTM search pairing rotates in and out — it goes FIRST for a
+		// bilingual title. The full-title stages keep their wa7 order behind it, and a plain
+		// (non-bilingual) title runs exactly the wa7 sequence.
+		const cjkHalf = cjkTitleOf(title);
+		let found: ZhName | null = null;
+		if (cjkHalf) found = await viaItunes(cjkHalf);
+		if (!found) found = await viaYtm(title);
+		if (!found && cjkHalf) found = await viaYtm(cjkHalf);
+		if (!found) found = await viaItunes(title);
 
 		writeRescueCache(artist, title, found);
 		return found;

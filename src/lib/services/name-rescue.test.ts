@@ -539,4 +539,57 @@ describe('lookupChineseName (quick-260925-wa7)', () => {
 		await expect(lookupChineseName('Jay Chou', 'Coral Sea')).resolves.toBeNull();
 		expect(readRescueCache('Jay Chou', 'Coral Sea')).toBe('miss');
 	});
+
+	// quick-261103-cjk2 — bilingual titles pair by their CJK half; iTunes store rows carry the CJK
+	// title alone in both stores, so that pairing is tried FIRST and is deterministic.
+	it('bilingual title → iTunes CJK-half pairing hits first, no YTM call at all', async () => {
+		const spy = vi.spyOn(apiBase, 'apiFetch').mockImplementation(async (path: string) => {
+			const u = String(path);
+			if (u.includes('/api/ytmusic/search')) return json({ ytmusicMerged: [envelope([])] });
+			if (u.includes('/search?')) {
+				const p = new URL(u).searchParams;
+				if (p.get('term') !== 'Jason Chan 車匙') return json({ results: [] });
+				return json({
+					results: [
+						p.get('country') === 'hk'
+							? { trackId: 446761002, trackName: '車匙', artistName: '陳柏宇' }
+							: { trackId: 446761002, trackName: '車匙', artistName: 'Jason Chan' }
+					]
+				});
+			}
+			return json({ results: [] }); // cross-store lookups — unneeded, searches already pair
+		});
+		expect(await lookupChineseName('Jason Chan', '車匙 - Car Key')).toEqual({
+			artist: '陳柏宇',
+			title: '車匙'
+		});
+		const all = urls(spy);
+		expect(all.some((u) => u.includes('/api/ytmusic'))).toBe(false);
+		const searches = all.filter((u) => u.includes('itunes.apple.com/search'));
+		expect(searches).toHaveLength(2);
+		for (const u of searches) expect(new URL(u).searchParams.get('term')).toBe('Jason Chan 車匙');
+		expect(readRescueCache('Jason Chan', '車匙 - Car Key')).toEqual({
+			artist: '陳柏宇',
+			title: '車匙'
+		});
+	});
+
+	it('bilingual title → iTunes half misses, YTM full-title pairing still lands', async () => {
+		const spy = routeApi({
+			en: { ytmusicMerged: [envelope([['v9', '車匙 - Car Key', 'Jason Chan']])] },
+			zh: { ytmusicMerged: [envelope([['v9', '車匙', '陳柏宇']])] },
+			hk: { results: [] },
+			us: { results: [] }
+		});
+		expect(await lookupChineseName('Jason Chan', '車匙 - Car Key')).toEqual({
+			artist: '陳柏宇',
+			title: '車匙'
+		});
+		// the CJK-half iTunes searches ran (and missed) before the YTM stage
+		const all = urls(spy);
+		const firstItunes = all.findIndex((u) => u.includes('itunes.apple.com/search'));
+		const firstYtm = all.findIndex((u) => u.includes('/api/ytmusic'));
+		expect(firstItunes).toBeGreaterThanOrEqual(0);
+		expect(firstYtm).toBeGreaterThan(firstItunes);
+	});
 });
