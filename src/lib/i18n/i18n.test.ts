@@ -180,7 +180,7 @@ describe('quick-260919-ebi dead strings', () => {
 		'settings.autoExpandDesc',
 		'settings.showQualityTagDesc',
 		'settings.showRandomizeDesc',
-		'settings.tileDensityDesc'
+		'settings.tileSizeDesc'
 	] as const;
 
 	it('the deleted description keys are gone from EVERY locale, not just en', () => {

@@ -378,7 +378,7 @@ const th: Dict = {
 	"settings.landingHome": "บ้าน",
 	"settings.landingSearch": "ค้นหา",
 	"settings.landingLibrary": "ห้องสมุด",
-	"settings.tileDensity": "ความหนาแน่นของกระเบื้อง",
+	"settings.tileSize": "ขนาดไทล์",
 	"settings.densityComfortable": "สะดวกสบาย",
 	"settings.densityCompact": "กะทัดรัด",
 	"settings.densityList": "รายการ",
@@ -725,7 +725,7 @@ const th: Dict = {
 	// home settings helper text (quick-260630-fce)
 	"settings.itemsPerShelfDesc": "จำนวนรายการที่แต่ละชั้นวางหน้าแรกแสดงก่อนที่คุณต้องเปิดดูเพิ่ม เพิ่มเพื่อดูได้มากขึ้นในพริบตา ลดเพื่อให้หน้าสั้นลง",
 	"settings.defaultLandingTabDesc": "แท็บที่จะเปิดเมื่อคุณเริ่มแอป — หน้าแรก ค้นหา หรือคลัง ตั้งเป็นแท็บที่คุณมักเปิดก่อน",
-	"settings.tileDensityDesc": "เลย์เอาต์ของชั้นวาง ต่างจากจำนวนรายการต่อชั้นซึ่งเป็นแค่จำนวน",
+	"settings.tileSizeDesc": "ขนาดของไทล์บนชั้นวาง — «กะทัดรัด» ใส่ได้มากขึ้นต่อแถว",
 	"settings.showRandomizeDesc": "เล่นมิกซ์สุ่มชุดใหม่",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

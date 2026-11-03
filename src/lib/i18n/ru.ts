@@ -378,7 +378,7 @@ const ru: Dict = {
 	"settings.landingHome": "Главная",
 	"settings.landingSearch": "Поиск",
 	"settings.landingLibrary": "Библиотека",
-	"settings.tileDensity": "Плотность плитки",
+	"settings.tileSize": "Размер плиток",
 	"settings.densityComfortable": "Удобный",
 	"settings.densityCompact": "Компактный",
 	"settings.densityList": "Список",
@@ -725,7 +725,7 @@ const ru: Dict = {
 	// home settings helper text (quick-260630-fce)
 	"settings.itemsPerShelfDesc": "Сколько элементов показывает каждая полка на главной, прежде чем её нужно открыть; увеличьте, чтобы видеть больше сразу, или уменьшите для более короткой страницы.",
 	"settings.defaultLandingTabDesc": "Какая вкладка открывается при запуске приложения — Главная, Поиск или Медиатека; выберите ту, к которой обычно обращаетесь первой.",
-	"settings.tileDensityDesc": "Оформление полок — в отличие от «Элементов на полке», которое задаёт только количество.",
+	"settings.tileSizeDesc": "Размер плиток на полках — «Компактный» вмещает больше в ряд.",
 	"settings.showRandomizeDesc": "Проигрывает новый случайный микс.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

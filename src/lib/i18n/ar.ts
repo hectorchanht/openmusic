@@ -378,7 +378,7 @@ const ar: Dict = {
 	"settings.landingHome": "الصفحة الرئيسية",
 	"settings.landingSearch": "بحث",
 	"settings.landingLibrary": "مكتبة",
-	"settings.tileDensity": "كثافة البلاط",
+	"settings.tileSize": "حجم البلاطات",
 	"settings.densityComfortable": "مريح",
 	"settings.densityCompact": "مدمج",
 	"settings.densityList": "قائمة",
@@ -725,7 +725,7 @@ const ar: Dict = {
 	// home settings helper text (quick-260630-fce)
 	"settings.itemsPerShelfDesc": "عدد العناصر التي يعرضها كل رف في الصفحة الرئيسية قبل أن تحتاج لفتحه لرؤية المزيد؛ زِده لتصفّح أكثر بنظرة واحدة أو أنقصه لصفحة أقصر.",
 	"settings.defaultLandingTabDesc": "علامة التبويب التي تُفتح عند تشغيل التطبيق — الرئيسية أو البحث أو المكتبة؛ اضبطها على التي تبدأ بها عادةً.",
-	"settings.tileDensityDesc": "تخطيط الرفوف — يختلف عن «العناصر لكل رف» الذي هو مجرد عدد.",
+	"settings.tileSizeDesc": "حجم بلاطات الرفوف — «مدمج» يعرض أكثر في كل صف.",
 	"settings.showRandomizeDesc": "يشغّل مزيجًا عشوائيًا جديدًا.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

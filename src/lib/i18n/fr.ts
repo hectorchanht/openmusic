@@ -378,7 +378,7 @@ const fr: Dict = {
 	"settings.landingHome": "Accueil",
 	"settings.landingSearch": "Rechercher",
 	"settings.landingLibrary": "Bibliothèque",
-	"settings.tileDensity": "Densité des carreaux",
+	"settings.tileSize": "Taille des vignettes",
 	"settings.densityComfortable": "Confortable",
 	"settings.densityCompact": "Compacte",
 	"settings.densityList": "Liste",
@@ -725,7 +725,7 @@ const fr: Dict = {
 	// home settings helper text (quick-260630-fce)
 	"settings.itemsPerShelfDesc": "Combien d'éléments chaque étagère de l'accueil affiche avant de devoir l'ouvrir pour en voir plus ; augmentez-le pour parcourir plus d'un coup d'œil ou réduisez-le pour une page plus courte.",
 	"settings.defaultLandingTabDesc": "Quel onglet s'ouvre au lancement de l'application — Accueil, Recherche ou Bibliothèque ; réglez-le sur celui que vous utilisez le plus souvent en premier.",
-	"settings.tileDensityDesc": "La mise en page des étagères ; distinct d'Éléments par étagère, qui n'est qu'un nombre.",
+	"settings.tileSizeDesc": "La taille des vignettes des étagères : « Compacte » en affiche plus par ligne.",
 	"settings.showRandomizeDesc": "Lance un nouveau mix aléatoire.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

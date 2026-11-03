@@ -378,7 +378,7 @@ const id: Dict = {
 	"settings.landingHome": "Rumah",
 	"settings.landingSearch": "Cari",
 	"settings.landingLibrary": "Perpustakaan",
-	"settings.tileDensity": "Kepadatan ubin",
+	"settings.tileSize": "Ukuran ubin",
 	"settings.densityComfortable": "Nyaman",
 	"settings.densityCompact": "Kompak",
 	"settings.densityList": "Daftar",
@@ -725,7 +725,7 @@ const id: Dict = {
 	// home settings helper text (quick-260630-fce)
 	"settings.itemsPerShelfDesc": "Berapa item yang ditampilkan setiap rak Beranda sebelum Anda perlu membukanya untuk melihat lebih banyak; perbesar untuk menelusuri lebih banyak sekilas atau perkecil untuk halaman lebih pendek.",
 	"settings.defaultLandingTabDesc": "Tab mana yang terbuka saat Anda membuka aplikasi — Beranda, Cari, atau Pustaka; atur ke yang biasanya Anda buka lebih dulu.",
-	"settings.tileDensityDesc": "Tata letak rak — berbeda dari Item per rak, yang hanya sebuah jumlah.",
+	"settings.tileSizeDesc": "Seberapa besar ubin rak — «Kompak» memuat lebih banyak per baris.",
 	"settings.showRandomizeDesc": "Memutar campuran acak yang baru.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

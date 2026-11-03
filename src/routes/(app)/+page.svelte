@@ -1870,7 +1870,9 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	.al-cover.round { border-radius: 50%; }
 	/* w87: COMPACT density — tighter tiles + gaps so more fit per shelf row. Comfortable
 	   (the default) keeps the values above. The class is set on .section from
-	   settings.homeDensity, so toggling the setting re-sizes every shelf/grid live. */
+	   settings.homeDensity, so toggling the setting re-sizes every shelf/grid live.
+	   quick-261102-sfc: settings UI now calls this 'Tile size' (Compact = 'list', Comfortable =
+	   any other value); the stored enum is unchanged. */
 	.section.compact .albumrow { gap: 8px; }
 	.section.compact .album { flex-basis: calc(96px * var(--cover-scale, 1)); max-width: calc(96px * var(--cover-scale, 1)); }
 	.section.compact .al-cover { width: calc(96px * var(--cover-scale, 1)); height: calc(96px * var(--cover-scale, 1)); }

@@ -393,7 +393,7 @@ const zhHant: Dict = {
 	"settings.landingHome": "首頁",
 	"settings.landingSearch": "搜尋",
 	"settings.landingLibrary": "音樂庫",
-	"settings.tileDensity": "圖磚密度",
+	"settings.tileSize": "圖塊大小",
 	"settings.densityComfortable": "舒適",
 	"settings.densityCompact": "緊湊",
 	"settings.densityList": "清單",
@@ -757,7 +757,7 @@ const zhHant: Dict = {
 	// home settings helper text (quick-260630-fce)
 	"settings.itemsPerShelfDesc": "每個首頁區塊在你開啟查看更多之前所顯示的項目數量；調高可一眼瀏覽更多，調低則讓頁面更精簡。",
 	"settings.defaultLandingTabDesc": "開啟應用程式時預設進入的分頁——首頁、搜尋或音樂庫；設定為你通常最先使用的那一個。",
-	"settings.tileDensityDesc": "書架的版面配置，與「每列項目數」不同，後者只是數量。",
+	"settings.tileSizeDesc": "書架圖塊的大小——「緊湊」每行可放更多。",
 	"settings.showRandomizeDesc": "播放全新的隨機組合。",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

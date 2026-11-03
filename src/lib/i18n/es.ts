@@ -378,7 +378,7 @@ const es: Dict = {
 	"settings.landingHome": "Inicio",
 	"settings.landingSearch": "Buscar",
 	"settings.landingLibrary": "Biblioteca",
-	"settings.tileDensity": "Densidad del azulejo",
+	"settings.tileSize": "Tamaño de los mosaicos",
 	"settings.densityComfortable": "Cómodo",
 	"settings.densityCompact": "Compacto",
 	"settings.densityList": "Lista",
@@ -725,7 +725,7 @@ const es: Dict = {
 	// home settings helper text (quick-260630-fce)
 	"settings.itemsPerShelfDesc": "Cuántos elementos muestra cada estante de Inicio antes de tener que abrirlo para ver más; súbelo para ojear más de un vistazo o bájalo para una página más corta.",
 	"settings.defaultLandingTabDesc": "Qué pestaña se abre al iniciar la app: Inicio, Buscar o Biblioteca; configúrala según la que sueles usar primero.",
-	"settings.tileDensityDesc": "El diseño de las estanterías; distinto de Elementos por estantería, que solo es una cantidad.",
+	"settings.tileSizeDesc": "El tamaño de los mosaicos de las estanterías: «Compacto» cabe más por fila.",
 	"settings.showRandomizeDesc": "Reproduce una mezcla aleatoria nueva.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

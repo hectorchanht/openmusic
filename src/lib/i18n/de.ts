@@ -378,7 +378,7 @@ const de: Dict = {
 	"settings.landingHome": "Zuhause",
 	"settings.landingSearch": "Suchen",
 	"settings.landingLibrary": "Bibliothek",
-	"settings.tileDensity": "Fliesendichte",
+	"settings.tileSize": "Kachelgröße",
 	"settings.densityComfortable": "Bequem",
 	"settings.densityCompact": "Kompakt",
 	"settings.densityList": "Liste",
@@ -725,7 +725,7 @@ const de: Dict = {
 	// home settings helper text (quick-260630-fce)
 	"settings.itemsPerShelfDesc": "Wie viele Elemente jedes Startseiten-Regal anzeigt, bevor du es öffnen musst, um mehr zu sehen; erhöhe es, um mehr auf einen Blick zu sehen, oder verringere es für eine kürzere Seite.",
 	"settings.defaultLandingTabDesc": "Welcher Tab beim Start der App geöffnet wird — Start, Suche oder Bibliothek; stelle ihn auf den ein, den du normalerweise zuerst ansteuerst.",
-	"settings.tileDensityDesc": "Das Layout der Regale — nicht zu verwechseln mit Titel pro Regal, einer reinen Anzahl.",
+	"settings.tileSizeDesc": "Wie groß die Regal-Kacheln sind — „Kompakt“ bringt mehr pro Reihe unter.",
 	"settings.showRandomizeDesc": "Spielt einen neuen Zufallsmix.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

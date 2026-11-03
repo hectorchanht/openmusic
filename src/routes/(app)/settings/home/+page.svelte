@@ -292,7 +292,6 @@
 	];
 	// quick-260919-ebi: the labelled + preview pickers below all come from the ONE SettingPicker.
 	const landingOptions = $derived(landings.map((l) => ({ v: l.v, label: t(l.key) })));
-	const densityLabels = $derived(densities.map((d) => ({ v: d.v, label: t(d.key) })));
 	const offOn = $derived([
 		{ v: 'off' as const, label: t('settings.optOff') },
 		{ v: 'on' as const, label: t('settings.optOn') }
@@ -363,36 +362,22 @@
 {#snippet randomizeOff()}{@render homeHeader(settings.homeShowSearchPill, false, 'rnd')}{/snippet}
 {#snippet randomizeOn()}{@render homeHeader(settings.homeShowSearchPill, true, 'rnd')}{/snippet}
 
-<!-- homeDensity — three tiny layout mockups, because this setting IS a layout shape. -->
-{#snippet densityList()}
-	<span class="mock-chrome" style:justify-content="center">
-		<span class="mock-col">
-			{#each [0, 1, 2] as r (r)}
-				<span class="mock-row">
-					<span class="mock-tile" style:width="11px"></span>
-					<span class="mock-col">
-						<span class="mock-line" style:width="70%"></span>
-						<span class="mock-line dim" style:width="45%"></span>
-					</span>
-				</span>
-			{/each}
-		</span>
-	</span>
-{/snippet}
-{#snippet densityPile()}
+<!-- homeDensity — two tile-size mockups. quick-261102-sfc: the global setting only changes tile
+     SIZE (130→96px + tighter gaps via class:compact), so the mockups show the same shelf at two
+     tile sizes rather than three layout shapes it never actually applied. -->
+{#snippet sizeComfortable()}
 	<span class="mock-chrome" style:justify-content="center">
 		<span class="mock-line" style:width="35%"></span>
-		<!-- A horizontal cover shelf, with the fourth tile deliberately half-cut at the edge to
-		     say "this one scrolls sideways". .mock already clips. -->
 		<span class="mock-row" style:flex-wrap="nowrap">
-			{#each [0, 1, 2, 3] as i (i)}<span class="mock-tile" style:width="26px"></span>{/each}
+			{#each [0, 1, 2] as i (i)}<span class="mock-tile" style:width="26px"></span>{/each}
 		</span>
 	</span>
 {/snippet}
-{#snippet densityGrid()}
+{#snippet sizeCompact()}
 	<span class="mock-chrome" style:justify-content="center">
-		<span class="mock-grid" style:grid-template-columns="repeat(3, 1fr)">
-			{#each [0, 1, 2, 3, 4, 5] as i (i)}<span class="mock-tile"></span>{/each}
+		<span class="mock-line" style:width="35%"></span>
+		<span class="mock-row" style:flex-wrap="nowrap" style:gap="3px">
+			{#each [0, 1, 2, 3] as i (i)}<span class="mock-tile" style:width="18px"></span>{/each}
 		</span>
 	</span>
 {/snippet}
@@ -402,7 +387,9 @@
 <!-- quick-260919-ebi: this one deliberately keeps its three icons and does NOT become a preview
      picker, even though it is the same enum as the global tile density below. A 44px drag-reorder
      row has no room for three mockups, and the global preview already teaches the same
-     three-shape vocabulary — so the icons here read as shorthand for something the user is shown. -->
+     three-shape vocabulary — so the icons here read as shorthand for something the user is shown.
+     quick-261102-sfc: the global picker is now a two-option Tile size, so this per-section seg is
+     the ONLY place the three shapes are shown; its icons now carry the vocabulary on their own. -->
 {#snippet densitySeg(id: HomeSectionId)}
 	<span class="density-seg" role="group" aria-label={t('settings.homeSectionDensity')}>
 		{#each densities as d (d.v)}
@@ -579,20 +566,23 @@
 	<SettingPicker label={t('settings.defaultLandingTab')} options={landingOptions} value={settings.homeLandingTab} onpick={setLanding} />
 </section>
 
-<!-- 6. TILE DENSITY -->
+<!-- 6. TILE SIZE -->
 <section>
-	<h2><LayoutList size={15} /> {t('settings.tileDensity')}<SettingHint label={t('settings.tileDensity')} text={t('settings.tileDensityDesc')} /></h2>
-	<!-- quick-260919-ebi (F3): the first preview picker with THREE options — this setting IS a
-	     layout shape, so three tiny layout mockups say it better than three words. -->
+	<h2><LayoutList size={15} /> {t('settings.tileSize')}<SettingHint label={t('settings.tileSize')} text={t('settings.tileSizeDesc')} /></h2>
+	<!-- quick-260919-ebi (F3) introduced this as a three-shape "Tile density" preview picker.
+	     quick-261102-sfc: that claimed to set the shelf layout, but densityOf() passes 'list' as the
+	     global default and ignores this value — Home only reads homeDensity for class:compact
+	     (130→96px tiles + tighter gaps). So it is now an honest two-option Tile size over the SAME
+	     stored enum, no migration: Compact = 'list', Comfortable = anything else ('grid' on pick; a
+	     stored 'pile' displays as Comfortable, which is exactly how Home renders it). -->
 	<SettingPicker
 		variant="preview"
-		label={t('settings.tileDensity')}
+		label={t('settings.tileSize')}
 		options={[
-			{ ...densityLabels[0], preview: densityList },
-			{ ...densityLabels[1], preview: densityPile },
-			{ ...densityLabels[2], preview: densityGrid }
+			{ v: 'grid', label: t('settings.densityComfortable'), preview: sizeComfortable },
+			{ v: 'list', label: t('settings.densityCompact'), preview: sizeCompact }
 		]}
-		value={settings.homeDensity}
+		value={settings.homeDensity === 'list' ? 'list' : 'grid'}
 		onpick={setDensity}
 	/>
 </section>

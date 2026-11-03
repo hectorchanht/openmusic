@@ -378,7 +378,7 @@ const it: Dict = {
 	"settings.landingHome": "Casa",
 	"settings.landingSearch": "Cerca",
 	"settings.landingLibrary": "Biblioteca",
-	"settings.tileDensity": "Densità delle piastrelle",
+	"settings.tileSize": "Dimensione dei riquadri",
 	"settings.densityComfortable": "Confortevole",
 	"settings.densityCompact": "Compatto",
 	"settings.densityList": "Elenco",
@@ -725,7 +725,7 @@ const it: Dict = {
 	// home settings helper text (quick-260630-fce)
 	"settings.itemsPerShelfDesc": "Quanti elementi mostra ogni scaffale della Home prima di doverlo aprire per vederne altri; aumentalo per scorrere di più a colpo d'occhio o riducilo per una pagina più breve.",
 	"settings.defaultLandingTabDesc": "Quale scheda si apre all'avvio dell'app — Home, Cerca o Libreria; impostala su quella che usi di solito per prima.",
-	"settings.tileDensityDesc": "Il layout degli scaffali — diverso da Elementi per scaffale, che è solo un numero.",
+	"settings.tileSizeDesc": "Quanto sono grandi i riquadri degli scaffali: «Compatto» ne mostra di più per riga.",
 	"settings.showRandomizeDesc": "Riproduce un nuovo mix casuale.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

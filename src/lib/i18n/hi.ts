@@ -378,7 +378,7 @@ const hi: Dict = {
 	"settings.landingHome": "घर",
 	"settings.landingSearch": "खोजें",
 	"settings.landingLibrary": "पुस्तकालय",
-	"settings.tileDensity": "टाइल घनत्व",
+	"settings.tileSize": "टाइल का आकार",
 	"settings.densityComfortable": "आरामदायक",
 	"settings.densityCompact": "सघन",
 	"settings.densityList": "सूची",
@@ -725,7 +725,7 @@ const hi: Dict = {
 	// home settings helper text (quick-260630-fce)
 	"settings.itemsPerShelfDesc": "और देखने के लिए खोलने से पहले प्रत्येक होम शेल्फ़ कितने आइटम दिखाता है; एक नज़र में ज़्यादा देखने के लिए बढ़ाएँ या छोटे पेज के लिए घटाएँ।",
 	"settings.defaultLandingTabDesc": "ऐप शुरू करने पर कौन-सा टैब खुले — होम, खोज या लाइब्रेरी; इसे वही सेट करें जिसे आप आमतौर पर पहले खोलते हैं।",
-	"settings.tileDensityDesc": "शेल्फ़ का लेआउट — «प्रति शेल्फ़ आइटम» से अलग, जो केवल एक संख्या है।",
+	"settings.tileSizeDesc": "शेल्फ़ टाइलों का आकार — «सघन» में हर पंक्ति में ज़्यादा आते हैं।",
 	"settings.showRandomizeDesc": "एक नया रैंडम मिक्स चलाता है।",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

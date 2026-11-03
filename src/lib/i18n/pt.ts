@@ -378,7 +378,7 @@ const pt: Dict = {
 	"settings.landingHome": "Página inicial",
 	"settings.landingSearch": "Pesquisar",
 	"settings.landingLibrary": "Biblioteca",
-	"settings.tileDensity": "Densidade do ladrilho",
+	"settings.tileSize": "Tamanho dos blocos",
 	"settings.densityComfortable": "Confortável",
 	"settings.densityCompact": "Compacto",
 	"settings.densityList": "Lista",
@@ -725,7 +725,7 @@ const pt: Dict = {
 	// home settings helper text (quick-260630-fce)
 	"settings.itemsPerShelfDesc": "Quantos itens cada prateleira da Início mostra antes de você precisar abri-la para ver mais; aumente para folhear mais de relance ou diminua para uma página mais curta.",
 	"settings.defaultLandingTabDesc": "Qual aba abre ao iniciar o app — Início, Buscar ou Biblioteca; defina conforme a que você costuma usar primeiro.",
-	"settings.tileDensityDesc": "O esquema das prateleiras — distinto de Itens por prateleira, que é só uma contagem.",
+	"settings.tileSizeDesc": "O tamanho dos blocos das prateleiras — «Compacto» cabe mais por linha.",
 	"settings.showRandomizeDesc": "Reproduz uma nova mistura aleatória.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

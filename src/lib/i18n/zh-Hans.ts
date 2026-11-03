@@ -393,7 +393,7 @@ const zhHans: Dict = {
 	"settings.landingHome": "首页",
 	"settings.landingSearch": "搜索",
 	"settings.landingLibrary": "音乐库",
-	"settings.tileDensity": "图块密度",
+	"settings.tileSize": "图块大小",
 	"settings.densityComfortable": "舒适",
 	"settings.densityCompact": "紧凑",
 	"settings.densityList": "列表",
@@ -757,7 +757,7 @@ const zhHans: Dict = {
 	// home settings helper text (quick-260630-fce)
 	"settings.itemsPerShelfDesc": "每个首页栏目在你打开查看更多之前显示的项目数量；调高可一眼浏览更多，调低则让页面更简短。",
 	"settings.defaultLandingTabDesc": "打开应用时默认进入的标签页——首页、搜索或音乐库；设置为你通常最先使用的那一个。",
-	"settings.tileDensityDesc": "货架的版面布局，与“每行项目数”不同，后者只是数量。",
+	"settings.tileSizeDesc": "货架图块的大小——“紧凑”每行可放更多。",
 	"settings.showRandomizeDesc": "播放全新的随机组合。",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

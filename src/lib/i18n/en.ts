@@ -432,7 +432,7 @@ const en = {
 	"settings.landingHome": "Home",
 	"settings.landingSearch": "Search",
 	"settings.landingLibrary": "Library",
-	"settings.tileDensity": "Tile density",
+	"settings.tileSize": "Tile size",
 	"settings.densityComfortable": "Comfortable",
 	"settings.densityCompact": "Compact",
 	// quick-260618-goe: renamed density modes (list = stacked rows, pile = cover shelf,
@@ -785,7 +785,7 @@ const en = {
 	// home settings helper text (quick-260630-fce)
 	"settings.itemsPerShelfDesc": "How many items each Home shelf shows before you need to open it to see more; raise it to browse more at a glance, lower it for a shorter page.",
 	"settings.defaultLandingTabDesc": "Which tab opens when you launch the app — Home, Search or Library; set it to whatever you usually reach for first.",
-	"settings.tileDensityDesc": "The shelf layout — separate from Items per shelf, which is only a count.",
+	"settings.tileSizeDesc": "How big the shelf tiles are — Compact fits more per row.",
 	"settings.showRandomizeDesc": "Plays a fresh random mix.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)

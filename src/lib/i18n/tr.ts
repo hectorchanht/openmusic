@@ -378,7 +378,7 @@ const tr: Dict = {
 	"settings.landingHome": "Ana sayfa",
 	"settings.landingSearch": "Ara",
 	"settings.landingLibrary": "Kütüphane",
-	"settings.tileDensity": "Fayans yoğunluğu",
+	"settings.tileSize": "Karo boyutu",
 	"settings.densityComfortable": "Rahat",
 	"settings.densityCompact": "Kompakt",
 	"settings.densityList": "Liste",
@@ -725,7 +725,7 @@ const tr: Dict = {
 	// home settings helper text (quick-260630-fce)
 	"settings.itemsPerShelfDesc": "Her Ana ekran rafının, daha fazlasını görmek için açmadan önce kaç öğe gösterdiğini belirler; bir bakışta daha çoğunu görmek için artırın, daha kısa sayfa için azaltın.",
 	"settings.defaultLandingTabDesc": "Uygulamayı açtığınızda hangi sekmenin açılacağı — Ana ekran, Arama veya Kitaplık; genelde ilk açtığınız hangisiyse onu seçin.",
-	"settings.tileDensityDesc": "Raf düzeni — yalnızca bir sayı olan Raf başına öğe'den farklıdır.",
+	"settings.tileSizeDesc": "Raf karolarının boyutu — «Kompakt» her satıra daha fazla sığdırır.",
 	"settings.showRandomizeDesc": "Yeni bir rastgele karışım çalar.",
 	// playback settings helper text (quick-260630-fce)
 	// data settings helper text (quick-260630-fce)
