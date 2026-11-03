@@ -894,12 +894,15 @@ describe('library pack jobs (quick-261031-dlpersist)', () => {
 	});
 });
 
+// `deleted` is private on Library (tombstones are store-internal); tests reach it through a cast.
+const tombs = () => library as unknown as { deleted: string[] };
+
 describe('quick-261102-libaudit restoreAt (edit-mode Undo)', () => {
 	beforeEach(() => {
 		library.liked = [];
 		library.downloads = [];
 		library.playlists = [];
-		library.deleted = [];
+		tombs().deleted = [];
 		memStore.clear();
 		blobDel.mockClear();
 	});
@@ -913,7 +916,7 @@ describe('quick-261102-libaudit restoreAt (edit-mode Undo)', () => {
 		expect(library.liked.map((x) => x.uid)).toEqual(['netease-1', 'kuwo-3']);
 		library.restoreAt('liked', b, 1);
 		expect(library.liked.map((x) => x.uid)).toEqual(['netease-1', 'qq-2', 'kuwo-3']);
-		expect(library.deleted.some((k) => k.includes('qq-2'))).toBe(false);
+		expect(tombs().deleted.some((k) => k.includes('qq-2'))).toBe(false);
 	});
 
 	it('restores into the named playlist only, and is a no-op when already back', () => {
