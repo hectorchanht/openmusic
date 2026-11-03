@@ -15,10 +15,9 @@ import { dedupeBest } from '$lib/services/dedupe';
 import { pickOfficial, partitionOfficial, isAutoAcceptableArtist } from '$lib/services/song-variant';
 import { tier1Only } from '$lib/sources/registry';
 import { scoreMatch } from '$lib/services/score-match';
-import { isChineseLine, t2sConvertLines, t2sConvertLineSync } from '$lib/services/zh-convert';
+import { isChineseLine, ensureFoldReady, foldScript, foldScriptReady } from '$lib/services/zh-convert';
 import { detectLang } from '$lib/i18n/detect';
 import { isStrongMatch, lookupChineseName, type ZhName } from '$lib/services/name-rescue';
-import { foldScript } from '$lib/services/dedupe';
 import { settings } from '$lib/stores/settings.svelte';
 import { isAutoResolveEligible } from '$lib/sources/registry';
 import type { Track } from '$lib/sources/types';
@@ -52,6 +51,10 @@ async function attempt(
 	// Only when tier-1 yields NO official version do we expand to the full set (for
 	// obscure/long-tail songs the tail sources cover).
 	const query = { artist, title };
+	// quick-261102-sdm: the artist gate + ranking below compare folded keys — warm the fold
+	// first, or a cold dict keys 周傑倫 ≠ 周杰伦 and rejects the official row (the brief's
+	// "cold dictionary got official versions rejected" incident).
+	await foldScriptReady(`${artist} ${title}`);
 	const tier1 = await searchAll(`${artist} ${title}`, 1, tier1Only());
 	const { official } = partitionOfficial(tier1.interleaved, title);
 	const useFull = official.length === 0;
@@ -87,17 +90,17 @@ async function attempt(
 }
 
 /**
- * quick-260926-c69 — isStrongMatch with Traditional/Simplified folded on BOTH sides, exactly as
- * rescueLatin compares CJK names. Raw compare first; the t2s dict loads only when that fails AND a
- * string is Chinese (the same trigger class as urx's first Chinese-script miss — lazy, memoized,
- * once per session), so the Latin/JA/KO and strong-CJK common paths stay cold. t2sConvertLines is
- * never-throw (identity fallback), so this cannot throw.
+ * quick-260926-c69 — isStrongMatch with Traditional/Simplified folded on BOTH sides. Raw compare
+ * first; the fold (zh-convert foldScript, the one identity fold — quick-261102-sdm) is warmed
+ * only when that fails AND a string carries Chinese, so Latin/JA/KO and strong-CJK common paths
+ * stay cold. Never throws.
  */
 async function strongFolded(query: ZhName, cand: ZhName): Promise<boolean> {
 	if (isStrongMatch(query, cand)) return true;
 	if (![query.artist, query.title, cand.artist, cand.title].some(isChineseLine)) return false;
-	const [qa, qt, ca, ct] = await t2sConvertLines([query.artist, query.title, cand.artist, cand.title]);
-	return isStrongMatch({ artist: qa, title: qt }, { artist: ca, title: ct });
+	await ensureFoldReady();
+	const f = (n: ZhName): ZhName => ({ artist: foldScript(n.artist), title: foldScript(n.title) });
+	return isStrongMatch(f(query), f(cand));
 }
 
 /**
@@ -216,18 +219,9 @@ export async function resolveStub(artist: string, title: string): Promise<Track 
 		}
 		// quick-260926-c69: a CJK query with any candidate settles here (strong ytmusic beats weak
 		// eligible; weak eligible beats weak ytmusic; ineligible-only returns the ytmusic row as today).
-		const settled = await preferEligible(query, bests);
-		if (settled) return settled;
-		// GATE 1 — script. Per-field, so a mixed Latin-artist / Chinese-title stub still qualifies.
-		// isChineseLine rides the kana/hangul-FIRST classifier, so JA/KO lines return false and a
-		// Japanese title is never wrongly Simplified-ified (D-04).
-		if (!isChineseLine(artist) && !isChineseLine(title)) return null;
-		const [a2, t2] = await t2sConvertLines([artist, title]);
-		// GATE 2 — identity. The input was already Simplified (or the converter degraded to its
-		// never-throw identity fallback): there is nothing new to search, so do not spend a call.
-		if (a2 === artist && t2 === title) return null;
-		// quick-260926-c69: the retry follows the same rule, scored against the CONVERTED query.
-		return await preferEligible({ artist: a2, title: t2 }, await attempt(a2, t2));
+		// quick-261102-sdm: no Simplified re-search on a miss any more — searchAll folds every
+		// keyword to Simplified before the fan-out, so the first attempt already WAS that search.
+		return await preferEligible(query, bests);
 	} catch {
 		return null;
 	}
@@ -235,7 +229,7 @@ export async function resolveStub(artist: string, title: string): Promise<Track 
 
 /**
  * quick-260925-wa7 — look up the Chinese names of a Latin {artist, title} and re-search ONCE with
- * them. CONVERTS TO SIMPLIFIED FIRST (unlike the on-miss t2s retry above): this path is new, and the
+ * them. CONVERTS TO SIMPLIFIED FIRST (as every search now does, quick-261102-sdm): the
  * 2026-09-26 probe showed Traditional "周杰倫 珊瑚海" → [] on QQ while "周杰伦 珊瑚海" hit, so
  * converting first costs one search instead of two. Accepted deviation, recorded in
  * 260925-wa7-CONTEXT.md. Candidates are folded to Simplified too, so a Traditional row still
@@ -250,11 +244,11 @@ export async function resolveStub(artist: string, title: string): Promise<Track 
 async function rescueLatin(artist: string, title: string): Promise<Track | null> {
 	const zh = await lookupChineseName(artist, title);
 	if (!zh) return null;
-	const [a2, t2] = await t2sConvertLines([zh.artist, zh.title]);
-	const fold = (s: string) => t2sConvertLineSync(s) ?? s; // warm: t2sConvertLines just loaded it
+	const a2 = await foldScriptReady(zh.artist);
+	const t2 = await foldScriptReady(zh.title);
 	return (
 		await attempt(a2, t2, (c) =>
-			isStrongMatch({ artist: a2, title: t2 }, { artist: fold(c.artist), title: fold(c.title) })
+			isStrongMatch({ artist: a2, title: t2 }, { artist: foldScript(c.artist), title: foldScript(c.title) })
 		)
 	).eligible;
 }

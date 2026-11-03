@@ -160,76 +160,42 @@ describe('resolveStub — scored best-match pick (LFSRC-03 / D-02)', () => {
 // JSON imports natively — see the zh-convert.ts header), so the conversions asserted below are
 // the production ones. Every branch is pinned by an EXACT call count: "no extra search" is a
 // hard guarantee for non-Chinese and already-Simplified input, not a claim.
-describe('resolveStub — t2s rescue-on-miss (quick-260808-urx)', () => {
-	it('retries ONCE with the Simplified form when a Traditional query misses', async () => {
+// quick-261102-sdm (DECISIONS.md §2): the urx t2s rescue-on-miss is GONE. searchAll folds every
+// keyword to Simplified before the fan-out, so the first attempt already is the Simplified
+// search — a re-search would repeat it. These pin "one attempt, folded matching".
+describe('resolveStub — Traditional query, no re-search (quick-261102-sdm)', () => {
+	it('a Traditional query matches a Simplified row on the first attempt', async () => {
 		const hit = mk('kuwo', 'hit', '周杰伦', { title: '止战之殇' });
-		const spy = vi
-			.spyOn(catalog, 'searchAll')
-			.mockResolvedValueOnce(result([])) // Traditional tier-1 → miss
-			.mockResolvedValueOnce(result([])) // Traditional full → miss (tier-1 had no official)
-			.mockResolvedValueOnce(result([hit])); // Simplified retry → hit
-
-		const out = await resolveStub('周傑倫', '止戰之殤');
-		expect(out?.uid).toBe(hit.uid);
-		// quick-261020-speed: tiered search = 2 calls per attempt (tier-1 + full on miss).
-		expect(spy).toHaveBeenCalledTimes(3);
-		expect(spy.mock.calls[0][0]).toBe('周傑倫 止戰之殤');
-		expect(spy.mock.calls[1][0]).toBe('周傑倫 止戰之殤');
-		// The production-verified pair from quick-260807-vl1's /api/og probe.
-		expect(spy.mock.calls[2][0]).toBe('周杰伦 止战之殇');
-	});
-
-	it('does NOT retry when the first Chinese query already hits', async () => {
-		const hit = mk('kuwo', 'hit', '周傑倫', { title: '止戰之殤' });
 		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([hit]));
 
 		expect((await resolveStub('周傑倫', '止戰之殤'))?.uid).toBe(hit.uid);
 		expect(spy).toHaveBeenCalledTimes(1);
 	});
 
-	it('does NOT retry a non-Chinese miss (isChineseLine gate — zero extra cost)', async () => {
-		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
-
-		await expect(resolveStub('Adele', 'Hello')).resolves.toBeNull();
-		// quick-261020-speed: tiered search = 2 calls (tier-1 + full) on a miss; the t2s
-		// retry itself adds zero (non-Chinese → no retry).
-		expect(spy).toHaveBeenCalledTimes(2);
-	});
-
-	it('does NOT retry an already-Simplified miss (identity conversion → nothing to re-search)', async () => {
-		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
-
-		await expect(resolveStub('周杰伦', '止战之殇')).resolves.toBeNull();
-		// quick-261020-speed: tiered search = 2 calls (tier-1 + full) on a miss; the t2s
-		// retry itself adds zero (already Simplified → nothing to re-search).
-		expect(spy).toHaveBeenCalledTimes(2);
-	});
-
-	it('retries at most ONCE — a miss on the retry returns null, never loops', async () => {
+	it('a Traditional miss is a miss — tier-1 + full, never a third search', async () => {
 		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
 
 		await expect(resolveStub('周傑倫', '止戰之殤')).resolves.toBeNull();
-		// quick-261020-speed: tiered search = 2 calls per attempt (tier-1 + full).
-		// Traditional attempt (2) + Simplified retry (2) = 4; never loops beyond the one retry.
-		expect(spy).toHaveBeenCalledTimes(4);
+		expect(spy).toHaveBeenCalledTimes(2);
 	});
 
-	it('scores the retry against the CONVERTED query (the terms actually searched)', async () => {
-		// Both survive dedupeBest (different normalized keys). The clean Simplified cut must win
-		// over the 翻唱 variant — which only happens if scoreMatch is given the converted query.
+	it('does NOT re-search a non-Chinese miss', async () => {
+		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
+
+		await expect(resolveStub('Adele', 'Hello')).resolves.toBeNull();
+		expect(spy).toHaveBeenCalledTimes(2);
+	});
+
+	it('scores Simplified rows against a Traditional query (clean cut beats the 翻唱 variant)', async () => {
 		const variant = mk('netease', 'variant', '周杰伦', { title: '止战之殇 翻唱' });
 		const clean = mk('qq', 'clean', '周杰伦', { title: '止战之殇' });
-		vi.spyOn(catalog, 'searchAll')
-			.mockResolvedValueOnce(result([]))
-			.mockResolvedValueOnce(result([variant, clean]));
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([variant, clean]));
 
 		expect((await resolveStub('周傑倫', '止戰之殤'))?.uid).toBe(clean.uid);
 	});
 
-	it('never throws when the retry search throws (never-throw contract holds)', async () => {
-		vi.spyOn(catalog, 'searchAll')
-			.mockResolvedValueOnce(result([]))
-			.mockRejectedValueOnce(new Error('search down'));
+	it('never throws when the search throws', async () => {
+		vi.spyOn(catalog, 'searchAll').mockRejectedValue(new Error('search down'));
 
 		await expect(resolveStub('周傑倫', '止戰之殤')).resolves.toBeNull();
 	});
@@ -386,19 +352,13 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 
-	it('Traditional Chinese miss → the existing t2s retry, lookup 0', async () => {
+	it('Traditional Chinese query → one attempt (searchAll folds to Simplified), lookup 0', async () => {
 		const hit = mk('kuwo', 'hit', '周杰伦', { title: '止战之殇' });
-		const search = vi
-			.spyOn(catalog, 'searchAll')
-			.mockResolvedValueOnce(result([]))
-			.mockResolvedValueOnce(result([]))
-			.mockResolvedValueOnce(result([hit]));
+		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([hit]));
 		const look = vi.spyOn(nameRescue, 'lookupChineseName');
 
 		expect((await resolveStub('周傑倫', '止戰之殤'))?.uid).toBe(hit.uid);
-		// quick-261020-speed: tiered = Traditional tier-1 (1) + Traditional full (2) + Simplified tier-1 hit (3).
-		expect(search).toHaveBeenCalledTimes(3);
-		expect(search.mock.calls[2][0]).toBe('周杰伦 止战之殇');
+		expect(search).toHaveBeenCalledTimes(1);
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 
@@ -547,15 +507,15 @@ describe('resolveStub — eligible-first selection (quick-260926-c69)', () => {
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 
-	it('T10 ONLY a weak ytmusic row with unrelated title → null (never wrong song); searchAll 2', async () => {
+	it('T10 ONLY a weak ytmusic row with unrelated title → null (never wrong song); searchAll 1', async () => {
 		// quick-261020-wrong1: query 周傑倫/珊瑚海, only candidate is Someone/Other —
-		// completely unrelated, so null instead of the wrong song. The T2S retry still
-		// runs (Traditional → Simplified), so searchAll is called twice.
+		// completely unrelated, so null instead of the wrong song. quick-261102-sdm: no t2s
+		// re-search any more (searchAll already searched in Simplified) → one call.
 		const only = mk('ytmusic', 'w', 'Someone', { title: 'Other' });
 		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([only]));
 
 		expect(await resolveStub('周傑倫', '珊瑚海')).toBeNull();
-		expect(search).toHaveBeenCalledTimes(2);
+		expect(search).toHaveBeenCalledTimes(1);
 	});
 
 	it('T11 the t2s retry follows the same rule (eligible over a same-song ytmusic row); searchAll 2', async () => {

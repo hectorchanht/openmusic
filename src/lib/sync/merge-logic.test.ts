@@ -151,6 +151,14 @@ describe('mergeLibraryBlobs', () => {
 		expect(out.favArtists).toEqual(['Daft Punk']);
 	});
 
+	it('quick-261102-sdm: a tombstone written cold (raw Traditional) still suppresses the warm-folded favourite', async () => {
+		const { warmScript } = await import('$lib/services/zh-convert');
+		await warmScript('zh-Hans');
+		const simplified = { ...remote, favArtists: ['周杰伦'] };
+		const coldTomb = { ...local, deleted: ['f:周杰倫'] };
+		expect(mergeLibraryBlobs(coldTomb, simplified).favArtists).toEqual(['Daft Punk']);
+	});
+
 	it('unions tombstones from both sides', () => {
 		const out = mergeLibraryBlobs(
 			{ ...local, deleted: ['u:a'] },

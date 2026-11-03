@@ -7,7 +7,7 @@
 // candidates so a CLEAN title outranks a variant of the same song, while a candidate whose
 // normalized artist+title (via matchKey) matches the query closely outranks a loose one.
 //
-// PURE + import-light (matchKey, dedupe's foldScript + the Track type): no $state, no $app/*, no I/O,
+// PURE + import-light (matchKey, zh-convert's foldScript + the Track type): no $state, no $app/*, no I/O,
 // no source/quality/preferredSource logic (that is dedupeBest's job — Task 2 keeps it as
 // the final tie-break). node-Vitest-testable like match-key.ts / dedupe.ts.
 //
@@ -20,7 +20,8 @@
 // query-title-credit zero-out for a candidate whose canonical title IS the query (a pasted-lyric
 // mistitle, not the song). Both are ctx-gated; the 2-arg resolveStub path is byte-identical.
 import { matchKey } from '$lib/services/match-key';
-import { foldScript, titleKey } from '$lib/services/dedupe';
+import { titleKey } from '$lib/services/dedupe';
+import { foldScript } from '$lib/services/zh-convert';
 import type { Track } from '$lib/sources/types';
 import type { SetContext } from '$lib/services/score-context';
 

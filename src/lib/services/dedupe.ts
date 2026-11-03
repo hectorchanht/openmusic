@@ -3,7 +3,7 @@
 // intact). Applied by the UI/picks layer to any list shown to the user so the
 // same song surfaced by multiple sources collapses to one — the highest quality.
 import type { SourceId, Track } from '$lib/sources/types';
-import { t2sConvertLineSync, warmT2S } from '$lib/services/zh-convert';
+import { foldScript } from '$lib/services/zh-convert';
 import { isDeviceUid } from '$lib/services/device-track';
 import { splitArtists } from '$lib/util/artist-split';
 
@@ -75,34 +75,6 @@ function isQualifierTail(tail: string): boolean {
 		});
 }
 
-/**
- * Traditional → Simplified for a string carrying any Han char; cold dict → unchanged + warm.
- * PER CHARACTER, not per line: the t2s phrase table also swaps regional VOCABULARY
- * (緊急聯絡人 → 紧急联系人, 國際孤獨等級 → 国际孤独级别), which is a different title, not a
- * spelling fold — one char at a time can only hit the char table, so it maps script alone.
- *
- * Exported (debug album-zip-duplicate-songs) so score-match.ts folds with the SAME function key()
- * uses: ranking and identity must agree on script, or a merged group's Simplified survivor scores
- * 0 against a Traditional query and loses to junk.
- */
-export function foldScript(s: string): string {
-	if (!HAN.test(s)) return s; // Latin-only never touches the converter (no dict download)
-	let out = '';
-	for (const c of s) {
-		if (!HAN.test(c)) {
-			out += c;
-			continue;
-		}
-		const f = t2sConvertLineSync(c);
-		if (f === null) {
-			warmT2S();
-			return s;
-		}
-		out += f;
-	}
-	return out;
-}
-
 /** Title-only: drop a translated English tail so the CJK title keys alone (see key()). */
 function stripTranslation(title: string): string {
 	const s = title.trim();
@@ -125,10 +97,10 @@ function stripTranslation(title: string): string {
  * quick-260926-n0r: the same song kept showing twice in the NowPlaying Related tab and Up Next,
  * because these live-data classes (Gareth.T) keyed differently here:
  *   1. Simplified vs Traditional twins (qq 颜色 vs joox 顏色) — every string with a Han char is
- *      folded to Simplified first, char by char (see foldScript). NOT gated on detectLang /
- *      isChineseLine: "淺粉紅 pale pink" is mixed-script and may detect as 'en'. Cold t2s dict →
- *      the string is keyed unfolded (exactly the pre-fix behaviour, never a throw) and warmT2S()
- *      fires so a later call folds.
+ *      folded to Simplified first, char by char (zh-convert foldScript — the one identity fold,
+ *      quick-261102-sdm; mixed "淺粉紅 pale pink" still detects as Chinese, only kana/hangul lines
+ *      skip). Cold t2s dict → the string is keyed unfolded (never a throw) and a warm fires so a
+ *      later call folds.
  *   2. ytmusic "<CJK> - <english>" (玻璃 - glass) — keyed on the CJK head.
  *   3. bilingual "<Han> <Latin>" whose ytmusic copy drops the Han (淺粉紅 pale pink vs pale pink) —
  *      keyed on the Latin run, which must be ≥2 words ("我的 baby" vs "你的 baby" stay apart).

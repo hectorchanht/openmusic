@@ -24,7 +24,7 @@
 //      for 晴天 was mostly covers), so a fuzzy tier would rescue the WRONG recording.
 import { fetchWithRetry } from './http';
 import { matchKey } from '$lib/services/match-key';
-import { foldScript } from '$lib/services/dedupe';
+import { foldScript, foldScriptReady } from '$lib/services/zh-convert';
 import { scoreMatch } from '$lib/services/score-match';
 import type { Track } from '$lib/sources/types';
 
@@ -107,8 +107,8 @@ function rowTrack(row: JbsouRow, type: JbsouType): Track {
 }
 
 /** Both sides folded Traditional→Simplified before keying — scoreMatch's own discipline
- *  (its similarity() folds before matchKey; matchKey alone does NOT fold script). A cold
- *  fold dict degrades to identity, which still matches the realistic same-script pairs. */
+ *  (its similarity() folds before matchKey; matchKey alone does NOT fold script). The fold is
+ *  warm here: resolveViaJbsou awaits foldScriptReady before any row is keyed. */
 function foldedKey(artist: string, title: string): string {
 	return matchKey(foldScript(artist || ''), foldScript(title || ''));
 }
@@ -236,7 +236,9 @@ export type JbsouResolveResult =
  * final CDN URL. Never throws. Bounded: ≤2 homepage fetches, ≤2 search POSTs, 1 redirect fetch.
  */
 export async function resolveViaJbsou(type: JbsouType, want: JbsouWant): Promise<JbsouResolveResult> {
-	const input = `${want.title} ${want.artist}`.trim();
+	// quick-261102-sdm: search in Simplified (the one identity fold) and warm the fold BEFORE
+	// pickJbsouRow keys rows — a cold edge isolate otherwise keyed 周杰倫 ≠ 周杰伦.
+	const input = `${await foldScriptReady(want.title)} ${await foldScriptReady(want.artist)}`.trim();
 	if (!input) return { kind: 'fail' };
 
 	for (let attempt = 0; attempt < 2; attempt++) {

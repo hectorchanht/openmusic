@@ -83,7 +83,7 @@ import {
 } from '$lib/proxy/safe-image-url';
 import { buildKuwoSearchUrl, mapSearch } from '$lib/proxy/kuwo';
 import { buildItunesSearchUrl, upgradeArtwork } from '$lib/services/itunes-cover';
-import { isChineseLine, s2tConvertLines, t2sConvertLines } from '$lib/services/zh-convert';
+import { isChineseLine, s2tConvertLines, foldScriptReady } from '$lib/services/zh-convert';
 import { norm } from '$lib/services/match-key';
 
 /** The closed set of card kinds /api/og understands. */
@@ -733,7 +733,9 @@ export async function resolveCoverTiered(
 	let qTitle = title;
 	let substituted = false;
 	if (isChineseLine(artist) || isChineseLine(title)) {
-		const [nArtist, nTitle] = await t2sConvertLines([artist, title]);
+		// quick-261102-sdm: the one identity fold (per character), not the phrase table.
+		const nArtist = await foldScriptReady(artist);
+		const nTitle = await foldScriptReady(title);
 		if (nArtist !== artist || nTitle !== title) {
 			qArtist = nArtist;
 			qTitle = nTitle;

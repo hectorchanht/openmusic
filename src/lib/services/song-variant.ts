@@ -1,7 +1,8 @@
 // SUBSTITUTION VARIANT GUARD — "is this candidate an acceptable stand-in for the song that failed?"
 // OFFICIAL SONG PRIORITIZER lives at the bottom (quick-261020-off1).
 
-import { variantTag, foldScript, sameArtistCredit } from '$lib/services/dedupe';
+import { variantTag, sameArtistCredit } from '$lib/services/dedupe';
+import { foldScript } from '$lib/services/zh-convert';
 //
 // WHY (user report, debug `slow-cold-start-first-playing`): when a source truly cannot serve a track,
 // the player retries the SAME song on another source so playback never visibly stops. That is the

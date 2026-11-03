@@ -38,7 +38,7 @@ import {
 } from '$lib/backup/backup-logic';
 import { HISTORY_CAP, HISTORY_KEY } from '$lib/history/history-logic';
 import { SEARCH_HISTORY_CAP, SEARCH_HISTORY_KEY } from '$lib/search/search-history-logic';
-import { isChineseLine, t2sConvertLineSync } from '$lib/services/zh-convert';
+import { foldScript } from '$lib/services/zh-convert';
 
 /** quick-261023-syncmerge: tombstone cap — FIFO-pruned, so the deleted set stays bounded. */
 export const TOMBSTONE_CAP = 500;
@@ -52,13 +52,13 @@ export const tombQuery = (folded: string): string => `q:${folded}`;
 
 /**
  * quick-261023-syncmerge: the favourite-artist fold, byte-identical to the library store's
- * favKey (t2s fold for Chinese, trim+lowercase otherwise; a cold t2s falls back to the raw
- * key — exactly the store's pre-warm behaviour). The store imports this instead of keeping
- * its own copy, so the merge and the store can never drift apart.
+ * favKey (trim+lowercase, then the one identity fold — zh-convert foldScript, quick-261102-sdm).
+ * The store imports this instead of keeping its own copy, so the merge and the store can never
+ * drift apart. The result is PERSISTED (tombstones `f:<fold>`), so every caller that writes or
+ * compares tombstones runs after `ensureFoldReady()` (see the sync entry points).
  */
 export function foldArtistName(name: string): string {
-	const k = (name ?? '').trim().toLowerCase();
-	return isChineseLine(k) ? (t2sConvertLineSync(k) ?? k) : k;
+	return foldScript((name ?? '').trim().toLowerCase());
 }
 
 function isStrArray(v: unknown): v is string[] {
@@ -203,8 +203,12 @@ export function mergeLibraryBlobs(localFull: unknown, remoteSlimmed: unknown): R
 	const playlists = unionPlaylists(L.playlists, R.playlists)
 		.filter((p) => !tomb.has(`p:${p.id}`))
 		.map((p) => ({ ...p, tracks: asTrackArray(p.tracks).filter((t) => !trackGone(t.uid)) }));
+	// quick-261102-sdm: a tombstone written while the fold dict was cold carries the raw
+	// Traditional name (f:周杰倫); re-fold every f: payload (idempotent) so it still suppresses
+	// the warm-folded favourite (周杰伦).
+	const favTomb = new Set(deleted.filter((k) => k.startsWith('f:')).map((k) => foldArtistName(k.slice(2))));
 	const favArtists = unionFavArtists(L.favArtists, R.favArtists).filter(
-		(n) => !tomb.has(`f:${foldArtistName(n)}`)
+		(n) => !favTomb.has(foldArtistName(n))
 	);
 
 	return {

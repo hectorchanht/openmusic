@@ -54,6 +54,7 @@ import { SYNC_DEFAULTS, type SyncItems } from '$lib/config/defaults';
 // quick-261023-syncmerge: the pull path unions instead of replacing (see merge-logic.ts).
 // quick-261023-syncmerge-review: first-sign-in review gate (checkFirstSync/resolveFirstSync).
 import { mergeEnvelopes, previewHasDiff, previewMerge, type SyncPreview } from '$lib/sync/merge-logic';
+import { ensureFoldReady } from '$lib/services/zh-convert';
 /** Re-exported for the auth store's review-modal state (the type lives in merge-logic). */
 export type { SyncPreview } from '$lib/sync/merge-logic';
 
@@ -452,6 +453,7 @@ export async function checkFirstSync(hooks: SyncHooks): Promise<SyncPreview | nu
 			clearReviewStash();
 			return null;
 		}
+		await ensureFoldReady(); // quick-261102-sdm: favourite folds are compared + persisted below
 		const preview = previewMerge(localEnv, remote.envelope);
 		if (!previewHasDiff(preview)) {
 			clearReviewStash();
@@ -490,6 +492,7 @@ export async function resolveFirstSync(
 			return true;
 		}
 		hooks.setStatus('syncing');
+		await ensureFoldReady(); // quick-261102-sdm: the merge folds + persists favourite keys
 		const merged =
 			choice === 'merge'
 				? mergeEnvelopes(localEnvelope(), remoteEnv, localRead(LIBRARY_KEY))
@@ -578,6 +581,7 @@ export async function syncOnce(hooks: SyncHooks): Promise<void> {
 		// applyEnvelope clears it locally (the picker's uncheck-deletes-family semantics).
 		// The merge reads the FULL local library blob (localRead, not the slimmed push
 		// envelope) so the device-local downloads/unavailable survive the round trip.
+		await ensureFoldReady(); // quick-261102-sdm: the merge folds + persists favourite keys
 		const merged = mergeEnvelopes(localEnvelope(), verdict.envelope, localRead(LIBRARY_KEY));
 		let applied: ReturnType<typeof applyEnvelope>;
 		try {

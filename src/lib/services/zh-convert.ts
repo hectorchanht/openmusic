@@ -384,3 +384,51 @@ export async function warmScript(target: ZhScript): Promise<void> {
 		/* a failed dict build leaves the sync handle null; lockScriptSync degrades to identity */
 	}
 }
+
+const HAN_CHAR = /\p{Script=Han}/u;
+
+/**
+ * quick-261102-sdm (DECISIONS.md §2) — THE identity fold: Traditional → Simplified, the one
+ * function every matching key, search keyword and script-folded cache key goes through.
+ * Matching always normalizes to Simplified (most upstreams index zhs only).
+ *
+ * PER CHARACTER, not per line: the t2s phrase table also swaps regional VOCABULARY
+ * (緊急聯絡人 → 紧急联系人, 國際孤獨等級 → 国际孤独级别), which is a different title, not a
+ * spelling fold — one char at a time can only hit the char table, so it maps script alone.
+ * Gate: `isChineseLine` (kana/hangul-first), so a Japanese line keeps its kanji — the same gate
+ * the cover alias keys always used; the old `\p{Script=Han}`-only gate in dedupe folded 東京 in
+ * 東京ラブストーリー while the cover cache did not.
+ *
+ * Cold dict → input unchanged + a warm is triggered. Anything that PERSISTS a folded key or
+ * sends it upstream must `await ensureFoldReady()` first (comments.ts pattern); in-memory
+ * comparisons may run cold only because both sides are folded with the same cold state.
+ */
+export function foldScript(s: string): string {
+	if (!s || !HAN_CHAR.test(s) || !isChineseLine(s)) return s;
+	let out = '';
+	for (const c of s) {
+		if (!HAN_CHAR.test(c)) {
+			out += c;
+			continue;
+		}
+		const f = t2sConvertLineSync(c);
+		if (f === null) {
+			warmT2S();
+			return s;
+		}
+		out += f;
+	}
+	return out;
+}
+
+/** quick-261102-sdm: true once foldScript is warm. Awaitable, never rejects. */
+export async function ensureFoldReady(): Promise<boolean> {
+	await warmScript('zh-Hans');
+	return t2sLineSync !== null;
+}
+
+/** quick-261102-sdm: foldScript after the dict is guaranteed warm (or failed to load). */
+export async function foldScriptReady(s: string): Promise<string> {
+	if (s && HAN_CHAR.test(s)) await ensureFoldReady();
+	return foldScript(s);
+}

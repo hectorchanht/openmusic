@@ -1,8 +1,8 @@
 // quick-261102-sdm (DECISIONS.md §2) — characterization + invariants for the ONE identity fold.
 // Golden fixtures: 周杰倫/周杰伦 and 陳奕迅/陈奕迅 query pairs.
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
-import { warmScript } from '$lib/services/zh-convert';
-import { foldScript, songKey } from '$lib/services/dedupe';
+import { warmScript, foldScript } from '$lib/services/zh-convert';
+import { songKey } from '$lib/services/dedupe';
 import { aliasCoverCacheKey } from '$lib/services/cover-cache';
 import { foldArtistName } from '$lib/sync/merge-logic';
 import { searchAll, __clearSearchCache } from '$lib/services/catalog';
@@ -35,25 +35,42 @@ describe('identity fold — warm', () => {
 	});
 });
 
-describe('search keyword script (characterization: current behaviour)', () => {
-	it('searchAll hands the adapter the raw keyword (no zhs fold)', async () => {
+describe('search keyword script — product call 2026-11-03: fold to Simplified, one query', () => {
+	it('周杰倫 and 周杰伦 send the SAME Simplified keyword and share one cache entry', async () => {
 		const seen: string[] = [];
 		vi.spyOn(SOURCES.qq, 'search').mockImplementation(async (kw: string) => {
 			seen.push(kw);
 			return [];
 		});
-		await searchAll('周杰倫 晴天', 1, ONLY_QQ);
-		await searchAll('周杰伦 晴天', 1, ONLY_QQ);
-		expect(seen).toEqual(['周杰倫 晴天', '周杰伦 晴天']);
+		const a = await searchAll('周杰倫 晴天', 1, ONLY_QQ);
+		const b = await searchAll('周杰伦 晴天', 1, ONLY_QQ);
+		expect(seen).toEqual(['周杰伦 晴天']); // second call is a cache hit
+		expect(b).toBe(a);
+	});
+
+	it('陳奕迅 and 陈奕迅 return the same pool', async () => {
+		vi.spyOn(SOURCES.qq, 'search').mockImplementation(async (kw: string) =>
+			kw === '陈奕迅 富士山下' ? [{ uid: 'qq:1' } as never] : []
+		);
+		const a = await searchAll('陳奕迅 富士山下', 1, ONLY_QQ);
+		__clearSearchCache();
+		const b = await searchAll('陈奕迅 富士山下', 1, ONLY_QQ);
+		expect(a.interleaved.map((t) => t.uid)).toEqual(['qq:1']);
+		expect(b.interleaved.map((t) => t.uid)).toEqual(['qq:1']);
 	});
 });
 
-describe('fold algorithm (characterization: current behaviour)', () => {
-	it('cover alias key folds phrase-level (regional vocabulary swapped)', () => {
-		expect(aliasCoverCacheKey('', '緊急聯絡人')).toContain('紧急联系人');
+describe('one fold algorithm — per character, kana/hangul lines untouched', () => {
+	it('cover alias key folds script only (no regional vocabulary swap)', () => {
+		expect(aliasCoverCacheKey('', '緊急聯絡人')).toContain('紧急联络人');
+		expect(foldScript('緊急聯絡人')).toBe('紧急联络人');
 	});
 
-	it('foldScript folds kanji inside a kana line', () => {
-		expect(foldScript('東京ラブストーリー')).toBe('东京ラブストーリー');
+	it('a Japanese (kana) line keeps its kanji', () => {
+		expect(foldScript('東京ラブストーリー')).toBe('東京ラブストーリー');
+	});
+
+	it('mixed Han + Latin still folds (淺粉紅 pale pink)', () => {
+		expect(foldScript('淺粉紅 pale pink')).toBe('浅粉红 pale pink');
 	});
 });

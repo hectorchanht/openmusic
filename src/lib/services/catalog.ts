@@ -16,6 +16,7 @@ import { readResolveCache, registerServedResolve } from './resolve-cache-client'
 import { logAction } from '$lib/stores/actionLog.svelte';
 import { isTrackReady } from './track-ready';
 import { isDeviceUid } from '$lib/services/device-track';
+import { foldScriptReady, foldScript } from '$lib/services/zh-convert';
 // 32-D-20: the cached url is filled at ONE tier (lossless), so the read gate and the adoption gate
 // both need the caller's EFFECTIVE tier. Same leaf-store + pure-helper pair sources/qq.ts uses.
 import { effectiveQuality } from '$lib/sources/quality';
@@ -99,6 +100,11 @@ export async function searchAll(
 	signal?: AbortSignal,
 	onPartial?: (partial: PartialSearchResult) => void
 ): Promise<SearchResult> {
+	// quick-261102-sdm (DECISIONS.md §2, product call 2026-11-03): every search goes upstream in
+	// SIMPLIFIED — most providers index zhs only (QQ returned [] for "周杰倫 珊瑚海" while
+	// "周杰伦 珊瑚海" hit). One fold, one query, one cache entry: 周杰倫 and 周杰伦 are the same
+	// search. Display script is the names layer's job, never the search's.
+	keyword = await foldScriptReady(keyword);
 	const enabledKey = getEnabledAdapters(prefs)
 		.map((a) => a.id)
 		.join(',');
@@ -138,7 +144,8 @@ export async function searchAll(
  * `mb:`/`ch:`/`it:`), so this prefix cannot collide with them.
  */
 export function evictSearch(keyword: string): void {
-	evictCached(`${keyword.trim().toLowerCase()}|`);
+	// quick-261102-sdm: same fold as searchAll's cache key (sync: a search ran first, so warm).
+	evictCached(`${foldScript(keyword).trim().toLowerCase()}|`);
 }
 
 /**

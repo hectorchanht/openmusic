@@ -58,7 +58,7 @@ import { isDeviceUid } from './device-track';
 // versa. This module stays pure: the fold is the SYNCHRONOUS handle (null until the lazy dict
 // warms — alias is best-effort, never a failure), and zh-convert only imports $lib/i18n/detect
 // (no cycle: nothing in the detect chain imports cover-cache).
-import { t2sConvertLineSync, isChineseLine } from './zh-convert';
+import { foldScript } from './zh-convert';
 
 const CACHE_KEY = 'openmusic:cover-cache:v1';
 
@@ -141,28 +141,25 @@ export function uidCoverCacheKey(uid: string): string {
 
 /**
  * quick-261020-covsync — the script-folded alias of a track's name key, or null when there is
- * none. Folds each field Traditional→Simplified (tongwen phrase tables via zh-convert) ONLY
- * when the field is Chinese-detected (the kana/hangul-first classifier inside isChineseLine
- * keeps Japanese kanji out), then keys via the SAME matchKey the exact side uses. Returns null
- * when the folded key equals the exact key (already-Simplified input, non-CJK input) or when
- * the lazy t2s dict is not yet warm (alias is best-effort — the exact key is always written).
+ * none. Folds each field Traditional→Simplified with zh-convert foldScript (the one identity
+ * fold, quick-261102-sdm: per character, kana/hangul lines untouched), then keys via the SAME
+ * matchKey the exact side uses. Returns null when the folded key equals the exact key
+ * (already-Simplified input, non-CJK input) or when the lazy t2s dict is not yet warm (alias is
+ * best-effort — the exact key is always written).
  *
  * Per-field folding: a mixed "Accusefive" artist (Latin, skipped) + a Chinese title still gets
  * a usable alias, and a partially-unfoldable pair never aliases to something unrelated.
  */
 export function aliasCoverCacheKey(artist: string, title: string): string | null {
-	const fa = isChineseLine(artist) ? (t2sConvertLineSync(artist) ?? artist) : artist;
-	const ft = isChineseLine(title) ? (t2sConvertLineSync(title) ?? title) : title;
 	const exact = matchKey(artist, title);
-	const folded = matchKey(fa, ft);
+	const folded = matchKey(foldScript(artist), foldScript(title));
 	return folded === exact ? null : folded;
 }
 
 /** The script-folded alias of an ARTIST-only cover key, or null (mirrors aliasCoverCacheKey). */
 export function aliasArtistCoverCacheKey(artist: string): string | null {
-	const fa = isChineseLine(artist) ? (t2sConvertLineSync(artist) ?? artist) : artist;
 	const exact = artistCoverCacheKey(artist);
-	const folded = 'artist:' + matchKey(fa, '');
+	const folded = 'artist:' + matchKey(foldScript(artist), '');
 	return folded === exact ? null : folded;
 }
 

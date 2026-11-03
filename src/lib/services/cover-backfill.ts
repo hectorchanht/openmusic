@@ -118,7 +118,7 @@ import { itunesSongCover, itunesArtistCover, DISPLAY_ARTWORK_SIZE } from '$lib/s
 import { onlySource, SOURCES } from '$lib/sources/registry';
 import { createHealthGate } from '$lib/services/source-health';
 import { combinedSignal } from '$lib/services/abort-signal';
-import { t2sConvertLines, isChineseLine } from '$lib/services/zh-convert';
+import { foldScriptReady } from '$lib/services/zh-convert';
 import type { Track } from '$lib/sources/types';
 import { hasHttpsScheme } from './url-safety';
 
@@ -325,16 +325,14 @@ async function qqSongCover(
  * different song against Simplified rows in dedupeBest. So the tiers SEARCH with the t2s-folded
  * pair while callers keep WRITING the cache under the caller's own identity (resolveCoverForTrack
  * writes track.artist/title verbatim) — plus cover-cache's alias key bridges the two scripts on
- * the read side. Per-field gate: only Chinese-detected fields convert (a kana/hangul field is
- * Japanese/Korean, never folded); t2sConvertLines never throws → identity on any failure.
+ * the read side. Folds with zh-convert foldScriptReady — the one identity fold
+ * (quick-261102-sdm: per character, kana/hangul fields untouched, never throws).
  * Deliberately scoped to resolveTrackChain: resolveShareCover's subset must NOT follow (its
  * documented divergence), and the artist chain is name-keyed by the artist layer instead.
  * Exported for a direct unit test of the fold + per-field gate.
  */
 export async function coverSearchTerms(artist: string, title: string): Promise<[string, string]> {
-	if (!isChineseLine(artist) && !isChineseLine(title)) return [artist, title];
-	const [a2, t2] = await t2sConvertLines([artist, title]);
-	return [isChineseLine(artist) ? a2 : artist, isChineseLine(title) ? t2 : title];
+	return [await foldScriptReady(artist), await foldScriptReady(title)];
 }
 
 async function resolveTrackChain(
