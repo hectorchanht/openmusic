@@ -10,6 +10,7 @@
   --color-primary-hover: #09a49f; /* tiffany-261020: darken(DEFAULT_ACCENT, 0.12) */
   --color-on-primary: #0b0b0f; /* quick-261102-rrb: default for tiffany (white is 2.41:1); applyTheme() sets onColor(primary) at runtime */
   --color-focus: var(--color-primary); /* quick-261102-s0k: focus indicators; applyTheme() sets focusColor(primary, [bg, surface-2]) (>=3:1) */
+  --color-danger-text: #ff7a90; /* quick-261102-s5t: DESIGN.md alarm-coral-text — inline error text */
 
   --src-netease: #c20c0c;
   --src-qq: #1db954;
@@ -82,6 +83,7 @@
   --color-border: #80808a; /* quick-261102-rrb: was #c5c5cf (~1.4:1 vs surface-2); #80808a is 3.32:1 vs #ececf2 (non-text 3:1) */
   --color-text: #1a1a22;
   --color-text-muted: #5a5a66;
+  --color-danger-text: #c62a47; /* quick-261102-s5t: #ff7a90 is ~2.4:1 on #f7f7fa; this is 7.5:1 */
 }
 
 /* quick-261023-perks: SUPPORTER-EXCLUSIVE themes. Warm dark (gold) and pink dark

@@ -335,7 +335,10 @@
 		// padding does not move the bounded `.panel` scroller's own rect.
 		const elRect = el.getBoundingClientRect();
 		const offsetWithin = elRect.top - cRect.top + container.scrollTop; // line top in container scroll-space
-		container.scrollTo({ top: offsetWithin - anchorWithin, behavior: 'smooth' });
+		// quick-261102-s5t: reduce motion (app flag OR OS) jumps instead of gliding. Read here, after
+		// the early returns, so it is not a dependency of the anchor effect.
+		const reduce = settings.reduceMotion || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+		container.scrollTo({ top: offsetWithin - anchorWithin, behavior: reduce ? 'auto' : 'smooth' });
 	}
 
 	// quick-260919-npfix (Fix 3): how long to wait before re-anchoring after a sheet-state change.
@@ -545,7 +548,9 @@
 	   highlight (faux-bold text-shadow, not font-weight 700) so the active moment's translation
 	   reads as highlighted in lockstep with the original — still with zero layout shift. */
 	.lyrics .tr.active { color: var(--color-text); text-shadow: 0 0 0.5px currentColor, 0 0 0.5px currentColor; }
-	.tr-hint { text-align: center; font-size: 0.6875rem; color: var(--color-primary); margin: 0 0 6px; }
+	/* quick-261102-s5t: muted, not the accent — a status line is not "live/on/go", and Tiffany
+	   small text on the light floor was ~2:1. */
+	.tr-hint { text-align: center; font-size: 0.6875rem; color: var(--color-text-muted); margin: 0 0 6px; }
 	.empty { color: var(--color-text-muted); font-size: 0.875rem; text-align: center; padding: 24px; }
 	/* quick-261029-xor1: the fetching state is the shared LoadingState — skeleton ONLY
 	   for lyrics (long text; spinner + skeleton together are banned, standing rule) —

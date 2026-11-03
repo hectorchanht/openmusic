@@ -68,7 +68,9 @@
 <style>
 	.about { padding: 14px 4px 30px; }
 	.about .text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; font-size: 14px; color: var(--color-text); margin: 0; }
-	.about .text a { color: var(--color-accent, #e5484d); text-decoration: underline; text-underline-offset: 2px; }
+	/* quick-261102-s5t: --color-accent is defined nowhere, so this was always the red fallback (a
+	   second accent). Links read as text + underline. */
+	.about .text a { color: var(--color-text); text-decoration: underline; text-underline-offset: 2px; }
 	.about .muted { color: var(--color-text-muted); font-size: 13.5px; margin: 0; }
 	.about .err { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 	.about .err p { margin: 0; font-size: 13.5px; color: var(--color-text); }

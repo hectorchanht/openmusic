@@ -598,14 +598,16 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 		white-space: nowrap;
 		vertical-align: 1px;
 	}
-	/* quick-261024-vid1: the MV tag — same pill family as .album-tag, accent-tinted so it
-	   reads as "watchable", not metadata. */
+	/* quick-261024-vid1: the MV tag — same pill family as .album-tag (it was accent-tinted to read
+	   as "watchable" until quick-261102-s5t, below). */
 	.mv-tag {
 		display: inline-block;
 		margin-left: 6px;
 		padding: 0 6px;
-		border: 1px solid var(--color-accent, #e5484d);
-		color: var(--color-accent, #e5484d);
+		/* quick-261102-s5t: --color-accent is undefined (always the red fallback = a second accent);
+		   a passive tag is not "live/on/go", so it takes the muted pill tokens. */
+		border: 1px solid var(--color-border);
+		color: var(--color-text-muted);
 		border-radius: 999px;
 		font-size: 0.8em;
 		font-weight: 600;

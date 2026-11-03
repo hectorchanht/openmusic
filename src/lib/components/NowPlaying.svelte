@@ -432,6 +432,9 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 			? window.matchMedia('(prefers-reduced-motion: reduce)').matches
 			: false;
 	const xfadeMs = $derived(settings.reduceMotion || osReduceMotion ? 0 : 200);
+	// quick-261102-s5t: the sheet's own open/close `transition:fly` is a JS transition too, so the
+	// same app-flag-OR-OS guard applies — it was the one Now Playing motion that ignored both.
+	const flyMs = $derived(settings.reduceMotion || osReduceMotion ? 0 : 320);
 
 	// quick-260625-pzs-01: the now-playing artist string is split into individual names so each
 	// renders its own link to that SOLE artist. openArtistName generalises the old single-artist
@@ -1013,14 +1016,18 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 
 </script>
 
-<section
+<!-- quick-261102-s5t: a <div>, not <section> — role="dialog" is invalid on a sectioning element. -->
+<div
 	class="np"
 	class:reflow={sheetState !== 'closed'}
 	class:fullshrink={sheetState == 'full'}
-	transition:fly={{ y: 600, duration: 320, easing: cubicOut }}
+	transition:fly={{ y: 600, duration: flyMs, easing: cubicOut }}
 	style:transform={dragY ? `translateY(${dragY}px)` : undefined}
 	style:transition={dragging ? 'none' : 'transform 0.28s cubic-bezier(.22,1,.36,1)'}
 	use:focusTrap
+	role="dialog"
+	aria-modal="true"
+	aria-label={t('nowplaying.nowPlaying')}
 >
 	<!-- NP-04: top running-line loader. The indeterminate variant ONLY (always `indet`, only
 	     the sliver — no determinate seek `<i style:width>`, that one is the Nowbar's seek progress).
@@ -1243,6 +1250,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 			aria-valuemin="0"
 			aria-valuemax="100"
 			aria-valuenow={Math.round(displayFrac * 100)}
+			aria-valuetext={`${fmtTime(displayTime)} / ${player.duration > 0 ? fmtTime(player.duration) : '--:--'}`}
 			onkeydown={seekKey}
 			use:scrub={{ onSeek: onScrubCommit, onPreview: onScrubPreview, onScrubEnd }}
 		>
@@ -1349,24 +1357,27 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 				<button aria-hidden="true" tabindex="-1" title={t('nowplaying.upNext')}><ListMusic size={20} /></button>
 				<button aria-hidden="true" tabindex="-1" title={t('nowplaying.lyrics')}><MicVocal size={20} /></button>
 				<span class="pair">
-					<button data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
-					<button data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab !== 'comments' && tab !== 'about'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
+					<!-- quick-261102-s5t: the active column was class-only (visual); aria-pressed exposes it. -->
+					<button data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} aria-pressed={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
+					<button data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab !== 'comments' && tab !== 'about'} aria-pressed={tab !== 'comments' && tab !== 'about'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
 					{#if canAbout}
-						<button data-tab="about" aria-label={t('nowplaying.about')} title={t('nowplaying.about')} class:active={tab === 'about'} onclick={() => selectTab('about')} use:tapBounce><Info size={20} /></button>
+						<button data-tab="about" aria-label={t('nowplaying.about')} title={t('nowplaying.about')} class:active={tab === 'about'} aria-pressed={tab === 'about'} onclick={() => selectTab('about')} use:tapBounce><Info size={20} /></button>
 					{/if}
 				</span>
 			</div>
 		{:else}
-			<nav class="subnav"
+			<!-- quick-261102-s5t: tablist/tab + aria-selected — the selected tab used to be conveyed by
+			     the `.active` class alone, so a screen reader heard five identical icon buttons. -->
+			<div class="subnav" role="tablist" tabindex="-1"
 				onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
-				<button data-tab="queue" aria-label={t('nowplaying.upNext')} title={t('nowplaying.upNext')} class:active={tab === 'queue'} onclick={() => selectTab('queue')} use:tapBounce><ListMusic size={20} /></button>
-				<button data-tab="lyrics" aria-label={t('nowplaying.lyrics')} title={t('nowplaying.lyrics')} class:active={tab === 'lyrics'} onclick={() => selectTab('lyrics')} use:tapBounce><MicVocal size={20} /></button>
-				<button data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
-				<button data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
+				<button role="tab" aria-selected={tab === 'queue'} data-tab="queue" aria-label={t('nowplaying.upNext')} title={t('nowplaying.upNext')} class:active={tab === 'queue'} onclick={() => selectTab('queue')} use:tapBounce><ListMusic size={20} /></button>
+				<button role="tab" aria-selected={tab === 'lyrics'} data-tab="lyrics" aria-label={t('nowplaying.lyrics')} title={t('nowplaying.lyrics')} class:active={tab === 'lyrics'} onclick={() => selectTab('lyrics')} use:tapBounce><MicVocal size={20} /></button>
+				<button role="tab" aria-selected={tab === 'comments'} data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
+				<button role="tab" aria-selected={tab === 'related'} data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
 				{#if canAbout}
-					<button data-tab="about" aria-label={t('nowplaying.about')} title={t('nowplaying.about')} class:active={tab === 'about'} onclick={() => selectTab('about')} use:tapBounce><Info size={20} /></button>
+					<button role="tab" aria-selected={tab === 'about'} data-tab="about" aria-label={t('nowplaying.about')} title={t('nowplaying.about')} class:active={tab === 'about'} onclick={() => selectTab('about')} use:tapBounce><Info size={20} /></button>
 				{/if}
-			</nav>
+			</div>
 		{/if}
 
 		<!-- The pane prop lists live in snippets so the narrow (one-of-three) and wide (all three)
@@ -1440,7 +1451,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		onclose={closeVersionPicker}
 		onpick={(v) => player.play(v, { fresh: true })}
 	/>
-</section>
+</div>
 
 <style>
 	/* quick-260611-fr9: top is intentionally FLUSH (0) — content starts at the very top with no
@@ -1501,8 +1512,9 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	   The markup carries `.motion-always` (app.css's escape hatch) so the app's reduce-motion setting
 	   cannot freeze it, and the OS-pref 2.2s slowdown is gone so it runs at one speed everywhere. */
 	.bar { display: flex; align-items: center; justify-content: space-between; }
-	.icon { background: none; border: none; color: var(--color-text); cursor: pointer; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; }
-	.icon:hover { background: var(--color-surface-2); }
+	/* quick-261102-s5t: 38 -> 44px (DESIGN.md hit minimum); hover gated so touch never latches it. */
+	.icon { background: none; border: none; color: var(--color-text); cursor: pointer; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; }
+	@media (hover: hover) { .icon:hover { background: var(--color-surface-2); } }
 	/* The .np-top wrapper carries the drag-down gesture (slop-thresholded so clicks still
 	   fire). touch-action: pan-x leaves horizontal scrolling intact (none here, but
 	   defensive) while letting our pointer handlers own vertical motion. */
@@ -1515,10 +1527,13 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	/* quick-261024-mv3: the title-row MV icon — same 34px round hit target as .np-volbtn.
 	   Its auto left margin takes the row's free space; when the desktop volume follows,
 	   the volume's own auto margin must yield or the free space splits between them. */
-	.mv-icon { flex: none; margin-left: auto; background: none; border: none; color: var(--color-text-muted); width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; transition: background 0.12s ease, color 0.12s ease, transform 0.12s ease; }
-	.mv-icon:hover { background: rgba(255, 255, 255, 0.1); color: var(--color-text); }
+	/* quick-261102-s5t: 44px hit area; the -5px block margin keeps the title row at its old 34px
+	   height so the meta block does not grow. `.on` was `--color-accent`, which no theme defines, so
+	   it always painted the #e5484d fallback — a second accent. An on-state is the One Signal. */
+	.mv-icon { flex: none; margin-left: auto; margin-block: -5px; background: none; border: none; color: var(--color-text-muted); width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; transition: background 0.12s ease, color 0.12s ease, transform 0.12s ease; }
+	@media (hover: hover) { .mv-icon:hover { background: var(--color-surface); color: var(--color-text); } }
 	.mv-icon:active { transform: scale(0.92); }
-	.mv-icon.on { color: var(--color-accent, #e5484d); }
+	.mv-icon.on { color: var(--color-primary); }
 	.title-row .mv-icon ~ .np-vol { margin-left: 0; }
 	/* NP-01 carousel: the rigid strip fills .cover and rests at translateX(0) (current cell visible).
 	   The commit-settle uses the cover-reflow personality (0.32s, same universal curve); coverSwipe
@@ -1606,15 +1621,17 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	   flex:0 stops the grow so the bg hugs the text; shrink still allows ellipsis. */
 	.title-row > .title { flex: 0 1 auto; min-width: 0; }
 	.title-row .np-vol { flex: none; margin-left: auto; display: flex; align-items: center; gap: 6px;
-		/* quick-261010-soy8: visible bg for the volume control. */
-		background: rgba(0, 0, 0, 0.55); padding: 6px 10px; border-radius: 999px; }
+		/* quick-261010-soy8: visible bg for the volume control.
+		   quick-261102-s5t: was rgba(0,0,0,.55) — on the light theme that put the dark
+		   --color-text glyph on a dark pill. surface-2 follows every theme. */
+		background: var(--color-surface-2); padding: 6px 10px; border-radius: 999px; }
 	.np-volbtn { background: none; border: none; color: var(--color-text); width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; opacity: 0.85; transition: background 0.12s ease, transform 0.12s ease; }
-	.np-volbtn:hover { background: rgba(255, 255, 255, 0.1); opacity: 1; }
+	.np-volbtn:hover { background: var(--color-surface); opacity: 1; }
 	.np-volbtn:active { transform: scale(0.92); }
 	/* appearance:none + explicit track/thumb: the two vendors disagree about everything else;
 	   the element stays a native range input, so keyboard arrows, Home/End and pointer
 	   capture keep working for free (same recipe as the Nowbar's .np-volrange). */
-	.np-volrange { -webkit-appearance: none; appearance: none; width: 90px; height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.25); cursor: pointer; }
+	.np-volrange { -webkit-appearance: none; appearance: none; width: 90px; height: 4px; border-radius: 999px; background: color-mix(in srgb, var(--color-text-muted) 30%, transparent); cursor: pointer; } /* quick-261102-s5t: same muted-30% track as .scrubber; white 25% vanished on light */
 	.np-volrange::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--color-text); cursor: pointer; }
 	.np-volrange::-moz-range-thumb { width: 12px; height: 12px; border: none; border-radius: 50%; background: var(--color-text); cursor: pointer; }
 	.artist { display: flex; width: 100%; justify-content: space-between; align-items: center; background: transparent; border: none; padding: 1px; border-radius: none; color: var(--color-text); font-size: calc(1rem * var(--fs-np-artist, 1)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1632,8 +1649,14 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	/* Marquee lives globally in app.css (transform-based .marquee-inner). The .title/.artist
 	   clips above + the use:marquee action + inner .marquee-inner span in the markup are the
 	   only per-file pieces — the global rule animates them. (gmy unified the drift.) */
-	.np-error { color: #ff6b6b; font-size: 0.8125rem; text-align: center; margin: 2px 2px 10px; }
+	.np-error { color: var(--color-danger-text); font-size: 0.8125rem; text-align: center; margin: 2px 2px 10px; }
 	.prog { margin: 4px 0; }
+	/* quick-261102-s5t: the global .scrubber is 14px tall — too small a thumb target for the
+	   page's main gesture. A transparent 44px band centred on the rail is part of the element, so
+	   use:scrub receives its pointerdowns unchanged. Scoped here, not in app.css, because the
+	   Nowbar's scrubber sits beside buttons this band would cover. 44px stops ~1px short of the
+	   artist row above (meta margin 12 + prog margin 4). */
+	.prog .scrubber::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 44px; transform: translateY(-50%); }
 	/* plan 002: the seek rail is now the shared global `.scrubber` (app.css) driven by
 	   use:scrub — the old local `.track`/`.fill`/`.knob` rules were removed. */
 	/* plan 006: tabular-nums so the ticking current-time readout never jitters horizontally. */
@@ -1642,21 +1665,27 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	   0.32s curve) instead of hitching at t=0; see .np.reflow .transport above. */
 	.transport { display: flex; align-items: center; justify-content: space-between; margin: 0px 4px 0; transition: margin 0.32s cubic-bezier(.22,1,.36,1); }
 	.t { background: none; border: none; color: var(--color-text); cursor: pointer; opacity: 0.85; display: grid; place-items: center; }
+	/* quick-261102-s5t: the transport buttons had no box — the hit area was the bare glyph (Heart
+	   ~20px). 44px minimum; scoped to .transport so the sleep-timer pill (.t too) keeps its size. */
+	.transport .t { min-width: 44px; min-height: 44px; border-radius: 50%; }
 	.t.on { color: var(--color-primary); opacity: 1; }
 	/* quick-260919-0mw: size the shared DownloadControl to its five `.t` siblings — it ships a 40×40
 	   list-row footprint with an 18px glyph and a muted colour, none of which match this row. The
 	   override lives HERE (scoped under .t-dl, :global to cross the child's style scope) rather than
 	   in DownloadControl.svelte, because five list-row call sites depend on its current look. */
 	.t-dl { display: grid; place-items: center; padding: 0 6px; }
-	.t-dl :global(.dc) { width: auto; height: auto; color: var(--color-text); opacity: 0.85; }
+	.t-dl :global(.dc) { width: auto; height: auto; min-width: 44px; min-height: 44px; color: var(--color-text); opacity: 0.85; }
 	.t-dl :global(.dc svg) { width: 20px; height: 20px; }
 	.t-dl :global(button.dc:hover) { background: none; color: var(--color-text); }
 	/* The downloaded/unavailable states keep their own meaning — only the neutral idle colour moved. */
 	.t-dl :global(.dc.downloaded) { opacity: 0.4; }
-	.t-dl :global(.dc.unavailable) { color: #ff7a90; opacity: 1; }
+	.t-dl :global(.dc.unavailable) { color: var(--color-danger-text); opacity: 1; }
 	.st-row { display: flex; justify-content: center; margin: 2px 4px 0; }
 	.st-readout { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; font-size: 0.8125rem; font-variant-numeric: tabular-nums; background: var(--color-surface); }
 	.play { width: 62px; height: 62px; border-radius: 50%; border: none; background: #fff; color: #000; cursor: pointer; display: grid; place-items: center; }
+	/* quick-261102-s5t: a white disc on the #f7f7fa light floor has ~1.07:1 edge contrast. The
+	   hero's job is "brightest-contrast thing on screen", so on light it inverts to a dark disc. */
+	:global(:root[data-theme='light']) .play { background: var(--color-text); color: var(--color-bg); }
 	.sheet { display: flex; flex-direction: column; flex: 1; min-height: 0; will-change: transform; user-select: none; -webkit-user-select: none; }
 	.sheet.full {
     /* position: absolute; */
@@ -1699,7 +1728,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	.subnav { display: flex; justify-content: space-around; padding-bottom: 6px; touch-action: none; user-select: none; -webkit-user-select: none; }
 	.subnav button { position: relative; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; color: var(--color-text-muted); font-size: 0.8125rem; min-height: 40px; padding: 8px 12px; cursor: pointer; border-bottom: 2px solid transparent; }
 	.subnav button.active { color: var(--color-text); border-bottom-color: var(--color-primary); }
-	.subnav .count { position: absolute; top: 2px; right: 0; line-height: 1.2; padding: 1px 6px; border-radius: 999px; background: var(--color-surface); color: var(--color-text-muted); font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
+	.subnav .count { position: absolute; top: 2px; inset-inline-end: 0; line-height: 1.2; padding: 1px 6px; border-radius: 999px; background: var(--color-surface); color: var(--color-text-muted); font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
 	/* NP-02: contain over-scroll/bounce to the panel edges so half-open scroll never chains to
 	   the page behind the sheet. NO touch-action: none — the panel keeps its pan-y scroll (the
 	   browser owns vertical scrolling here). iOS <16 lacks overscroll-behavior support, so it is
