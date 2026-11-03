@@ -84,3 +84,14 @@ export function gridColumns(width: number): number {
 	if (unmeasured(width)) return GRID_MIN_COLS;
 	return Math.max(GRID_MIN_COLS, Math.floor((width + GRID_GAP) / (GRID_TILE_MIN + GRID_GAP)));
 }
+
+// quick-261102-syk: rows per page are width-dependent too. At 1280px a 6×3 grid page is ~580px
+// tall — one shelf eats the whole viewport — so any track wider than the 3-column floor pages 2
+// rows. Phones resolve to GRID_MIN_COLS (see the guarantee above), so they keep 3 rows by
+// construction and the mobile page stays exactly 3×3 = 9.
+const GRID_ROWS_PER_PAGE_WIDE = 2;
+
+/** Rows per snap page for a `cols`-column grid: 3 at the mobile floor, 2 when wider. */
+export function gridRowsPerPage(cols: number): number {
+	return cols <= GRID_MIN_COLS ? GRID_ROWS_PER_PAGE : GRID_ROWS_PER_PAGE_WIDE;
+}

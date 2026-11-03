@@ -16,9 +16,11 @@
 	// measurement happens in JS rather than in a media query: the dots count PAGES, so if the
 	// columns change and the page size does not, the dots start lying about how many pages exist.
 	// Mobile is untouched by construction: gridColumns cannot exceed 3 below a 750px track.
+	// quick-261102-syk: ROWS are width-dependent too — 3 on the mobile 3 columns, 2 when wider
+	// (gridRowsPerPage), so the page size is cols × that row count.
 	import type { Snippet } from 'svelte';
 	import { browser } from '$app/environment';
-	import { gridColumns, GRID_ROWS_PER_PAGE } from './shelf-scroll';
+	import { gridColumns, gridRowsPerPage } from './shelf-scroll';
 	import { dragScroll } from '$lib/actions/dragScroll';
 
 	interface Props {
@@ -52,7 +54,7 @@
 		return () => ro.disconnect();
 	});
 
-	const tilesPerPage = $derived(cols * GRID_ROWS_PER_PAGE);
+	const tilesPerPage = $derived(cols * gridRowsPerPage(cols));
 	const capped = $derived(items.slice(0, MAX_TILES));
 
 	// Chunk into pages of `tilesPerPage` (the last page may be short).
