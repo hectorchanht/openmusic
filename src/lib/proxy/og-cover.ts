@@ -84,7 +84,7 @@ import {
 import { buildKuwoSearchUrl, mapSearch } from '$lib/proxy/kuwo';
 import { buildItunesSearchUrl, upgradeArtwork } from '$lib/services/itunes-cover';
 import { isChineseLine, s2tConvertLines, foldScriptReady } from '$lib/services/zh-convert';
-import { norm } from '$lib/services/match-key';
+import { normField as norm } from '$lib/services/dedupe';
 
 /** The closed set of card kinds /api/og understands. */
 export const OG_TYPES = ['song', 'album', 'artist'] as const;
@@ -402,7 +402,7 @@ function pickLastfmImage(images: unknown): string | null {
 // chain falls through and, at worst, serves the branded card. A wrong cover is worse than no
 // cover: it is the one outcome this endpoint must never produce again.
 //
-// COMPARISON rides `norm` (match-key.ts): case/space/punctuation-insensitive, bracketed
+// COMPARISON rides `norm` (dedupe.ts): case/space/punctuation-insensitive, bracketed
 // qualifiers dropped. Two deliberate loosenings, both forced by real catalog shapes:
 //  - ogTitleKey ALSO strips a BARE trailing explicit/clean/remaster/live/acoustic word —
 //    norm() drops those only after a dash or inside brackets, but Deezer literally titles the

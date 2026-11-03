@@ -6,9 +6,8 @@ import { trackLike } from '$lib/analytics';
 import { blobStore } from '$lib/services/blob-store';
 import { setCachedCover } from '$lib/services/cover-cache';
 import { hasHttpsScheme } from '$lib/services/url-safety';
-import { matchKey, versionedMatchKey } from '$lib/services/match-key';
+import { matchKey, versionedMatchKey, dedupeShelfList, isSameShelfSong, sameSongStrings, songKey } from '$lib/services/dedupe';
 import { isDeviceUid } from '$lib/services/device-track';
-import { dedupeShelfList, isSameShelfSong, sameSongStrings, songKey } from '$lib/services/dedupe';
 import { isChineseLine, warmScript } from '$lib/services/zh-convert';
 // quick-261023-syncmerge: tombstone helpers — the `deleted` set lives on the library blob
 // and rides the synced library key (merge-logic.ts owns the namespaces).

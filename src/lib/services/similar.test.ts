@@ -3,7 +3,7 @@ import { getSimilarArtists, buildSimilarQueue } from './similar';
 import * as catalog from './catalog';
 import { __clearSearchCache } from './ttl-cache';
 import { __resetGovernor } from './api-base';
-import { matchKey } from './match-key';
+import { matchKey } from './dedupe';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 import { getEnabledAdapters } from '$lib/sources/registry';
 

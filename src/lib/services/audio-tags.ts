@@ -27,10 +27,10 @@
 // non-'tagged' result. A file that downloaded fine must never be lost to a tagging problem — the
 // untagged-but-intact file is always the fallback.
 //
-// quick-260919-0mw: `match-key.ts` is the ONE static import, and it is inside the purity contract —
+// quick-260919-0mw: `dedupe.ts` is the ONE static import, and it is inside the purity contract —
 // a dependency-free pure string normaliser, no store, no `$app`, no alias beyond `$lib`. Reused
 // rather than re-inlined so the app has one normaliser, not two (CLAUDE.md shared primitives).
-import { matchKey } from '$lib/services/match-key';
+import { matchKey } from '$lib/services/dedupe';
 
 /**
  * Everything we might know about a track. An absent field is simply NOT WRITTEN — never an empty

@@ -14,7 +14,7 @@
 // Pure module: no runes, no `$state` — the two decision functions are node-Vitest-testable.
 import type { HistoryEntry } from '$lib/history/history-logic';
 import type { Track } from '$lib/sources/types';
-import { matchKey } from '$lib/services/match-key';
+import { matchKey } from '$lib/services/dedupe';
 import { mapWithConcurrency } from '$lib/services/discovery';
 import { fetchSimilarTracks, nameStub } from '$lib/services/similar';
 import { deezerArtistRadio } from '$lib/services/deezer';

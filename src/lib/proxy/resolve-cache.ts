@@ -12,7 +12,7 @@
 // 32-D-01: the fill upstream moved kuwo → qq (tang). That is also auth-free (`qqProxy.buildUrl`
 // takes no `env`), so the "no secret in scope on this route" property is unchanged.
 import { type EdgeCache, ownOriginCacheKey } from './edge-cache';
-import { matchKey } from '$lib/services/match-key';
+import { matchKey } from '$lib/services/dedupe';
 
 /**
  * Entry-shape version, carried IN the key. A shape change is a KEY change, never an in-place

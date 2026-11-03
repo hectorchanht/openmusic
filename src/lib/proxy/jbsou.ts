@@ -23,8 +23,8 @@
 //   3. Nothing looser. JBSou's netease rows are cover-heavy (the live probe's first page
 //      for 晴天 was mostly covers), so a fuzzy tier would rescue the WRONG recording.
 import { fetchWithRetry } from './http';
-import { matchKey } from '$lib/services/match-key';
-import { foldScript, foldScriptReady } from '$lib/services/zh-convert';
+import { matchKey } from '$lib/services/dedupe';
+import { foldScriptReady } from '$lib/services/zh-convert';
 import { scoreMatch } from '$lib/services/score-match';
 import type { Track } from '$lib/sources/types';
 
@@ -106,12 +106,6 @@ function rowTrack(row: JbsouRow, type: JbsouType): Track {
 	};
 }
 
-/** Both sides folded Traditional→Simplified before keying — scoreMatch's own discipline
- *  (its similarity() folds before matchKey; matchKey alone does NOT fold script). The fold is
- *  warm here: resolveViaJbsou awaits foldScriptReady before any row is keyed. */
-function foldedKey(artist: string, title: string): string {
-	return matchKey(foldScript(artist || ''), foldScript(title || ''));
-}
 
 /**
  * Acceptance floor for the matchKey tier. Every identity-set member scores SIM_EXACT (10)
@@ -132,10 +126,10 @@ export function pickJbsouRow(rows: JbsouRow[], want: JbsouWant, type: JbsouType)
 		const byId = rows.find((r) => r.songid === want.id);
 		if (byId) return byId;
 	}
-	const wantKey = foldedKey(want.artist, want.title);
+	const wantKey = matchKey(want.artist, want.title);
 	if (!want.title || wantKey === '|') return null;
 	const q = { artist: want.artist || '', title: want.title || '' };
-	const identity = rows.filter((r) => foldedKey(r.artist, r.name) === wantKey);
+	const identity = rows.filter((r) => matchKey(r.artist, r.name) === wantKey);
 	if (identity.length === 0) return null;
 	identity.sort((a, b) => scoreMatch(q, rowTrack(b, type)) - scoreMatch(q, rowTrack(a, type)));
 	const best = identity[0];

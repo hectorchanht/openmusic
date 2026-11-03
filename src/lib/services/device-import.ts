@@ -24,7 +24,7 @@ import type { Track } from '$lib/sources/types';
 import { deviceUid, isDeviceUid, rowToTrack, type ScanRow } from './device-track';
 import { isNonSongFile } from './non-song';
 import { extOf, parseFilename, type ImportRules } from './device-filename';
-import { matchKey } from './match-key';
+import { matchKey } from './dedupe';
 
 /** Rows per scanAudio page (RESEARCH Pitfall 9 — ~125 KB of bridge payload; tune on device). */
 export const SCAN_PAGE_SIZE = 500;

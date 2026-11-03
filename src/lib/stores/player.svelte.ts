@@ -35,7 +35,7 @@ import { buildDiversePicks } from '$lib/services/picks';
 import { buildSimilarQueue } from '$lib/services/similar';
 import { buildOfflineQueue } from '$lib/services/downloads-queue';
 import { shouldAdoptDownloaded } from '$lib/services/download-upgrade';
-import { dedupeBest, sameSongKey } from '$lib/services/dedupe';
+import { dedupeBest, sameSongKey, matchKey, songKey } from '$lib/services/dedupe';
 import { overPrebufferCeiling } from '$lib/services/prebuffer-ceiling';
 import {
 	buildArtwork,
@@ -56,7 +56,6 @@ import { coverPickKeys, fetchCoverPick } from '$lib/services/cover-pick-shared';
 import { resolveCoverForTrack, collectCoverCandidates } from '$lib/services/cover-backfill';
 import { markCoverUrlDead, unmarkCoverUrlDead, isCoverUrlDead } from '$lib/services/dead-cover-urls';
 import { itunesSongCover, DISPLAY_ARTWORK_SIZE } from '$lib/services/itunes-cover';
-import { matchKey } from '$lib/services/match-key';
 
 // quick-261020-itn1: Netease covers via the meting pic proxy (see lazyCover.ts). Shared predicate
 // so the player and lazyCover agree on what "a Netease cover" means.
@@ -141,8 +140,6 @@ export interface PendingTrack {
 	cover: string | null;
 }
 
-/** U+241F SYMBOL FOR UNIT SEPARATOR — a separator that cannot appear in a real title/artist. */
-const PENDING_KEY_SEP = '␟';
 
 /**
  * Store→UI notice channel (PLAY-08 / D-02, D-04, D-05). The never-stop chain ORIGINATES inside
@@ -3976,7 +3973,7 @@ class Player {
 		context: QueueContext = null,
 		opts: { sameList?: boolean } = {}
 	): Promise<Track | null> {
-		const key = `${artist}${PENDING_KEY_SEP}${title}`.toLowerCase().trim();
+		const key = songKey(artist, title); // quick-261102-sjg: the song identity, not a lowercase copy
 
 		// Dedupe: same song tapped again while its resolve is still in flight → no-op.
 		// "In flight" = a pendingTrack still showing (it is cleared on success/miss/supersede).
@@ -5488,10 +5485,11 @@ class Player {
 	 * existing error. Never throws — tryFallback() is defensively wrapped.
 	 */
 	/** Normalized title+artist key identifying a logical song for the per-episode attempted set
-	 *  (CR-03). Lowercased/trimmed; the exact normalization grain doesn't matter as long as the
-	 *  same song hashes the same across its cross-source variants (which share title+artist). */
+	 *  (CR-03). quick-261102-sjg: THE song identity (songKey) — the old lowercase-only key split a
+	 *  繁/简 cross-source swap (joox 周杰倫 → qq 周杰伦) into two episodes, so the second episode
+	 *  started a fresh attempted set and could re-try sources the first already burned. */
 	private episodeKey(t: Track): string {
-		return `${t.artist}${PENDING_KEY_SEP}${t.title}`.toLowerCase().trim();
+		return songKey(t.artist, t.title);
 	}
 
 	private async runFallback(failed: Track) {

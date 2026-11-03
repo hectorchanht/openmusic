@@ -208,7 +208,7 @@ describe('strip toggles', () => {
 		expect(out.title).toBe('Hello (Live) [Official MV]');
 	});
 
-	it('strips CJK brackets with the match-key.ts:26 regex', () => {
+	it('strips CJK brackets with the dedupe.ts matchKey:26 regex', () => {
 		const out = parseFilename('周杰倫 - 晴天【KTV】.mp3', rules({ stripBrackets: true }), null);
 		expect(out.title).toBe('晴天');
 		expect(out.artist).toBe('周杰倫');

@@ -127,20 +127,67 @@ function key(t: Track): string {
  * above: a persisted caller must ensure the t2s dict is warm first (comments.ts does).
  */
 export function songKey(artistIn: string, titleIn: string): string {
-	const pre = (s: string) =>
-		foldScript(s || '')
-			.toLowerCase()
-			.replace(/[（(【\[].*?[)）\]】]/g, ' ') // drop (Live) / [Remaster] / 【...】
-			.replace(/\s*-\s*(remaster|live|acoustic|explicit|feat\.?|ft\.?).*$/i, ' ');
-	const strip = (s: string) => s.replace(/[^\p{L}\p{N}]+/gu, '').trim(); // strip all punctuation/space (keeps CJK + latin + digits)
-	const artist = strip(pre(artistIn));
-	let title = pre(titleIn);
+	const artist = normField(artistIn);
+	let title = preNorm(titleIn);
 	// "<own artist> - <title>" (ytmusic video uploads): drop the prefix only when it IS this row's artist.
 	const dash = title.indexOf(' - ');
-	if (artist && dash > 0 && strip(title.slice(0, dash)) === artist && title.slice(dash + 3).trim()) {
+	if (artist && dash > 0 && stripPunct(title.slice(0, dash)) === artist && title.slice(dash + 3).trim()) {
 		title = title.slice(dash + 3);
 	}
-	return `${strip(stripTranslation(title))}|${artist}`;
+	return `${stripPunct(stripTranslation(title))}|${artist}`;
+}
+
+// quick-261102-sjg (DECISIONS.md §1): the field pre-normalizer every identity key shares —
+// script fold (zh-convert foldScript), lowercase, bracket groups, the dash tail
+// (remaster/live/acoustic/explicit/feat/ft) AND a bare feat. tail ("Song feat. X",
+// "A ft. B"), which only the bracket/dash forms caught before.
+function preNorm(s: string): string {
+	return foldScript(s || '')
+		.toLowerCase()
+		.replace(/[（(【\[].*?[)）\]】]/g, ' ') // drop (Live) / [Remaster] / 【...】
+		.replace(/\s*-\s*(remaster|live|acoustic|explicit|feat\.?|ft\.?).*$/i, ' ')
+		.replace(/\s+(?:feat\.?|ft\.)\s.*$/i, ' ');
+}
+
+/** strip all punctuation/space (keeps CJK + latin + digits) */
+function stripPunct(s: string): string {
+	return s.replace(/[^\p{L}\p{N}]+/gu, '').trim();
+}
+
+/**
+ * quick-261102-sjg: ONE field of the identity — what songKey's artist half is. Replaces
+ * dedupe.ts matchKey `norm` (which never folded script and missed the bare feat. tail) for every
+ * single-field comparison (names alias maps, name-rescue).
+ */
+export function normField(s: string): string {
+	return stripPunct(preNorm(s));
+}
+
+/**
+ * quick-261102-sjg (DECISIONS.md §1): the ARTIST-FIRST spelling of songKey — the same identity
+ * (fold, brackets, tails, own-artist prefix, translation strip), only the halves swapped. Kept as
+ * a separate export because its `artist|title` STRING is the persisted format of the cover cache,
+ * name-rescue cache, edge resolve cache and og resolve key. Was dedupe.ts matchKey (unfolded, no
+ * translation strip) — the divergence that lost cover art across a 繁/简 fallback swap.
+ * Empty inputs yield '|'.
+ */
+export function matchKey(artist: string, title: string): string {
+	const k = songKey(artist ?? '', title ?? '');
+	const i = k.indexOf('|');
+	return `${k.slice(i + 1)}|${k.slice(0, i)}`;
+}
+
+/**
+ * Phase 40 (user decision at the 40-08 checkpoint): like matchKey but KEEPS version markers —
+ * "晴天 (Live)", "Song - Remix", "[Acoustic]" each stay distinct from the studio title. Only case,
+ * whitespace and punctuation fold. Used ONLY by the crowd-shared cover pick (its `n` hash and the
+ * local `crowd:name:` entry), because a listener's cover choice for a live cut must not repaint the
+ * studio recording. quick-261102-sjg: moved here from dedupe.ts matchKey UNCHANGED — its output is a
+ * server-persisted vote key, so it deliberately does not take the identity fold.
+ */
+export function versionedMatchKey(artist: string, title: string): string {
+	const fold = (s: string) => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+	return `${fold(artist)}|${fold(title)}`;
 }
 
 /**

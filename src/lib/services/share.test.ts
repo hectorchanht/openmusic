@@ -20,7 +20,7 @@ import {
 	shareOrigin
 } from './share';
 import { coverUrlFromToken } from '$lib/proxy/og-cover';
-import { matchKey } from '$lib/services/match-key';
+import { matchKey } from '$lib/services/dedupe';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 
 function mk(source: SourceId, songid: string, title: string, artist: string): Track {

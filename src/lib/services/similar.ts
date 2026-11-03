@@ -15,9 +15,8 @@
 // The Last.fm key stays server-side; this client module only ever sees the clean
 // { tracks: [...] } / { artists: [...] } shapes (threat T-26-03-01).
 import { searchAll } from '$lib/services/catalog';
-import { dedupeBest } from '$lib/services/dedupe';
+import { dedupeBest, matchKey } from '$lib/services/dedupe';
 import { deezerRelatedArtists, deezerArtistRadio } from '$lib/services/deezer';
-import { matchKey } from '$lib/services/match-key';
 import { settings } from '$lib/stores/settings.svelte';
 import { cached } from '$lib/services/ttl-cache';
 import { apiFetch } from '$lib/services/api-base';

@@ -7,7 +7,7 @@
 //
 // 34-D-01: `device:` is an identity NAMESPACE, not a source. This module is the ONLY place the
 // `'device:'` string literal may appear (outside its own test) — the same single-owner discipline
-// match-key.ts has over normalization. Everything else asks `isDeviceUid()`.
+// dedupe.ts matchKey has over normalization. Everything else asks `isDeviceUid()`.
 //
 // `source: 'kuwo'` on an emitted Track is a PLACEHOLDER that is never dispatched. Precedent:
 // similar.ts:140 mints name-stubs with `source` set to a placeholder and relies on a short-circuit

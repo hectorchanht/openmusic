@@ -29,7 +29,7 @@
 //      `readCoverByUidOrName(uid, artist, title)` IN, so the CALL SITE takes the `coverVersion()`
 //      dependency (its row repaints the instant a cover lands anywhere) while this module stays a
 //      pure `.ts` — no runes, no store, no cache import, node-Vitest-testable like
-//      upnext-covers.ts / match-key.ts.
+//      upnext-covers.ts / dedupe.ts matchKey.
 //   3. `resolved` — the surface's component-local lazyCover result. Ranks below the cache now: a
 //      newer cross-surface write (the cache rung) must win over this row's older one-shot result —
 //      that staleness was the other half of the "row shows A while the nowbar shows B" report. (The

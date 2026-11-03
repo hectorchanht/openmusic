@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { __resetGovernor } from '$lib/services/api-base';
-import { matchKey } from '$lib/services/match-key';
+import { matchKey } from '$lib/services/dedupe';
 import { coverPickKeys, fetchCoverPick, submitCoverPick } from './cover-pick-shared';
 
 // Phase 40 D-13 / D-16 — the never-throw client side of the shared cover pick.

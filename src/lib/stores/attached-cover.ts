@@ -35,7 +35,7 @@
 // IDENTITY: `uid` is untouched, so setListQueue's re-anchor (uid first, then same-song key —
 // album-and-next-song-bug) is unaffected. Zero network — pure data.
 import type { Track } from '$lib/sources/types';
-import { matchKey } from '$lib/services/match-key';
+import { matchKey } from '$lib/services/dedupe';
 import { hasHttpsScheme } from '$lib/services/url-safety';
 
 

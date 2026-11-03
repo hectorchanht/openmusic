@@ -178,9 +178,9 @@ const PRESET_PATTERNS: Record<PresetId, RegExp> = {
 // keeps "24K Magic" and "2 Become 1" intact — use the {track}. {title} preset for numbered lists.
 const TRACK_NO = /^\d{1,3}\s*[.\-]\s*/;
 
-// Lifted verbatim from services/match-key.ts:26 — do not author a third bracket regex. Lines 27-28
+// Lifted verbatim from services/dedupe.ts preNorm — do not author a third bracket regex. Lines 27-28
 // of that chain (feat.-suffix strip, punctuation strip) are deliberately NOT applied here because
-// parsing must preserve DISPLAY text: match-key normalizes for comparison, this produces the string
+// parsing must preserve DISPLAY text: matchKey normalizes for comparison, this produces the string
 // a user will read in their library.
 const BRACKETS = /[（(【\[].*?[)）\]】]/g;
 

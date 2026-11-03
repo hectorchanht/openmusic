@@ -11,34 +11,20 @@
 // This is OPT-IN — existing callers keep using sync `dedupeBest`. The search page uses this
 // wrapper after first-paint to improve quality picks without blocking the first frame.
 
-import { dedupeBest } from './dedupe';
 import { deezerSearchTopN, type DeezerHit } from './deezer';
 import { mapWithConcurrency } from './discovery';
 import type { SourceId, Track } from '$lib/sources/types';
+import { dedupeBest, songKey, normField as sharedNormField } from './dedupe';
 
 // Concurrency cap for Deezer enrichment lookups (mirrors the home-page FANOUT_CAP and stays
 // well under the 50 req / 5s Deezer rate limit).
 const DEEZER_FANOUT = 3;
 
-/** Same normalization key dedupe.ts uses (kept in sync). Local copy because dedupe.ts doesn't
- *  export the helper (pure-internal). When dedupe.ts changes the key, mirror it here. */
-function key(t: Track): string {
-	const norm = (s: string) =>
-		(s || '')
-			.toLowerCase()
-			.replace(/[（(【\[].*?[)）\]】]/g, ' ')
-			.replace(/\s*-\s*(remaster|live|acoustic|explicit|feat\.?|ft\.?).*$/i, ' ')
-			.replace(/[^\p{L}\p{N}]+/gu, '')
-			.trim();
-	return `${norm(t.title)}|${norm(t.artist)}`;
-}
-
-function normField(s: string | null | undefined): string {
-	return (s || '')
-		.toLowerCase()
-		.replace(/[（(【\[].*?[)）\]】]/g, ' ')
-		.replace(/[^\p{L}\p{N}]+/gu, '');
-}
+// quick-261102-sjg (DECISIONS.md §1): the local copy of dedupe's key() (which had drifted — no
+// script fold, no translation strip, no own-artist prefix) is gone; groups are matched with the
+// SAME songKey dedupeBest merged them by, and fields compare via the shared normField.
+const key = (t: Track): string => songKey(t.artist, t.title);
+const normField = (s: string | null | undefined): string => sharedNormField(s ?? '');
 
 /**
  * Score how closely a candidate Track's metadata matches a Deezer "ground truth" hit.

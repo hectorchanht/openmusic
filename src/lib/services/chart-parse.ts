@@ -11,9 +11,9 @@
 // (the edge binds `safeImageUrl` + the per-source host allowlist).
 //
 // Pure module: no runes, no `$state`, no `$app/*`, no store imports — imported by BOTH the edge proxy
-// and the client, and node-Vitest-testable like match-key.ts.
+// and the client, and node-Vitest-testable like dedupe.ts matchKey.
 import type { DiscoveryTrack, DiscoveryArtist } from '$lib/services/lastfm';
-import { matchKey } from '$lib/services/match-key';
+import { matchKey } from '$lib/services/dedupe';
 
 /** An album-chart row (Apple RSS `most-played/albums`). */
 export interface ChartAlbum {

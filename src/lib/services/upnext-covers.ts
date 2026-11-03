@@ -16,8 +16,8 @@
 //   - the tile's cover read order now lives in row-cover.ts `pickRowCover` (quick-260910-qwt): it was
 //     generalised out of here once EVERY row surface (search, library, artist, CompactRow, Related)
 //     adopted the same three-rung read, so it is no longer Up-Next-specific.
-// Pure `.ts`: no runes, no store import, no cache read — node-Vitest-testable like match-key.ts.
-import { matchKey } from '$lib/services/match-key';
+// Pure `.ts`: no runes, no store import, no cache read — node-Vitest-testable like dedupe.ts matchKey.
+import { matchKey } from '$lib/services/dedupe';
 import type { CoverNeed } from '$lib/services/cover-backfill';
 import type { Track } from '$lib/sources/types';
 import { hasHttpsScheme } from './url-safety';

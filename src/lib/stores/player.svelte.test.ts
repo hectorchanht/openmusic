@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
-import { matchKey } from '$lib/services/match-key';
+import { matchKey } from '$lib/services/dedupe';
 
 // FIX-A: player.playStub is the optimistic resolve-on-tap path. A discovery tile is a
 // Last.fm {artist,title} stub (NOT a Track), so it must be resolved via resolveStub

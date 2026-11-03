@@ -30,6 +30,7 @@ import {
 	urlIsFresh
 } from '$lib/proxy/resolve-cache';
 import { resolveOnEdge, resolveUrlOnEdge } from '$lib/proxy/resolve-edge';
+import { ensureFoldReady } from '$lib/services/zh-convert';
 
 /** Ceiling on the whole background fill (32-D-10: ONE qq search). Bounded — nobody is waiting. */
 const FILL_TIMEOUT_MS = 8000;
@@ -51,6 +52,9 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
 	if (!a && !t) return jsonResult({ hit: false }, origin);
 
 	const cache = edgeCache();
+	// quick-261102-sjg: the key is script-folded (matchKey = identity) — warm the fold first or a
+	// cold isolate keys 周杰倫 apart from the warm isolate's 周杰伦.
+	await ensureFoldReady();
 	const key = resolveCacheKey(url.origin, a, t);
 
 	// THREE-VALUED: a defined value (including a stored known-none) is a HIT. The stored copy is
@@ -148,6 +152,7 @@ export const POST: RequestHandler = async ({ url, request }) => {
 	if (!a && !t) return jsonResult({ busted: false }, origin);
 
 	// Same key builder as the GET, so a bust can only ever hit the entry the GET wrote.
+	await ensureFoldReady(); // quick-261102-sjg: same warm fold as the GET
 	const busted = await bustResolveEntry(edgeCache(), resolveCacheKey(url.origin, a, t));
 	return jsonResult({ busted }, origin);
 };

@@ -8,9 +8,8 @@ import { makeUid, type SourceId, type Track, type SettledSourceResult } from '$l
 import type { DefaultQuality } from '$lib/stores/settings.svelte';
 import { sleep } from '$lib/proxy/http';
 import { cached, evictCached, __clearSearchCache } from './ttl-cache';
-import { matchKey } from './match-key';
+import { matchKey, sameSongKey, sameSongByCredit } from './dedupe';
 import { scoreMatch } from './score-match';
-import { sameSongKey, sameSongByCredit } from './dedupe';
 import { rankAcceptable, isAcceptableSubstitute, isAutoAcceptableArtist } from './song-variant';
 import { readResolveCache, registerServedResolve } from './resolve-cache-client';
 import { logAction } from '$lib/stores/actionLog.svelte';

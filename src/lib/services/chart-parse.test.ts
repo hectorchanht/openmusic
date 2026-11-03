@@ -11,7 +11,7 @@ import {
 	fuseCharts
 } from './chart-parse';
 import type { DiscoveryTrack } from '$lib/services/lastfm';
-import { matchKey } from '$lib/services/match-key';
+import { matchKey } from '$lib/services/dedupe';
 import {
 	safeImageUrl,
 	APPLE_IMAGE_HOSTS,

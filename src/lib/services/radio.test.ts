@@ -29,7 +29,7 @@ import {
 import { shuffle, seededRng } from './shuffle';
 import { fetchSimilarTracks } from '$lib/services/similar';
 import { deezerArtistRadio } from '$lib/services/deezer';
-import { matchKey } from './match-key';
+import { matchKey } from './dedupe';
 import type { HistoryEntry } from '$lib/history/history-logic';
 import type { Track } from '$lib/sources/types';
 

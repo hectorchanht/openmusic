@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeSetContext, LYRIC_MIN_HAN, type SetContext } from './score-context';
-import { matchKey } from './match-key';
+import { matchKey } from './dedupe';
 import { warmScript } from './zh-convert';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 

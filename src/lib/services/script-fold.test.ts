@@ -3,7 +3,7 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { warmScript, foldScript } from '$lib/services/zh-convert';
 import { songKey } from '$lib/services/dedupe';
-import { aliasCoverCacheKey } from '$lib/services/cover-cache';
+import { coverCacheKey } from '$lib/services/cover-cache';
 import { foldArtistName } from '$lib/sync/merge-logic';
 import { searchAll, __clearSearchCache } from '$lib/services/catalog';
 import { SOURCES } from '$lib/sources/registry';
@@ -61,8 +61,8 @@ describe('search keyword script — product call 2026-11-03: fold to Simplified,
 });
 
 describe('one fold algorithm — per character, kana/hangul lines untouched', () => {
-	it('cover alias key folds script only (no regional vocabulary swap)', () => {
-		expect(aliasCoverCacheKey('', '緊急聯絡人')).toContain('紧急联络人');
+	it('cover key folds script only (no regional vocabulary swap)', () => {
+		expect(coverCacheKey('', '緊急聯絡人')).toContain('紧急联络人');
 		expect(foldScript('緊急聯絡人')).toBe('紧急联络人');
 	});
 

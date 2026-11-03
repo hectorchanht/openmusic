@@ -10,7 +10,7 @@
 // This module holds the PURE predicates + pairing rules + the bounded localStorage cache; the
 // never-throw fetch orchestrator sits at the bottom. No runes, no `$app/*` — node-testable.
 import { detectLang } from '$lib/i18n/detect';
-import { matchKey, norm } from '$lib/services/match-key';
+import { matchKey, normField as norm } from '$lib/services/dedupe';
 import { apiFetch } from '$lib/services/api-base';
 import { combinedSignal } from '$lib/services/abort-signal';
 import { parseSearchEnvelope } from '$lib/sources/ytmusic';

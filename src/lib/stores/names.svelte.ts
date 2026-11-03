@@ -43,7 +43,7 @@ import { shouldTranslate } from '$lib/i18n/detect';
 import { isChineseLine, s2tConvertLineSync, lockScriptSync, warmScript, type ZhScript } from '$lib/services/zh-convert';
 import { readRescueHits, onRescueHit, type ZhName } from '$lib/services/name-rescue';
 import { lockEntityHref } from '$lib/services/entity-href';
-import { matchKey, norm } from '$lib/services/match-key';
+import { matchKey, normField as norm } from '$lib/services/dedupe';
 import { splitArtists } from '$lib/util/artist-split';
 
 // Bump to abandon all previously-persisted (possibly poisoned) name translations.

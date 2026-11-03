@@ -11,11 +11,11 @@
 // Graceful degrade (D-03): null → caller shows unplayable / skips, never breaks the
 // surface or the player. catalog.ts / dedupe.ts are pure reuse — NOT modified here.
 import { searchAll } from '$lib/services/catalog';
-import { dedupeBest } from '$lib/services/dedupe';
+import { dedupeBest, normField } from '$lib/services/dedupe';
 import { pickOfficial, partitionOfficial, isAutoAcceptableArtist } from '$lib/services/song-variant';
 import { tier1Only } from '$lib/sources/registry';
 import { scoreMatch } from '$lib/services/score-match';
-import { isChineseLine, ensureFoldReady, foldScript, foldScriptReady } from '$lib/services/zh-convert';
+import { isChineseLine, ensureFoldReady, foldScriptReady } from '$lib/services/zh-convert';
 import { detectLang } from '$lib/i18n/detect';
 import { isStrongMatch, lookupChineseName, type ZhName } from '$lib/services/name-rescue';
 import { settings } from '$lib/stores/settings.svelte';
@@ -90,17 +90,14 @@ async function attempt(
 }
 
 /**
- * quick-260926-c69 — isStrongMatch with Traditional/Simplified folded on BOTH sides. Raw compare
- * first; the fold (zh-convert foldScript, the one identity fold — quick-261102-sdm) is warmed
- * only when that fails AND a string carries Chinese, so Latin/JA/KO and strong-CJK common paths
- * stay cold. Never throws.
+ * quick-260926-c69 — isStrongMatch with Traditional/Simplified folded on BOTH sides. isStrongMatch
+ * compares through the identity field normalizer (dedupe normField, script-folded since
+ * quick-261102-sjg), so this only guarantees the fold is warm when a string carries Chinese —
+ * Latin/JA/KO paths never load the dict. Never throws.
  */
 async function strongFolded(query: ZhName, cand: ZhName): Promise<boolean> {
-	if (isStrongMatch(query, cand)) return true;
-	if (![query.artist, query.title, cand.artist, cand.title].some(isChineseLine)) return false;
-	await ensureFoldReady();
-	const f = (n: ZhName): ZhName => ({ artist: foldScript(n.artist), title: foldScript(n.title) });
-	return isStrongMatch(f(query), f(cand));
+	if ([query.artist, query.title, cand.artist, cand.title].some(isChineseLine)) await ensureFoldReady();
+	return isStrongMatch(query, cand);
 }
 
 /**
@@ -131,8 +128,9 @@ export async function preferEligible(query: ZhName, bests: Bests): Promise<Track
 	// that plays the wrong song (e.g. 說了再見 → 擱淺). The folded titles must share
 	// significant overlap, otherwise return null and let the caller handle the miss.
 	if (fallback) {
-		const qTitle = foldScript(query.title || '').toLowerCase().replace(/\s+/g, '');
-		const cTitle = foldScript(fallback.title || '').toLowerCase().replace(/\s+/g, '');
+		// quick-261102-sjg: the identity's field normalizer, not a local fold + lowercase copy.
+		const qTitle = normField(query.title || '');
+		const cTitle = normField(fallback.title || '');
 		// Titles match if one contains the other, or they share >= 50% of the query's chars.
 		const contains = qTitle && cTitle && (qTitle.includes(cTitle) || cTitle.includes(qTitle));
 		if (!contains) {
@@ -248,7 +246,7 @@ async function rescueLatin(artist: string, title: string): Promise<Track | null>
 	const t2 = await foldScriptReady(zh.title);
 	return (
 		await attempt(a2, t2, (c) =>
-			isStrongMatch({ artist: a2, title: t2 }, { artist: foldScript(c.artist), title: foldScript(c.title) })
+			isStrongMatch({ artist: a2, title: t2 }, c)
 		)
 	).eligible;
 }

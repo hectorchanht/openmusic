@@ -13,9 +13,8 @@
 // row count (5 rows from one source is still size 1).
 //
 // PURE + import-light (only matchKey + the SourceId/Track types): no $state, no $app/*, no I/O.
-// node-Vitest-testable exactly like score-match.ts / match-key.ts.
-import { matchKey } from '$lib/services/match-key';
-import { titleKey } from '$lib/services/dedupe';
+// node-Vitest-testable exactly like score-match.ts / dedupe.ts matchKey.
+import { matchKey, titleKey } from '$lib/services/dedupe';
 import type { SourceId, Track } from '$lib/sources/types';
 
 export interface SetContext {

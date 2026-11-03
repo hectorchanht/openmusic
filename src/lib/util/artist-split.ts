@@ -1,7 +1,7 @@
 // artist-split — split a combined artist string into individual artist names.
 //
 // Pure module: no runes, no `$state`, no `$app/*`, no DOM — node-Vitest-testable
-// like src/lib/services/match-key.ts. Used by NowPlaying to render one tappable
+// like src/lib/services/dedupe.ts (matchKey). Used by NowPlaying to render one tappable
 // link PER artist (each navigating to that sole artist's page).
 //
 // Connectors recognised (order-preserving, deduped, empties dropped):

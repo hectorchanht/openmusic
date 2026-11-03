@@ -61,7 +61,8 @@ import type { EdgeCache } from '$lib/proxy/edge-cache';
 import { OG_RESOLVE_MS, coverUrlFromToken, isOgType, resolveCoverTiered } from '$lib/proxy/og-cover';
 import type { OgType } from '$lib/proxy/og-cover';
 import { OG_FALLBACK_BYTES, OG_FALLBACK_TYPE } from '$lib/proxy/og-fallback';
-import { matchKey } from '$lib/services/match-key';
+import { matchKey } from '$lib/services/dedupe';
+import { ensureFoldReady } from '$lib/services/zh-convert';
 
 /** 24 h, `immutable` (a client hint, RFC 8246) — a cover for a given song does not change. */
 const TTL = 86400;
@@ -309,6 +310,7 @@ export const GET: RequestHandler = async ({ url, request, platform }) => {
 
 		// LAYER 1 (resolve) — NORMALIZED synthetic own-origin key: matchKey() strips case, spaces and
 		// punctuation, so query-order variants AND the hyphen-for-space share loss share one entry.
+		await ensureFoldReady(); // quick-261102-sjg: matchKey folds script — never key cold
 		const resolveKey = ownOriginCacheKey(
 			`${url.origin}/api/og/_resolve?k=${encodeURIComponent(matchKey(artist, title))}&t=${type}`
 		);

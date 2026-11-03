@@ -13,7 +13,7 @@ import {
 } from './device-import';
 import { DEFAULT_IMPORT_RULES, type ImportRules } from './device-filename';
 import { deviceUid, type ScanRow } from './device-track';
-import { matchKey } from './match-key';
+import { matchKey } from './dedupe';
 import type { Track } from '$lib/sources/types';
 
 /** Sensible-default ScanRow so each case below stays a one-liner. */

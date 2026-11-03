@@ -36,7 +36,8 @@
 // Same `+server.ts`-may-only-export-verbs reason as resolve-cache.ts for living in $lib.
 import { qqProxy } from './qq';
 import { fetchWithRetry } from './http';
-import { matchKey } from '$lib/services/match-key';
+import { matchKey } from '$lib/services/dedupe';
+import { ensureFoldReady } from '$lib/services/zh-convert';
 import { RESOLVE_URL_TTL_S, type ResolveEntry } from './resolve-cache';
 
 /** Extra attempts after the first. A background fill does not deserve a long backoff. */
@@ -106,6 +107,7 @@ export async function resolveOnEdge(
 
 		// matchKey — never a local lowercase/strip — so the edge normalizes IDENTICALLY to the
 		// client's dedupe, cover cache and lyric fallback, and to resolveCacheKey's key folding.
+		await ensureFoldReady(); // quick-261102-sjg: matchKey folds script — never key cold
 		const want = matchKey(artist, title);
 		const row = (rows as QQSearchRow[]).find(
 			(r) => matchKey(String(r?.singer_name ?? ''), String(r?.song_title ?? '')) === want

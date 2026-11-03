@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
-import { matchKey } from '$lib/services/match-key';
+import { matchKey } from '$lib/services/dedupe';
 import { seedCover, buildAttachment } from './attached-cover';
 
 // quick-260910-piz: the album-scoped generalisation of quick-260831-t2g. Both helpers are pure

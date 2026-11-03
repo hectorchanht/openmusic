@@ -5,7 +5,7 @@ import { shouldSuppressClick } from './dragScroll';
 // pure tap-vs-drag threshold helper is unit-tested here (the DOM pointer drag itself is
 // exercised manually). shouldSuppressClick decides whether a release counts as a DRAG (so
 // the following click is suppressed and a shelf-drag never plays a song) vs a TAP (let the
-// tile onclick through). Mirrors the velocity.test.ts / match-key.test.ts node style.
+// tile onclick through). Mirrors the velocity.test.ts / identity.test.ts node style.
 describe('shouldSuppressClick — drag-vs-tap threshold (FIX-B)', () => {
 	it('a zero-movement release is a tap → no suppression', () => {
 		expect(shouldSuppressClick(0)).toBe(false);

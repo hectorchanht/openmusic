@@ -4,7 +4,7 @@
 
 import { apiFetch } from '$lib/services/api-base';
 import { sha256hexN } from '$lib/auth/auth-core';
-import { versionedMatchKey } from '$lib/services/match-key';
+import { versionedMatchKey } from '$lib/services/dedupe';
 import { isDeviceUid } from '$lib/services/device-track';
 import { pickQuery } from '$lib/proxy/cover-pick';
 import { safeImageUrl, COVER_PICK_IMAGE_HOSTS } from '$lib/proxy/safe-image-url';
