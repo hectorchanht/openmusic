@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { scrollBehavior } from '$lib/motion';
 	// ShelfChevrons — quick-260919-et3. Desktop-only sideways paging for a horizontal shelf.
 	//
 	// On touch a shelf scrolls natively and use:dragScroll already covers click-drag on a mouse;
@@ -75,10 +76,10 @@
 		if (!target) return;
 		const { scrollLeft, clientWidth, scrollWidth } = target;
 		// D-9: reduced motion turns the smooth page into an instant jump. Same destination.
-		const reduce = browser && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+		// quick-261102-u4t: the ONE reduce-motion decision (app flag OR OS) — this read the OS query only.
 		target.scrollTo({
 			left: nextScrollLeft(scrollLeft, clientWidth, scrollWidth, dir),
-			behavior: reduce ? 'auto' : 'smooth'
+			behavior: scrollBehavior()
 		});
 	}
 </script>

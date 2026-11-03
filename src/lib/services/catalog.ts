@@ -551,7 +551,10 @@ async function resolveTrackDetails(
 	// settings.downloadQuality) so download resolves never mutate the global streaming default.
 	// 32-D-10: `fromMid` short-circuits the dispatch but deliberately keeps the crossSourceLyric tail
 	// below, so a mid hit gets the SAME lyric completeness a cold resolve does.
-	const resolved = fromMid ?? (await SOURCES[track.source].resolve(track, sig, quality));
+	// quick-261102-u4t (DECISIONS.md §14): adapters get the RESOLVED tier (effectiveQuality ran once
+	// above), never the raw pref — gdnetease tested `quality === 'lossless'` on an undefined/'auto'
+	// pref and always streamed 320, whatever the user's quality setting said.
+	const resolved = fromMid ?? (await SOURCES[track.source].resolve(track, sig, tier));
 
 	// quick-260629-nyl Task 3: bounded cross-source lyric fallback. The readiness guard treats a
 	// track with no lrcUrl and no lrc as "complete with no lyrics" and never re-resolves it, so a

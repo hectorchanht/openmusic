@@ -7,7 +7,7 @@
 	// the TrackMenu remove-download confirm precedent (scrim + fly transition + dragClose +
 	// focusTrap). Cancel and the scrim/drag/back all just close; only the explicit confirm
 	// button fires onconfirm.
-	import { fly } from 'svelte/transition';
+	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
 	import { dragClose } from '$lib/actions/dragClose';
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { tapBounce } from '$lib/actions/tapBounce';

@@ -7,7 +7,7 @@
 	// and the user picks one of three resolutions. NOT dismissible — scrim, drag and back
 	// do nothing; the three buttons are the only exits (they cover every outcome).
 	// Mounted ONCE in the root layout, ungated, driven one-way by auth.firstSyncPreview.
-	import { fly } from 'svelte/transition';
+	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';

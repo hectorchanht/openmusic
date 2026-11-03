@@ -8,7 +8,7 @@
 	// grandfathered pill values (env safe-area top, 999px radius) are exempt from the 8pt scale
 	// per UI-SPEC §1. The button is a native <button> inside the polite live region, so it is
 	// keyboard-focusable and announced with the message as one utterance.
-	import { fly } from 'svelte/transition';
+	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 </script>

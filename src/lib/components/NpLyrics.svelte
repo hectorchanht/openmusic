@@ -1,4 +1,5 @@
 <script module lang="ts">
+	import { scrollBehavior } from '$lib/motion';
 	// quick-260625-pzs-03: module-scoped (NOT per-instance) cache of COMPLETE lyric translations,
 	// keyed by the SAME `key` string the translate $effect computes (`${uid}:${lang}:${n}:${skip}`).
 	// Living at module scope means it survives a component remount / re-subscribe, so blurring and
@@ -348,8 +349,8 @@
 		const offsetWithin = elRect.top - cRect.top + container.scrollTop; // line top in container scroll-space
 		// quick-261102-s5t: reduce motion (app flag OR OS) jumps instead of gliding. Read here, after
 		// the early returns, so it is not a dependency of the anchor effect.
-		const reduce = settings.reduceMotion || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-		container.scrollTo({ top: offsetWithin - anchorWithin, behavior: reduce ? 'auto' : 'smooth' });
+		// quick-261102-u4t: the ONE reduce-motion decision ($lib/motion), not an inline copy.
+		container.scrollTo({ top: offsetWithin - anchorWithin, behavior: scrollBehavior() });
 	}
 
 	// quick-260919-npfix (Fix 3): how long to wait before re-anchoring after a sheet-state change.

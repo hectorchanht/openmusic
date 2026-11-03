@@ -6,7 +6,7 @@
 	// resolve-on-tap path the home shelves use.
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
-	import { fly } from 'svelte/transition';
+	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
 	import { Play, Download, ListPlus, Heart, Share2, Plus, X, Shuffle } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';

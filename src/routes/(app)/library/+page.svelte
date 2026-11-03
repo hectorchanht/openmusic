@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
-	import { fly } from 'svelte/transition';
+	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';

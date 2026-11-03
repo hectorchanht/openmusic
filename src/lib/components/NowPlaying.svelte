@@ -2,7 +2,7 @@
 	import { upNextWindowStart } from '$lib/services/upnext-scroll';
 	import { untrack } from 'svelte';
 	import { Spring } from 'svelte/motion';
-	import { fly, fade } from 'svelte/transition';
+	import { fly, fade } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
 	import { cubicOut } from 'svelte/easing';
 	import { goto } from '$app/navigation';
 	import { ChevronDown, MoreVertical, Heart, Clapperboard, Info, SkipBack, SkipForward, Play, Pause, Moon, ListMusic, MicVocal, MessageCircle, Sparkles, VolumeX, Volume1, Volume2 } from '@lucide/svelte';

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick, untrack, type Component } from 'svelte';
-	import { fly } from 'svelte/transition';
+	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
 	import { page } from '$app/state';
 	import { goto, afterNavigate, preloadCode } from '$app/navigation';
 	import { House, Search, Library, Settings, Heart, ListMusic, Download, Users, Clock, Radio } from '@lucide/svelte';

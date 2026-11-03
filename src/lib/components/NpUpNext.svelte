@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { scrollBehavior } from '$lib/motion';
 	import { untrack } from 'svelte';
 	import { GripVertical, Layers, Trash2 } from '@lucide/svelte';
 	import { player, SKIP_REASON_KEY } from '$lib/stores/player.svelte';
@@ -221,8 +222,8 @@
 			const cRect = container.getBoundingClientRect();
 			const offsetWithin = liRect.top - cRect.top + container.scrollTop;
 			// quick-261102-s5t: reduce motion (app flag OR OS) jumps instead of gliding.
-			const reduce = settings.reduceMotion || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-			container.scrollTo({ top: offsetWithin, behavior: reduce ? 'auto' : 'smooth' });
+			// quick-261102-u4t: the ONE reduce-motion decision ($lib/motion), not an inline copy.
+			container.scrollTo({ top: offsetWithin, behavior: scrollBehavior() });
 		});
 	});
 </script>

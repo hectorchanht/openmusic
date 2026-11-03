@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { tick, untrack, onDestroy } from 'svelte';
-	import { fly } from 'svelte/transition';
+	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
 	import { goto } from '$app/navigation';
 	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff, Pencil, Disc3, Radio, MessageCircle, ListMusic, ArrowDownToLine, RotateCcw } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';

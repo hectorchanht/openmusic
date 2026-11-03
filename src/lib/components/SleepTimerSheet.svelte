@@ -7,7 +7,7 @@
 	// It is mounted ONCE (ungated) in (app)/+layout.svelte so it is reachable whether the
 	// now-playing is collapsed (nowbar) or expanded (NowPlaying).
 	import { untrack } from 'svelte';
-	import { fly } from 'svelte/transition';
+	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
 	import { Moon } from '@lucide/svelte';
 	import { dragClose } from '$lib/actions/dragClose';
 	import { focusTrap } from '$lib/actions/focusTrap';

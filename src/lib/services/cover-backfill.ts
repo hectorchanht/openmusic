@@ -115,7 +115,7 @@ import {
 import { mapWithConcurrency } from '$lib/services/discovery';
 import { deezerSongCover, deezerArtistCover, deezerSearchTopN, downsizeDeezerCover } from '$lib/services/deezer';
 import { itunesSongCover, itunesArtistCover, DISPLAY_ARTWORK_SIZE } from '$lib/services/itunes-cover';
-import { onlySource, SOURCES } from '$lib/sources/registry';
+import { onlySource, SOURCES, isSourceEnabled } from '$lib/sources/registry';
 import { createHealthGate } from '$lib/services/source-health';
 import { combinedSignal } from '$lib/services/abort-signal';
 import { foldScriptReady } from '$lib/services/zh-convert';
@@ -284,6 +284,9 @@ async function qqSongCover(
 	signal?: AbortSignal
 ): Promise<string | null> {
 	if (qqCoverGate.isGated()) return null;
+	// quick-261102-u4t (DECISIONS.md §14): onlySource('qq') force-enables qq — honour the user's
+	// enabled-sources setting first (this tier searched + resolved qq even with qq switched off).
+	if (!isSourceEnabled('qq')) return null;
 	const s = combinedSignal(QQ_COVER_TIMEOUT_MS, signal);
 	try {
 		const r = await searchAll(`${artist} ${title}`, 1, onlySource('qq'), s);
@@ -751,6 +754,7 @@ export async function collectCoverCandidates(
 		// Phase 40 D-10 — QQ search rows carry no cover, so each of the top PER_TIER_CAP rows is
 		// detail-resolved (on a COPY — qq resolve mutates in place) to read its `album_pic`.
 		safe(async () => {
+			if (!isSourceEnabled('qq')) return []; // quick-261102-u4t: honour the enabled-sources setting
 			const r = await searchAll(term, 1, onlySource('qq'), signal);
 			const rows = dedupeBest(r.interleaved, settings.preferredSource).slice(0, PER_TIER_CAP);
 			const ds = await Promise.all(

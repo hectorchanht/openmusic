@@ -102,6 +102,12 @@ export const getEnabledAdapters = (
 	});
 };
 
+/** quick-261102-u4t (DECISIONS.md §14): is this source enabled by the user's settings? The one
+ *  question a direct per-source caller (e.g. the QQ cover tier) asks before bypassing the fan-out. */
+export function isSourceEnabled(id: SourceId): boolean {
+	return getEnabledAdapters({}).some((a) => a.id === id);
+}
+
 /**
  * A `prefs` object that enables EXACTLY one source and explicitly disables every other.
  *

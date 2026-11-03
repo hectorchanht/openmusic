@@ -19,7 +19,7 @@
 	// (the sponsored strip itself is English-only too).
 	import { untrack } from 'svelte';
 	import { onMount } from 'svelte';
-	import { fly } from 'svelte/transition';
+	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
 	import { Heart, HandCoins, Copy, Check } from '@lucide/svelte';
 	import { dragClose } from '$lib/actions/dragClose';
 	import { focusTrap } from '$lib/actions/focusTrap';

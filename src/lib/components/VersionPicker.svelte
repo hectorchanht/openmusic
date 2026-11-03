@@ -17,7 +17,7 @@
 	// overlays open/dismiss $effect with untrack), so the OS/browser Back gesture closes the sheet
 	// via the SINGLE dismiss path (host $effect cleanup is the ONLY overlays.dismiss caller).
 	import { untrack } from 'svelte';
-	import { fly } from 'svelte/transition';
+	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
 	import { names } from '$lib/stores/names.svelte';
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { dragClose } from '$lib/actions/dragClose';

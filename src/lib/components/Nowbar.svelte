@@ -18,7 +18,7 @@
         Volume2,
         VolumeX,
     } from "@lucide/svelte";
-    import { fade } from "svelte/transition";
+    import { fade } from "$lib/motion"; // quick-261102-u4t: reduce-motion aware
     import { player, fmtTime } from "$lib/stores/player.svelte";
     import { names } from "$lib/stores/names.svelte";
     import { settings } from "$lib/stores/settings.svelte";
