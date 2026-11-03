@@ -1883,15 +1883,17 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	.compact-skel-row { display: flex; align-items: center; gap: 8px; min-height: 44px; }
 	.cs-art { width: 40px; height: 40px; border-radius: 6px; flex: none; }
 	.cs-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-	.cs-bar { height: 11px; border-radius: 5px; }
+	/* quick-261102-syk: on the --radius-sm token (was an off-scale 5px). */
+	.cs-bar { height: 11px; border-radius: var(--radius-sm); }
 	.cs-bar-title { width: 62%; }
 	.cs-bar-sub { width: 40%; height: 9px; }
 	/* 39-D-38: per-shelf placeholder (UI-SPEC §1.7). The heading row copies .subhead-nav's box; the
 	   pile tile copies .album / .al-cover sizes; list and grid reuse the skeleton pager and .grid. */
 	.ph-head { min-height: 44px; display: flex; align-items: center; margin: 14px 16px 14px 0; }
-	.ph-bar { height: 12px; width: 40%; border-radius: 6px; }
+	.ph-bar { height: 12px; width: 40%; border-radius: var(--radius-sm); } /* quick-261102-syk: token, was 6px */
 	.ph-tile { flex: 0 0 calc(130px * var(--cover-scale, 1)); display: flex; flex-direction: column; gap: 4px; }
-	.ph-cover { width: calc(130px * var(--cover-scale, 1)); height: calc(130px * var(--cover-scale, 1)); border-radius: 10px; }
+	/* quick-261102-syk: 8px like .al-cover (see there). */
+	.ph-cover { width: calc(130px * var(--cover-scale, 1)); height: calc(130px * var(--cover-scale, 1)); border-radius: 8px; }
 	.ph-cover.round { border-radius: 50%; }
 	.section.compact .ph-tile { flex-basis: calc(96px * var(--cover-scale, 1)); }
 	.section.compact .ph-cover { width: calc(96px * var(--cover-scale, 1)); height: calc(96px * var(--cover-scale, 1)); }
@@ -1906,8 +1908,11 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 		position: relative;
 	}
 	/* quick-261102-sfc: Android 48dp touch floor (PRODUCT.md: APK is first-class); hit box only,
-	   glyph/circle unchanged. 40 + 2×4 = 48. */
-	.more::after, .retry::after { content: ''; position: absolute; inset: -4px; }
+	   glyph/circle unchanged.
+	   quick-261102-syk: the old "40 + 2×4 = 48" was wrong — app.css sets `* { box-sizing:
+	   border-box }`, so the 40px box includes the 1px border and an absolute ::after resolves
+	   against the 38px PADDING box: 38 + 2×4 = 46. Now 38 + 2×5 = 48. */
+	.more::after, .retry::after { content: ''; position: absolute; inset: -5px; }
 	.more:disabled { opacity: 0.55; cursor: default; }
 	/* :global(svg) — the svg is rendered by the Lucide component, same idiom as
 	   `.subhead-nav :global(.subhead-chev)` below. */
@@ -1929,7 +1934,10 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	/* MENU-03 / D-12: hover-capable devices only — a touch long-press otherwise latches the
 	   :active scale under the held finger while the track menu opens. */
 	@media (hover: hover) { .album:active { transform: scale(0.96); } }
-	.al-cover { position: relative; overflow: hidden; width: calc(130px * var(--cover-scale, 1)); height: calc(130px * var(--cover-scale, 1)); border-radius: 10px; background-size: cover; background-position: center; background-color: var(--color-surface-2); }
+	/* quick-261102-syk: 10px → 8px. DESIGN.md rounded.row = 8px and "covers 8px in the Nowbar": the
+	   130px pile cover is the mid-size cover scale; the full-bleed grid .tile (with overlay) stays on
+	   --radius-md 12px as the large-cover scale. */
+	.al-cover { position: relative; overflow: hidden; width: calc(130px * var(--cover-scale, 1)); height: calc(130px * var(--cover-scale, 1)); border-radius: 8px; background-size: cover; background-position: center; background-color: var(--color-surface-2); }
 	.al-cover.round { border-radius: 50%; }
 	/* w87: COMPACT density — tighter tiles + gaps so more fit per shelf row. Comfortable
 	   (the default) keeps the values above. The class is set on .section from
@@ -1961,10 +1969,17 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	/* MENU-03 / D-12: hover-capable devices only (see .album:active above). */
 	@media (hover: hover) { .tile:active { transform: scale(0.96); } }
 	.art { position: absolute; inset: 0; background-size: cover; background-position: center; }
-	.scrim { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 55%); }
-	.label { position: absolute; left: 7px; right: 7px; bottom: 6px; text-align: left; }
+	/* quick-261102-syk: the label band (2-line title + artist + 6px inset) covers ~the bottom 40% of a
+	   111px phone tile, where the old 0.8→0 @55% gradient had already thinned to ~0.35 — white text
+	   sat on near-raw art. Now a plateau holds ~0.8 through the band, then eases out. White over
+	   0.78-black on a pure-white cover leaves ≈0.22 luminance behind the text → ≈4:1 from the
+	   gradient alone; the .label text-shadow lifts that worst case past 4.5:1, and any darker art is
+	   comfortably above. Applies to every scrimmed .tile (discovery/album/library/fallback grids). */
+	.scrim { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.78) 40%, rgba(0,0,0,0) 78%); }
+	.label { position: absolute; left: 7px; right: 7px; bottom: 6px; text-align: left; text-shadow: 0 1px 2px rgba(0,0,0,0.7); }
 	.t-title { font-size: calc(0.6875rem * var(--fs-title, 1)); font-weight: 700; line-height: 1.2; color: #fff; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-	.t-artist { font-size: calc(0.625rem * var(--fs-artist, 1)); color: #d8d8de; margin-top: 2px; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	/* quick-261102-syk: full opacity — the colour carries the hierarchy; the 0.85 was eating contrast. */
+	.t-artist { font-size: calc(0.625rem * var(--fs-artist, 1)); color: #e4e4ea; margin-top: 2px; opacity: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	/* quick-261102-syk: top-LEFT — the top-right corner now belongs to the hover/focus ⋮ (.tilemenu). */
 	.q { position: absolute; top: 6px; left: 6px; font-size: 0.5rem; font-weight: 700; padding: 2px 5px; border-radius: 4px; background: rgba(0,0,0,0.55); color: #fff; }
 	/* quick-260618-goe: artist grid tile — round cover + centered name BELOW (no overlay/scrim),
@@ -2016,8 +2031,10 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	@media (hover: hover) { .tilewrap:hover .tilemenu { opacity: 1; visibility: visible; } }
 	.tilewrap:has(:focus-visible) .tilemenu { opacity: 1; visibility: visible; }
 	/* quick-261010-soy3: Songs of the Year region hub cards. */
+	/* quick-261102-syk: no horizontal padding — the section already carries the page gutter, so the
+	   extra 16px pushed the first card right of every shelf heading and .albumrow. */
 	.soy-regions {
-		display: flex; gap: 12px; overflow-x: auto; padding: 4px 16px 16px;
+		padding: 4px 0 16px; display: flex; gap: 12px; overflow-x: auto;
 		scrollbar-width: none;
 	}
 	.soy-regions::-webkit-scrollbar { display: none; }
