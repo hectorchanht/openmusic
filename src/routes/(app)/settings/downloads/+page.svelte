@@ -550,7 +550,7 @@
 
 	/* Contract 3/4 + UI-SPEC Color: the import CTA is this page's single accent-filled action. */
 	.cta { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border: none; border-radius: 12px; font-size: 0.9375rem; font-weight: 600; cursor: pointer; }
-	.cta:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+	.cta:focus-visible { /* quick-261102-s0k: focus token, >=3:1 on every theme */ outline: 2px solid var(--color-focus); outline-offset: 2px; }
 	.cta.busy { background: var(--color-surface-2); color: var(--color-text); border: 1px solid var(--color-border); justify-content: space-between; padding: 0 8px 0 14px; gap: 12px; font-weight: 400; }
 	.lbl-prog { font-size: 0.8125rem; color: var(--color-text-muted); white-space: nowrap; }
 	.rail { flex: 1; height: 6px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 999px; overflow: hidden; position: relative; }
@@ -598,7 +598,7 @@
 	.sw.on::after { transform: translateX(18px); }
 	.txt { width: 100%; min-height: 44px; padding: 12px 14px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; color: var(--color-text); font-family: inherit; font-size: 0.875rem; }
 	.txt::placeholder { color: var(--color-text-muted); }
-	.txt:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+	.txt:focus-visible { /* quick-261102-s0k: focus token, >=3:1 on every theme */ outline: 2px solid var(--color-focus); outline-offset: 2px; }
 	.txt[aria-invalid='true'] { border-color: #ff7a90; }
 	/* A regex is code: in Inter, `\s` and `\5` are ambiguous. The only monospace in the phase. */
 	.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8125rem; }
@@ -614,5 +614,5 @@
 	.retag-list .t strong { font-size: 0.875rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.retag-list .t .a { font-size: 0.75rem; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-	.chip:focus-visible, .row-toggle:focus-visible, .advanced summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+	.chip:focus-visible, .row-toggle:focus-visible, .advanced summary:focus-visible { /* quick-261102-s0k: focus token, >=3:1 on every theme */ outline: 2px solid var(--color-focus); outline-offset: 2px; }
 </style>

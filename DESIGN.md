@@ -141,6 +141,7 @@ A dark, near-neutral cabinet lit by a single cool teal signal, with per-source b
 - **Tiffany Signal** (`tiffany-signal`): the one accent. It marks the live state: the playing progress fill, the scrubber fill, the Nowbar play button, the search submit, a toggle that is on, a selected chip's text and border, and the left edge of an enabled setting. It is the default of six runtime accent presets (`ACCENT_PRESETS`), so treat it as a role, not a fixed hue: always reference `var(--color-primary)`.
 - **Tiffany Signal, pressed** (`tiffany-signal-pressed`): the hover and pressed state of primary fills (the accent darkened by 12%).
 - **On-Primary** (`on-primary`): text and icons on a primary fill. `applyTheme()` sets `--color-on-primary` to `#0b0b0f` or `#ffffff`, whichever has higher WCAG contrast against the effective primary (`onColor` in `services/color.ts`). Dark on Tiffany is 8.14:1; white was 2.41:1.
+- **Focus** (`--color-focus`): focus rings, outlines and focus border-colour. `applyTheme()` sets it to the primary when that clears 3:1 (WCAG 1.4.11) against the theme's bg and surface-2, otherwise to the primary stepped darker (light surfaces) or lighter (dark surfaces) until it does (`focusColor` in `services/color.ts`). Tiffany on the light theme was 2.05–2.26:1, so light-theme focus is a deeper teal.
 
 ### Neutral
 - **Night Floor** (`night-floor`): the page, Nowbar and tabbar background. It is also the manifest `theme_color`, so the OS chrome melts into the app.
@@ -257,6 +258,7 @@ Quiet at rest and springy on touch. Every pressable surface gets `use:tapBounce`
 ### Do:
 - **Do** reference `var(--color-primary)` and the surface tokens. Accent and theme change at runtime.
 - **Do** put text and icons on a primary fill in `var(--color-on-primary)`, never a literal `#fff`.
+- **Do** draw focus indicators in `var(--color-focus)`, never `--color-primary`.
 - **Do** keep 44px minimum hit targets on rows, icon buttons and inputs.
 - **Do** add `use:tapBounce` to every new pressable surface.
 - **Do** use the motion tokens: `--dur-quick` (160ms), `--dur-base` (240ms), `--dur-slow` (320ms), with `--ease-out-quint` for settles and `--ease-spring` for tactile snaps.

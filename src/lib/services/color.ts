@@ -56,3 +56,34 @@ export function onColor(hex: string): string {
 	if (!parseHex(hex)) return ON_LIGHT;
 	return contrastRatio(hex, ON_DARK) >= contrastRatio(hex, ON_LIGHT) ? ON_DARK : ON_LIGHT;
 }
+
+/** Lighten a `#rrggbb` toward white by `amount` (0..1). Malformed input passes through. */
+function lighten(hex: string, amount: number): string {
+	const rgb = parseHex(hex);
+	if (!rgb) return hex;
+	return (
+		'#' +
+		rgb
+			.map((c) => Math.round(c + (255 - c) * amount).toString(16).padStart(2, '0'))
+			.join('')
+	);
+}
+
+/** quick-261102-s0k: focus-indicator colour (WCAG 1.4.11 non-text, ≥3:1). Returns `primary`
+ *  when it already clears 3:1 against every surface; otherwise steps it darker (light
+ *  surfaces) or lighter (dark surfaces) until it does. Tiffany on the light theme was 2.05–2.26:1.
+ *  Falls back to the theme text colour if stepping never clears. Never throws. Set by
+ *  settings.applyTheme() as `--color-focus`. */
+export function focusColor(primary: string, surfaces: string[]): string {
+	const ok = (c: string) => surfaces.every((s) => contrastRatio(c, s) >= 3);
+	if (!parseHex(primary)) return primary;
+	if (ok(primary)) return primary;
+	const avgLum =
+		surfaces.reduce((sum, s) => sum + relativeLuminance(s), 0) / Math.max(1, surfaces.length);
+	const lightSurfaces = avgLum > 0.18;
+	for (let step = 0.05; step <= 1; step += 0.05) {
+		const c = lightSurfaces ? darken(primary, step) : lighten(primary, step);
+		if (ok(c)) return c;
+	}
+	return lightSurfaces ? '#1a1a22' : '#f4f4f6';
+}

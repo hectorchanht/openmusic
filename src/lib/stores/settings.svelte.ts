@@ -28,7 +28,7 @@ import {
 import { isSupporter } from '$lib/config/sponsored';
 // Pure util (no DOM/browser/store imports) — settings stays a LEAF store. Used by
 // applyTheme() to derive --color-primary-hover from the chosen accent (UX-07 root-cause fix).
-import { darken, onColor } from '$lib/services/color';
+import { darken, onColor, focusColor } from '$lib/services/color';
 import { CHART_REGIONS, HOME_LAYOUT_VERSION, clampShelfSize, migrateDensity, migrateHomeLayout, type ChartRegion, type HomeDensity, type HomeLandingTab, type HomeSectionId } from '$lib/services/home-layout';
 // quick-261006-mnu: pure catalog + order normalizer for the customizable TrackMenu grid.
 // PURE (imports nothing from stores) — the LEAF invariant holds, same as home-layout above.
@@ -77,6 +77,15 @@ export const SUPPORTER_THEMES: readonly Theme[] = ['gold', 'sakura'];
 export const THEME_PRIMARY: Partial<Record<Theme, string>> = {
 	gold: '#d9a821',
 	sakura: '#ef7fb4'
+};
+
+/** quick-261102-s0k: per-theme [--color-bg, --color-surface-2], used to pick a focus colour
+ *  that clears 3:1 on both. KEEP IN SYNC with the theme blocks in src/app.css. */
+export const THEME_SURFACES: Record<Theme, [string, string]> = {
+	dark: ['#0b0b0f', '#1d1d27'],
+	light: ['#f7f7fa', '#ececf2'],
+	gold: ['#100c06', '#241b0e'],
+	sakura: ['#120b10', '#261722']
 };
 
 const KEY = 'openmusic:settings:v1';
@@ -679,6 +688,9 @@ class Settings {
 		// quick-261102-rrb: text/icons on a primary fill read this — dark or white, whichever
 		// contrasts more with the effective primary (tiffany needs dark; white was 2.41:1).
 		r.style.setProperty('--color-on-primary', onColor(primary));
+		// quick-261102-s0k: focus rings read this — the primary, adjusted until it clears 3:1
+		// against the theme's bg + surface-2 (light-theme tiffany was 2.05–2.26:1).
+		r.style.setProperty('--color-focus', focusColor(primary, THEME_SURFACES[this.theme]));
 		// Appearance scales (fnp) — multipliers off the per-rule base sizes. 100% → 1 (no change).
 		// quick-260920-kxz: the ROOT multiplier — app.css turns it into
 		// `html { font-size: calc(100% * var(--fs-app, 1)) }`, so it moves every rem rule at once

@@ -414,7 +414,7 @@
 	.sent { background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface-2)); border: 1px solid var(--color-primary); border-radius: 12px; padding: 12px 14px; font-size: 0.875rem; line-height: 1.5; margin: 0; }
 	.field { display: flex; flex-direction: column; gap: 6px; font-size: 0.8125rem; color: var(--color-text-muted); margin-bottom: 12px; }
 	.field input { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 10px; color: var(--color-text); padding: 12px 14px; font-size: 1rem; width: 100%; box-sizing: border-box; }
-	.field input:focus { outline: 2px solid var(--color-primary); outline-offset: 0; border-color: transparent; }
+	.field input:focus { /* quick-261102-s0k: focus token, >=3:1 on every theme */ outline: 2px solid var(--color-focus); outline-offset: 0; border-color: transparent; }
 	.error { color: #ff5d73; font-size: 0.8125rem; margin: 0 0 12px; }
 	/* quick-261020-onefill — one-tap recent-email chips. Pill buttons, muted; the email
 	   text itself is the label, so no i18n key needed. */

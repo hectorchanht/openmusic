@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { darken, contrastRatio, onColor } from './color';
+import { darken, contrastRatio, onColor, focusColor } from './color';
 
 // Pure color util — no DOM, no browser, no store imports. Runs under the node project
 // alongside detect.ts/i18n.test.ts. Asserts per-channel darkening + clamp + malformed
@@ -86,5 +86,30 @@ describe('contrastRatio / onColor (quick-261102-rrb on-primary token)', () => {
 
 	it('light-theme border #80808a is >= 3:1 against surface-2 #ececf2', () => {
 		expect(contrastRatio('#80808a', '#ececf2')).toBeGreaterThanOrEqual(3);
+	});
+});
+
+// quick-261102-s0k: focus indicators must clear 3:1 (WCAG 1.4.11) on bg + surface-2.
+describe('focusColor', () => {
+	it('keeps tiffany on the dark theme', () => {
+		expect(focusColor('#0abab5', ['#0b0b0f', '#1d1d27'])).toBe('#0abab5');
+	});
+	it('darkens tiffany on the light theme to >= 3:1 against both surfaces', () => {
+		const c = focusColor('#0abab5', ['#f7f7fa', '#ececf2']);
+		expect(c).not.toBe('#0abab5');
+		expect(contrastRatio(c, '#f7f7fa')).toBeGreaterThanOrEqual(3);
+		expect(contrastRatio(c, '#ececf2')).toBeGreaterThanOrEqual(3);
+	});
+	it('gold and sakura primaries clear 3:1 on their dark themes', () => {
+		for (const [p, s] of [
+			['#d9a821', ['#100c06', '#241b0e']],
+			['#ef7fb4', ['#120b10', '#261722']]
+		] as const) {
+			const c = focusColor(p, [...s]);
+			for (const x of s) expect(contrastRatio(c, x)).toBeGreaterThanOrEqual(3);
+		}
+	});
+	it('passes malformed input through', () => {
+		expect(focusColor('red', ['#ffffff'])).toBe('red');
 	});
 });

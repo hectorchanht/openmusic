@@ -390,7 +390,7 @@
 	.thumb { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform 0.2s; }
 	.switch input:checked + .track { background: var(--color-primary); }
 	.switch input:checked + .track .thumb { transform: translateX(20px); }
-	.switch input:focus-visible + .track { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+	.switch input:focus-visible + .track { /* quick-261102-s0k: focus token, >=3:1 on every theme */ outline: 2px solid var(--color-focus); outline-offset: 2px; }
 	.switch-label { font-size: 0.9375rem; font-weight: 700; color: var(--color-text); }
 	/* quick-261023-perks: donor wall. */
 	.wall-sect { margin-top: 4px; }

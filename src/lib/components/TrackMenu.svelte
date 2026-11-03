@@ -2463,7 +2463,7 @@
 	.edit-cell.off { opacity: 0.45; }
 	.edit-cell.off .gi-label { color: var(--color-text-muted); }
 	.edit-cell.lifted { opacity: 0.9; z-index: 2; cursor: grabbing; }
-	.edit-cell:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+	.edit-cell:focus-visible { /* quick-261102-s0k: focus token, >=3:1 on every theme */ outline: 2px solid var(--color-focus); outline-offset: 2px; }
 	/* Grid progress: a thin determinate bar along the cell's bottom edge. The list row's
 	   full-bleed ::after tint would swallow a 72px cell, so the bar lives at the bottom instead.
 	   The indeterminate slide reuses the same dl-slide keyframes (translateX %, layout-free). */

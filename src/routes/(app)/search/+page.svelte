@@ -1037,9 +1037,9 @@
 		color: var(--color-text); border-radius: 999px; padding: 12px; font-size: 0.9375rem; outline: none; height: 44px;
 	}
 	/* User 2026-10-06 (audit): 40px -> 44px for minimum touch target. */
-	.bar input:focus { border-color: var(--color-primary); }
+	.bar input:focus { /* quick-261102-s0k: focus token, >=3:1 on every theme */ border-color: var(--color-focus); }
 	/* quick-261102-rrb: visible keyboard focus ring (outline:none above removed the default). */
-	.bar input:focus-visible { box-shadow: 0 0 0 2px var(--color-primary); }
+	.bar input:focus-visible { /* quick-261102-s0k: focus token, >=3:1 on every theme */ box-shadow: 0 0 0 2px var(--color-focus); }
 	/* quick-261102-rrb: type=search draws its own cancel X in WebKit; the custom .clear-input
 	   button already does that job. */
 	.bar input::-webkit-search-cancel-button,

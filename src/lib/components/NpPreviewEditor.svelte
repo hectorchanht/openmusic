@@ -149,7 +149,8 @@
 		background-color: color-mix(in srgb, var(--color-primary) 18%, transparent);
 	}
 	.wing:focus-visible {
-		outline: 2px solid var(--color-primary);
+		/* quick-261102-s0k: focus token, >=3:1 on every theme */
+		outline: 2px solid var(--color-focus);
 		outline-offset: 2px;
 	}
 	/* Copied from NowPlaying.svelte `.title` — weight, line-height and the nowrap/ellipsis clamp
