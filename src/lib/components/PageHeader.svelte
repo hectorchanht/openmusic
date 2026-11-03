@@ -136,7 +136,7 @@
 		place-items: center;
 		width: 36px;
 		height: 36px;
-		margin-left: -8px;
+		margin-inline-start: -8px;
 		padding: 0;
 		background: none;
 		border: none;

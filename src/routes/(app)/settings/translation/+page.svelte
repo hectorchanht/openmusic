@@ -413,7 +413,7 @@
 	.advanced .chips { margin-top: 12px; }
 	/* The row's CURRENT value, right-aligned — it is what makes a CLOSED page still readable:
 	   five collapsed rows that each say what they are set to. */
-	.cur { margin-left: auto; color: var(--color-text-muted); font-size: 0.8125rem; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.cur { margin-inline-start: auto; color: var(--color-text-muted); font-size: 0.8125rem; text-align: end; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	/* `display: flex` on a <summary> removes the UA disclosure marker, so the accordion would have
 	   no affordance at all — fine for one "Advanced" footer, not for five rows that ARE the page.
 	   This is that marker, put back explicitly and rotated on open. */

@@ -340,7 +340,7 @@
 	.vstage video { width: 100%; height: 100%; object-fit: contain; display: block; }
 	.vstage:fullscreen { border-radius: 0; }
 	.v-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px; color: #cfcfe0; font-size: 13px; background: rgba(0,0,0,0.35); }
-	.v-waiting { position: absolute; top: 10px; left: 10px; display: flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 999px; color: #cfcfe0; font-size: 12px; background: rgba(0,0,0,0.55); }
+	.v-waiting { position: absolute; top: 10px; inset-inline-start: 10px; display: flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 999px; color: #cfcfe0; font-size: 12px; background: rgba(0,0,0,0.55); }
 	.v-ring { flex: none; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.8); border-top-color: transparent; border-radius: 50%; animation: vspin 0.7s linear infinite; }
 	.v-ring.sm { width: 12px; height: 12px; border-width: 1.5px; }
 	@keyframes vspin { to { transform: rotate(360deg); } }
@@ -355,7 +355,7 @@
 	.v-time { font-size: 11.5px; font-variant-numeric: tabular-nums; opacity: 0.9; min-width: 34px; text-align: center; }
 	.v-seek { flex: 1; accent-color: #fff; min-width: 40px; }
 	.v-q { position: relative; }
-	.v-menu { position: absolute; right: 0; bottom: calc(100% + 6px); display: flex; flex-direction: column; min-width: 92px; padding: 4px; border-radius: 10px; background: rgba(18,16,30,0.97); box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 5; }
-	.v-menu button { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; border: none; border-radius: 6px; background: transparent; color: #fff; font-size: 13px; cursor: pointer; text-align: left; }
+	.v-menu { position: absolute; inset-inline-end: 0; bottom: calc(100% + 6px); display: flex; flex-direction: column; min-width: 92px; padding: 4px; border-radius: 10px; background: rgba(18,16,30,0.97); box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 5; }
+	.v-menu button { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; border: none; border-radius: 6px; background: transparent; color: #fff; font-size: 13px; cursor: pointer; text-align: start; }
 	.v-menu button:hover { background: rgba(255,255,255,0.12); }
 </style>

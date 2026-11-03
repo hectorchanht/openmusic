@@ -206,7 +206,7 @@
 	.row {
 		position: relative; z-index: 1; width: 100%; display: flex; align-items: center; gap: 12px;
 		padding: 8px; background: var(--color-bg); border: none; border-radius: var(--radius-md);
-		text-align: left;
+		text-align: start;
 	}
 	.art { width: 48px; height: 48px; border-radius: 8px; background-size: cover; background-position: center; flex: none; }
 	.meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }

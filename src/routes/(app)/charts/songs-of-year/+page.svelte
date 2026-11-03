@@ -76,7 +76,7 @@
 						<span class="title">{t(p.titleKey)}</span>
 						<span class="count">{p.meta.titleEn} · {p.count} {t('pack.songs')}</span>
 					</span>
-					<ChevronRight size={20} />
+					<ChevronRight size={20} class="dir-flip" />
 				</button>
 			</li>
 		{/each}
@@ -96,7 +96,7 @@
 							<span class="title">{country} · {yearNum}</span>
 							<span class="count">50 {t('pack.songs')} · {t('soy.yearEndSub')}</span>
 						</span>
-						<ChevronRight size={20} />
+						<ChevronRight size={20} class="dir-flip" />
 					</button>
 				</li>
 			{/each}
@@ -114,7 +114,7 @@
 	.pack {
 		display: flex; align-items: center; justify-content: space-between; width: 100%;
 		padding: 16px; border-radius: 12px; border: 1px solid var(--color-border);
-		background: var(--color-surface); cursor: pointer; text-align: left;
+		background: var(--color-surface); cursor: pointer; text-align: start;
 	}
 	.pack.soon { opacity: 0.45; cursor: default; }
 	.meta { display: flex; flex-direction: column; gap: 4px; }

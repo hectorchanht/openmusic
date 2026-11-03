@@ -26,12 +26,20 @@
 	let canPrev = $state(false);
 	let canNext = $state(false);
 
+	// quick-261102-wl9: in an RTL scroller scrollLeft runs 0 → -max (start is the right edge). The
+	// pure maths in shelf-scroll.ts speaks the LTR 0 → +max convention, so flip the sign on the way
+	// in and out instead of teaching every helper about direction.
+	function dirSign(el: HTMLElement): 1 | -1 {
+		return getComputedStyle(el).direction === 'rtl' ? -1 : 1;
+	}
+
 	function sync() {
 		if (!target) {
 			overflows = canPrev = canNext = false;
 			return;
 		}
-		const { scrollLeft, clientWidth, scrollWidth } = target;
+		const { clientWidth, scrollWidth } = target;
+		const scrollLeft = target.scrollLeft * dirSign(target);
 		overflows = clientWidth > 0 && scrollWidth > clientWidth;
 		canPrev = canScroll(scrollLeft, clientWidth, scrollWidth, 'prev');
 		canNext = canScroll(scrollLeft, clientWidth, scrollWidth, 'next');
@@ -74,11 +82,13 @@
 
 	function page(dir: ShelfDir) {
 		if (!target) return;
-		const { scrollLeft, clientWidth, scrollWidth } = target;
+		const { clientWidth, scrollWidth } = target;
+		const sign = dirSign(target);
+		const scrollLeft = target.scrollLeft * sign;
 		// D-9: reduced motion turns the smooth page into an instant jump. Same destination.
 		// quick-261102-u4t: the ONE reduce-motion decision (app flag OR OS) — this read the OS query only.
 		target.scrollTo({
-			left: nextScrollLeft(scrollLeft, clientWidth, scrollWidth, dir),
+			left: nextScrollLeft(scrollLeft, clientWidth, scrollWidth, dir) * sign,
 			behavior: scrollBehavior()
 		});
 	}
@@ -99,7 +109,7 @@
 			disabled={!canPrev}
 			onclick={() => page('prev')}
 		>
-			<ChevronLeft size={20} />
+			<ChevronLeft size={20} class="dir-flip" />
 		</button>
 		<button
 			type="button"
@@ -108,7 +118,7 @@
 			disabled={!canNext}
 			onclick={() => page('next')}
 		>
-			<ChevronRight size={20} />
+			<ChevronRight size={20} class="dir-flip" />
 		</button>
 	{/if}
 </div>
@@ -148,11 +158,12 @@
 			z-index: 2;
 			transition: opacity var(--dur-quick) var(--ease-standard);
 		}
+		/* quick-261102-wl9: logical sides — in RTL "prev" (toward the shelf start) sits on the right. */
 		.chev.prev {
-			left: -4px;
+			inset-inline-start: -4px;
 		}
 		.chev.next {
-			right: -4px;
+			inset-inline-end: -4px;
 		}
 		.chev:disabled {
 			opacity: 0.35;

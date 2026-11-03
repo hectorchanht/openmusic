@@ -89,9 +89,10 @@ describe('shared settings rows (quick-260919-ebi F2)', () => {
 		expect(toggle).toMatch(/role="switch"/);
 		expect(toggle).toMatch(/aria-checked=\{checked\}/);
 		expect(declaresRule(toggle, 'sw')).toBe(true);
-		expect(toggle).toMatch(/border-left-color: var\(--color-primary\)/);
+		// quick-261102-wl9: logical property so the accent edge follows the reading direction (RTL).
+		expect(toggle).toMatch(/border-inline-start-color: var\(--color-primary\)/);
 		// The config kind: chevron ALWAYS present (never inside an {#if}), raised surface.
-		expect(row).toMatch(/<ChevronRight size=\{18\} class="chev" \/>/);
+		expect(row).toMatch(/<ChevronRight size=\{18\} class="chev dir-flip" \/>/);
 		expect(row).toMatch(/background: var\(--color-surface-2\)/);
 	});
 

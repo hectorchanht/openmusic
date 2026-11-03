@@ -198,7 +198,7 @@
 	.mi {
 		width: 100%; display: flex; align-items: center; gap: 12px; min-height: 44px;
 		background: none; border: none; color: var(--color-text); font-size: 0.9375rem; padding: 12px;
-		border-radius: 10px; cursor: pointer; text-align: left;
+		border-radius: 10px; cursor: pointer; text-align: start;
 	}
 	.mi:hover { background: var(--color-surface); }
 	.ver-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }

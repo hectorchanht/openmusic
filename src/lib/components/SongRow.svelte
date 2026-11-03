@@ -594,7 +594,7 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 	   noisy album ("COMPOSITION", "原創") reads as metadata, never as a second artist name. */
 	.album-tag {
 		display: inline-block;
-		margin-left: 6px;
+		margin-inline-start: 6px;
 		padding: 0 7px;
 		border: 1px solid var(--color-border);
 		border-radius: 999px;
@@ -607,7 +607,7 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 	   as "watchable" until quick-261102-s5t, below). */
 	.mv-tag {
 		display: inline-block;
-		margin-left: 6px;
+		margin-inline-start: 6px;
 		padding: 0 6px;
 		/* quick-261102-s5t: --color-accent is undefined (always the red fallback = a second accent);
 		   a passive tag is not "live/on/go", so it takes the muted pill tokens. */

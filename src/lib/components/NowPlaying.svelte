@@ -1495,7 +1495,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	   — so this longhand override wins in the cascade. The sheet's own `style:inset` is on the
 	   inner `.sheet` and is unaffected. */
 	@media (min-width: 1024px) {
-		.np { left: var(--rail-w); }
+		.np { inset-inline-start: var(--rail-w); } /* quick-261102-wl9: follows the rail in RTL */
 	}
 	/* NP-04: top running-line loader. .np-prog / .np-prog.indet / .sliver + the np-indet
 	   keyframe + reduced-motion override are copied byte-for-byte from Nowbar.svelte so the
@@ -1559,11 +1559,11 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	/* quick-261102-s5t: 44px hit area; the -5px block margin keeps the title row at its old 34px
 	   height so the meta block does not grow. `.on` was `--color-accent`, which no theme defines, so
 	   it always painted the #e5484d fallback — a second accent. An on-state is the One Signal. */
-	.mv-icon { flex: none; margin-left: auto; margin-block: -5px; background: none; border: none; color: var(--color-text-muted); width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; transition: background 0.12s ease, color 0.12s ease, transform 0.12s ease; }
+	.mv-icon { flex: none; margin-inline-start: auto; margin-block: -5px; background: none; border: none; color: var(--color-text-muted); width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; transition: background 0.12s ease, color 0.12s ease, transform 0.12s ease; }
 	@media (hover: hover) { .mv-icon:hover { background: var(--color-surface); color: var(--color-text); } }
 	.mv-icon:active { transform: scale(0.92); }
 	.mv-icon.on { color: var(--color-primary); }
-	.title-row .mv-icon ~ .np-vol { margin-left: 0; }
+	.title-row .mv-icon ~ .np-vol { margin-inline-start: 0; }
 	/* NP-01 carousel: the rigid strip fills .cover and rests at translateX(0) (current cell visible).
 	   The commit-settle uses the cover-reflow personality (0.32s, same universal curve); coverSwipe
 	   overrides this to `none` while dragging (1:1 finger-follow), then restores it on release so the
@@ -1649,7 +1649,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	/* quick-261010-soy8: the title's black bg was stretching full-width (flex:1 grew it).
 	   flex:0 stops the grow so the bg hugs the text; shrink still allows ellipsis. */
 	.title-row > .title { flex: 0 1 auto; min-width: 0; }
-	.title-row .np-vol { flex: none; margin-left: auto; display: flex; align-items: center; gap: 6px;
+	.title-row .np-vol { flex: none; margin-inline-start: auto; display: flex; align-items: center; gap: 6px;
 		/* quick-261010-soy8: visible bg for the volume control.
 		   quick-261102-s5t: was rgba(0,0,0,.55) — on the light theme that put the dark
 		   --color-text glyph on a dark pill. surface-2 follows every theme. */

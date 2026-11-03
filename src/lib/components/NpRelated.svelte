@@ -198,7 +198,7 @@
 	   row shapes genuinely diverge below that shared base. */
 	.rel-pane { min-height: 96px; }
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-	.row { width: 100%; text-align: left; background: none; border: none; padding: 8px 6px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: column; }
+	.row { width: 100%; text-align: start; background: none; border: none; padding: 8px 6px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: column; }
 	/* quick-260625-pzs-02: swipe-to-queue on the RELATED list (mirrors search/+page.svelte:669-677).
 	   The reveal spans sit BEHIND the row; the row's translateX (use:swipeAction) slides to expose the
 	   correct side. The related .row is normally transparent, so it gets an opaque bg + z-index here so

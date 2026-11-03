@@ -216,7 +216,7 @@ import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 		border: none;
 		border-radius: 8px;
 		cursor: pointer;
-		text-align: left;
+		text-align: start;
 		color: var(--color-text);
 		transition: background 0.12s ease;
 	}

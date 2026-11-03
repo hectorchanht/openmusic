@@ -38,7 +38,7 @@
 		{#if desc}<span class="desc">{desc}</span>{/if}
 	</span>
 	{#if value}<span class="value">{value}</span>{/if}
-	<ChevronRight size={18} class="chev" />
+	<ChevronRight size={18} class="chev dir-flip" />
 </button>
 
 <style>
@@ -55,7 +55,7 @@
 		border-radius: 12px;
 		font-size: 0.9375rem;
 		cursor: pointer;
-		text-align: left;
+		text-align: start;
 		margin-bottom: 8px;
 	}
 	.setting-row:hover {

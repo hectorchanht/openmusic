@@ -46,7 +46,7 @@
 		font-size: 0.9375rem;
 		font-weight: 500;
 		cursor: pointer;
-		text-align: left;
+		text-align: start;
 		transition: background 0.15s, border-color 0.15s;
 	}
 	.menu-action-btn:active {

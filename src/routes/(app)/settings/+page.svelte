@@ -143,7 +143,7 @@
 		<span class="sc-title">{t('support.title')}{supporter && tierBadge ? ` ${tierBadge}` : ''}</span>
 		<span class="sc-desc">“{t('support.tagline')}”</span>
 	</span>
-	<ChevronRight size={18} class="sc-chev" />
+	<ChevronRight size={18} class="sc-chev dir-flip" />
 </button>
 
 <!-- Supporters wall (2026-10-24): one quiet real link under the support card —
@@ -198,7 +198,7 @@
 	.share-row { margin-top: 4px; }
 	/* donor-wall-ui 2026-10-14: the featured support card — the app's primary accent
 	   surface, so the donor wall is visible without scrolling. */
-	.support-card { display: flex; align-items: center; gap: 12px; width: 100%; margin: 8px 0 4px; padding: 14px; border: 1px solid var(--color-primary); border-radius: 14px; background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface-2)); color: var(--color-text); cursor: pointer; text-align: left; }
+	.support-card { display: flex; align-items: center; gap: 12px; width: 100%; margin: 8px 0 4px; padding: 14px; border: 1px solid var(--color-primary); border-radius: 14px; background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface-2)); color: var(--color-text); cursor: pointer; text-align: start; }
 	.sc-heart { flex: none; color: var(--color-primary); }
 	.sc-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 	.sc-title { font-weight: 700; font-size: 0.9375rem; }

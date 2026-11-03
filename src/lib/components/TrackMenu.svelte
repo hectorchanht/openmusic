@@ -2350,7 +2350,7 @@
 	.sheet-head { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; padding: 8px 10px; }
 	/* quick-260919-dlring: `.head-text` is a <button> now (Go to artist). Every declaration past the
 	   original `flex`/`min-width` pair is a UA reset — the box must stay pixel-identical to the div it
-	   replaced, so no padding, no border, no UA font, and text-align: left instead of the button
+	   replaced, so no padding, no border, no UA font, and text-align: start instead of the button
 	   default centre. `display: block` keeps the two rows stacked (a button is inline-block and
 	   would shrink-wrap). Deliberately NO `:disabled` opacity: with no artist to visit this button is
 	   inert, and inert must look like the plain text block it used to be, not like a greyed control. */
@@ -2370,7 +2370,7 @@
 		margin: 0;
 		font: inherit;
 		color: inherit;
-		text-align: left;
+		text-align: start;
 		-webkit-tap-highlight-color: transparent;
 	}
 	.head-text:not(:disabled) { cursor: pointer; }
@@ -2392,7 +2392,7 @@
 	   same idea — and declared, not merely applied: `class:accent` with no matching rule is the
 	   exact defect quick-260919-0mw found on the Shuffle row, where an active state had rendered
 	   pixel-identical to inactive since ii6. */
-	.mi { width: 100%; display: flex; align-items: center; gap: 12px; background: none; border: none; color: var(--color-text); font-size: 0.9375rem; padding: 12px; border-radius: 10px; cursor: pointer; text-align: left; }
+	.mi { width: 100%; display: flex; align-items: center; gap: 12px; background: none; border: none; color: var(--color-text); font-size: 0.9375rem; padding: 12px; border-radius: 10px; cursor: pointer; text-align: start; }
 	.mi:hover { background: var(--color-surface); }
 	.mi:disabled { opacity: 0.4; cursor: default; }
 	.mi.accent { color: var(--color-primary); }
@@ -2450,7 +2450,7 @@
 	}
 	.gi-split .gi { width: 100%; }
 	.gi-caret {
-		position: absolute; top: 0; right: 0; display: grid; place-items: center;
+		position: absolute; top: 0; inset-inline-end: 0; display: grid; place-items: center;
 		width: 30px; height: 30px; background: none; border: none; border-radius: 8px;
 		color: var(--color-text-muted); cursor: pointer;
 	}
@@ -2494,7 +2494,7 @@
 	.mi.danger { color: var(--color-danger-text); }
 	/* tabular-nums: the download percentage climbs digit by digit and would otherwise jitter the
 	   row's right edge on every repaint (quick-260913-omi). Harmless for the playlist counts. */
-	.mi .count { margin-left: auto; font-size: 0.75rem; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+	.mi .count { margin-inline-start: auto; font-size: 0.75rem; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 	/* quick-260915-26g: placeholder for the in-flight download probe. Static, not animated — the row
 	   spinner two states over already owns the "working" signal and two of them would compete. */
 	.mi .count.skel { display: inline-block; width: 64px; height: 11px; border-radius: var(--radius-full); background: var(--color-surface); }
@@ -2549,7 +2549,7 @@
 	.cand img { width: 100%; height: 100%; object-fit: cover; display: block; }
 	.cand.on { border-color: var(--color-primary); }
 	.cand .src { position: absolute; left: 0; right: 0; bottom: 0; font-size: 0.6875rem; padding: 2px 4px; background: rgba(0, 0, 0, 0.55); color: #fff; text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.cand .tick { position: absolute; top: 4px; right: 4px; display: grid; place-items: center; color: #fff; filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.8)); }
+	.cand .tick { position: absolute; top: 4px; inset-inline-end: 4px; display: grid; place-items: center; color: #fff; filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.8)); }
 	.cover-wait { display: grid; place-items: center; padding: 28px 12px; }
 	.cover-none { text-align: center; color: var(--color-text-muted); font-size: 0.8125rem; padding: 20px 12px; }
 	.detail { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; padding: 6px 12px 14px; margin: 0; }

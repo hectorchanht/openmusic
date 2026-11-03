@@ -1331,7 +1331,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	<h3 class="subhead">
 		<button class="subhead-nav" use:tapBounce aria-label={`${label}, ${t('home.seeAll')}`} onclick={() => goto(dest)}>
 			<span class="subhead-label">{label}</span>
-			<ChevronRight class="subhead-chev" size={18} />
+			<ChevronRight class="subhead-chev dir-flip" size={18} />
 		</button>
 	</h3>
 {/snippet}
@@ -1841,7 +1841,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	.gear::after { content: ''; position: absolute; inset: -5px; }
 	.gear:hover { background: var(--color-surface-2); }
 	.searchpill {
-		width: 100%; text-align: left; background: var(--color-surface-2);
+		width: 100%; text-align: start; background: var(--color-surface-2);
 		border: 1px solid var(--color-border); border-radius: 999px;
 		padding: 11px 16px; color: var(--color-text-muted); font-size: 0.8125rem;
 		/* quick-261102-sfc: Android 48dp touch floor (was ~37px tall from padding alone). */
@@ -1855,7 +1855,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	.section h2 { font-size: calc(1.1rem * var(--fs-title, 1)); margin: 0; }
 	/* D-14: section title is a full-row tap target (title + trailing chevron). Keeps the old
 	   .subhead typography (0.95rem/700); ≥44px touch height. quick-260927-1fx: the chevron now
-	   trails the title text directly (no margin-left:auto); the button stays full-width, so the tap
+	   trails the title text directly (no margin-inline-start:auto); the button stays full-width, so the tap
 	   target is unchanged, and .subhead-label still ellipsizes a long title with the chevron visible. */
 	/* 39-D-33 superseded by quick-260927-1fx: the static variant is gone. */
 	.subhead { margin: 0; }
@@ -1867,10 +1867,10 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 		min-height: 44px;
 		margin: 14px 16px 14px 0;
 		padding: 0;
-		padding-right: 6px;
+		padding-inline-end: 6px;
 		background: none;
 		border: none;
-		text-align: left;
+		text-align: start;
 		color: var(--color-text);
 		font-size: calc(0.95rem * var(--fs-title, 1));
 		font-weight: 700;
@@ -1938,7 +1938,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	   both widened the row AND defeated the marquee (its clientWidth grew to the text width so
 	   scrollWidth>clientWidth never tripped). Pinning min-width:0 holds the 130px basis, so the
 	   labels clip to the cover width and the marquee correctly detects + scrolls the overflow. */
-	.album { flex: 0 0 calc(130px * var(--cover-scale, 1)); min-width: 0; max-width: calc(130px * var(--cover-scale, 1)); background: none; border: none; padding: 0; cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 4px; transition: transform 0.12s ease; }
+	.album { flex: 0 0 calc(130px * var(--cover-scale, 1)); min-width: 0; max-width: calc(130px * var(--cover-scale, 1)); background: none; border: none; padding: 0; cursor: pointer; text-align: start; display: flex; flex-direction: column; gap: 4px; transition: transform 0.12s ease; }
 	/* MENU-03 / D-12: hover-capable devices only — a touch long-press otherwise latches the
 	   :active scale under the held finger while the track menu opens. */
 	@media (hover: hover) { .album:active { transform: scale(0.96); } }
@@ -1984,12 +1984,12 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	   gradient alone; the .label text-shadow lifts that worst case past 4.5:1, and any darker art is
 	   comfortably above. Applies to every scrimmed .tile (discovery/album/library/fallback grids). */
 	.scrim { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.78) 40%, rgba(0,0,0,0) 78%); }
-	.label { position: absolute; left: 7px; right: 7px; bottom: 6px; text-align: left; text-shadow: 0 1px 2px rgba(0,0,0,0.7); }
+	.label { position: absolute; left: 7px; right: 7px; bottom: 6px; text-align: start; text-shadow: 0 1px 2px rgba(0,0,0,0.7); }
 	.t-title { font-size: calc(0.6875rem * var(--fs-title, 1)); font-weight: 700; line-height: 1.2; color: #fff; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 	/* quick-261102-syk: full opacity — the colour carries the hierarchy; the 0.85 was eating contrast. */
 	.t-artist { font-size: calc(0.625rem * var(--fs-artist, 1)); color: #e4e4ea; margin-top: 2px; opacity: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	/* quick-261102-syk: top-LEFT — the top-right corner now belongs to the hover/focus ⋮ (.tilemenu). */
-	.q { position: absolute; top: 6px; left: 6px; font-size: 0.5rem; font-weight: 700; padding: 2px 5px; border-radius: 4px; background: rgba(0,0,0,0.55); color: #fff; }
+	.q { position: absolute; top: 6px; inset-inline-start: 6px; font-size: 0.5rem; font-weight: 700; padding: 2px 5px; border-radius: 4px; background: rgba(0,0,0,0.55); color: #fff; }
 	/* quick-260618-goe: artist grid tile — round cover + centered name BELOW (no overlay/scrim),
 	   so it overrides the square aspect-ratio .tile shell with a flex-column layout. */
 	.artist-tile { position: static; aspect-ratio: auto; background: none; border-radius: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
@@ -2024,7 +2024,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	.tilewrap > .album { width: 100%; }
 	/* 44px hit, 32px dark circle so the glyph reads over any art. */
 	.tilemenu {
-		position: absolute; top: 2px; right: 2px; width: 44px; height: 44px;
+		position: absolute; top: 2px; inset-inline-end: 2px; width: 44px; height: 44px;
 		display: grid; place-items: center; padding: 0; border: none; background: none;
 		color: #fff; cursor: pointer; opacity: 0; visibility: hidden;
 		transition: opacity 0.15s ease; z-index: 1;
@@ -2059,7 +2059,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	.soy-label {
 		position: absolute; left: 0; right: 0; bottom: 0;
 		display: flex; flex-direction: column; gap: 2px;
-		padding: 20px 10px 8px; text-align: left;
+		padding: 20px 10px 8px; text-align: start;
 		background: linear-gradient(to top, rgba(0, 0, 0, 0.78), transparent);
 		pointer-events: none;
 	}

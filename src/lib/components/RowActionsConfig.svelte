@@ -308,7 +308,7 @@
 		padding: 0;
 		color: inherit;
 		font: inherit;
-		text-align: left;
+		text-align: start;
 		cursor: pointer;
 		border-radius: 6px;
 		outline: 1.5px dashed color-mix(in srgb, var(--color-primary) 55%, transparent);

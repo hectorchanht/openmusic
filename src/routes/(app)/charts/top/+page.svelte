@@ -346,7 +346,7 @@
 	.row {
 		position: relative; z-index: 1; width: 100%; display: flex; align-items: center; gap: 12px;
 		padding: 8px; background: var(--color-bg); border: none; border-radius: var(--radius-md);
-		cursor: pointer; text-align: left; transition: background 0.12s ease;
+		cursor: pointer; text-align: start; transition: background 0.12s ease;
 	}
 	/* hover-capable devices only — touch otherwise latches :hover under a held finger. */
 	@media (hover: hover) { .row:hover { background: var(--color-surface); } }

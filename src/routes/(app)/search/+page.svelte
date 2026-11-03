@@ -1039,7 +1039,7 @@
 	/* quick-260711-sm7: clear (X) button — full input-height grid-centred (NO translateY, so the
 	   use:tapBounce scale keyframe can't displace it). Shown only when the input has text. */
 	.clear-input {
-		position: absolute; right: 0px; top: 0; bottom: 0; width: 44px;
+		position: absolute; inset-inline-end: 0; top: 0; bottom: 0; width: 44px;
 		display: grid; place-items: center; background: none; border: none; padding: 0;
 		color: var(--color-text-muted); cursor: pointer;
 		background: transparent !important;
@@ -1147,7 +1147,7 @@
 	.row {
 		width: 100%; display: flex; align-items: center; gap: 12px; padding: 8px;
 		background: var(--color-bg); position: relative; z-index: 1;
-		border: none; border-radius: 10px; cursor: pointer; text-align: left; transition: background 0.12s ease;
+		border: none; border-radius: 10px; cursor: pointer; text-align: start; transition: background 0.12s ease;
 	}
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
 	   background on a row under a held finger while the track menu opens. */

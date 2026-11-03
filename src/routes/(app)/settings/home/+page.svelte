@@ -679,7 +679,7 @@
 	.advanced { margin: 10px 0; padding: 10px 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; }
 	.advanced summary { position: relative; display: flex; align-items: center; gap: 6px; font-size: 0.875rem; color: var(--color-text); cursor: pointer; padding: 4px 0; }
 	.advanced .chips { margin-top: 12px; }
-	.cur { margin-left: auto; color: var(--color-text-muted); font-size: 0.8125rem; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.cur { margin-inline-start: auto; color: var(--color-text-muted); font-size: 0.8125rem; text-align: end; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.advanced .chev { display: inline-flex; flex: none; color: var(--color-text-muted); transition: transform 0.15s ease; }
 	.advanced[open] .chev { transform: rotate(180deg); }
 	@media (prefers-reduced-motion: reduce) {

@@ -536,7 +536,7 @@
 	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; }
 	.muted { color: var(--color-text-muted); font-size: 0.75rem; margin: 8px 0 0; }
 	.hint { color: var(--color-text-muted); font-size: 0.75rem; margin: -2px 0 10px 4px; }
-	.item { width: 100%; display: flex; align-items: center; gap: 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 14px; border-radius: 12px; font-size: 0.9375rem; cursor: pointer; text-align: left; margin-bottom: 8px; }
+	.item { width: 100%; display: flex; align-items: center; gap: 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 14px; border-radius: 12px; font-size: 0.9375rem; cursor: pointer; text-align: start; margin-bottom: 8px; }
 	.item:disabled { opacity: 0.5; cursor: default; }
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
 	/* quick-261020-rtg: the retag pause/resume/cancel row — same chips as the rules panel. */

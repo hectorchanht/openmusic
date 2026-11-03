@@ -100,7 +100,7 @@
 		vertical-align: middle;
 		width: 18px;
 		height: 18px;
-		margin-left: 4px;
+		margin-inline-start: 4px;
 		flex: none;
 	}
 	.info {
@@ -151,7 +151,7 @@
 		font-size: 0.75rem;
 		font-weight: 400;
 		line-height: 1.5;
-		text-align: left;
+		text-align: start;
 		text-transform: none;
 		letter-spacing: normal;
 		white-space: normal;

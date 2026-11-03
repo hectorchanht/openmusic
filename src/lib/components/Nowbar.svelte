@@ -500,8 +500,8 @@
         right: auto;
         bottom: auto;
         margin: 0;
-        padding-left: 0;
-        padding-right: 0;
+        padding-inline-start: 0;
+        padding-inline-end: 0;
         max-width: none;
         z-index: 4;
     }
@@ -567,7 +567,7 @@
         border: none;
         padding: 0;
         cursor: pointer;
-        text-align: left;
+        text-align: start;
         color: inherit;
     }
     /* NP-05 reduced-motion: coverSwipe sets the spring-back/commit `transition` inline on .np-open,
@@ -620,7 +620,7 @@
     .np-tl-artist {
         font-weight: 400;
         opacity: 0.7;
-        margin-left: 4px;
+        margin-inline-start: 4px;
     }
     /* quick-260919-1we (correction): the height reservation, and the only load-bearing rule in this
        change. The second row is fixed at its own line box whether it holds a lyric, an error, or
@@ -713,7 +713,7 @@
        NowPlaying split itself. */
     @media (min-width: 1024px) {
         .nowbar:not(.embed) {
-            left: var(--rail-w);
+            inset-inline-start: var(--rail-w); /* quick-261102-wl9: follows the rail in RTL */
             bottom: 0;
         }
 

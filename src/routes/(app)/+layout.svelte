@@ -754,13 +754,14 @@
 		.app {
 			/* The bar no longer occupies bottom space; the rail occupies left space. Only the
 			   nowbar remains docked at the bottom. */
-			padding-left: var(--rail-w);
+			padding-inline-start: var(--rail-w);
 			padding-bottom: var(--nowbar-h);
 		}
 		.tabbar {
 			top: 0;
 			bottom: 0;
-			right: auto;
+			/* quick-261102-wl9: logical, so an RTL app docks the rail on the right edge. */
+			inset-inline-end: auto;
 			/* quick-260919-et3 — MUST cancel the mobile `height: var(--tabbar-h)`. With top, bottom AND
 			   height all set on a fixed element the box is over-constrained and `height` wins, so the
 			   rail resolved to a 56px stub: the tabs still PAINTED (overflow is visible) but the
@@ -772,7 +773,7 @@
 			justify-content: flex-start;
 			gap: 4px;
 			border-top: none;
-			border-right: 1px solid var(--color-border);
+			border-inline-end: 1px solid var(--color-border);
 			/* Re-stated deliberately: the mobile rule's env(safe-area-inset-bottom) is meaningless
 			   on a full-height rail (there is no home indicator along the left edge). */
 			padding: 16px 8px 8px;

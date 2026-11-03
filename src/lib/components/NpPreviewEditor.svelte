@@ -136,7 +136,7 @@
 		padding: 0;
 		color: inherit;
 		font: inherit;
-		text-align: left;
+		text-align: start;
 		cursor: pointer;
 		border-radius: 6px;
 		outline: 1.5px dashed color-mix(in srgb, var(--color-primary) 55%, transparent);
@@ -170,7 +170,7 @@
 	}
 	/* CENTRED, and full-width to centre against — NpLyrics.svelte's `.lyrics` is
 	   `text-align: center; line-height: 1.3`, so a left-aligned replica was simply wrong about the
-	   surface it mocks (quick-260920-kxz). `.wing`'s `text-align: left` reset is declared above, so
+	   surface it mocks (quick-260920-kxz). `.wing`'s `text-align: start` reset is declared above, so
 	   this wins the same-specificity tie on source order — see the ORDER IS LOAD-BEARING note. */
 	.np-lyrics {
 		display: flex;

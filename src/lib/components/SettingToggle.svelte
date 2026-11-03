@@ -84,19 +84,19 @@
 		gap: 10px;
 		background: var(--color-bg);
 		border: 1px solid var(--color-border);
-		border-left: 3px solid transparent;
+		border-inline-start: 3px solid transparent;
 		color: var(--color-text);
 		padding: 13px 14px;
 		border-radius: 12px;
 		font-size: 0.875rem;
 		cursor: pointer;
-		text-align: left;
+		text-align: start;
 		margin-bottom: 8px;
 		/* Anchors both `.hit` and the hint's description panel. */
 		position: relative;
 	}
 	.setting-toggle.on {
-		border-left-color: var(--color-primary);
+		border-inline-start-color: var(--color-primary);
 	}
 	.setting-toggle.disabled {
 		opacity: 0.5;

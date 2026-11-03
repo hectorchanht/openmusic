@@ -143,12 +143,18 @@ button, a, [role="button"] { -webkit-tap-highlight-color: transparent; }
 }
 @keyframes marquee-scroll {
 	0%, 25% { transform: translateX(0); } /* ~2s hold at the start */
-	75%, 100% { transform: translateX(calc(-1 * var(--marquee-dx, 0px))); } /* reveal + hold end */
+	75%, 100% { transform: translateX(calc(var(--marquee-sign, -1) * var(--marquee-dx, 0px))); } /* reveal + hold end */
 }
 /* quick-260809-mvz: the marquee is deliberately NOT gated by @media (prefers-reduced-motion:
    reduce) any more. A clipped title is UNREADABLE while static, so the scroll carries information
    rather than polish — same call as .tap-bouncing below. It also survives the app's own
    reduce-motion setting; see the re-assert under the blanket rule. */
+
+/* quick-261102-wl9: in RTL a clipped title overflows to the LEFT (the box starts at its right
+   edge), so the marquee has to travel rightward to reveal the end. */
+:root[dir='rtl'] {
+	--marquee-sign: 1;
+}
 
 /* quick-261102-w2q: directional glyphs (back / "more" chevrons) point the reading direction, so
    they mirror when the app language is RTL. Add `class="dir-flip"` to the icon. */

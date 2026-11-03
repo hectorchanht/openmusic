@@ -308,7 +308,7 @@
 		border-radius: 999px;
 		padding: 8px 12px;
 		width: 100%;
-		text-align: left;
+		text-align: start;
 		font: inherit;
 		font-size: 0.875rem;
 		min-height: 40px;
@@ -328,7 +328,7 @@
 		border: none;
 		color: var(--color-text-muted);
 		font-size: 0.75rem;
-		margin-left: auto;
+		margin-inline-start: auto;
 		min-height: 32px;
 		cursor: pointer;
 	}
