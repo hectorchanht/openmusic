@@ -734,3 +734,4 @@ The 🔴 verification/UAT gaps are device-only human tests (iOS audio, Android A
 
 - Start the next milestone with /gsd-new-milestone
 | 2026-11-02 | fast | Library tab open lag: batched marquee, progressive rows, tab preloadCode | ✅ |
+| 2026-11-02 | fast | Library audit fixes: undo, playlist confirm, danger token, dialog roles, shared artist covers | ✅ |
