@@ -124,6 +124,42 @@
 	let suggestions = $state<Suggestion[]>([]);
 	let suggestAc: AbortController | null = null;
 
+	// quick-261102-rrb: ARIA combobox state. `typeaheadOpen` is the SAME gate the dropdown has
+	// always used (no inputFocused — see debug-search-typeahead-hidden-mobile below), now named
+	// so aria-expanded and the keyboard handler share it. `activeIdx` is the keyboard-highlighted
+	// option (-1 = none); every new suggestion list resets it so a stale index never points into
+	// a different list.
+	let typeaheadOpen = $derived(q.trim().length >= MIN_QUERY_LEN && suggestions.length > 0);
+	let activeIdx = $state(-1);
+	$effect(() => {
+		void suggestions;
+		activeIdx = -1;
+	});
+
+	// quick-261102-rrb: ArrowUp/ArrowDown move (wrapping) through the options, Enter picks the
+	// highlighted one (instead of submitting the form), Escape closes the list. With nothing
+	// highlighted Enter still submits the typed query as before.
+	function onSuggestKeydown(e: KeyboardEvent) {
+		if (!typeaheadOpen) return;
+		const n = suggestions.length;
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			activeIdx = (activeIdx + 1) % n;
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			activeIdx = activeIdx <= 0 ? n - 1 : activeIdx - 1;
+		} else if (e.key === 'Enter' && activeIdx >= 0 && activeIdx < n) {
+			e.preventDefault();
+			pickSuggestion(suggestions[activeIdx]);
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			fetchSuggestions.cancel();
+			suggestAc?.abort();
+			suggestions = [];
+		}
+	}
+
+
 	// Debounced suggestion fetch: at most one network call per ~300ms typing pause. A fresh
 	// keystroke restarts the timer (in oninput) so only the trailing pause fetches. Inside, we
 	// abort any in-flight request before issuing the next, then guard against a stale query
@@ -333,6 +369,18 @@
 	let page = $state(1); // last page successfully loaded
 	let loadingMore = $state(false); // true ONLY while a NEXT-page batch is in flight
 	let hasMore = $state(false); // whether another batch might yield net-new tracks
+
+	// quick-261102-rrb: one polite live-region message for the search status, so screen readers
+	// hear searching / no results / end of results without moving focus.
+	let statusMsg = $derived(
+		showFirstSkeleton || loading
+			? t('search.searching')
+			: searched && results.length === 0
+				? t('search.empty')
+				: searched && !hasMore && results.length > 0
+					? t('search.noMore')
+					: ''
+	);
 	let moreAc: AbortController | null = null; // separate controller for load-more requests
 
 	// Sentinel + observer (sentinel binding/observer creation live in the template/$effect).
@@ -668,10 +716,20 @@
 		     (it has to reach across the route boundary, and this is the app's only search input).
 		     An inert data-* hook — no layout, styling, focus order or a11y change, so mobile is
 		     untouched. -->
+		<!-- quick-261102-rrb: type=search + accessible name + ARIA combobox wiring to the
+		     #search-suggest listbox (native WebKit cancel X hidden in CSS — the custom X stays). -->
 		<input
 			data-search-input
 			bind:this={queryInputEl}
 			bind:value={q}
+			type="search"
+			aria-label={t('search.placeholder')}
+			role="combobox"
+			aria-autocomplete="list"
+			aria-controls="search-suggest"
+			aria-expanded={typeaheadOpen}
+			aria-activedescendant={typeaheadOpen && activeIdx >= 0 ? `search-opt-${activeIdx}` : undefined}
+			onkeydown={onSuggestKeydown}
 			placeholder={t('search.placeholder')}
 			autocomplete="off"
 			autocapitalize="off"
@@ -764,17 +822,24 @@
      was suppressed on mobile (worked on desktop, where focus is stable). `suggestions` is
      already cleared on submit/pick/clear/below-2-chars, so this gate is self-limiting (no
      lingering dropdown). Mirrors the same inputFocused-drop done for the recent block (sm7). -->
-{#if q.trim().length >= MIN_QUERY_LEN && suggestions.length > 0}
+{#if typeaheadOpen}
 	<div class="suggest">
 		<div class="suggest-head">
 			<span class="suggest-title">{t('search.suggestions')}</span>
 		</div>
-		<ul class="list">
-			{#each suggestions as s (s.key)}
-				<li>
+		<!-- quick-261102-rrb: listbox/option semantics; the input owns focus and points at the
+		     highlighted option via aria-activedescendant, so options are tabindex=-1. -->
+		<ul class="list" id="search-suggest" role="listbox" aria-label={t('search.suggestions')}>
+			{#each suggestions as s, i (s.key)}
+				<li role="none">
 					<button
 						type="button"
 						class="row suggest-row"
+						class:active={i === activeIdx}
+						role="option"
+						id="search-opt-{i}"
+						aria-selected={i === activeIdx}
+						tabindex="-1"
 						onmousedown={(e) => e.preventDefault()}
 						onclick={() => pickSuggestion(s)}
 						use:tapBounce
@@ -782,6 +847,8 @@
 						<!-- quick-260712-gm4: 3-way kind glyph — song ♫ / artist ♪ / album ◎. Album rows
 						     show the album artist as the muted sub-line, like a song row. -->
 						<span class="suggest-kind" aria-hidden="true">{s.kind === 'album' ? '◎' : s.kind === 'artist' ? '♪' : '♫'}</span>
+						<!-- quick-261102-rrb: spoken kind cue for the aria-hidden glyph (existing keys). -->
+						<span class="vh">{s.kind === 'album' ? t('menu.detailAlbum') : s.kind === 'artist' ? t('menu.detailArtist') : t('tags.fieldTitle')}</span>
 						<span class="suggest-meta">
 							<span class="suggest-q">{names.dnTitle(s.title, s.kind === 'song' ? s.artist : undefined)}</span>
 							{#if (s.kind === 'song' || s.kind === 'album') && s.artist}
@@ -841,7 +908,21 @@
 				{#each artistTiles as tile (tile.name)}
 					<!-- quick-260910-qjv: artist tap feedback, parity with song rows -->
 					<button class="artist-tile" use:tapBounce onclick={() => goto(names.artistHref(tile.name))}>
-						<span class="artist-avatar" style:background-image={tile.image ? `url(${tile.image})` : fallbackArtistCover(tile.name)}></span>
+						<!-- quick-261102-rrb: the gradient is always the background; the photo is a lazy
+						     <img> on top, so offscreen tiles in the horizontal scroller don't fetch and a
+						     failed load falls back to the gradient. <img src>, not CSS url() (T-rrb-01). -->
+						<span class="artist-avatar" style:background-image={fallbackArtistCover(tile.name)}>
+							{#if tile.image}
+								<img
+									src={tile.image}
+									alt=""
+									loading="lazy"
+									decoding="async"
+									referrerpolicy="no-referrer"
+									onerror={(e) => ((e.currentTarget as HTMLImageElement).hidden = true)}
+								/>
+							{/if}
+						</span>
 						<span class="artist-name">{names.dnArtist(tile.name)}</span>
 					</button>
 				{/each}
@@ -908,6 +989,10 @@
 	</ul>
 {/if}
 
+<!-- quick-261102-rrb: always mounted so a status change is announced (a region inserted with its
+     text already in it is often not read). -->
+<p class="vh" role="status" aria-live="polite">{statusMsg}</p>
+
 <TrackMenu track={menuTrack} open={menuOpen} onclose={() => (menuOpen = false)} />
 
 <!-- User 2026-10-06 (audit): in-app confirms replacing native confirm(). -->
@@ -955,6 +1040,10 @@
 	.bar input:focus { border-color: var(--color-primary); }
 	/* quick-261102-rrb: visible keyboard focus ring (outline:none above removed the default). */
 	.bar input:focus-visible { box-shadow: 0 0 0 2px var(--color-primary); }
+	/* quick-261102-rrb: type=search draws its own cancel X in WebKit; the custom .clear-input
+	   button already does that job. */
+	.bar input::-webkit-search-cancel-button,
+	.bar input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
 	/* quick-260711-sm7: clear (X) button — full input-height grid-centred (NO translateY, so the
 	   use:tapBounce scale keyframe can't displace it). Shown only when the input has text. */
 	.clear-input {
@@ -984,7 +1073,9 @@
 	.artist-tiles { display: flex; gap: 12px; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
 	.artist-tiles::-webkit-scrollbar { display: none; }
 	.artist-tile { flex: 0 0 96px; background: none; border: none; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--color-text); }
-	.artist-avatar { width: 96px; height: 96px; border-radius: 50%; background-size: cover; background-position: center; }
+	.artist-avatar { width: 96px; height: 96px; border-radius: 50%; background-size: cover; background-position: center; overflow: hidden; display: block; }
+	/* quick-261102-rrb: lazy photo layered over the gradient background. */
+	.artist-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 50%; }
 	.artist-name { font-size: 0.75rem; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 96px; color: var(--color-text);}
 
 	/* OFFL-03 inline offline empty-state (shared idiom across online-only surfaces). */
@@ -1069,6 +1160,8 @@
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
 	   background on a row under a held finger while the track menu opens. */
 	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
+	/* quick-261102-rrb: keyboard-highlighted typeahead option — same look as hover. */
+	.row.active { background: var(--color-surface); }
 	.art { width: 48px; height: 48px; border-radius: 8px; background-size: cover; background-position: center; flex: none; }
 	.meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
