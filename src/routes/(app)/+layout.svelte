@@ -626,7 +626,7 @@
 		flex-direction: column;
 		align-items: center;
 		gap: 2px;
-		font-size: 0.625rem;
+		font-size: 0.6875rem; /* quick-261103-pga: was 0.625rem (10px) — too small for Indic/CJK labels */
 		color: var(--color-text-muted);
 		transition: color 0.15s ease;
 	}
@@ -672,7 +672,7 @@
 	.update-msg { min-width: 0; }
 	.update-btn {
 		flex: none;
-		background: var(--color-primary, #7c5cff);
+		background: var(--color-primary);
 		color: var(--color-on-primary); /* quick-261102-rrb */
 		border: none;
 		border-radius: 999px;
@@ -718,7 +718,7 @@
 	}
 	.notice-toast .retry {
 		flex: none;
-		background: var(--color-primary, #7c5cff);
+		background: var(--color-primary);
 		color: var(--color-on-primary); /* quick-261102-rrb */
 		border: none;
 		border-radius: 999px;

@@ -167,7 +167,7 @@
         light: {
             bg: "#f7f7fa",
             surface2: "#ececf2",
-            border: "#c5c5cf",
+            border: "#80808a", // quick-261103-pga: track app.css light --color-border (rrb raised it)
             text: "#1a1a22",
             muted: "#5a5a66",
         },

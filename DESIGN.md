@@ -126,7 +126,7 @@ components:
   tabbar:
     backgroundColor: "{colors.night-floor}"
     textColor: "{colors.dusk-text}"
-    typography: "{typography.micro}"
+    typography: "{typography.caption}"
     height: "56px"
 ---
 
@@ -201,7 +201,7 @@ Source colours (`--src-netease` #c20c0c, `--src-qq` #1db954, `--src-kuwo` #ffcb1
 - **Body Small** (400, 0.8125rem, 1.5): secondary copy, text pills and CTAs, bios, hints. The most used size in the app after Title.
 - **Label** (400, 0.75rem × `--fs-artist`, 1.3): artist sub-lines, chips, tooltips.
 - **Caption** (400, 0.6875rem × `--fs-artist` where it is an artist line): counts, album sub-labels, small metadata.
-- **Micro** (400, 0.625rem): tabbar labels under icons.
+- **Micro** (400, 0.625rem): the smallest badges and metadata tags. Tabbar labels moved up to Caption (0.6875rem) for Indic/CJK legibility.
 
 ### Named Rules
 **The rem-Only Rule.** Every `font-size` is in `rem`, multiplied by its `--fs-*` variable. A px font size ignores the user's text-size setting, so never add one.
@@ -264,7 +264,7 @@ Quiet at rest and springy on touch. Every pressable surface gets `use:tapBounce`
 - **Focus:** the border shifts to Tiffany Signal on focus, plus a 2px Tiffany ring on `:focus-visible`.
 
 ### Navigation
-- **Tabbar:** 56px on Night Floor with a hairline top. Icon over a 0.625rem label in Dusk Text, Chalk Text when active, with a 150ms colour fade. It is hidden while Now Playing is open. At 1024px and up it becomes an 88px left rail with the same markup.
+- **Tabbar:** 56px on Night Floor with a hairline top. Icon over a 0.6875rem label in Dusk Text, Chalk Text when active, with a 150ms colour fade. It is hidden while Now Playing is open. At 1024px and up it becomes an 88px left rail with the same markup.
 - **Nowbar:** 64px bar on Night Floor above the tabbar. It shows 44px art, a title and artist (or the current lyric line), a primary round play button, and a 3px Tiffany progress line along its edge. Tapping it opens Now Playing.
 
 ### Signature components

@@ -318,7 +318,7 @@
 	.note { margin: 0; }
 	/* 65px = the flexible widget's fixed height; the interactive challenge renders inside that box. */
 	.ts-bridge { display: block; width: 100%; height: 65px; border: 0; }
-	.err { color: #f66; font-size: 0.8125rem; margin: 0; }
+	.err { color: var(--color-danger-text); /* quick-261103-pga: was #f66 */ font-size: 0.8125rem; margin: 0; }
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 	.head { display: flex; align-items: center; gap: 8px; }
 	.name { font-weight: 600; font-size: 0.875rem; color: var(--color-text); }
@@ -332,6 +332,6 @@
 		min-height: 32px;
 		cursor: pointer;
 	}
-	.report.armed { color: #f66; }
+	.report.armed { color: var(--color-danger-text); }
 	.empty { color: var(--color-text-muted); font-size: 0.875rem; text-align: center; padding: 24px; }
 </style>

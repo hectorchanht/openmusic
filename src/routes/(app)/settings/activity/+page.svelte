@@ -155,6 +155,6 @@
 	.row:last-child { border-bottom: none; }
 	.ts { color: var(--color-text-muted); flex: none; }
 	.ev { color: var(--color-text); font-weight: 600; flex: none; }
-	.n { color: var(--color-accent, #ffb454); font-weight: 600; flex: none; }
+	.n { color: var(--color-text); /* quick-261103-pga: --color-accent is undefined, so this was always an orange second accent */ font-weight: 600; flex: none; }
 	.d { color: var(--color-text-muted); }
 </style>

@@ -287,10 +287,10 @@
 		max-height: 70vw;
 		border-radius: 16px;
 		object-fit: cover;
-		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+		/* quick-261103-pga: no shadow — Flat-Until-It-Floats (the cover sits on the page). */
 	}
 	.cover--placeholder {
-		background: linear-gradient(135deg, #2a2a36, #14141a);
+		background: var(--color-surface-2); /* quick-261103-pga: theme token, not a dark-only literal */
 	}
 	.title {
 		font-size: 1.5rem;
@@ -300,20 +300,19 @@
 	}
 	.artist {
 		margin: 0;
-		opacity: 0.7;
-		font-size: 1rem;
+		color: var(--color-text-muted); /* quick-261103-pga: muted token, not opacity */
+		font-size: 0.9375rem;
 	}
 	.status {
 		margin: 0.25rem 0 0;
 		display: inline-flex;
 		align-items: center;
 		gap: 0.5rem;
-		font-size: 0.95rem;
-		opacity: 0.85;
+		font-size: 0.9375rem;
+		color: var(--color-text-muted);
 	}
 	.status--error {
-		color: #ff7a7a;
-		opacity: 1;
+		color: var(--color-danger-text); /* quick-261103-pga: was #ff7a7a (~2.4:1 on light) */
 	}
 	.spinner {
 		width: 16px;
@@ -335,12 +334,18 @@
 		justify-content: center;
 		padding: 0.75rem 1.75rem;
 		border-radius: 999px;
-		background: var(--accent, #6c5ce7);
-		color: #fff;
+		/* quick-261103-pga: `--accent` is defined nowhere, so this was always a purple #6c5ce7 with
+		   white text — a second accent that ignored the user's accent pick. */
+		background: var(--color-primary);
+		color: var(--color-on-primary);
 		font-weight: 600;
 		text-decoration: none;
 		border: none;
 		cursor: pointer;
+	}
+	.play-cta:focus-visible {
+		outline: 2px solid var(--color-focus);
+		outline-offset: 2px;
 	}
 	.play-cta:disabled {
 		opacity: 0.5;

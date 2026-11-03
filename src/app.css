@@ -120,6 +120,8 @@ body {
 }
 a { color: inherit; text-decoration: none; }
 button { font-family: inherit; }
+/* quick-261103-pga: the UA placeholder grey (#757575) is 3.6:1 on --color-surface-2; muted clears 4.5:1 on every theme. */
+::placeholder { color: var(--color-text-muted); opacity: 1; }
 /* MENU-03 / D-12: kill the iOS grey tap-highlight flash on every interactive surface in one
    place. Long-press trigger sites (home tiles, list rows) otherwise flash a grey overlay under
    the held finger while the track menu opens. Per-site :hover/:active sticky-state guards live
