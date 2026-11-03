@@ -169,6 +169,36 @@ describe('song/[artist]/[title] loader — the ci cover-id carrier', () => {
 		expect(typeof out.then).not.toBe('function');
 		expect(out.name).toBe('你瞞我瞞');
 	});
+
+	// quick-261102-covgate: the token is ALSO returned as its own field — the page component
+	// appends it to the VISIBLE hero URL, which previously carried no token at all and
+	// re-resolved by name (the surface that showed a wrong cover beside a correct nowbar).
+	it('returns ci as its own field for the page hero (null when the link had none)', () => {
+		expect(runCi('i:446760418').ci).toBe('i:446760418');
+		expect(runCi().ci).toBeNull();
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// quick-261102-covgate — the hero ADOPTS the app's unified cover once the arrival seats the
+// track (Hector: "all cover should resolved to same unified cover everywhere")
+// ---------------------------------------------------------------------------------------------
+// Source guards, same no-jsdom reason as the kvz block below: the adoption reads the cover
+// cache through the lazily-bound readCoverByUidOrName (the nowbar's own read), and the hero
+// src is that read layered over the OG card — never a second, page-private resolution.
+describe('song share page — hero adopts the unified cover (quick-261102-covgate)', () => {
+	const src = readFileSync(new URL('./+page.svelte', import.meta.url), 'utf8');
+
+	it('hero src = the unified read over the OG card, probed lazily (SSR stays store-free)', () => {
+		expect(src).toContain('unifiedCover ?? coverSrc');
+		expect(src).toContain("import('$lib/stores/cover-version.svelte')");
+		expect(src).toContain('readCoverByUidOrName');
+	});
+
+	it('the OG hero URL carries the ci token when the share link had one', () => {
+		expect(src).toContain('data.ci');
+		expect(src).toContain('&ci=');
+	});
 });
 
 // ---------------------------------------------------------------------------------------------

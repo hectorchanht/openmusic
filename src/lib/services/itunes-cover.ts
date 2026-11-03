@@ -67,11 +67,19 @@ interface ItunesResponse {
  * spaces / special chars leak into the query), entity is set, limit is pinned to 1, and an
  * optional attribute (e.g. 'artistTerm') is appended only when provided.
  */
-export function buildItunesSearchUrl(term: string, entity: string, attribute?: string): string {
+export function buildItunesSearchUrl(
+	term: string,
+	entity: string,
+	attribute?: string,
+	// quick-261102-covgate: /api/og's tier asks for a few candidates so it can skip a
+	// first-result identity mismatch instead of trusting results[0] blind. Default stays 1 —
+	// every client caller (fetchTopArtwork above) is byte-identical.
+	limit = 1
+): string {
 	const params = new URLSearchParams();
 	params.set('term', term);
 	params.set('entity', entity);
-	params.set('limit', '1');
+	params.set('limit', String(limit));
 	if (attribute) params.set('attribute', attribute);
 	return `${ITUNES_SEARCH}?${params.toString()}`;
 }

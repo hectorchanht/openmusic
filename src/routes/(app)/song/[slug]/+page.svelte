@@ -55,9 +55,24 @@
 	// own-origin path to resolve and apiUrl() deliberately does NOT apply here: routing an absolute
 	// cross-origin URL through it would corrupt it on the native build. A missing / non-https carrier
 	// arrives as null → gradient, exactly as before.
+	// quick-261102-covgate — ONE COVER EVERYWHERE (Hector's rule, 2026-11-02): once the arrival
+	// seats the shared track, the hero ADOPTS the app's unified cover read for that exact track
+	// (readCoverByUidOrName — the same function, same arguments the nowbar passes), so this page
+	// can never show a different cover than the rest of the app for the same song. The carried
+	// `?c=` image stays the pre-arrival surface. Probe bound lazily in onMount beside `lock`
+	// (SSR-SAFETY header); the read self-subscribes to coverVersion(), so the hero repaints the
+	// moment the unified cover lands.
+	let coverProbe = $state<((uid: string, artist: string, title: string) => string | null) | null>(null);
+	let seated = $state<{ uid: string; artist: string; title: string } | null>(null);
+	const unifiedCover = $derived(
+		coverProbe && seated ? coverProbe(seated.uid, seated.artist, seated.title) : null
+	);
+	const heroSrc = $derived(unifiedCover ?? data.og.image);
 	// A broken <img> is worse than a gradient (the healCover precedent treats a cover error as a
-	// first-class event), so an error falls back to the existing .cover--placeholder block.
-	let coverFailed = $state(false);
+	// first-class event). Failure is tracked PER SRC VALUE, so an adopted unified cover gets its
+	// own chance instead of inheriting the carried image's failure (and vice versa).
+	let failedFor = $state<string | null>(null);
+	const heroFailed = $derived(failedFor !== null && failedFor === heroSrc);
 
 	// DQ-3 arrival status. Drives the inline UI: 'resolving' shows a spinner, 'playing' means sound
 	// is out, 'notfound' shows a clear message + retry. NEVER stays 'resolving' forever — every
@@ -120,6 +135,9 @@
 		if (outcome !== 'notfound') {
 			const { player } = await import('$lib/stores/player.svelte');
 			seatedUid = player.current?.uid ?? null;
+			// quick-261102-covgate: capture the seated track's identity for the hero adoption.
+			const cur = player.current;
+			if (cur) seated = { uid: cur.uid, artist: cur.artist, title: cur.title };
 		}
 		if (outcome === 'played') {
 			status = 'playing';
@@ -177,6 +195,9 @@
 		// Whatever it took (a start or a re-seat), the shared song holds the seat again.
 		const { player } = await import('$lib/stores/player.svelte');
 		seatedUid = player.current?.uid ?? seatedUid;
+		// quick-261102-covgate: keep the hero adopted to the (re-)seated track.
+		const cur = player.current;
+		if (cur) seated = { uid: cur.uid, artist: cur.artist, title: cur.title };
 		status = 'playing';
 	}
 
@@ -185,6 +206,11 @@
 		// quick-260926-kvz: lazy for the same reason as share-arrival (SSR-SAFETY header) — a failed
 		// chunk keeps the raw text (never-throw).
 		import('$lib/stores/names.svelte').then(({ names }) => (lock = (s) => names.zhLock(s))).catch(() => {});
+		// quick-261102-covgate: the unified-cover probe, lazy for the same SSR reason — a failed
+		// chunk leaves the carried hero in place (never-throw).
+		import('$lib/stores/cover-version.svelte')
+			.then(({ readCoverByUidOrName }) => (coverProbe = readCoverByUidOrName))
+			.catch(() => {});
 		// onMount, NEVER a tracked rune effect: the arrival writes player state, and a tracked effect
 		// that reads then writes that state self-invalidates into a loop
 		// (restore-effect-self-invalidation-loop — see the untrack() block at
@@ -204,15 +230,15 @@
 	<!-- quick-261006-gear: settings gear at the top-right corner (every page). -->
 	<div class="share-top"><SettingsGear /></div>
 	<section class="song-share">
-	{#if data.og.image && !coverFailed}
+	{#if heroSrc && !heroFailed}
 		<!-- Decorative: the title + artist are rendered as text immediately below. no-referrer matches
 		     the app's <audio> posture for third-party CDN media. -->
 		<img
 			class="cover"
-			src={data.og.image}
+			src={heroSrc}
 			alt=""
 			referrerpolicy="no-referrer"
-			onerror={() => (coverFailed = true)}
+			onerror={() => (failedFor = heroSrc)}
 		/>
 	{:else}
 		<div class="cover cover--placeholder" aria-hidden="true"></div>

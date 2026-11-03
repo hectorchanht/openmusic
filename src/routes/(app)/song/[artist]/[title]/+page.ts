@@ -61,5 +61,10 @@ export const load: PageLoad = ({ params, url }) => {
 	// loader never turns the carrier into a source dispatch or a URL. It therefore stays SYNCHRONOUS
 	// and performs NO fetch: the T-24-08 / SSRF posture above is unchanged by this param — do not add
 	// a fetch here to "pre-resolve" it.
-	return { og, name: title, artist, u: url.searchParams.get('u') };
+	//
+	// quick-261102-covgate: `ci` is echoed RAW as its own field too — the page component appends
+	// it to its in-app hero URL, so the VISIBLE cover takes the same token fast-path the meta
+	// og:image already had (before this, the hero URL carried no token at all and re-resolved
+	// by name — the surface that served a wrong cover while the nowbar showed the right one).
+	return { og, name: title, artist, u: url.searchParams.get('u'), ci: url.searchParams.get('ci') };
 };
