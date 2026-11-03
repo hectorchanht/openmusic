@@ -5,6 +5,7 @@
 import type { SourceId, Track } from '$lib/sources/types';
 import { t2sConvertLineSync, warmT2S } from '$lib/services/zh-convert';
 import { isDeviceUid } from '$lib/services/device-track';
+import { splitArtists } from '$lib/util/artist-split';
 
 // Tie-break when quality is equal/unknown. Tune freely.
 // 5sing is UGC (covers / 伴奏 / 原创) — it should NEVER win a tie against a mainstream CN
@@ -253,6 +254,61 @@ export function sameSongStrings(aArtist: string, aTitle: string, bArtist: string
 	const ib = kb.indexOf('|');
 	const title = ka.slice(0, ia);
 	return !!title && title === kb.slice(0, ib) && aliasArtist(ka.slice(ia + 1), kb.slice(ib + 1));
+}
+
+/**
+ * quick-261102-cov1: the ARTIST half of the identity machinery, exported for the
+ * auto-substitution gate (song-variant's isAutoAcceptableArtist). Two artist strings name
+ * the SAME credited act when any of the codebase's canonical comparisons says so:
+ *   1. their songKey artist halves are equal (script-folded per char, bracketed segments
+ *      and feat./ft. dash-tails dropped, punctuation stripped — 周杰倫 vs 周杰伦，
+ *      "周杰倫 (Jay Chou)" vs 周杰倫）;
+ *   2. the alias rule (aliasArtist — whole script-run subsets: `G.E.M.` vs `G.E.M.鄧紫棋`);
+ *   3. they SHARE a credited segment under splitArtists — duet / featuring containment in
+ *      either direction （周杰倫 vs `周杰倫/蔡依林`; a duet-credited stub vs its primary
+ *      artist's solo credit). A segment only counts whole (splitArtists output keyed
+ *      through the same songKey normalization), never as a substring, so 阿傑 vs 阿傑正傳
+ *      stay apart.
+ * A blank side NEVER matches (returns false): the blank policy — a candidate with no
+ * credited artist carries no identity to check — belongs to the gate, not to identity.
+ * Deliberately NOT routed through sameSongKey: that predicate also demands title equality
+ * and its key() feeds persisted comment-thread hashes (comments.ts) that must not move.
+ */
+export function sameArtistCredit(aArtist: string, bArtist: string): boolean {
+	const artistHalf = (s: string): string => {
+		const k = songKey(s ?? '', '');
+		return k.slice(k.indexOf('|') + 1);
+	};
+	const ha = artistHalf(aArtist);
+	const hb = artistHalf(bArtist);
+	if (!ha || !hb) return false;
+	if (ha === hb) return true;
+	if (aliasArtist(ha, hb)) return true;
+	const segKeys = (s: string) =>
+		splitArtists(s ?? '')
+			.map(artistHalf)
+			.filter((x) => x.length > 0);
+	const aSegs = segKeys(aArtist);
+	if (aSegs.length === 0) return false;
+	const bSegs = new Set(segKeys(bArtist));
+	return aSegs.some((s) => bSegs.has(s));
+}
+
+// quick-261102-cov1: the CREDIT-based identity the automatic adoption seams OR in
+// beside sameSongKey. sameSongKey's artist half demands equal-SHAPE credits (same
+// segment count after splitting), which excludes a duet credit outright — a
+// 周杰倫/蔡依林 row is "not the same song" as the 周杰倫 track it must substitute
+// for, even though it IS the original recording. This helper asks the two questions
+// the seams actually mean: same TITLE (dedupe key equality, brackets/feat stripped
+// as everywhere) AND same ARTIST by credit (sameArtistCredit — equality, alias, or
+// segment containment). It never widens past a different act: containment requires
+// a whole credited segment, and the title must key-match exactly.
+export function sameSongByCredit(
+	a: { artist: string; title: string },
+	b: { artist: string; title: string }
+): boolean {
+	if (titleKey(a.title ?? '') !== titleKey(b.title ?? '')) return false;
+	return sameArtistCredit(a.artist ?? '', b.artist ?? '');
 }
 
 function better(a: Track, b: Track, preferred?: SourceId): Track {

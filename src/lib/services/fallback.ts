@@ -9,8 +9,13 @@
 // exactly ONE source — keeping the per-source attempts cheap and isolating any source failure.
 
 import { searchAll, ensureTrackDetails } from '$lib/services/catalog';
-import { sameSongKey } from '$lib/services/dedupe';
-import { rankAcceptable, isAcceptableSubstitute, candidateTier } from '$lib/services/song-variant';
+import { sameSongKey, sameSongByCredit } from '$lib/services/dedupe';
+import {
+	rankAcceptable,
+	isAcceptableSubstitute,
+	candidateTier,
+	isAutoAcceptableArtist
+} from '$lib/services/song-variant';
 import { getEnabledAdapters, onlySource, isAutoResolveEligible } from '$lib/sources/registry';
 import { isDeviceUid } from '$lib/services/device-track';
 import type { SourceId, Track } from '$lib/sources/types';
@@ -162,7 +167,10 @@ export interface FallbackHit {
  * Whether one source GENUINELY rejected the song (quick-261102-exh1 — the "not playable" bar):
  * - `hit`: a candidate resolved to a playable URL.
  * - `rejected`: the pool was fetched and considered, and either no candidate passed the
- *   identity/substitute gates or every walked candidate's resolve failed to yield a URL.
+ *   identity/substitute/artist gates or every walked candidate's resolve failed to yield
+ *   a URL. A pool whose only same-title rows are OTHER artists' covers lands here too
+ *   (quick-261102-cov1): the covers are not a `hit`, and the source has genuinely
+ *   rejected the ORIGINAL — the exhaustion accounting never credits their presence.
  * - `empty`: the pool was fetched and came back with zero rows (a health-gate short-circuit
  *   lands here too — the gate's own probe re-opens it on its 60s cycle).
  * - `inconclusive`: the source was NEVER really tried — its search threw, its per-source
@@ -351,10 +359,24 @@ async function tryOneSource(
 	// acceptable substitutes, the plain original outranks a live/remix/DJ variant.
 	// quick-261101-ring1: it also walks plausible lengths before short clips, with the
 	// failed track's own duration as the expectation when it carries one.
+	// quick-261102-cov1: THIRD gate — the artist-identity gate (isAutoAcceptableArtist).
+	// sameSongKey's artist half already refuses a plainly different artist today, but it
+	// is a SHARED predicate whose looseness other consumers deliberately rely on (its own
+	// caller audit says so), so the substitution seam states the artist rule explicitly:
+	// a 同人 cover by a different artist is never adopted over the failed track, and a
+	// covers-only pool ranks empty → verdict 'rejected' below (the covers do not count
+	// as this source having the song). The identity term is `sameSongKey OR
+	// sameSongByCredit`: sameSongKey's equal-shape artist rule excludes duet credits
+	// outright, so a 周杰倫/蔡依林 original could never substitute for the 周杰倫
+	// track — sameSongByCredit admits it via whole-segment containment (same title key
+	// + same artist by credit), which still refuses every different act.
 	const ranked = rankAcceptable(
 		candidates,
 		failed.title,
-		(c) => sameSongKey(c, failed) && isAcceptableSubstitute(failed.title, c.title),
+		(c) =>
+			(sameSongKey(c, failed) || sameSongByCredit(c, failed)) &&
+			isAcceptableSubstitute(failed.title, c.title) &&
+			isAutoAcceptableArtist(failed.artist, c.artist),
 		{ expectedSec: failed.duration }
 	);
 	// The pool was genuinely fetched and considered; the gates refused every row in it.

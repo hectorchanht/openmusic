@@ -1,7 +1,7 @@
 // SUBSTITUTION VARIANT GUARD — "is this candidate an acceptable stand-in for the song that failed?"
 // OFFICIAL SONG PRIORITIZER lives at the bottom (quick-261020-off1).
 
-import { variantTag, foldScript } from '$lib/services/dedupe';
+import { variantTag, foldScript, sameArtistCredit } from '$lib/services/dedupe';
 //
 // WHY (user report, debug `slow-cold-start-first-playing`): when a source truly cannot serve a track,
 // the player retries the SAME song on another source so playback never visibly stops. That is the
@@ -396,4 +396,51 @@ export function pickOfficial<T extends { title: string; duration?: number }>(
 		}
 	}
 	return best;
+}
+
+// --- ARTIST-IDENTITY GATE (quick-261102-cov1) --------------------------------------------------
+// The third substitution question, beside sameSongKey ("same song?") and
+// isAcceptableSubstitute ("same KIND of recording?"): "same ARTIST?" — asked by every
+// AUTOMATIC adoption seam (fallback.ts tryOneSource, catalog.ts resolveNameStub,
+// discovery.ts resolveStub) before a candidate may be played under the tapped track's
+// identity.
+//
+// WHY (user report 2026-11-02): he tapped 《說了再見》·周杰倫 on Your Radio and the app
+// played a 同人 cover by 阿傑 (netease 3388515483). The netease pool for that query is
+// covers-only (live-probed: its first 10 rows are all fan covers, the official is not
+// among them), and resolveStub's selection had NO artist check anywhere — scoreMatch
+// only RANKS (every plain-titled cover earns the same title-only credit), and
+// preferEligible's weak fallback (quick-261020-wrong1) verified the TITLE overlap but
+// never the artist. A different artist is worse than a variant rendition: a variant is
+// at least the same act, a cover by someone else is a different recording entirely.
+// Hector's rule: on click, ALWAYS the original song by the original artist — when no
+// source can serve the original artist, the song is unplayable-as-original and the
+// caller's skip path runs; a cover is NEVER silently substituted.
+
+/**
+ * THE one-line policy flip. While false (the shipped behaviour), a candidate credited
+ * to a clearly DIFFERENT artist is never auto-accepted by any automatic chain. Flip to
+ * true to restore cover-as-last-resort substitution (different-artist candidates become
+ * acceptable again, ranked by the existing official/variant machinery) — no other code
+ * changes needed; every seam reads this constant through isAutoAcceptableArtist.
+ */
+export const ALLOW_COVER_AS_AUTO_SUBSTITUTE = false;
+
+/**
+ * May an automatic chain adopt `candidateArtist`'s row for a target credited to
+ * `targetArtist`? True when:
+ *   - the target carries no credited artist (title-only stub — nothing to enforce), or
+ *   - the candidate's artist is blank/unknown (no identity to check — the title and
+ *     variant gates still apply in full), or
+ *   - the two credits name the same act under sameArtistCredit (canonical equality,
+ *     alias subsets, or a shared duet/featuring segment).
+ * A clearly different credited artist （阿傑 for a 周杰倫 target) is false.
+ */
+export function isAutoAcceptableArtist(targetArtist: string, candidateArtist: string): boolean {
+	if (ALLOW_COVER_AS_AUTO_SUBSTITUTE) return true;
+	const t = (targetArtist ?? '').trim();
+	if (!t) return true;
+	const c = (candidateArtist ?? '').trim();
+	if (!c) return true;
+	return sameArtistCredit(t, c);
 }

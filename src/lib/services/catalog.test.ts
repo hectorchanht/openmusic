@@ -804,6 +804,71 @@ describe('resolveNameStub — registry-first single-source name resolution (RESO
 		// …but ytmusic (autoResolveEligible:false) was NEVER searched — it is not an auto-resolve target.
 		expect(SOURCES.ytmusic.search).not.toHaveBeenCalled();
 	});
+
+	// quick-261102-cov1 (user report 2026-11-02): the artist-identity gate at this
+	// adoption seam. A name stub credited to 周杰倫 must never come back as a
+	// different artist's 同人 cover （阿傑）, however playable the cover row is.
+	it('(cov1-a) official fails resolve on qq + playable cover on netease + official on kuwo → the kuwo OFFICIAL plays; the cover is never resolved', async () => {
+		stubAllEmpty();
+		const qqOfficial = mk('qq', 'qoff', 1, { artist: '周杰倫', title: '說了再見' });
+		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([qqOfficial]);
+		// qq's official row resolves WITHOUT a URL (locked tier) → the walk must move on.
+		vi.spyOn(SOURCES.qq, 'resolve').mockResolvedValue({
+			...qqOfficial,
+			detailsLoaded: true,
+			audioUrl: null,
+			lrc: '[00:01]x'
+		});
+		const neCover = mk('netease', '3388515483', 1, { artist: '阿傑', title: '說了再見' });
+		vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([neCover]);
+		const neResolve = vi.spyOn(SOURCES.netease, 'resolve');
+		const kwOfficial = mk('kuwo', 'koff', 1, { artist: '周杰倫', title: '說了再見' });
+		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([kwOfficial]);
+		vi.spyOn(SOURCES.kuwo, 'resolve').mockResolvedValue({
+			...kwOfficial,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/kw.mp3',
+			lrc: '[00:01]x'
+		});
+
+		const out = await resolveNameStub('周杰倫', '說了再見');
+
+		expect(out?.uid).toBe('kuwo:koff');
+		expect(out?.artist).toBe('周杰倫');
+		// The cover ranked EMPTY at netease (gated before ranking) → never resolved.
+		expect(neResolve).not.toHaveBeenCalled();
+	});
+
+	it('(cov1-b) only covers exist anywhere → null, and no cover is ever resolved', async () => {
+		stubAllEmpty();
+		const qqCover = mk('qq', 'qc', 1, { artist: '阿傑', title: '說了再見' });
+		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([qqCover]);
+		const qqResolve = vi.spyOn(SOURCES.qq, 'resolve');
+		const neCover = mk('netease', '3388515483', 1, { artist: '阿傑', title: '說了再見' });
+		vi.spyOn(SOURCES.netease, 'search').mockResolvedValue([neCover]);
+		const neResolve = vi.spyOn(SOURCES.netease, 'resolve');
+
+		const out = await resolveNameStub('周杰倫', '說了再見');
+
+		expect(out).toBeNull();
+		expect(qqResolve).not.toHaveBeenCalled();
+		expect(neResolve).not.toHaveBeenCalled();
+	});
+
+	it('(cov1-c) a duet credit containing the stub artist counts as the original', async () => {
+		stubAllEmpty();
+		const duet = mk('qq', 'qd', 1, { artist: '周杰倫/蔡依林', title: '說了再見' });
+		vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([duet]);
+		vi.spyOn(SOURCES.qq, 'resolve').mockResolvedValue({
+			...duet,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/duet.mp3',
+			lrc: '[00:01]x'
+		});
+
+		const out = await resolveNameStub('周杰倫', '說了再見');
+		expect(out?.uid).toBe('qq:qd');
+	});
 });
 
 // Phase 26 (RESOLVE-02): ensureTrackDetails routes a marked name-stub through resolveNameStub and
