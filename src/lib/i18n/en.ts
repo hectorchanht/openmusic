@@ -108,6 +108,7 @@ const en = {
 	"search.empty": "No results.",
 	"search.artists": "Artists",
 	"search.noMore": "No more results.",
+	"search.resultsCount": "{n} results",
 	"search.recent": "Recent searches",
 	"search.clear": "Clear",
 	"search.suggestions": "Suggestions",

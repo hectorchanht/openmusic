@@ -371,15 +371,18 @@
 	let hasMore = $state(false); // whether another batch might yield net-new tracks
 
 	// quick-261102-rrb: one polite live-region message for the search status, so screen readers
-	// hear searching / no results / end of results without moving focus.
+	// hear searching / no results / the result count without moving focus.
+	// quick-261102-s0k: announce the count on every successful search (was silent when hasMore,
+	// and said "No more results." first when results fit one page). search.noMore stays on the
+	// visible end note only.
 	let statusMsg = $derived(
 		showFirstSkeleton || loading
 			? t('search.searching')
-			: searched && results.length === 0
-				? t('search.empty')
-				: searched && !hasMore && results.length > 0
-					? t('search.noMore')
-					: ''
+			: !searched
+				? ''
+				: results.length === 0
+					? t('search.empty')
+					: t('search.resultsCount', { n: results.length })
 	);
 	let moreAc: AbortController | null = null; // separate controller for load-more requests
 
@@ -877,11 +880,12 @@
      (theme-safe greys + shimmer, reduce-motion re-asserted in app.css); the line spans are
      .sk-line, not .bar — .bar collided with the search form's flex + margin-bottom and made
      skeleton rows taller than real rows. -->
-{#snippet skeletonRows(count: number, label: string)}
-	<li class="skel-wrap" aria-label={label}>
-		<span class="vh">{label}</span>
+{#snippet skeletonRows(count: number)}
+	<!-- quick-261102-s0k: decorative only; the role=status region below is the single
+	     "searching" announcement (the aria-label + .vh copy here read it three times). -->
+	<li class="skel-wrap" aria-hidden="true">
 		{#each Array(count) as _, i (i)}
-			<span class="row skel" aria-hidden="true">
+			<span class="row skel">
 				<span class="art sk"></span>
 				<span class="meta">
 					<span class="sk sk-line sk-title"></span>
@@ -896,7 +900,7 @@
 	<!-- D-01: first-load skeleton. Gated on a dwell-floored flag (NOT raw `loading`/empty)
 	     so a D-04 cache HIT / fast settle can't collapse it below one paint frame. -->
 	<ul class="list">
-		{@render skeletonRows(6, t('search.searching'))}
+		{@render skeletonRows(6)}
 	</ul>
 {:else if searched && !loading && results.length === 0}
 	<p class="muted">{t('search.empty')}</p>
@@ -978,7 +982,7 @@
 		{/each}
 
 		{#if showMoreSkeleton}
-			{@render skeletonRows(4, t('search.loadingMore'))}
+			{@render skeletonRows(4)}
 		{/if}
 
 		{#if hasMore}
@@ -1161,7 +1165,9 @@
 	   background on a row under a held finger while the track menu opens. */
 	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
 	/* quick-261102-rrb: keyboard-highlighted typeahead option — same look as hover. */
-	.row.active { background: var(--color-surface); }
+	/* quick-261102-s0k: the surface fill alone is 1.09:1 on the page — add a focus-token inset
+	   ring so the aria-activedescendant option is actually visible. */
+	.row.active { background: var(--color-surface); box-shadow: inset 0 0 0 2px var(--color-focus); }
 	.art { width: 48px; height: 48px; border-radius: 8px; background-size: cover; background-position: center; flex: none; }
 	.meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 

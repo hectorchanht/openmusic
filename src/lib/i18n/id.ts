@@ -78,6 +78,7 @@ const id: Dict = {
 	"search.empty": "Tidak ada hasil.",
 	"search.artists": "Artis",
 	"search.noMore": "Tidak ada hasil lagi.",
+	"search.resultsCount": "{n} hasil",
 	"search.recent": "Pencarian terkini",
 	"search.clear": "Jelas",
 	"search.suggestions": "Saran",

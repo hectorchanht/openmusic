@@ -85,6 +85,7 @@ const zhHans: Dict = {
 	"search.empty": "没有结果。",
 	"search.artists": "歌手",
 	"search.noMore": "没有更多结果了。",
+	"search.resultsCount": "{n} 个结果",
 	"search.recent": "最近搜索",
 	"search.clear": "清除",
 	"search.suggestions": "建议",

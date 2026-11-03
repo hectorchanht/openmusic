@@ -78,6 +78,7 @@ const tr: Dict = {
 	"search.empty": "Sonuç yok.",
 	"search.artists": "Sanatçılar",
 	"search.noMore": "Başka sonuç yok.",
+	"search.resultsCount": "{n} sonuç",
 	"search.recent": "Son aramalar",
 	"search.clear": "Temizle",
 	"search.suggestions": "Öneriler",

@@ -78,6 +78,7 @@ const ar: Dict = {
 	"search.empty": "لا توجد نتائج.",
 	"search.artists": "الفنانون",
 	"search.noMore": "لا مزيد من النتائج.",
+	"search.resultsCount": "{n} نتيجة",
 	"search.recent": "عمليات البحث الأخيرة",
 	"search.clear": "واضح",
 	"search.suggestions": "اقتراحات",

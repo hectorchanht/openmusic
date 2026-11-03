@@ -78,6 +78,7 @@ const th: Dict = {
 	"search.empty": "ไม่มีผลลัพธ์",
 	"search.artists": "ศิลปิน",
 	"search.noMore": "ไม่มีผลลัพธ์อีกต่อไป",
+	"search.resultsCount": "{n} ผลลัพธ์",
 	"search.recent": "การค้นหาล่าสุด",
 	"search.clear": "ชัดเจน",
 	"search.suggestions": "คำแนะนำ",

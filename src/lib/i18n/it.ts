@@ -78,6 +78,7 @@ const it: Dict = {
 	"search.empty": "Nessun risultato.",
 	"search.artists": "Artisti",
 	"search.noMore": "Niente più risultati.",
+	"search.resultsCount": "{n} risultati",
 	"search.recent": "Ricerche recenti",
 	"search.clear": "Chiaro",
 	"search.suggestions": "Suggerimenti",

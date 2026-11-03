@@ -78,6 +78,7 @@ const hi: Dict = {
 	"search.empty": "कोई परिणाम नहीं.",
 	"search.artists": "कलाकार",
 	"search.noMore": "कोई और परिणाम नहीं.",
+	"search.resultsCount": "{n} परिणाम",
 	"search.recent": "हाल की खोजें",
 	"search.clear": "स्पष्ट",
 	"search.suggestions": "सुझाव",

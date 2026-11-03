@@ -78,6 +78,7 @@ const vi: Dict = {
 	"search.empty": "Không có kết quả.",
 	"search.artists": "Nghệ sĩ",
 	"search.noMore": "Không còn kết quả nữa.",
+	"search.resultsCount": "{n} kết quả",
 	"search.recent": "Tìm kiếm gần đây",
 	"search.clear": "Xóa",
 	"search.suggestions": "Gợi ý",

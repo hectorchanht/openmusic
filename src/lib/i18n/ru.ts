@@ -78,6 +78,7 @@ const ru: Dict = {
 	"search.empty": "Никаких результатов.",
 	"search.artists": "Исполнители",
 	"search.noMore": "Больше никаких результатов.",
+	"search.resultsCount": "Результатов: {n}",
 	"search.recent": "Недавние поиски",
 	"search.clear": "Очистить",
 	"search.suggestions": "Подсказки",
