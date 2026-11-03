@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick, untrack } from 'svelte';
+	import { tick, untrack, onDestroy } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
 	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff, Pencil, Disc3, Radio, MessageCircle, ListMusic, ArrowDownToLine, RotateCcw } from '@lucide/svelte';
@@ -16,6 +16,8 @@
 	import { longpress } from '$lib/actions/longpress';
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { tapBounce } from '$lib/actions/tapBounce';
+	// quick-261102-menudrag: the shared spring pump drives the edit-grid drop settle.
+	import { createSpringSnap } from '$lib/gestures/springSnap';
 	import { marquee } from '$lib/actions/marquee';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
@@ -23,12 +25,12 @@
 	import { t } from '$lib/i18n';
 	import type { TranslationKey } from '$lib/i18n';
 	import type { Component } from 'svelte';
-	import { flip } from 'svelte/animate';
 	import { settings } from '$lib/stores/settings.svelte';
 	// quick-261006-mnu: the customizable menu's action catalog + order normalizer. PURE —
 	// settings.svelte.ts (a LEAF store) is its other consumer; this component never imports
-	// the store THROUGH here.
-	import { MENU_ACTIONS, MENU_GRID_SLOTS, type MenuActionId } from '$lib/services/track-menu-order';
+	// the store THROUGH here. quick-261102-menudrag: the edit grid's drop geometry
+	// (menuDropIndex / menuSlotForIndex) lives there too, node-tested beside the normalizer.
+	import { MENU_ACTIONS, MENU_GRID_SLOTS, menuDropIndex, menuSlotForIndex, type MenuActionId } from '$lib/services/track-menu-order';
 	import { buildSimilarQueue } from '$lib/services/similar';
 	import { requestNpTab } from '$lib/stores/np-tab.svelte';
 	import { ensureTrackDetails, collectLyricCandidates, type LyricCandidate } from '$lib/services/catalog';
@@ -257,90 +259,335 @@
 	// disambiguated the swipeAction WR-01 way — a gesture that never passes SLOP is a TAP
 	// and the click stands; one that does is a DRAG and the trailing click is suppressed.
 	// Enabled cells are a CONTIGUOUS PREFIX of the grid (editIds), so the drop target is an
-	// insertion index into editOrder: nearest enabled-cell center excluding the dragged one
-	// (its own transformed rect would win its own contest), with a past-the-end rule so the
-	// last slot is reachable.
+	// insertion index into editOrder (menuDropIndex in track-menu-order.ts).
+	//
+	// quick-261102-menudrag — WHY THIS WAS REBUILT (Hector 2026-11-02: the reorder felt
+	// 唔貼手 — not glued to the pointer — and 唔會自然放低去適當位置 — no natural landing).
+	// The quick-261006-mnu original LIVE-REORDERED editOrder on every pointermove: the
+	// keyed {#each} re-laid the dragged cell at its new slot while its transform stayed
+	// the raw delta from the drag START, so each reorder displaced the cell a whole slot
+	// relative to the pointer and the target hunted against the already-shifted DOM; on
+	// release the transform simply vanished, teleporting the cell back by the full drag
+	// distance; and pointercancel ran the same mUp commit path, so a cancelled drag
+	// PERSISTED its half-finished order. The rebuild ports the proven quick-261102-chipflip
+	// architecture (chipReorder.ts), adapted to this 2D grid:
+	//  1. Geometry is measured ONCE at drag start (true layout slots); editOrder does NOT
+	//     change mid-drag, so no re-render can race the gesture.
+	//  2. The dragged cell's transform is ALWAYS the raw pointer delta, written straight
+	//     to the DOM node (no $state churn) with transition:none — glued 1:1.
+	//  3. Siblings GLIDE to their post-move slots (menuSlotForIndex transforms) so the
+	//     landing gap is visible while dragging.
+	//  4. Release SPRINGS the cell (shared springSnap, one pump per axis) from its live
+	//     offset into the target slot's offset, and only THEN commits the order — the
+	//     re-render lands exactly on the visual state, so there is no jump.
+	//  5. Cancel (pointercancel / lost capture / window blur / button-less move) springs
+	//     the cell back to its ORIGINAL slot and never commits — the quick-261102-settle
+	//     discipline: every gesture ends in exactly one of drop/commit or home.
+	// animate:flip is GONE from the edit cells: it existed to animate the old live
+	// reorder; with the drag owning every transform, a flip on the settle commit would
+	// measure the already-landed cell and replay the landing. Tap toggles (which also
+	// reorder editIds) now re-layout instantly, like the chip surface's taps.
 	const MNU_SLOP = 6;
+	const MNU_GLIDE = 'transform 180ms ease'; // sibling reflow glide while dragging
 	let editGridEl = $state<HTMLElement | null>(null);
-	let mDragFrom = $state(-1); // index within editOrder while dragging (-1 = idle)
-	let mDragDx = $state(0);
-	let mDragDy = $state(0);
+	let mDragFrom = $state(-1); // index within editOrder of the pressed/dragged cell (-1 = idle)
+	let mDragging = $state(false); // past SLOP and not yet settled — drives class:lifted
 	// Plain fields, NOT $state — nothing reads them reactively, and the click suppressor
 	// must be readable from the click handler that fires immediately after pointerup.
 	let mDragStartX = 0;
 	let mDragStartY = 0;
 	let mDragMoved = false;
 	let mSuppressClick = false;
+	let mPointerId = -1;
+	let mPointerActive = false; // the pointer phase (down → up/cancel) is live
+	let mLastMoveEvent: PointerEvent | null = null;
+	// Drag geometry, measured ONCE at drag start (before any transform is written, so
+	// the rects are true layout slots). Sorted by editOrder index; only ENABLED cells
+	// participate (the contiguous prefix), so mSlots[i] is editOrder index i's slot.
+	interface MnuSlot {
+		el: HTMLElement;
+		index: number;
+		left: number;
+		top: number;
+		width: number;
+		height: number;
+	}
+	let mSlots: MnuSlot[] = [];
+	let mDragEl: HTMLElement | null = null;
+	let mTarget = -1; // live insertion index (post-removal) the drop would commit
+	let mCurX = 0; // the dragged cell's live translate — also the settle's start point
+	let mCurY = 0;
+	// --- drop settle (springSnap per axis; BOTH axes settled → finish) ---
+	let mSettling = false;
+	let mSettleCell: HTMLElement | null = null;
+	let mAxesSettled = 0;
+	let mPendingOrder: MenuActionId[] | null = null;
 
-	/** Insertion index into editOrder AFTER removing the dragged item (0..n-1). */
-	function mTargetIndex(x: number, y: number): number {
-		if (!editGridEl) return mDragFrom;
-		const cells = editGridEl.querySelectorAll<HTMLElement>('.edit-cell.on');
-		const n = cells.length;
-		if (n === 0) return 0;
-		// Past-the-end: the pointer is clearly beyond the final enabled slot in reading
-		// order → append. (Without this the last slot is unreachable — nearest-center
-		// alone always resolves to the last cell itself.)
-		let lastIdx = n - 1;
-		if (lastIdx === mDragFrom) lastIdx--;
-		if (lastIdx >= 0) {
-			const r = cells[lastIdx].getBoundingClientRect();
-			if ((x > r.left + r.width / 2 && y > r.top) || y > r.bottom) return n - 1;
+	function mWriteSettle() {
+		if (mSettleCell) mSettleCell.style.transform = `translate(${mCurX}px, ${mCurY}px)`;
+	}
+	function mAxisSettled() {
+		mAxesSettled += 1;
+		if (mAxesSettled >= 2) mFinishSettle();
+	}
+	const mSnapX = createSpringSnap(
+		(v) => {
+			mCurX = v;
+			mWriteSettle();
+		},
+		{ onSettled: mAxisSettled }
+	);
+	const mSnapY = createSpringSnap(
+		(v) => {
+			mCurY = v;
+			mWriteSettle();
+		},
+		{ onSettled: mAxisSettled }
+	);
+
+	function mClearDragVisuals() {
+		for (const s of mSlots) {
+			s.el.style.transform = '';
+			s.el.style.transition = '';
 		}
-		let best = mDragFrom;
-		let bestD = Infinity;
-		for (let i = 0; i < n; i++) {
-			if (i === mDragFrom) continue;
-			const r = cells[i].getBoundingClientRect();
-			const dx = x - (r.left + r.width / 2);
-			const dy = y - (r.top + r.height / 2);
-			const d = dx * dx + dy * dy;
-			if (d < bestD) {
-				bestD = d;
-				best = i;
-			}
+		if (mSettleCell) {
+			mSettleCell.style.transform = '';
+			mSettleCell.style.transition = '';
+			mSettleCell = null;
 		}
-		// `best` is a pre-removal index; convert to the post-removal insertion index.
-		return best > mDragFrom ? best - 1 : best;
+		if (mDragEl) {
+			mDragEl.style.transform = '';
+			mDragEl.style.transition = '';
+		}
 	}
 
+	function mFinishSettle() {
+		if (!mSettling) return;
+		mSettling = false;
+		mSnapX.cancel();
+		mSnapY.cancel();
+		mClearDragVisuals();
+		mDragEl = null;
+		mSlots = [];
+		mTarget = -1;
+		mDragFrom = -1;
+		mDragging = false;
+		// Fire the commit only NOW: the re-render puts the cell in the slot the spring
+		// just landed it on, so data and visuals change in the same frame — no teleport.
+		const p = mPendingOrder;
+		mPendingOrder = null;
+		if (p) {
+			editOrder = p;
+			commitEdit();
+		}
+	}
+
+	function mStartSettle(landX: number, landY: number, order: MenuActionId[] | null) {
+		mSettling = true;
+		mSettleCell = mDragEl;
+		mPendingOrder = order;
+		mAxesSettled = 0;
+		// mCurX/mCurY still hold the live drag offset; each spring seeds from there.
+		mSnapX.snap(mCurX, landX);
+		mSnapY.snap(mCurY, landY);
+	}
+
+	/** Hard-stop any drag/settle WITHOUT committing (sheet closing, component going away). */
+	function mAbortDrag() {
+		mDisarmWindow();
+		mSnapX.cancel();
+		mSnapY.cancel();
+		mSettling = false;
+		mPendingOrder = null; // dropped, not fired — the sheet is gone
+		mPointerActive = false;
+		mClearDragVisuals();
+		mDragEl = null;
+		mSlots = [];
+		mTarget = -1;
+		mDragFrom = -1;
+		mDragging = false;
+		mPointerId = -1;
+	}
+
+	// Window safety net (quick-261102-settle parity): capture is taken on the CELL at
+	// pointerdown, and if it is lost or refused the cell stops hearing the gesture —
+	// these listeners keep tracking/releasing it. pointerId-filtered; cell+window
+	// copies of one event are deduped in mMove.
+	const mWinMove = (e: PointerEvent) => {
+		if (e.pointerId === mPointerId) mMove(e);
+	};
+	const mWinUp = (e: PointerEvent) => {
+		if (e.pointerId === mPointerId) mUp();
+	};
+	const mWinCancel = (e: PointerEvent) => {
+		if (e.pointerId === mPointerId) mCancelDrag();
+	};
+	const mWinBlur = () => mCancelDrag();
+	function mArmWindow() {
+		window.addEventListener('pointermove', mWinMove);
+		window.addEventListener('pointerup', mWinUp);
+		window.addEventListener('pointercancel', mWinCancel);
+		window.addEventListener('blur', mWinBlur);
+	}
+	function mDisarmWindow() {
+		window.removeEventListener('pointermove', mWinMove);
+		window.removeEventListener('pointerup', mWinUp);
+		window.removeEventListener('pointercancel', mWinCancel);
+		window.removeEventListener('blur', mWinBlur);
+	}
+	onDestroy(mAbortDrag);
+
 	function mDown(e: PointerEvent, id: MenuActionId) {
+		// A press during a drop settle commits the landed order instantly, so the
+		// geometry measured for the new gesture is clean (no half-sprung transforms).
+		if (mSettling) mFinishSettle();
+		if (mPointerActive) return; // one pointer owns the gesture (multi-touch: first wins)
 		const i = editOrder.indexOf(id);
 		if (i < 0) return; // a dimmed cell is not draggable — its tap re-adds it instead
 		mDragFrom = i;
-		mDragDx = 0;
-		mDragDy = 0;
 		mDragStartX = e.clientX;
 		mDragStartY = e.clientY;
 		mDragMoved = false;
-		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		mPointerId = e.pointerId;
+		mPointerActive = true;
+		mLastMoveEvent = null;
+		mCurX = 0;
+		mCurY = 0;
+		// Capture on the CELL from pointerdown (the quick-261006-mnu idiom): move/up keep
+		// arriving on the cell however far the pointer strays, and the trailing click is
+		// retargeted to this same cell, where mClick consumes the drag suppressor. The
+		// call can throw for an inactive pointer — the window net (armed at drag start)
+		// and the lost-capture cancel cover that case.
+		try {
+			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		} catch {
+			/* non-fatal — window listeners keep tracking */
+		}
 	}
+
+	/** First move past SLOP: freeze the gesture's geometry and switch visuals on. */
+	function mBeginDrag() {
+		mDragMoved = true;
+		mDragging = true;
+		// Measure slots BEFORE the first transform write (rects are layout truth here).
+		// The index comes from data-id (editOrder membership), NOT DOM position — the
+		// divider and the CSS `order` split make DOM order and editOrder order differ
+		// past slot 20; enabled cells are the contiguous editOrder prefix throughout.
+		mSlots = [...(editGridEl?.querySelectorAll<HTMLElement>('.edit-cell.on') ?? [])]
+			.map((el) => {
+				const r = el.getBoundingClientRect();
+				return {
+					el,
+					index: editOrder.indexOf(el.dataset.id as MenuActionId),
+					left: r.left,
+					top: r.top,
+					width: r.width,
+					height: r.height
+				};
+			})
+			.filter((s) => s.index >= 0)
+			.sort((a, b) => a.index - b.index);
+		mTarget = mDragFrom;
+		mDragEl = mSlots.find((s) => s.index === mDragFrom)?.el ?? null;
+		// The dragged cell tracks the pointer with NO transition (glued, 1:1); siblings
+		// get the glide so reflow slides instead of jumping (dropped under reduce-motion).
+		if (mDragEl) mDragEl.style.transition = 'none';
+		for (const s of mSlots) {
+			if (s.el !== mDragEl) s.el.style.transition = settings.reduceMotion ? 'none' : MNU_GLIDE;
+		}
+		mArmWindow();
+	}
+
+	/** Glide every sibling to the slot it will occupy if the drag drops at mTarget. */
+	function mApplyReflow() {
+		for (const s of mSlots) {
+			if (s.el === mDragEl) continue;
+			const dest = menuSlotForIndex(s.index, mDragFrom, mTarget);
+			const ox = mSlots[dest].left - s.left;
+			const oy = mSlots[dest].top - s.top;
+			s.el.style.transform = ox !== 0 || oy !== 0 ? `translate(${ox}px, ${oy}px)` : '';
+		}
+	}
+
 	function mMove(e: PointerEvent) {
-		if (mDragFrom < 0) return;
+		if (!mPointerActive || e.pointerId !== mPointerId) return;
+		if (e === mLastMoveEvent) return; // cell + window copies of one event — process once
+		mLastMoveEvent = e;
+		// A button-less move means the press ended somewhere we never saw — cancel home.
+		if (mDragMoved && e.buttons === 0) {
+			mCancelDrag();
+			return;
+		}
 		const dx = e.clientX - mDragStartX;
 		const dy = e.clientY - mDragStartY;
-		if (!mDragMoved && Math.hypot(dx, dy) < MNU_SLOP) return; // still a tap
-		mDragMoved = true;
-		mDragDx = dx;
-		mDragDy = dy;
-		const over = mTargetIndex(e.clientX, e.clientY);
-		if (over !== mDragFrom && over >= 0) {
-			const next = [...editOrder];
-			const [moved] = next.splice(mDragFrom, 1);
-			next.splice(over, 0, moved);
-			editOrder = next;
-			mDragFrom = over;
+		if (!mDragMoved) {
+			if (Math.hypot(dx, dy) < MNU_SLOP) return; // still a tap
+			mBeginDrag();
+		}
+		e.preventDefault();
+		mCurX = dx;
+		mCurY = dy;
+		if (mDragEl) mDragEl.style.transform = `translate(${dx}px, ${dy}px)`;
+		const t = menuDropIndex(e.clientX, e.clientY, mSlots, mDragFrom);
+		if (t !== mTarget) {
+			mTarget = t;
+			mApplyReflow();
 		}
 	}
-	function mUp() {
-		if (mDragFrom < 0) return;
-		if (mDragMoved) {
-			mSuppressClick = true; // WR-01: the trailing click must not also toggle the cell
-			commitEdit();
+
+	/** End the pointer phase: spring the cell into its landing slot (or home, when cancelled). */
+	function mEndDrag(commit: boolean) {
+		mDisarmWindow();
+		mPointerActive = false;
+		if (commit && mSlots.length > 0 && mTarget !== mDragFrom && mTarget >= 0) {
+			// Compute the committed order NOW (splice-move on the untouched snapshot) but
+			// only ASSIGN it when the spring lands (mFinishSettle) — data and visuals
+			// change in the same frame.
+			const next = [...editOrder];
+			const [moved] = next.splice(mDragFrom, 1);
+			next.splice(mTarget, 0, moved);
+			mStartSettle(
+				mSlots[mTarget].left - mSlots[mDragFrom].left,
+				mSlots[mTarget].top - mSlots[mDragFrom].top,
+				next
+			);
+		} else {
+			mStartSettle(0, 0, null);
 		}
-		mDragFrom = -1;
-		mDragDx = 0;
-		mDragDy = 0;
+	}
+
+	function mUp() {
+		if (!mPointerActive) return;
+		if (!mDragMoved) {
+			// Plain tap — leave the click to mClick (tap-to-toggle).
+			mPointerActive = false;
+			mDragFrom = -1;
+			mPointerId = -1;
+			return;
+		}
+		mSuppressClick = true; // WR-01: the trailing click must not also toggle the cell
+		mEndDrag(true);
+	}
+
+	function mCancelDrag() {
+		if (!mPointerActive) return;
+		if (!mDragMoved) {
+			mPointerActive = false;
+			mDragFrom = -1;
+			mPointerId = -1;
+			return;
+		}
+		// Cancel NEVER reorders: the cell springs back to its original slot, and
+		// editOrder keeps the order the drag started with — it was never mutated
+		// mid-drag, so there is nothing to restore.
+		mEndDrag(false);
+	}
+
+	function mLostCapture() {
+		// Fires after every normal pointerup too (the capture release) — mUp has
+		// already ended the pointer phase by then, so this only acts when capture
+		// was lost mid-gesture.
+		if (mPointerActive) mCancelDrag();
 	}
 	function mClick(id: MenuActionId) {
 		if (mSuppressClick) {
@@ -574,10 +821,15 @@
 		// quick-261006-mnu: edit mode is per-open — the grid unmounts with the menu, so a
 		// half-finished customize never leaks into the next open. (Taps and drops commit to
 		// settings immediately; only a mid-drag reorder is dropped here.)
+		// quick-261102-menudrag: a live drag is aborted in place (editOrder was never
+		// mutated mid-drag, so the origin order simply stands); a drop already released
+		// is finished instantly so its commit lands before the sheet goes away — no
+		// spring or pending commit may outlive the menu.
+		if (mSettling) mFinishSettle();
+		else if (mPointerActive || mDragging) mAbortDrag();
 		editing = false;
 		mDragFrom = -1;
-		mDragDx = 0;
-		mDragDy = 0;
+		mDragging = false;
 		pickerOpen = false;
 		tagsOpen = false; // quick-260919-1eh: reset alongside the other sheet flags
 		rmOpen = false; // quick-260919-vrq: same — a confirm must never outlive the menu that raised it
@@ -1771,10 +2023,12 @@
 				{#each editIds as id, i (id)}
 					{@const on = editOrder.includes(id)}
 					{@const Icon = EDIT_META[id].icon}
-					{@const draggingThis = i === mDragFrom}
+					{@const draggingThis = mDragging && i === mDragFrom}
 					<!-- quick-261021-menu6 (user): the customize cell is now draggable like the
-					     others — no longer inert. Single button element because animate:flip
-					     requires the only child of the keyed each. -->
+					     others — no longer inert. Single button element: the keyed each's only
+					     child. quick-261102-menudrag: no style:transform binding and no
+					     animate:flip here any more — the drag writes transforms imperatively
+					     (see the drag block above) and Svelte must never fight them. -->
 					<button
 						class="gi edit-cell"
 						class:on
@@ -1784,22 +2038,23 @@
 						aria-pressed={on}
 						aria-label={t(EDIT_META[id].label)}
 						title={t(EDIT_META[id].label)}
-						style:transform={draggingThis && (mDragDx || mDragDy) ? `translate(${mDragDx}px, ${mDragDy}px)` : undefined}
 						style:order={i < MENU_GRID_SLOTS ? 0 : 2}
 						onpointerdown={(e) => mDown(e, id)}
 						onpointermove={mMove}
 						onpointerup={mUp}
-						onpointercancel={mUp}
+						onpointercancel={mCancelDrag}
+						onlostpointercapture={mLostCapture}
 						onclick={() => mClick(id)}
 						onkeydown={(e) => mKey(e, id)}
-						animate:flip={{ duration: draggingThis || settings.reduceMotion ? 0 : 180 }}
 					><Icon size={22} /><span class="gi-label">{t(EDIT_META[id].label)}</span></button>
 				{/each}
 				<!-- quick-261021-menu5 (user): divider after the 20 visible slots — rows 6+
 				     are the hidden pool, still reorderable via drag. Moved OUT of the keyed
-				     each: animate:flip requires the button to be its only child (Svelte 5
-				     animation_invalid_placement — this broke the Pages build 6x). Placed back
-				     into position via order:1; cells use order 0 (first 20) / 2 (rest). -->
+				     each (originally for animate:flip's only-child rule, which broke the
+				     Pages build 6x; flip is retired since quick-261102-menudrag but the
+				     placement still serves the drag: slot measurement reads only
+				     .edit-cell.on, never this divider). Placed back into position via
+				     order:1; cells use order 0 (first 20) / 2 (rest). -->
 				{#if editIds.length >= MENU_GRID_SLOTS}
 					<div class="edit-divider" style="order: 1"><span>{t('menu.hiddenItems')}</span></div>
 				{/if}
@@ -2198,9 +2453,11 @@
 	@media (hover: hover) { .gi-caret:hover { background: var(--color-surface); color: var(--color-text); } }
 	/* quick-261006-mnu — EDIT MODE. Cells are 2D drag targets: `touch-action: none` so the
 	   finger owns the gesture (the sheet's dragClose is disabled while editing, and the grid
-	   is short enough to need no scroll). A dragged cell follows 1:1 with no transition
-	   (direct manipulation, not decoration); the OTHERS glide aside via animate:flip,
-	   duration 0 under reduceMotion. Dimmed cells are tappable to re-add — they keep a
+	   is short enough to need no scroll). quick-261102-menudrag: the dragged cell follows
+	   the pointer 1:1 (inline transform, transition:none — direct manipulation, not
+	   decoration); siblings glide aside via inline transforms toward the landing gap
+	   (180ms, dropped under reduceMotion) and the release springs the cell into its slot
+	   via the shared springSnap. Dimmed cells are tappable to re-add — they keep a
 	   stable, visible place to come back from (the RowActionsConfig shape). */
 	.edit-cell { touch-action: none; cursor: grab; }
 	.edit-cell.off { opacity: 0.45; }

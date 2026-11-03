@@ -133,3 +133,78 @@ export function normalizeMenuOrder(saved: unknown): MenuActionId[] {
 	}
 	return kept;
 }
+
+// quick-261102-menudrag — the edit grid's drag-to-reorder geometry, extracted PURE so
+// it is node-testable (the track-menu-gate precedent: pure decisions live here, the
+// component owns the DOM). The component measures every enabled cell's rect ONCE at
+// drag start — before any transform is written, so the rects are layout truth — and
+// the whole gesture is then these two functions over that frozen table: no live data
+// reorder mid-drag, no re-measurement against a half-shifted, mid-animation DOM (the
+// quick-261006-mnu original did both, which is why the dragged cell led the pointer
+// by whole cells and the target hunted around it).
+export interface MenuCellRect {
+	left: number;
+	top: number;
+	width: number;
+	height: number;
+}
+
+/**
+ * Insertion index into the enabled order AFTER removing the dragged item (0..n-1)
+ * for a pointer at (x, y) — the drop rule the edit grid has always documented,
+ * evaluated once over the frozen slot table: the pointer's nearest cell center wins,
+ * converted from a pre-removal index to the post-removal insertion index, with a
+ * past-the-end rule so the last slot stays reachable (nearest-center alone always
+ * resolves to the last cell itself).
+ *
+ * The dragged cell's HOME center competes like any other — deliberately UNLIKE the
+ * old live-DOM version, which excluded the dragged cell because its rect was
+ * transformed and re-laid-out mid-gesture. Over a frozen table the home center is
+ * the anchor that makes `from` itself reachable: with it excluded, NO pointer
+ * position maps back to the identity insertion except the sliver where the next
+ * sibling is nearest, so even a press that never leaves home would reorder.
+ * `cells` are the enabled cells' rects in order; `from` is the dragged cell's
+ * index among them.
+ */
+export function menuDropIndex(x: number, y: number, cells: readonly MenuCellRect[], from: number): number {
+	const n = cells.length;
+	if (n === 0) return 0;
+	// Past-the-end: the pointer is clearly beyond the final enabled slot in reading
+	// order → append. (If the dragged cell IS the final one, judge against the slot
+	// before it — appending from there is the identity anyway.)
+	let lastIdx = n - 1;
+	if (lastIdx === from) lastIdx--;
+	if (lastIdx >= 0) {
+		const r = cells[lastIdx];
+		if ((x > r.left + r.width / 2 && y > r.top) || y > r.top + r.height) return n - 1;
+	}
+	let best = from;
+	let bestD = Infinity;
+	for (let i = 0; i < n; i++) {
+		const r = cells[i];
+		const dx = x - (r.left + r.width / 2);
+		const dy = y - (r.top + r.height / 2);
+		const d = dx * dx + dy * dy;
+		if (d < bestD) {
+			bestD = d;
+			best = i;
+		}
+	}
+	// `best` is a pre-removal index; convert to the post-removal insertion index.
+	return best > from ? best - 1 : best;
+}
+
+/**
+ * The slot a cell ENDS UP in when the item at `from` is splice-moved to final index
+ * `to` (remove at `from`, insert at `to` — the component's drop commit): the moved
+ * item takes slot `to`, every item between the two slots shifts one slot toward the
+ * vacated one, all others stay. Drives the edit grid's live sibling-glide transforms
+ * while a drag is in flight (the transforms only — the data order does not change
+ * until the drop settles, so a re-render can never race the gesture).
+ */
+export function menuSlotForIndex(index: number, from: number, to: number): number {
+	if (index === from) return to;
+	if (from < index && index <= to) return index - 1;
+	if (to <= index && index < from) return index + 1;
+	return index;
+}
