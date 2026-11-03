@@ -734,18 +734,18 @@
 		<!-- quick-261102-w2q: the album download is a supporter perk again (quick-261023-bulklock), so
 		     non-supporters see the accent dot that marks it as one — before, it looked like a plain
 		     download and only revealed the lock after the tap. -->
-		<button class="act" aria-label={t('support.downloadAlbum')} aria-busy={albumDownloading} disabled={albumDownloading} onclick={onDownloadTap} use:tapBounce>
+		<button class="act" aria-label={t('support.downloadAlbum')} title={t('support.downloadAlbum')} aria-busy={albumDownloading} disabled={albumDownloading} onclick={onDownloadTap} use:tapBounce>
 			{#if albumDownloading}<DownloadRing><Download size={20} /></DownloadRing>{:else}<Download size={20} />{/if}
 			{#if !supporter}<span class="sup-dot" aria-hidden="true"></span>{/if}
 		</button>
-		<button class="act" aria-label={t('nowplaying.shuffle')} disabled={busyAction === 'shuffle'} onclick={shuffleAlbum} use:tapBounce><Shuffle size={20} /></button>
+		<button class="act" aria-label={t('nowplaying.shuffle')} title={t('nowplaying.shuffle')} disabled={busyAction === 'shuffle'} onclick={shuffleAlbum} use:tapBounce><Shuffle size={20} /></button>
 		<!-- quick-261102-w2q: named for what it does (play the album), not the transport toggle. -->
-		<button class="act play" aria-label={t('album.playAlbum')} disabled={busyAction === 'play'} onclick={playAlbum} use:tapBounce><Play size={20} fill="currentColor" /></button>
-		<!-- quick-260930-uy0: Shuffle-play right of Play balances the row 3 | PLAY | 3. -->
+		<button class="act play" aria-label={t('album.playAlbum')} title={t('album.playAlbum')} disabled={busyAction === 'play'} onclick={playAlbum} use:tapBounce><Play size={20} fill="currentColor" /></button>
+		<!-- quick-260930-uy0: the row balances 2 | PLAY | 2. -->
 		<!-- quick-260919-alb: append the whole album to the end of the queue. ListEnd is the same icon
 		     the row swipe-right (add-to-queue) reveal uses, so the two surfaces read as one action. -->
-		<button class="act" aria-label={t('menu.addToQueue')} onclick={queueAlbum} use:tapBounce><ListEnd size={20} /></button>
-		<button class="act" aria-label={t('menu.share')} disabled={busyAction === 'share'} onclick={shareAlbum} use:tapBounce><Share2 size={20} /></button>
+		<button class="act" aria-label={t('menu.addToQueue')} title={t('menu.addToQueue')} onclick={queueAlbum} use:tapBounce><ListEnd size={20} /></button>
+		<button class="act" aria-label={t('menu.share')} title={t('menu.share')} disabled={busyAction === 'share'} onclick={shareAlbum} use:tapBounce><Share2 size={20} /></button>
 	</div>
 	<ul class="list">
 		{#each tracks as track, i (i)}
@@ -808,8 +808,10 @@
 	   chevron is in-flow above the hero now, like every other page. */
 	.hero { padding: 0 0 12px; text-align: center; }
 	.cover { width: 160px; height: 160px; border-radius: 12px; margin: 4px auto; background-size: cover; background-position: center; } /* quick-261102-w2q: no shadow — Flat-Until-It-Floats */
-	.hero h1 { font-size: calc(1.5rem * var(--fs-title, 1)); margin: 0; }
-	.artist { color: var(--color-text); font-size: calc(0.875rem * var(--fs-artist, 1)); margin: 4px 0 0; opacity: 0.85; }
+	/* quick-261103-2xk: a long unbroken title (German compound, URL-ish name) wraps instead of
+	   pushing the page sideways. */
+	.hero h1 { font-size: calc(1.5rem * var(--fs-title, 1)); margin: 0; overflow-wrap: anywhere; }
+	.artist { color: var(--color-text); font-size: calc(0.875rem * var(--fs-artist, 1)); margin: 4px 0 0; opacity: 0.85; overflow-wrap: anywhere; }
 	/* Deezer album info (ENRICH-04) — release/label/genres/tracks/duration/fans rows. */
 	.dzinfo { color: var(--color-text-muted); font-size: 0.75rem; margin-top: 8px; display: flex; gap: 6px 16px; justify-content: center; flex-wrap: wrap; }
 	.dzrow { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; }
@@ -820,7 +822,9 @@
 	   so the live dzinfo skeleton bars had no width and never painted. */
 	.dzinfo .sk-info { display: inline-block; width: 150px; height: 12px; }
 	.dzinfo .sk-info.short { width: 90px; }
-	.muted { color: var(--color-text-muted); font-size: 0.875rem; }
+	/* quick-261103-2xk: centred like .offline-state — a left-aligned line under the centred hero
+	   read as stray text, not as the page's answer. */
+	.muted { color: var(--color-text-muted); font-size: 0.875rem; text-align: center; padding: 24px 16px; margin: 0; }
 
 	/* OFFL-03 inline offline empty-state (shared idiom across online-only surfaces). */
 	.offline-state { text-align: center; padding: 32px 16px; color: var(--color-text-muted); }
@@ -828,8 +832,10 @@
 	.offline-body { font-size: 0.8125rem; margin: 0 0 16px; }
 	.offline-cta {
 		background: var(--color-primary); border: none; color: var(--color-on-primary); /* quick-261102-rrb */ border-radius: 999px;
-		padding: 9px 18px; font-size: 0.8125rem; font-weight: 600; cursor: pointer;
+		padding: 9px 18px; font-size: 0.8125rem; font-weight: 600; cursor: pointer; position: relative;
 	}
+	/* quick-261103-2xk: the pill is ~34px tall; the invisible ring takes the hit area to 44px. */
+	.offline-cta::before { content: ''; position: absolute; inset: -5px 0; }
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 	/* D-11: each row is the swipe-wrap (flex 1). It used to carry a trailing DownloadControl as a
 	   sibling — quick-260919-l9e moved that control INSIDE SongRow so settings.rowActions governs it,
@@ -861,8 +867,9 @@
 	.meta .sk-rsub { display: block; width: 45%; height: 11px; }
 
 	/* ---- album-level action toolbar (between hero + tracklist) ---- */
-	/* quick-260930-uy0: 7 buttons = 260px + 6 gaps; 16px gaps overflow a 343px (375px) content box,
-	   12px fits. clamp keeps 16px from ~500px up. */
+	/* quick-260930-uy0: clamp keeps the gap at 12px on a 375px phone and 16px from ~500px up.
+	   quick-261103-2xk: 5 buttons since w2q (like / add-to-playlist went), so this no longer has to
+	   squeeze — 12px is still kept so the 44px hit areas (::before below) never overlap. */
 	.album-actions { display: flex; align-items: center; justify-content: center; gap: clamp(12px, 3.2vw, 16px); margin: 2px 0 20px; }
 	.act { position: relative; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--color-surface-2); border: 1px solid transparent; color: var(--color-text); cursor: pointer; transition: background 0.15s, transform 0.1s; }
 	/* quick-261102-w2q: the 34px circle stays the visual; the hit area grows to the 44px floor. */

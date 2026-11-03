@@ -697,7 +697,8 @@
 <style>
 	.hero { padding: 0px; text-align: center; }
 	.herocover { width: 160px; height: 160px; border-radius: 50%; margin: 4px auto; background-size: cover; background-position: center; } /* quick-261102-w2q: no shadow — Flat-Until-It-Floats */
-	.hero h1 { font-size: calc(1.7rem * var(--fs-title, 1)); margin: 0; }
+	/* quick-261103-2xk: a long unbroken name wraps instead of pushing the page sideways. */
+	.hero h1 { font-size: calc(1.7rem * var(--fs-title, 1)); margin: 0; overflow-wrap: anywhere; }
 	.herotags { display: flex; justify-content: center; margin: 4px; }
 	/* kmn: action bar centered under the hero title/note. quick-260926-vdp: round icon buttons with
 	   the album page's values. The round look is scoped to `.actions` because the "Show more" button
@@ -756,6 +757,9 @@
 	/* quick-260831-rjo: centered "Show more" / "Loading more…" slot under the hit-songs list.
 	   The button reuses the existing .act pill so it matches the hero action bar. */
 	.more { display: flex; justify-content: center; margin-top: 12px; }
+	/* quick-261103-2xk: the Show-more pill is ~35px tall; the ring takes its hit area to 44px. */
+	.more .act { position: relative; }
+	.more .act::before { content: ''; position: absolute; inset: -5px 0; }
 	.more .muted { margin: 0; font-size: 0.8125rem; }
 
 	/* OFFL-03 inline offline empty-state (shared idiom across online-only surfaces). */
@@ -764,8 +768,10 @@
 	.offline-body { font-size: 0.8125rem; margin: 0 0 16px; }
 	.offline-cta {
 		background: var(--color-primary); border: none; color: var(--color-on-primary); /* quick-261102-rrb */ border-radius: 999px;
-		padding: 9px 18px; font-size: 0.8125rem; font-weight: 600; cursor: pointer;
+		padding: 9px 18px; font-size: 0.8125rem; font-weight: 600; cursor: pointer; position: relative;
 	}
+	/* quick-261103-2xk: the pill is ~34px tall; the invisible ring takes the hit area to 44px. */
+	.offline-cta::before { content: ''; position: absolute; inset: -5px 0; }
 
 	/* ---- loading skeletons (global .sk in app.css supplies the grey + shimmer; these size the
 	   blocks to match the real content they stand in for) ---- */
