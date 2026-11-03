@@ -7371,6 +7371,120 @@ describe('player resolve-phase watchdog — stalled/null initial resolve fails f
 	});
 });
 
+// User report 2026-11-02: a song that cannot be resolved STOPPED playback with the sticky
+// "Playback stopped — couldn't load songs" warning instead of being skipped with a toast.
+// Root cause: play()'s resolve-failure branch special-cased the FALLBACK CONTINUATION — when
+// runFallback's swap track itself failed its own resolve inside play(fromFallback), the branch
+// set error='toast.playbackStopped' + clearMedia and returned, hard-stopping the session for
+// ONE bad song while loadable songs remained in the queue. These tests pin the new contract:
+// that failure routes into handleTotalFailure (skip + batched skip toast + advance), and the
+// ONLY remaining stop is the systemic terminal guard (an unbroken run of total failures).
+describe('player — a fallback swap that fails to resolve SKIPS with a toast instead of stopping (user report 2026-11-02)', () => {
+	let el: ReturnType<typeof makeFakeAudio>;
+	let playSpy: ReturnType<typeof vi.spyOn>;
+	let nextSpy: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		// Restore the REAL play() (the top-level beforeEach mocks it) — same harness as the
+		// resolve-watchdog suite above.
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockTryFallback.mockReset();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.notice = null;
+		player.loading = false;
+		player.repeatMode = 'off';
+		// Reset the cross-track failure counters so a prior suite's run cannot pre-trip the cap.
+		const internals = player as unknown as { failoverSkips: number; consecutiveFailures: number };
+		internals.failoverSkips = 0;
+		internals.consecutiveFailures = 0;
+		vi.stubGlobal('navigator', {
+			onLine: true,
+			mediaSession: { metadata: null, playbackState: 'none', setPositionState() {}, setActionHandler() {} }
+		});
+		vi.stubGlobal('MediaMetadata', FakeMediaMetadata);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		vi.spyOn(library, 'adoptCover').mockImplementation(() => {});
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		playSpy = vi.spyOn(player, 'play');
+		nextSpy = vi.spyOn(player, 'next');
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('one unresolvable song mid-queue: skipped with a toast, the next song plays, playback does NOT stop', async () => {
+		vi.useFakeTimers();
+		try {
+			const tapped = stub('qq', 'sb1', 'A', 'Unresolvable');
+			const swap = mk('netease', 'sb2', 'A', 'Unresolvable'); // tryFallback's pick — its own resolve ALSO fails
+			const nextTrack = mk('kuwo', 'sb3', 'B', 'Plays Fine');
+			player.queue = [tapped, nextTrack];
+			mockEnsure.mockImplementation((t: Track) =>
+				t.uid === nextTrack.uid
+					? Promise.resolve({ ...t, detailsLoaded: true, audioUrl: 'https://cdn/next.mp3' })
+					: Promise.resolve({ ...t, detailsLoaded: true, audioUrl: null })
+			);
+			mockTryFallback.mockResolvedValue({ ...swap, detailsLoaded: true, audioUrl: 'https://cdn/swap.mp3' });
+
+			const p = player.play(tapped);
+			p.catch(() => {});
+			await vi.advanceTimersByTimeAsync(0);
+			await vi.advanceTimersByTimeAsync(0);
+			await vi.advanceTimersByTimeAsync(0);
+
+			// The swap was attempted as a fallback continuation…
+			expect(playSpy).toHaveBeenCalledWith(expect.objectContaining({ uid: swap.uid }), {
+				fromFallback: true
+			});
+			// …and when ITS resolve failed, the song was SKIPPED (skip toast + advance), not stopped.
+			expect(player.error).not.toBe('toast.playbackStopped');
+			expect(player.notice?.kind).toBe('skip');
+			expect(player.notice?.title).toBe('Unresolvable');
+			expect(nextSpy).toHaveBeenCalled();
+			expect(playSpy).toHaveBeenCalledWith(nextTrack);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(player.current?.uid).toBe(nextTrack.uid); // the next loadable song owns playback now
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('an unbroken run of unresolvable songs still hits the guarded terminal stop (no infinite skip loop)', async () => {
+		vi.useFakeTimers();
+		try {
+			const bad = [1, 2, 3, 4, 5, 6].map((n) => stub('qq', `sa${n}`, 'A', `Bad ${n}`));
+			player.queue = [...bad];
+			mockEnsure.mockImplementation((t: Track) =>
+				Promise.resolve({ ...t, detailsLoaded: true, audioUrl: null })
+			);
+			mockTryFallback.mockResolvedValue(null); // every song exhausts every source
+
+			const p = player.play(bad[0]);
+			p.catch(() => {});
+			// Let the skip chain walk: each total failure advances to the next track until the
+			// systemic ceiling (SYSTEMIC_SKIP_CAP back-to-back failures) halts it.
+			for (let i = 0; i < 40; i++) await vi.advanceTimersByTimeAsync(0);
+
+			expect(player.notice?.kind).toBe('stopped');
+			expect(player.notice?.reason).toBe('loop-guard');
+			expect(player.error).toBe('toast.playbackStopped');
+			// Exactly CAP plays were attempted — the 6th song was never reached, and further
+			// flushing changes nothing (the chain is halted, not looping).
+			const playsAtHalt = playSpy.mock.calls.length;
+			expect(playsAtHalt).toBe(Player_SYSTEMIC_SKIP_CAP);
+			for (let i = 0; i < 10; i++) await vi.advanceTimersByTimeAsync(0);
+			expect(playSpy.mock.calls.length).toBe(playsAtHalt);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
 // 26-06 Task 2 (regression proof): characterize the two budget/UX invariants the watchdog must hold —
 // the happy path issues ZERO cross-source fan-out (the ~3-call budget), and a stalled resolve never
 // leaves the player permanently loading. Reuses the same real-play + fake-audio + fake-timer harness.

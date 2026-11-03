@@ -275,7 +275,7 @@ describe('34-D-06 device uids never fall back', () => {
 	});
 
 	it('regression pin: a normal kuwo track still walks qq first when preferred', async () => {
-		mockSearch.mockResolvedValue({ interleaved: [], perSource: {}, errors: {} } as never);
+		mockSearch.mockResolvedValue({ interleaved: [], perSource: [], errors: {} } as never);
 		const attempted = new Set<SourceId>();
 
 		const out = await tryFallback(mk('kuwo', '7', 'a', 't', null), 'qq', undefined, attempted);
@@ -284,5 +284,125 @@ describe('34-D-06 device uids never fall back', () => {
 		expect(mockSearch).toHaveBeenCalled();
 		expect(mockSearch.mock.calls[0][2]).toMatchObject({ qq: true }); // qq searched first
 		expect(attempted.has('qq')).toBe(true);
+	});
+});
+
+// quick-261102-exh1 (user report 2026-11-02): J.Sheon《別問很可怕》 was skipped as "not
+// playable" although its JOOX rows played fine from a manual VersionPicker tap. The automatic
+// chain declared exhaustion without genuinely trying the good sources, three ways:
+// (1) per source only the ranking's FIRST pick was resolved — one failed resolve burned the
+// source even when its #2 acceptable row would have played (the rows the manual sheet uses);
+// (2) every raced source was marked attempted UP FRONT, including sources the race aborted
+// the moment a winner was picked — when the winner's URL then failed at the audio layer,
+// the follow-up episode had no sources left and the song was declared unplayable;
+// (3) a source whose search threw / never settled counted as a rejection instead of earning
+// one sequential exhaustive attempt before the song may be called unplayable.
+describe('tryFallback — the not-playable bar (quick-261102-exh1)', () => {
+	beforeEach(() => {
+		mockSearch.mockReset();
+		mockEnsure.mockReset();
+	});
+
+	/** Which source a searchAll call targets, read off its onlySource prefs object. */
+	function searchedSource(prefs: unknown): SourceId {
+		const p = prefs as Record<string, boolean>;
+		return Object.keys(p).find((k) => p[k]) as SourceId;
+	}
+
+	it('candidate walk: a source whose FIRST acceptable row fails resolve still plays its second row', async () => {
+		// Every source offers the same shape as the report: an unresolvable #1 row and a
+		// playable #2 row (the two JOOX rows). The old code resolved only #1 on each
+		// source → every source "rejected" → skip. The walk must reach a #2 row.
+		mockSearch.mockImplementation(async (_q, _p, prefs) => {
+			const src = searchedSource(prefs);
+			return {
+				interleaved: [
+					mk(src, 'bad1', 'Real Artist', 'Real Song', null),
+					mk(src, 'good2', 'Real Artist', 'Real Song', 'https://cdn/good2.mp3')
+				],
+				perSource: []
+			} as never;
+		});
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const out = await tryFallback(mk('netease', '1', 'Real Artist', 'Real Song', null), undefined);
+
+		expect(out?.songid).toBe('good2');
+		// The winning source's walk provably went PAST its failed first pick.
+		const ensuredIds = mockEnsure.mock.calls.map((c) => (c[0] as Track).songid);
+		expect(ensuredIds).toContain('bad1');
+		expect(ensuredIds).toContain('good2');
+	});
+
+	it('exhaustive second pass: a top source whose search THREW in the race is retried sequentially and plays', async () => {
+		// The report's shape: joox's first search dies transiently (an apicx 504 — the
+		// exact failure shape its health gate counts) while every other source genuinely
+		// comes back empty. Old code counted joox as rejected → null → skip. The manual
+		// path (a direct resolve on a sheet row) later succeeded — so must the chain.
+		const counts = new Map<SourceId, number>();
+		mockSearch.mockImplementation(async (_q, _p, prefs) => {
+			const src = searchedSource(prefs);
+			const n = (counts.get(src) ?? 0) + 1;
+			counts.set(src, n);
+			if (src === 'joox') {
+				if (n === 1) throw new Error('joox upstream 504');
+				return {
+					interleaved: [mk('joox', 'j1', 'Real Artist', 'Real Song', 'https://cdn/joox.mp3')],
+					perSource: [{ source: 'joox', status: 'ok', tracks: [] }]
+				} as never;
+			}
+			return {
+				interleaved: [],
+				perSource: [{ source: src, status: 'ok', tracks: [] }]
+			} as never;
+		});
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const out = await tryFallback(mk('netease', '1', 'Real Artist', 'Real Song', null), undefined);
+
+		expect(out?.uid).toBe('joox:j1');
+		expect(counts.get('joox')).toBe(2); // raced once, retried once — sequentially
+		expect(counts.get('kuwo')).toBe(1); // genuinely-empty sources are NOT re-searched
+		expect(counts.get('qq')).toBe(1);
+	});
+
+	it('attempted set: a source the race aborted mid-flight is NOT poisoned as attempted', async () => {
+		// kuwo wins the race fast; joox's search is still in flight when the race finishes
+		// and gets aborted. The old up-front marking had already poisoned joox — when the
+		// kuwo URL later failed at the audio layer, the next episode could not try joox
+		// and the song was skipped although joox had never rejected it.
+		mockSearch.mockImplementation(async (_q, _p, prefs, signal) => {
+			const src = searchedSource(prefs);
+			if (src === 'joox') {
+				// Hangs until the race aborts it — never settles a verdict in the race.
+				return new Promise((_res, reject) => {
+					signal?.addEventListener('abort', () => reject(new Error('aborted')));
+				}) as never;
+			}
+			if (src === 'kuwo') {
+				return {
+					interleaved: [mk('kuwo', 'k1', 'Real Artist', 'Real Song', 'https://cdn/kuwo.mp3')],
+					perSource: [{ source: 'kuwo', status: 'ok', tracks: [] }]
+				} as never;
+			}
+			return {
+				interleaved: [],
+				perSource: [{ source: src, status: 'ok', tracks: [] }]
+			} as never;
+		});
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const attempted = new Set<SourceId>(['netease']);
+		const out = await tryFallback(
+			mk('netease', '1', 'Real Artist', 'Real Song', null),
+			undefined,
+			undefined,
+			attempted
+		);
+
+		expect(out?.uid).toBe('kuwo:k1');
+		expect(attempted.has('kuwo')).toBe(true); // the winner WAS genuinely tried
+		expect(attempted.has('qq')).toBe(true); // a genuinely empty pool counts as tried
+		expect(attempted.has('joox')).toBe(false); // never settled → NOT attempted
 	});
 });

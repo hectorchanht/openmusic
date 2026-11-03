@@ -333,6 +333,31 @@ export function candidateTier(
 }
 
 /**
+ * Every candidate matching `pred`, in the pools' priority order (official-plausible →
+ * variant-plausible → official-short → variant-short — see poolsInOrder).
+ *
+ * quick-261102-exh1: the automatic chains (tryFallback, resolveNameStub) used to resolve
+ * ONLY findOfficial's single pick per source. When that one resolve failed — a locked
+ * tier map, a positional-id mismatch (joox `n`), a transient detail error — the source
+ * counted as a full rejection even though its #2 acceptable row would have played: the
+ * very rows a manual VersionPicker tap uses directly by id (user report 2026-11-02:
+ * J.Sheon《別問很可怕》 skipped as unplayable while its JOOX rows played on tap).
+ * Callers now walk this ranked list, resolving until one candidate yields a URL.
+ */
+export function rankAcceptable<T extends { title: string; duration?: number }>(
+	candidates: T[],
+	queryTitle: string,
+	pred: (c: T) => boolean,
+	opts?: { expectedSec?: number }
+): T[] {
+	const out: T[] = [];
+	for (const pool of poolsInOrder(candidates, queryTitle, opts?.expectedSec)) {
+		for (const c of pool) if (pred(c)) out.push(c);
+	}
+	return out;
+}
+
+/**
  * Find the first candidate matching `pred`, walking the pools in priority order
  * (official-plausible → variant-plausible → official-short → variant-short — see
  * poolsInOrder). `opts.expectedSec` is the target track's own known duration when the
@@ -344,11 +369,7 @@ export function findOfficial<T extends { title: string; duration?: number }>(
 	pred: (c: T) => boolean,
 	opts?: { expectedSec?: number }
 ): T | undefined {
-	for (const pool of poolsInOrder(candidates, queryTitle, opts?.expectedSec)) {
-		const hit = pool.find(pred);
-		if (hit) return hit;
-	}
-	return undefined;
+	return rankAcceptable(candidates, queryTitle, pred, opts)[0];
 }
 
 /**

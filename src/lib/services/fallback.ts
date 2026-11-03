@@ -10,7 +10,7 @@
 
 import { searchAll, ensureTrackDetails } from '$lib/services/catalog';
 import { sameSongKey } from '$lib/services/dedupe';
-import { findOfficial, isAcceptableSubstitute, candidateTier } from '$lib/services/song-variant';
+import { rankAcceptable, isAcceptableSubstitute, candidateTier } from '$lib/services/song-variant';
 import { getEnabledAdapters, onlySource, isAutoResolveEligible } from '$lib/sources/registry';
 import { isDeviceUid } from '$lib/services/device-track';
 import type { SourceId, Track } from '$lib/sources/types';
@@ -83,9 +83,19 @@ export function fallbackOrder(
  * `attempted` (CR-03) carries the sources already tried for THIS logical song across the fallback
  * episode. fallbackOrder excludes every member, so a resolve-but-unplayable source is never
  * re-offered within the same episode; once the order empties this returns null (total failure) and
- * the caller's loop-guard counter engages — closing the unbounded A↔B ping-pong. Each source this
- * call touches is added to the set (it is mutated in place by design so the caller sees what was
- * tried).
+ * the caller's loop-guard counter engages — closing the unbounded A↔B ping-pong. The set is mutated
+ * in place by design so the caller sees what was tried.
+ *
+ * quick-261102-exh1 (user report 2026-11-02 — the "not playable" bar): a source joins `attempted`
+ * ONLY once it has been GENUINELY tried — its search pool was actually fetched and considered AND
+ * a resolve was actually attempted on its best acceptable candidates (verdicts hit / rejected /
+ * empty, see SourceVerdict). The old code marked the whole order attempted UP FRONT, but the race
+ * aborts every loser the moment a winner is picked, so sources that never got a real attempt were
+ * poisoned for the rest of the episode: when the winner's URL then failed at the audio layer, the
+ * follow-up episode found an empty order and the song was skipped as unplayable although good
+ * sources had never rejected it (J.Sheon《別問很可怕》 — skipped automatically, played fine from
+ * a manual JOOX pick). Sources the race leaves INCONCLUSIVE instead get one sequential exhaustive
+ * attempt (pass 2 in the body below) before this call may return null.
  */
 export async function tryFallback(
 	failed: Track,
@@ -109,11 +119,36 @@ export async function tryFallback(
 	// quick-261020-race1: RACE instead of sequential walk. All sources launch in parallel;
 	// the first to return a playable URL wins. Worst case drops from sum(latencies) to
 	// max(latency) — typically 3s instead of 10s+. The per-source gates (sameSongKey,
-	// isAcceptableSubstitute, findOfficial) still ensure authenticity; speed decides ties.
-	// Mark every raced source attempted upfront (CR-03: tried once per episode).
-	for (const src of order) attempted?.add(src);
-	const hit = await raceSources(order, (src, sig) => tryOneSource(src, query, failed, sig), signal);
-	return hit?.track ?? null;
+	// isAcceptableSubstitute, rankAcceptable) still ensure authenticity; speed decides ties.
+	const race = await raceSources(order, (src, sig) => tryOneSource(src, query, failed, sig), signal);
+	// quick-261102-exh1: only GENUINELY tried sources join the attempted set (see the
+	// doc-block above). A source the race aborted mid-flight or whose search threw was
+	// never really tried — it stays eligible for this call's second pass AND for the
+	// caller's next episode if this call's winner later fails at the audio layer.
+	for (const src of order) {
+		const v = race.verdicts.get(src);
+		if (v && v !== 'inconclusive') attempted?.add(src);
+	}
+	if (race.hit) return race.hit.track;
+	// Superseded (a newer play owns the session) or cut off by the caller's budget
+	// watchdog — the caller discards this result either way; spend no second pass.
+	if (signal?.aborted) return null;
+	// EXHAUSTIVE SECOND PASS (quick-261102-exh1): every source the race left INCONCLUSIVE
+	// (its search threw, or it was still in flight when the race finished) gets ONE
+	// sequential attempt with the full candidate walk before this song may be called
+	// unplayable. "Not playable" from here on means every eligible source genuinely
+	// fetched its pool and had its best acceptable candidates resolved and refused —
+	// never merely that the race ran out of patience with a slower good source.
+	const sig = signal ?? new AbortController().signal;
+	for (const src of order) {
+		const v = race.verdicts.get(src);
+		if (v && v !== 'inconclusive') continue;
+		if (sig.aborted) return null;
+		const attempt = await tryOneSource(src, query, failed, sig);
+		if (attempt.verdict !== 'inconclusive') attempted?.add(src);
+		if (attempt.hit) return attempt.hit.track;
+	}
+	return null;
 }
 
 /** One source's race result: the resolved track plus its candidate tier (song-variant). */
@@ -121,6 +156,31 @@ export interface FallbackHit {
 	track: Track;
 	/** 0 = official, plausible-length pick; 1 = variant and/or implausibly short. */
 	tier: 0 | 1;
+}
+
+/**
+ * Whether one source GENUINELY rejected the song (quick-261102-exh1 — the "not playable" bar):
+ * - `hit`: a candidate resolved to a playable URL.
+ * - `rejected`: the pool was fetched and considered, and either no candidate passed the
+ *   identity/substitute gates or every walked candidate's resolve failed to yield a URL.
+ * - `empty`: the pool was fetched and came back with zero rows (a health-gate short-circuit
+ *   lands here too — the gate's own probe re-opens it on its 60s cycle).
+ * - `inconclusive`: the source was NEVER really tried — its search threw, its per-source
+ *   result is an upstream error, or the attempt was aborted before it could settle. An
+ *   inconclusive source does NOT count as a rejection and is never marked attempted.
+ */
+export type SourceVerdict = 'hit' | 'rejected' | 'empty' | 'inconclusive';
+
+/** One source's full attempt: the hit when it produced one, plus its verdict either way. */
+interface SourceAttempt {
+	hit: FallbackHit | null;
+	verdict: SourceVerdict;
+}
+
+/** The race's outcome: the winning hit (if any) plus every SETTLED source's verdict. */
+interface RaceOutcome {
+	hit: FallbackHit | null;
+	verdicts: Map<SourceId, SourceVerdict>;
 }
 
 /**
@@ -153,17 +213,21 @@ const PRIORITY_WINDOW_MS = 300;
 const DEGRADED_PRIORITY_WINDOW_MS = 2500;
 function raceSources(
 	sources: SourceId[],
-	tryFn: (src: SourceId, signal: AbortSignal) => Promise<FallbackHit | null>,
+	tryFn: (src: SourceId, signal: AbortSignal) => Promise<SourceAttempt>,
 	signal?: AbortSignal
-): Promise<FallbackHit | null> {
+): Promise<RaceOutcome> {
 	// Already aborted — do not launch anything.
-	if (signal?.aborted) return Promise.resolve(null);
+	if (signal?.aborted) return Promise.resolve({ hit: null, verdicts: new Map() });
 	return new Promise((resolve) => {
 		const ac = new AbortController();
 		let remaining = sources.length;
 		let done = false;
 		// Collect valid results keyed by source; pick best (tier, then priority) at the end.
 		const results = new Map<SourceId, FallbackHit>();
+		// quick-261102-exh1: every source that SETTLES before the race finishes records its
+		// verdict, so the caller can tell a genuine rejection from a source the race simply
+		// ran out of patience with (still in flight at finish = absent from this map).
+		const verdicts = new Map<SourceId, SourceVerdict>();
 		const finish = () => {
 			if (done) return;
 			done = true;
@@ -173,18 +237,18 @@ function raceSources(
 				for (const src of sources) {
 					const r = results.get(src);
 					if (r && r.tier === tier && r.track.audioUrl) {
-						resolve(r);
+						resolve({ hit: r, verdicts });
 						return;
 					}
 				}
 			}
-			resolve(null);
+			resolve({ hit: null, verdicts });
 		};
 		const onAbort = () => {
 			if (!done) {
 				done = true;
 				ac.abort();
-				resolve(null);
+				resolve({ hit: null, verdicts });
 			}
 		};
 		signal?.addEventListener('abort', onAbort, { once: true });
@@ -204,11 +268,12 @@ function raceSources(
 		};
 		for (const src of sources) {
 			tryFn(src, ac.signal)
-				.then((result) => {
+				.then((attempt) => {
 					if (done) return;
-					if (result && result.track.audioUrl) {
-						results.set(src, result);
-						armWindow(result.tier);
+					verdicts.set(src, attempt.verdict);
+					if (attempt.hit && attempt.hit.track.audioUrl) {
+						results.set(src, attempt.hit);
+						armWindow(attempt.hit.tier);
 					}
 					if (--remaining === 0) {
 						if (windowTimer) clearTimeout(windowTimer);
@@ -216,6 +281,9 @@ function raceSources(
 					}
 				})
 				.catch(() => {
+					// tryOneSource never throws by contract; a rejection here is a bug in an
+					// attempt, which is by definition inconclusive — record it as such.
+					if (!done) verdicts.set(src, 'inconclusive');
 					if (--remaining === 0 && !done) {
 						if (windowTimer) clearTimeout(windowTimer);
 						finish();
@@ -225,59 +293,97 @@ function raceSources(
 	});
 }
 
+/** How many of a source's acceptable candidates get a resolve attempt before the source
+ * counts as a genuine rejection (quick-261102-exh1). The manual VersionPicker offers the
+ * user EVERY row; three covers the realistic shapes (album cut + single cut + one spare)
+ * without turning one dead source into a long serial stall inside the race. */
+const MAX_CANDIDATE_RESOLVES = 3;
+
 /**
- * One source's attempt: search → gate → resolve. Never throws (returns null on any failure).
+ * One source's attempt: search → gate → resolve. Never throws.
  * On success the hit carries its candidate tier so the race can arbitrate quality,
- * not just speed (quick-261101-ring1).
+ * not just speed (quick-261101-ring1). Either way the attempt carries its SourceVerdict
+ * so the caller can tell a genuine rejection from a source that was never really
+ * tried (quick-261102-exh1).
  */
 async function tryOneSource(
 	src: SourceId,
 	query: string,
 	failed: Track,
 	signal: AbortSignal
-): Promise<FallbackHit | null> {
+): Promise<SourceAttempt> {
+	let result: Awaited<ReturnType<typeof searchAll>>;
 	try {
 		// quick-261021-fb1 (user): limit 1 was too aggressive — a source's top hit is often
-		// a Live/DJ/instrumental variant that findOfficial rejects, marking the source as
+		// a Live/DJ/instrumental variant that the gates reject, marking the source as
 		// failed even though the official studio version is at #2 or #3. Fetch 8 and let
-		// findOfficial pick the right one. Parallel race keeps it fast.
-		const result = await searchAll(query, 8, onlySource(src), signal);
-		if (signal.aborted) return null;
-		// quick-261101-ring1: findOfficial gets the RAW per-source rows, NOT dedupeBest's
-		// collapse. dedupe's key() strips brackets, so dedupeBest had already collapsed
-		// this source's clean cut and its ringtone/live/剪輯 variants into ONE winner chosen
-		// by quality/first-order (every suyin row claims 320K) before the official/variant
-		// partition ever ran — the partition was arbitrating a pool of one. The sameSongKey
-		// predicate below is the identity gate, so uncollapsed rows are safe here.
-		const candidates = result.interleaved;
-		// WR-06: a fuzzy upstream search can return a DIFFERENT song; adopting candidates[0]
-		// unconditionally would silently auto-play the wrong track under the original's
-		// identity (successful failover is silent by design). Gate adoption on a normalized
-		// title+artist match before resolving, reusing dedupe's own key normalization.
-		// TWO gates, and both are load-bearing. sameSongKey answers "same song?" — but it is built
-		// on dedupe's key(), which deliberately STRIPS bracketed suffixes, so it also answers "yes"
-		// for `告白氣球（純音樂版）` vs `告白氣球`. isAcceptableSubstitute answers the second
-		// question, "same KIND of recording?", and keeps a failover from silently swapping in an
-		// instrumental / karaoke / cover under the original's name. Live takes still pass.
-		// quick-261020-off1: findOfficial tries the OFFICIAL pool first — even among
-		// acceptable substitutes, the plain original outranks a live/remix/DJ variant.
-		// quick-261101-ring1: it also walks plausible lengths before short clips, with the
-		// failed track's own duration as the expectation when it carries one.
-		const stub = findOfficial(
-			candidates,
-			failed.title,
-			(c) => sameSongKey(c, failed) && isAcceptableSubstitute(failed.title, c.title),
-			{ expectedSec: failed.duration }
-		);
-		if (!stub) return null;
-		const resolved = await ensureTrackDetails(stub, signal);
-		if (signal.aborted) return null;
-		if (!resolved.audioUrl) return null;
-		return {
-			track: resolved,
-			tier: candidateTier(stub, failed.title, candidates, failed.duration)
-		};
+		// the ranking pick the right ones. Parallel race keeps it fast.
+		result = await searchAll(query, 8, onlySource(src), signal);
 	} catch {
-		return null;
+		// The search itself never completed (transport failure / abort): this source
+		// never got to consider the song — inconclusive, NOT a rejection.
+		return { hit: null, verdict: 'inconclusive' };
 	}
+	if (signal.aborted) return { hit: null, verdict: 'inconclusive' };
+	// searchAll isolates a source's own failure into its perSource entry (DATA-03): an
+	// 'error' status means the upstream search threw (contract drift / 5xx) and produced
+	// no pool at all — again never really tried, however empty `interleaved` looks.
+	const settled = result.perSource.find((s) => s.source === src);
+	if (settled && settled.status === 'error') return { hit: null, verdict: 'inconclusive' };
+	// quick-261101-ring1: the ranking gets the RAW per-source rows, NOT dedupeBest's
+	// collapse. dedupe's key() strips brackets, so dedupeBest had already collapsed
+	// this source's clean cut and its ringtone/live/剪輯 variants into ONE winner chosen
+	// by quality/first-order (every suyin row claims 320K) before the official/variant
+	// partition ever ran — the partition was arbitrating a pool of one. The sameSongKey
+	// predicate below is the identity gate, so uncollapsed rows are safe here.
+	const candidates = result.interleaved;
+	if (candidates.length === 0) return { hit: null, verdict: 'empty' };
+	// WR-06: a fuzzy upstream search can return a DIFFERENT song; adopting candidates[0]
+	// unconditionally would silently auto-play the wrong track under the original's
+	// identity (successful failover is silent by design). Gate adoption on a normalized
+	// title+artist match before resolving, reusing dedupe's own key normalization.
+	// TWO gates, and both are load-bearing. sameSongKey answers "same song?" — but it is built
+	// on dedupe's key(), which deliberately STRIPS bracketed suffixes, so it also answers "yes"
+	// for `告白氣球（純音樂版）` vs `告白氣球`. isAcceptableSubstitute answers the second
+	// question, "same KIND of recording?", and keeps a failover from silently swapping in an
+	// instrumental / karaoke / cover under the original's name. Live takes still pass.
+	// quick-261020-off1: the ranking tries the OFFICIAL pool first — even among
+	// acceptable substitutes, the plain original outranks a live/remix/DJ variant.
+	// quick-261101-ring1: it also walks plausible lengths before short clips, with the
+	// failed track's own duration as the expectation when it carries one.
+	const ranked = rankAcceptable(
+		candidates,
+		failed.title,
+		(c) => sameSongKey(c, failed) && isAcceptableSubstitute(failed.title, c.title),
+		{ expectedSec: failed.duration }
+	);
+	// The pool was genuinely fetched and considered; the gates refused every row in it.
+	if (ranked.length === 0) return { hit: null, verdict: 'rejected' };
+	// CANDIDATE WALK (quick-261102-exh1): resolve the acceptable rows in ranked order
+	// until one yields a URL. Previously only the FIRST pick was resolved — a single
+	// failed resolve (locked tier map, a positional-id mismatch like joox's `n`, one
+	// transient detail error) burned the whole source even though its #2 row — the very
+	// row a manual VersionPicker tap plays by id — was fine.
+	for (const stub of ranked.slice(0, MAX_CANDIDATE_RESOLVES)) {
+		if (signal.aborted) return { hit: null, verdict: 'inconclusive' };
+		let resolved: Track;
+		try {
+			resolved = await ensureTrackDetails(stub, signal);
+		} catch {
+			if (signal.aborted) return { hit: null, verdict: 'inconclusive' };
+			continue; // this candidate's resolve blew up — try the source's next row
+		}
+		if (signal.aborted) return { hit: null, verdict: 'inconclusive' };
+		if (resolved.audioUrl) {
+			return {
+				hit: {
+					track: resolved,
+					tier: candidateTier(stub, failed.title, candidates, failed.duration)
+				},
+				verdict: 'hit'
+			};
+		}
+	}
+	// Every walked candidate was genuinely resolved and refused — a real rejection.
+	return { hit: null, verdict: 'rejected' };
 }

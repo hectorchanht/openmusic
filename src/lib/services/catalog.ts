@@ -11,7 +11,7 @@ import { cached, evictCached, __clearSearchCache } from './ttl-cache';
 import { matchKey } from './match-key';
 import { scoreMatch } from './score-match';
 import { sameSongKey } from './dedupe';
-import { findOfficial, isAcceptableSubstitute } from './song-variant';
+import { rankAcceptable, isAcceptableSubstitute } from './song-variant';
 import { readResolveCache, registerServedResolve } from './resolve-cache-client';
 import { logAction } from '$lib/stores/actionLog.svelte';
 import { isTrackReady } from './track-ready';
@@ -235,7 +235,7 @@ function interleave(perSource: SettledSourceResult[]): Track[] {
  * RESOLVE-02 (POLICY.md / spikes 001+002+004): resolve a sourceless name-only stub (`{artist,title}`
  * — the shape Plan 26-03's Last.fm `track.getSimilar` Up-Next emits) to a playable Track by walking
  * the kuwo-FIRST source order ONE source at a time. For each source: a SINGLE-source `searchAll`
- * (`onlySource` prefs — never an all-enabled fan-out), run `findOfficial` over the RAW results
+ * (`onlySource` prefs — never an all-enabled fan-out), rank the RAW results via `rankAcceptable`
  * (quick-261101-ring1 — no dedupeBest collapse), adopt only a
  * candidate that is the SAME song via `sameSongKey` (WR-06 — a fuzzy upstream search can return a
  * different track), `ensureTrackDetails` it, and return the FIRST that yields a truthy `audioUrl`.
@@ -301,16 +301,21 @@ export async function resolveNameStub(
 			// Same two gates as the cross-source failover (see fallback.ts): sameSongKey cannot tell a
 			// rendition apart because dedupe's key() strips bracketed suffixes, so an Up-Next name stub
 			// would otherwise resolve to the instrumental or a cover of the song it asked for.
-			// quick-261020-off1: findOfficial prefers the plain original over live/remix/DJ variants.
-			const stub = findOfficial(
+			// quick-261020-off1: the ranking prefers the plain original over live/remix/DJ variants.
+			// quick-261102-exh1: walk up to THREE acceptable candidates per source, not just the
+			// first pick — one failed resolve (locked tiers, positional-id mismatch, transient
+			// detail error) must not burn a source whose #2 row would have played (the same
+			// false-skip shape as fallback's candidate walk; see song-variant rankAcceptable).
+			const ranked = rankAcceptable(
 				candidates,
 				title,
 				(c) => sameSongKey(c, want) && isAcceptableSubstitute(title, c.title)
 			);
-			if (!stub) continue;
-			const resolved = await ensureTrackDetails(stub, sig);
-			if (sig.aborted) return null;
-			if (resolved.audioUrl) return resolved;
+			for (const stub of ranked.slice(0, 3)) {
+				const resolved = await ensureTrackDetails(stub, sig);
+				if (sig.aborted) return null;
+				if (resolved.audioUrl) return resolved;
+			}
 		} catch {
 			/* this source dry / threw — walk on to the next (never-throw) */
 		}

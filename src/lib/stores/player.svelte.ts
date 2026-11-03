@@ -4347,8 +4347,19 @@ class Player {
 					void this.runFallback(resolved);
 					return;
 				}
-				this.error = 'toast.playbackStopped'; // WR-07: i18n key, rendered via t()
-				this.clearMedia(); // nothing playable — clear the OS media UI (MS-05)
+				// User report 2026-11-02: this IS a fallback continuation, and the swap's own
+				// resolve just failed too — the song is unresolvable on every source the walk
+				// could reach. The old code hard-stopped here (error='toast.playbackStopped' +
+				// clearMedia), stranding the whole session on ONE bad song while loadable songs
+				// remained queued. Route it through the same total-failure policy as a walk that
+				// found nothing: count it, tag the row, emit the batched skip toast and advance
+				// via next(). The systemic ceiling inside handleTotalFailure stays the ONLY stop
+				// on this path, and it trips only on an unbroken run of total failures — never on
+				// a single song. No clearMedia: the skip's next play() re-syncs the OS media UI
+				// to the new track synchronously at its head (MS-05's concern was a stop with
+				// nothing following; a skip always has a successor play or the terminal stop,
+				// which pauses + notifies on its own).
+				this.handleTotalFailure(resolved);
 				return;
 			}
 			// 31-D-08: the resolve came back PLAYABLE but lyric-less because it was served by the edge
