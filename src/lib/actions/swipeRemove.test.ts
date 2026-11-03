@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { swipeRemove, type SwipeRemoveOpts } from './swipeRemove';
 
 // swipeRemove is the horizontal axis-locked swipe-to-REMOVE Svelte action (Phase 17, QUEUE-05),
@@ -188,5 +188,123 @@ describe('swipeRemove — horizontal axis-locked swipe-to-remove (Phase 17 QUEUE
 		m.fire('pointermove', pe(104, 52, 16)); // below slop on both axes — never captured
 		m.fire('pointerup', pe(104, 52, 32));
 		expect(m.has('click')).toBe(false); // the row's own onclick receives the click untouched
+	});
+});
+
+// quick-261102-settle — mirror of the swipeAction hardening: when pointer capture is lost
+// mid-gesture, neither pointerup nor pointercancel reaches the node, so the old code latched
+// the row at its drag offset WITH its fade. Every abandonment path must run up().
+describe('swipeRemove — unconditional settle (quick-261102-settle)', () => {
+	/** A synthetic PointerEvent WITH the buttons bitmask the settle guard reads. */
+	function peb(clientX: number, clientY: number, timeStamp: number, pointerId = 1, buttons = 1) {
+		return { clientX, clientY, timeStamp, pointerId, buttons } as unknown as PointerEvent;
+	}
+
+	/** A minimal fake `window` event registry for the action's safety-net listeners. */
+	function makeWindow() {
+		const handlers = new Map<string, Set<(e: PointerEvent) => void>>();
+		return {
+			addEventListener(type: string, cb: (e: PointerEvent) => void) {
+				if (!handlers.has(type)) handlers.set(type, new Set());
+				handlers.get(type)?.add(cb);
+			},
+			removeEventListener(type: string, cb: (e: PointerEvent) => void) {
+				handlers.get(type)?.delete(cb);
+			},
+			fire(type: string, e: PointerEvent) {
+				for (const cb of [...(handlers.get(type) ?? [])]) cb(e);
+			},
+			fireBlur() {
+				for (const cb of [...(handlers.get('blur') ?? [])]) (cb as () => void)();
+			},
+			count(type: string) {
+				return handlers.get(type)?.size ?? 0;
+			}
+		};
+	}
+
+	let fakeWin: ReturnType<typeof makeWindow>;
+	beforeEach(() => {
+		fakeWin = makeWindow();
+		vi.stubGlobal('window', fakeWin);
+	});
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('lostpointercapture mid-drag SPRINGS BACK: transform AND fade reset, no remove', () => {
+		const onremove = vi.fn();
+		const m = mount({ onremove, threshold: 96 });
+		m.fire('pointerdown', peb(100, 50, 0));
+		m.fire('pointermove', peb(112, 50, 100)); // horizontal commit (captured)
+		m.fire('pointermove', peb(140, 50, 400)); // dx = 40 < threshold, slow — faded part-way
+		expect(m.style.transform).toBe('translateX(40px)');
+		expect(m.style.opacity).not.toBe('1'); // the D-07 fade is visibly applied mid-drag
+		m.fire('lostpointercapture', peb(140, 50, 450)); // capture stolen — no up/cancel follows
+		expect(onremove).not.toHaveBeenCalled();
+		expect(['', 'translateX(0)']).toContain(m.style.transform ?? ''); // settled to origin
+		expect(m.style.opacity ?? '').toBe(''); // fade fully reset by the settle
+		expect(fakeWin.count('pointerup')).toBe(0); // safety net disarmed after the settle
+	});
+
+	it('lostpointercapture PAST the threshold removes (pointercancel parity)', () => {
+		const onremove = vi.fn();
+		const m = mount({ onremove, threshold: 96 });
+		m.fire('pointerdown', peb(100, 50, 0));
+		m.fire('pointermove', peb(112, 52, 16));
+		m.fire('pointermove', peb(220, 54, 200)); // dx = 120 > threshold
+		m.fire('lostpointercapture', peb(220, 54, 220));
+		expect(onremove).toHaveBeenCalledTimes(1);
+	});
+
+	it('a release heard ONLY on window still settles (springs back below threshold)', () => {
+		const onremove = vi.fn();
+		const m = mount({ onremove, threshold: 96 });
+		m.fire('pointerdown', peb(100, 50, 0));
+		m.fire('pointermove', peb(112, 50, 100));
+		m.fire('pointermove', peb(140, 50, 400)); // dx = 40, displaced + faded
+		fakeWin.fire('pointerup', peb(140, 470, 500)); // released far below the row
+		expect(onremove).not.toHaveBeenCalled();
+		expect(['', 'translateX(0)']).toContain(m.style.transform ?? '');
+		expect(m.style.opacity ?? '').toBe('');
+	});
+
+	it('window blur mid-drag settles (springs back, no remove)', () => {
+		const onremove = vi.fn();
+		const m = mount({ onremove, threshold: 96 });
+		m.fire('pointerdown', peb(100, 50, 0));
+		m.fire('pointermove', peb(112, 50, 100));
+		m.fire('pointermove', peb(150, 50, 400)); // dx = 50
+		fakeWin.fireBlur();
+		expect(onremove).not.toHaveBeenCalled();
+		expect(['', 'translateX(0)']).toContain(m.style.transform ?? '');
+	});
+
+	it('when setPointerCapture THROWS, window listeners keep tracking and the release settles', () => {
+		const handlers = new Map<string, (e: PointerEvent) => void>();
+		const style: Record<string, string> = {};
+		const node = {
+			style,
+			setPointerCapture: vi.fn(() => {
+				throw new Error('NotFoundError');
+			}),
+			addEventListener(type: string, cb: (e: PointerEvent) => void) {
+				handlers.set(type, cb);
+			},
+			removeEventListener(type: string) {
+				handlers.delete(type);
+			}
+		};
+		const onremove = vi.fn();
+		swipeRemove(node as unknown as HTMLElement, { onremove, threshold: 96 });
+		const fire = (type: string, e: PointerEvent) => handlers.get(type)?.(e);
+		fire('pointerdown', peb(100, 50, 0));
+		fire('pointermove', peb(112, 50, 100)); // commit attempt — capture throws here
+		fakeWin.fire('pointermove', peb(160, 50, 400)); // dx = 60 tracked via the fallback
+		expect(style.transform).toBe('translateX(60px)');
+		fakeWin.fire('pointerup', peb(160, 300, 500)); // released outside — settles via window
+		expect(onremove).not.toHaveBeenCalled(); // 60 < threshold, slow → spring back
+		expect(['', 'translateX(0)']).toContain(style.transform ?? '');
+		expect(style.opacity ?? '').toBe('');
 	});
 });

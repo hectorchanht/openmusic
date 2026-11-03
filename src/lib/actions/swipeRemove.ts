@@ -21,6 +21,12 @@ import { createSpringSnap } from '$lib/gestures/springSnap';
 //    runs — the horizontal swipe never hijacks a vertical drag.
 //  - touch-action: pan-y is set on attach (KEY difference from dragClose's `none`): vertical
 //    panning/scroll stays with the browser, only the horizontal axis is yielded to this action.
+//  - SETTLE IS UNCONDITIONAL (quick-261102-settle): identical hardening to swipeAction — the
+//    release used to be heard ONLY via pointerup/pointercancel on this node with a bare
+//    setPointerCapture; a mid-gesture capture loss delivered NEITHER, latching the row at its
+//    drag offset + fade forever (Hector's desktop "does not snap back when the mouse leaves").
+//    lostpointercapture, window-level release/blur safety listeners, a capture try/catch and
+//    a buttons===0 move guard now route every abandonment path into the same up().
 //  - Reactive update(opts) swaps onremove / toggles `enabled`. enabled:false → inert.
 //    destroy() removes listeners + resets inline styles + clears touchAction.
 export interface SwipeRemoveOpts {
@@ -39,6 +45,8 @@ export const swipeRemove: Action<HTMLElement, SwipeRemoveOpts> = (node, opts) =>
 	let startX = 0;
 	let startY = 0;
 	let dx = 0;
+	let activePointerId = -1;
+	let lastMoveEvent: PointerEvent | null = null;
 	const SLOP = 8; // px before a press becomes a drag (dragClose's DRAG_START)
 	const FLICK_V = 0.5; // px/ms — a fast horizontal flick removes even when not dragged far
 	const FADE_DISTANCE = 120; // px of travel that fades the row fully to opacity 0 (D-07)
@@ -77,6 +85,36 @@ export const swipeRemove: Action<HTMLElement, SwipeRemoveOpts> = (node, opts) =>
 		node.removeEventListener('click', suppressClick, true);
 	}
 
+	// quick-261102-settle: window-level safety net, armed only while a drag is committed —
+	// see swipeAction for the full rationale. pointerId-filtered; the node+window copies of
+	// the same event are deduped (move) / no-ops (up, via the dragging guard).
+	const win = () => (typeof window !== 'undefined' ? window : null);
+	const winMove = (e: PointerEvent) => {
+		if (e.pointerId === activePointerId) move(e);
+	};
+	const winUp = (e: PointerEvent) => {
+		if (e.pointerId === activePointerId) up();
+	};
+	const winBlur = () => up();
+
+	function armWindow() {
+		const w = win();
+		if (!w) return;
+		w.addEventListener('pointermove', winMove);
+		w.addEventListener('pointerup', winUp);
+		w.addEventListener('pointercancel', winUp);
+		w.addEventListener('blur', winBlur);
+	}
+
+	function disarmWindow() {
+		const w = win();
+		if (!w) return;
+		w.removeEventListener('pointermove', winMove);
+		w.removeEventListener('pointerup', winUp);
+		w.removeEventListener('pointercancel', winUp);
+		w.removeEventListener('blur', winBlur);
+	}
+
 	function down(e: PointerEvent) {
 		if (!enabled) return;
 		// A new gesture starts clean: drop a stale suppressor from a prior committed drag whose
@@ -86,6 +124,8 @@ export const swipeRemove: Action<HTMLElement, SwipeRemoveOpts> = (node, opts) =>
 		snap.cancel();
 		dragging = true;
 		captured = false;
+		activePointerId = e.pointerId;
+		lastMoveEvent = null;
 		startX = e.clientX;
 		startY = e.clientY;
 		dx = 0;
@@ -99,6 +139,16 @@ export const swipeRemove: Action<HTMLElement, SwipeRemoveOpts> = (node, opts) =>
 
 	function move(e: PointerEvent) {
 		if (!dragging) return;
+		// Same event instance arrives via the node listener AND the window safety listener —
+		// process it once (see swipeAction).
+		if (e === lastMoveEvent) return;
+		lastMoveEvent = e;
+		// quick-261102-settle: a button-less move means the press ended somewhere we never
+		// saw (off-window release / blur) — settle instead of hover-dragging.
+		if (e.buttons === 0) {
+			up();
+			return;
+		}
 		const ddx = e.clientX - startX;
 		const ddy = e.clientY - startY;
 		if (!captured) {
@@ -111,8 +161,16 @@ export const swipeRemove: Action<HTMLElement, SwipeRemoveOpts> = (node, opts) =>
 			}
 			// Horizontal commit: capture HERE (not on down) so the gesture keeps flowing past the
 			// node edge while a tap (never reaching slop) leaves the click to the row.
-			node.setPointerCapture(e.pointerId);
+			// quick-261102-settle: capture can throw for an inactive pointer; the window safety
+			// net armed below then tracks the gesture instead (the bare call used to abort the
+			// handler before the transform write).
+			try {
+				node.setPointerCapture(e.pointerId);
+			} catch {
+				/* window listeners below keep tracking — non-fatal */
+			}
 			captured = true;
+			armWindow();
 		}
 		dx = e.clientX - startX;
 		vel.sample(e.clientX, e.timeStamp);
@@ -123,6 +181,8 @@ export const swipeRemove: Action<HTMLElement, SwipeRemoveOpts> = (node, opts) =>
 	function up() {
 		if (!dragging) return;
 		dragging = false;
+		disarmWindow();
+		activePointerId = -1;
 		// WR-01: a gesture that committed (captured) must NOT let its trailing click reach the
 		// row's onclick — neither after a remove (remove-then-replay) nor after a spring-back
 		// (the user clearly dragged, not tapped). Capture-phase, one-shot.
@@ -141,10 +201,17 @@ export const swipeRemove: Action<HTMLElement, SwipeRemoveOpts> = (node, opts) =>
 		dx = 0;
 	}
 
+	// quick-261102-settle: capture lost mid-gesture → settle exactly like a release at the
+	// current offset (pointercancel parity). After a normal pointerup this no-ops.
+	function lostCapture() {
+		if (dragging) up();
+	}
+
 	node.addEventListener('pointerdown', down);
 	node.addEventListener('pointermove', move);
 	node.addEventListener('pointerup', up);
 	node.addEventListener('pointercancel', up);
+	node.addEventListener('lostpointercapture', lostCapture);
 
 	return {
 		update(next: SwipeRemoveOpts) {
@@ -154,10 +221,12 @@ export const swipeRemove: Action<HTMLElement, SwipeRemoveOpts> = (node, opts) =>
 		},
 		destroy() {
 			snap.cancel(); // quick-261022-spring: never leave the pump writing to a dead node
+			disarmWindow(); // quick-261102-settle: never leak the window safety net
 			node.removeEventListener('pointerdown', down);
 			node.removeEventListener('pointermove', move);
 			node.removeEventListener('pointerup', up);
 			node.removeEventListener('pointercancel', up);
+			node.removeEventListener('lostpointercapture', lostCapture);
 			node.removeEventListener('click', suppressClick, true); // WR-01: drop an armed suppressor
 			resetTransform();
 			node.style.touchAction = '';
