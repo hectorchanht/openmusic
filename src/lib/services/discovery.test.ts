@@ -274,12 +274,19 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		expect(look).toHaveBeenCalledWith('Eric Chou', 'Zai Ai Ni');
 	});
 
-	it('weak English hit + lookup null → the weak row (never worse); searchAll 1, lookup 1', async () => {
+	it('weak English hit by a DIFFERENT artist + lookup null → null (cov1 supersedes "never worse"); searchAll 1, lookup 1', async () => {
+		// quick-261102-cov1 SUPERSEDES the wa7 "weak row (never worse)" expectation for
+		// this fixture: the weak row is NCT DREAM's 'Graduation' — a DIFFERENT artist's
+		// different song standing in for an Eric Chou tap. Under Hector's rule (always
+		// the original song by the original artist) a different-artist row is a cover-
+		// class substitution and resolves to null; the rescue remains the recovery path
+		// when the lookup DOES find the Chinese names (cases below). Call counts are
+		// unchanged — the gate filters the pick, it does not add searches.
 		const weak = nct();
 		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([weak]));
 		const look = vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(null);
 
-		expect((await resolveStub('Eric Chou', GRAD))?.uid).toBe(weak.uid);
+		await expect(resolveStub('Eric Chou', GRAD)).resolves.toBeNull();
 		expect(search).toHaveBeenCalledTimes(1);
 		expect(look).toHaveBeenCalledTimes(1);
 	});
@@ -324,7 +331,10 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		expect(search).toHaveBeenCalledTimes(2);
 	});
 
-	it('weak hit + lookup hit + unrelated re-search row → the ORIGINAL weak row; searchAll 2', async () => {
+	it('weak hit + lookup hit + unrelated re-search row → null (cov1: the different-artist weak row is no longer the fallback); searchAll 2', async () => {
+		// quick-261102-cov1: previously this returned the ORIGINAL weak row (NCT DREAM) —
+		// a different artist. The re-search row (Alpha) is unrelated and the rescue
+		// rightly discards it; with no same-artist row anywhere the resolve is null.
 		const weak = nct();
 		const search = vi
 			.spyOn(catalog, 'searchAll')
@@ -332,11 +342,11 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 			.mockResolvedValueOnce(result([mk('qq', 'aaa', 'Alpha', { title: 'Aaa' })]));
 		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zhGrad);
 
-		expect((await resolveStub('Eric Chou', GRAD))?.uid).toBe(weak.uid);
+		await expect(resolveStub('Eric Chou', GRAD)).resolves.toBeNull();
 		expect(search).toHaveBeenCalledTimes(2);
 	});
 
-	it('weak hit + lookup hit + empty re-search → the original weak row', async () => {
+	it('weak hit + lookup hit + empty re-search → null (cov1: no same-artist row anywhere)', async () => {
 		const weak = nct();
 		const search = vi
 			.spyOn(catalog, 'searchAll')
@@ -345,21 +355,26 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 			.mockResolvedValueOnce(result([]));
 		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zhGrad);
 
-		expect((await resolveStub('Eric Chou', GRAD))?.uid).toBe(weak.uid);
+		// quick-261102-cov1: was "the original weak row" — that row is a different
+		// artist (NCT DREAM), so the resolve now ends null. The never-worse guarantee
+		// survives for SAME-artist weak rows (the gate only vetoes a different act).
+		await expect(resolveStub('Eric Chou', GRAD)).resolves.toBeNull();
 		// quick-261020-speed: tiered search. Initial tier-1 hits (1 call, no full search).
 		// Re-search: tier-1 miss (1) + full miss (1) = 3 total.
 		expect(search).toHaveBeenCalledTimes(3);
 	});
 
-	it('weak hit + lookup hit + re-search THROWS → resolves (never throws) to the original weak row', async () => {
+	it('weak hit + lookup hit + re-search THROWS → resolves (never throws) to null', async () => {
 		const weak = nct();
 		vi.spyOn(catalog, 'searchAll')
 			.mockResolvedValueOnce(result([weak]))
 			.mockRejectedValueOnce(new Error('search down'));
 		vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(zhGrad);
 
+		// quick-261102-cov1: never-throws posture unchanged; the VALUE is now null
+		// because the only row anywhere is a different artist's (see above).
 		const out = await resolveStub('Eric Chou', GRAD);
-		expect(out?.uid).toBe(weak.uid);
+		expect(out).toBeNull();
 	});
 
 	it('Japanese miss → null; searchAll 2, lookup 0 (kana gate)', async () => {
@@ -398,17 +413,21 @@ describe('resolveStub — English/romanized name rescue (quick-260925-wa7)', () 
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 
-	it('a weak hit on a CJK query is returned as before (no rescue)', async () => {
+	it('a weak hit on a CJK query by a DIFFERENT artist → null (no rescue; cov1 supersedes "returned as before")', async () => {
+		// quick-261102-cov1 SUPERSEDES this case's old expectation: the weak row is a
+		// piano rendition by 酷客音乐 — a different artist's version of 周杰伦's 珊瑚海，
+		// i.e. exactly the cover-class substitution the artist gate now vetoes. The
+		// resolve ends null (the caller's skip path), no rescue fires, and the call
+		// counts below are unchanged.
 		const weak = mk('qq', 'w', '酷客音乐', { title: '珊瑚海(钢琴曲)' });
 		const search = vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([weak]));
 		const look = vi.spyOn(nameRescue, 'lookupChineseName');
 
-		expect((await resolveStub('周杰伦', '珊瑚海'))?.uid).toBe(weak.uid);
+		await expect(resolveStub('周杰伦', '珊瑚海')).resolves.toBeNull();
 		// quick-261101-ring1: the call count moves 1 → 2. （钢琴曲） is a bracketed rendition
 		// qualifier, which the parenthetical rule now classifies as a VARIANT (it previously
 		// counted as "official" because 钢琴曲 matched no known tag), so the tiered search
-		// widens past tier-1 exactly as designed for "tier-1 has no official version". The
-		// CONTRACT of this test is unchanged: the same weak hit is returned, no rescue fires.
+		// widens past tier-1 exactly as designed for "tier-1 has no official version".
 		expect(search).toHaveBeenCalledTimes(2);
 		expect(look).toHaveBeenCalledTimes(0);
 	});
@@ -510,14 +529,20 @@ describe('resolveStub — eligible-first selection (quick-260926-c69)', () => {
 		expect(look).toHaveBeenCalledTimes(0);
 	});
 
-	it('T9 CJK, nothing strong: weak eligible beats weak ytmusic; searchAll 1, lookup 0', async () => {
+	it('T9 CJK, nothing strong: weak eligible is a DIFFERENT artist → null (cov1 supersedes "weak eligible wins"); searchAll 1, lookup 0', async () => {
+		// quick-261102-cov1: the weak eligible row is 酷客音乐's piano rendition of
+		// 周杰伦's 珊瑚海 — a different artist's version, gated out like any cover; the
+		// weak ytmusic row ('Someone'/'Other') is neither the artist nor the song.
+		// Nothing acceptable exists → null. Counts unchanged (the gate filters picks,
+		// it does not add searches; the 'Other' row still counts as official for the
+		// tier-width decision, which runs on raw rows).
 		const weak = mk('qq', 'w2', '酷客音乐', { title: '珊瑚海(钢琴曲)' });
 		const search = vi
 			.spyOn(catalog, 'searchAll')
 			.mockResolvedValue(result([mk('ytmusic', 'w', 'Someone', { title: 'Other' }), weak]));
 		const look = vi.spyOn(nameRescue, 'lookupChineseName');
 
-		expect((await resolveStub('周杰伦', '珊瑚海'))?.uid).toBe(weak.uid);
+		await expect(resolveStub('周杰伦', '珊瑚海')).resolves.toBeNull();
 		expect(search).toHaveBeenCalledTimes(1);
 		expect(look).toHaveBeenCalledTimes(0);
 	});
@@ -542,6 +567,60 @@ describe('resolveStub — eligible-first selection (quick-260926-c69)', () => {
 
 		expect((await resolveStub('周傑倫', '止戰之殤'))?.uid).toBe(cnRow.uid);
 		expect(search).toHaveBeenCalledTimes(2);
+	});
+});
+
+// quick-261102-cov1 (user report 2026-11-02): the artist-identity gate on the tap
+// resolve. Hector tapped 《說了再見》·周杰倫 on Your Radio and heard 阿傑's 同人 cover
+// (netease 3388515483): the netease pool for that query is covers-only, scoreMatch only
+// ranks (every plain-titled cover earns the same title-only credit), and the weak
+// fallback verified title overlap but never the artist. These cases pin the rule:
+// original artist or null — never a different artist's version.
+describe('resolveStub — artist-identity gate (quick-261102-cov1)', () => {
+	it('(d) INCIDENT VERBATIM: covers-only netease pool → null, the 阿傑 cover is never returned', async () => {
+		// Pool shape live-probed from the Meting netease search for "周杰倫 說了再見"
+		// (2026-11-02): the first rows are ALL fan covers; row #1 is the incident track.
+		const pool = [
+			mk('netease', '3388515483', '阿傑', { title: '說了再見' }),
+			mk('netease', '2098186082', '張錫陽', { title: '說了再見' }),
+			mk('netease', '2714751792', '旺仔小喬', { title: '說了再見' })
+		];
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result(pool));
+
+		await expect(resolveStub('周杰倫', '說了再見')).resolves.toBeNull();
+	});
+
+	it('(a-shape) covers + the original on another source → the ORIGINAL row, cover never picked', async () => {
+		const cover = mk('netease', '3388515483', '阿傑', { title: '說了再見' });
+		const official = mk('qq', 'official', '周杰倫', { title: '說了再見' });
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([cover, official]));
+
+		const out = await resolveStub('周杰倫', '說了再見');
+		expect(out?.uid).toBe(official.uid);
+	});
+
+	it('(c) a duet credit containing the target artist counts as the original', async () => {
+		const duet = mk('qq', 'duet', '周杰倫/蔡依林', { title: '說了再見' });
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([duet]));
+
+		const out = await resolveStub('周杰倫', '說了再見');
+		expect(out?.uid).toBe(duet.uid);
+	});
+
+	it('preferEligible: a weak SAME-title row by a different artist is vetoed even when handed in directly', async () => {
+		const cover = mk('netease', '3388515483', '阿傑', { title: '說了再見' });
+		await expect(
+			preferEligible({ artist: '周杰倫', title: '說了再見' }, { eligible: cover, ineligible: null })
+		).resolves.toBeNull();
+	});
+
+	it('preferEligible: a weak same-artist row with an overlapping title still passes (gate is artist-only)', async () => {
+		// The weak path survives for the SAME act: a script-variant credit of the target
+		// artist with a qualified (longer) title — title containment carries it as before.
+		const weak = mk('qq', 'w', '周杰伦', { title: '珊瑚海 (Live)' });
+		await expect(
+			preferEligible({ artist: '周杰倫', title: '珊瑚海' }, { eligible: weak, ineligible: null })
+		).resolves.toBe(weak);
 	});
 });
 

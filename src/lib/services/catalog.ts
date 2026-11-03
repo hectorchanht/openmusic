@@ -10,8 +10,8 @@ import { sleep } from '$lib/proxy/http';
 import { cached, evictCached, __clearSearchCache } from './ttl-cache';
 import { matchKey } from './match-key';
 import { scoreMatch } from './score-match';
-import { sameSongKey } from './dedupe';
-import { rankAcceptable, isAcceptableSubstitute } from './song-variant';
+import { sameSongKey, sameSongByCredit } from './dedupe';
+import { rankAcceptable, isAcceptableSubstitute, isAutoAcceptableArtist } from './song-variant';
 import { readResolveCache, registerServedResolve } from './resolve-cache-client';
 import { logAction } from '$lib/stores/actionLog.svelte';
 import { isTrackReady } from './track-ready';
@@ -306,10 +306,19 @@ export async function resolveNameStub(
 			// first pick — one failed resolve (locked tiers, positional-id mismatch, transient
 			// detail error) must not burn a source whose #2 row would have played (the same
 			// false-skip shape as fallback's candidate walk; see song-variant rankAcceptable).
+			// quick-261102-cov1: plus the artist-identity gate, stated explicitly at this
+			// adoption seam for the same reason as fallback.ts — a name stub credited to
+			// 周杰倫 must never come back as a different artist's 同人 cover, however
+			// playable that cover's row is. Identity is `sameSongKey OR sameSongByCredit`
+			// (see fallback.ts): the credit form admits a duet original
+			// (周杰倫/蔡依林 for a 周杰倫 stub) that the strict key excludes by shape.
 			const ranked = rankAcceptable(
 				candidates,
 				title,
-				(c) => sameSongKey(c, want) && isAcceptableSubstitute(title, c.title)
+				(c) =>
+					(sameSongKey(c, want) || sameSongByCredit(c, want)) &&
+					isAcceptableSubstitute(title, c.title) &&
+					isAutoAcceptableArtist(artist, c.artist)
 			);
 			for (const stub of ranked.slice(0, 3)) {
 				const resolved = await ensureTrackDetails(stub, sig);

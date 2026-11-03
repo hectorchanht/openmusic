@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { warmScript } from './zh-convert';
 import {
 	variantTagsOf,
 	isAcceptableSubstitute,
@@ -9,7 +10,9 @@ import {
 	bracketQualifier,
 	poolExpectedDuration,
 	isImplausiblyShort,
-	candidateTier
+	candidateTier,
+	isAutoAcceptableArtist,
+	ALLOW_COVER_AS_AUTO_SUBSTITUTE
 } from './song-variant';
 
 // The guard exists because sameSongKey CANNOT tell renditions apart: dedupe's key() strips bracketed
@@ -346,5 +349,68 @@ describe('quick-261101-ring1 — duration plausibility', () => {
 		expect(candidateTier(mkD('偏偏喜歡你（48秒鈴聲版）', 48), '偏偏喜歡你', pool)).toBe(1);
 		expect(candidateTier(mkD('偏偏喜歡你 (Live)', 300), '偏偏喜歡你', pool)).toBe(1);
 		expect(candidateTier(mkD('偏偏喜歡你 (Live)', 300), '偏偏喜歡你 (Live)', pool)).toBe(0);
+	});
+});
+
+// quick-261102-cov1 (user report 2026-11-02): the artist-identity gate. A tapped
+// 周杰倫 track auto-resolved to 阿傑's 同人 cover because no automatic seam ever
+// compared the candidate's ARTIST. These pin the gate's accept/refuse shapes.
+describe('isAutoAcceptableArtist — artist-identity gate (quick-261102-cov1)', () => {
+	it('the policy flip ships OFF (covers are not auto-substitutes)', () => {
+		expect(ALLOW_COVER_AS_AUTO_SUBSTITUTE).toBe(false);
+	});
+
+	it('same artist passes — including Traditional vs Simplified script', async () => {
+		// The 繁/簡 comparison rides foldScript, which is identity while the t2s dict is
+		// cold (the same cold/warm property sameSongKey documents) — warm it first,
+		// exactly as dedupe.test.ts / discovery.test.ts do for script-fold assertions.
+		await warmScript('zh-Hans');
+		expect(isAutoAcceptableArtist('周杰倫', '周杰倫')).toBe(true);
+		expect(isAutoAcceptableArtist('周杰倫', '周杰伦')).toBe(true);
+		expect(isAutoAcceptableArtist('周杰伦', '周杰倫')).toBe(true);
+	});
+
+	it('a clearly DIFFERENT artist is refused (the incident pair)', () => {
+		expect(isAutoAcceptableArtist('周杰倫', '阿傑')).toBe(false);
+		expect(isAutoAcceptableArtist('周杰倫', '張錫陽')).toBe(false);
+		expect(isAutoAcceptableArtist('周杰倫', '旺仔小喬')).toBe(false);
+	});
+
+	it('a duet / collab credit CONTAINING the target artist passes (either position)', () => {
+		expect(isAutoAcceptableArtist('周杰倫', '周杰倫/蔡依林')).toBe(true);
+		expect(isAutoAcceptableArtist('周杰倫', '蔡依林/周杰倫')).toBe(true);
+		expect(isAutoAcceptableArtist('鄒沛沛', 'Max 李玄/鄒沛沛')).toBe(true);
+	});
+
+	it('a duet-credited target accepts its primary artist’s solo credit', () => {
+		expect(isAutoAcceptableArtist('周杰倫/蔡依林', '周杰倫')).toBe(true);
+	});
+
+	it('a featuring tail is the same act, not a different artist', () => {
+		expect(isAutoAcceptableArtist('周杰倫', '周杰倫 feat. 蔡依林')).toBe(true);
+		expect(isAutoAcceptableArtist('周杰倫', '周杰倫 (Jay Chou)')).toBe(true);
+	});
+
+	it('alias forms pass (G.E.M. ↔ 鄧紫棋 combined credits)', () => {
+		expect(isAutoAcceptableArtist('鄧紫棋', 'G.E.M.鄧紫棋')).toBe(true);
+		expect(isAutoAcceptableArtist('G.E.M.', 'G.E.M.鄧紫棋')).toBe(true);
+	});
+
+	it('blank sides carry no identity to enforce', () => {
+		expect(isAutoAcceptableArtist('周杰倫', '')).toBe(true); // unknown-artist candidate
+		expect(isAutoAcceptableArtist('', '阿傑')).toBe(true); // title-only target
+		expect(isAutoAcceptableArtist('', '')).toBe(true);
+	});
+
+	it('a shared name PREFIX is not the same artist (whole-segment rule)', () => {
+		expect(isAutoAcceptableArtist('阿傑', '阿傑正傳')).toBe(false);
+		expect(isAutoAcceptableArtist('Jay', 'Jay Park')).toBe(false); // different acts, shared first name
+		// …while a pure script variant of the SAME name is the same artist （張杰 = 張傑）:
+		expect(isAutoAcceptableArtist('張杰', '張傑')).toBe(true);
+	});
+
+	it('a group name with connectors still matches itself', () => {
+		expect(isAutoAcceptableArtist('Earth, Wind & Fire', 'Earth, Wind & Fire')).toBe(true);
+		expect(isAutoAcceptableArtist('Bones & The Boy', 'Bones & The Boy')).toBe(true);
 	});
 });

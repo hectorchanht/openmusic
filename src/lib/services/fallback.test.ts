@@ -406,3 +406,100 @@ describe('tryFallback — the not-playable bar (quick-261102-exh1)', () => {
 		expect(attempted.has('joox')).toBe(false); // never settled → NOT attempted
 	});
 });
+
+// quick-261102-cov1 (user report 2026-11-02): the artist-identity gate on the failover
+// chain. A candidate credited to a clearly DIFFERENT artist （阿傑's 同人 cover of
+// 周杰倫's《說了再見》) is not an acceptable substitute: it is never resolved, never
+// adopted, and a pool containing ONLY covers counts as that source REJECTING the
+// original (verdict 'rejected' → the source joins `attempted`), never as a hit.
+describe('tryFallback — artist-identity gate (quick-261102-cov1)', () => {
+	beforeEach(() => {
+		mockSearch.mockReset();
+		mockEnsure.mockReset();
+	});
+
+	/** Which source a searchAll call targets, read off its onlySource prefs object. */
+	function searchedSource(prefs: unknown): SourceId {
+		const p = prefs as Record<string, boolean>;
+		return Object.keys(p).find((k) => p[k]) as SourceId;
+	}
+
+	it('(a) official row fails resolve + cover row playable in the SAME pool → another source’s official plays; the cover is never even resolved', async () => {
+		mockSearch.mockImplementation(async (_q, _p, prefs) => {
+			const src = searchedSource(prefs);
+			if (src === 'kuwo') {
+				return {
+					interleaved: [
+						mk('kuwo', 'official-fail', '周杰倫', '說了再見', null),
+						mk('kuwo', 'cover', '阿傑', '說了再見', 'https://cdn/cover.mp3')
+					],
+					perSource: [{ source: 'kuwo', status: 'ok', tracks: [] }]
+				} as never;
+			}
+			if (src === 'joox') {
+				return {
+					interleaved: [mk('joox', 'official', '周杰倫', '說了再見', 'https://cdn/joox.mp3')],
+					perSource: [{ source: 'joox', status: 'ok', tracks: [] }]
+				} as never;
+			}
+			return {
+				interleaved: [],
+				perSource: [{ source: src, status: 'ok', tracks: [] }]
+			} as never;
+		});
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const out = await tryFallback(mk('netease', '1', '周杰倫', '說了再見', null), undefined);
+
+		expect(out?.uid).toBe('joox:official');
+		const ensuredIds = mockEnsure.mock.calls.map((c) => (c[0] as Track).songid);
+		expect(ensuredIds).toContain('official-fail'); // kuwo's official WAS genuinely tried
+		expect(ensuredIds).not.toContain('cover'); // the cover never reached a resolve
+	});
+
+	it('(b) only covers exist anywhere → null (unplayable-as-original), and no cover is resolved', async () => {
+		mockSearch.mockImplementation(async (_q, _p, prefs) => {
+			const src = searchedSource(prefs);
+			return {
+				interleaved: [mk(src, 'cover', '阿傑', '說了再見', 'https://cdn/cover.mp3')],
+				perSource: [{ source: src, status: 'ok', tracks: [] }]
+			} as never;
+		});
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const attempted = new Set<SourceId>(['netease']);
+		const out = await tryFallback(
+			mk('netease', '3388515483', '周杰倫', '說了再見', null),
+			undefined,
+			undefined,
+			attempted
+		);
+
+		expect(out).toBeNull();
+		expect(mockEnsure).not.toHaveBeenCalled();
+		// Covers-only pools are genuine rejections: every walked source joins attempted.
+		expect(attempted.has('kuwo')).toBe(true);
+		expect(attempted.has('joox')).toBe(true);
+		expect(attempted.has('qq')).toBe(true);
+	});
+
+	it('(c) a duet credit containing the failed artist still counts as the original', async () => {
+		mockSearch.mockImplementation(async (_q, _p, prefs) => {
+			const src = searchedSource(prefs);
+			if (src === 'kuwo') {
+				return {
+					interleaved: [mk('kuwo', 'duet', '周杰倫/蔡依林', '說了再見', 'https://cdn/duet.mp3')],
+					perSource: [{ source: 'kuwo', status: 'ok', tracks: [] }]
+				} as never;
+			}
+			return {
+				interleaved: [],
+				perSource: [{ source: src, status: 'ok', tracks: [] }]
+			} as never;
+		});
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const out = await tryFallback(mk('netease', '1', '周杰倫', '說了再見', null), undefined);
+		expect(out?.uid).toBe('kuwo:duet');
+	});
+});

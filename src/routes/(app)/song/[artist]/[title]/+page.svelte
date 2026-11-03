@@ -52,12 +52,33 @@
 	// APK. apiUrl() stays relative on web and resolves to VITE_API_BASE on native.
 	const coverSrc = $derived(
 		apiUrl(
-			`/api/og?type=song&artist=${encodeURIComponent(data.artist)}&title=${encodeURIComponent(data.name)}`
+			`/api/og?type=song&artist=${encodeURIComponent(data.artist)}&title=${encodeURIComponent(data.name)}${
+				data.ci ? `&ci=${encodeURIComponent(data.ci)}` : ''
+			}`
 		)
 	);
+	// quick-261102-covgate — ONE COVER EVERYWHERE (Hector's rule, 2026-11-02). coverSrc above is
+	// the OG endpoint's name-resolved card; the APP's surfaces (rows, nowbar) read the cover
+	// cache through readCoverByUidOrName, and the two disagreed on 《Without You (Explicit)》:
+	// the hero showed a stranger's photo (the OG chain's title-only Deezer fallback, now
+	// identity-gated in og-cover.ts) while the nowbar showed the real album art. So once the
+	// arrival seats the shared track, the hero ADOPTS the app's unified read for that exact
+	// track — the same function, the same arguments the nowbar passes — and the OG card remains
+	// only the pre-arrival / no-cache surface. The probe is bound lazily in onMount beside
+	// `lock` (a module-top import would pull the store graph into SSR); readCoverByUidOrName
+	// self-subscribes to coverVersion(), so the derived repaints the moment the cover lands.
+	let coverProbe = $state<((uid: string, artist: string, title: string) => string | null) | null>(null);
+	let seated = $state<{ uid: string; artist: string; title: string } | null>(null);
+	const unifiedCover = $derived(
+		coverProbe && seated ? coverProbe(seated.uid, seated.artist, seated.title) : null
+	);
+	const heroSrc = $derived(unifiedCover ?? coverSrc);
 	// A broken <img> is worse than a gradient (the healCover precedent treats a cover error as a
-	// first-class event), so an error falls back to the existing .cover--placeholder block.
-	let coverFailed = $state(false);
+	// first-class event). Failure is tracked PER SRC VALUE: when the unified cover replaces
+	// coverSrc (or vice versa), the new src gets its own chance instead of inheriting the old
+	// one's failure — and if the hero src itself errors, the placeholder returns.
+	let failedFor = $state<string | null>(null);
+	const heroFailed = $derived(failedFor !== null && failedFor === heroSrc);
 
 	// DQ-3 arrival status. Drives the inline UI: 'resolving' shows a spinner, 'playing' means sound
 	// is out, 'notfound' shows a clear message + retry. NEVER stays 'resolving' forever — every
@@ -118,6 +139,10 @@
 		if (outcome !== 'notfound') {
 			const { player } = await import('$lib/stores/player.svelte');
 			seatedUid = player.current?.uid ?? null;
+			// quick-261102-covgate: capture the seated track's identity for the hero adoption —
+			// the nowbar's cover for THIS track is the one the hero must show.
+			const cur = player.current;
+			if (cur) seated = { uid: cur.uid, artist: cur.artist, title: cur.title };
 		}
 		if (outcome === 'played') {
 			status = 'playing';
@@ -175,6 +200,9 @@
 		// Whatever it took (a start or a re-seat), the shared song holds the seat again.
 		const { player } = await import('$lib/stores/player.svelte');
 		seatedUid = player.current?.uid ?? seatedUid;
+		// quick-261102-covgate: keep the hero adopted to the (re-)seated track.
+		const cur = player.current;
+		if (cur) seated = { uid: cur.uid, artist: cur.artist, title: cur.title };
 		status = 'playing';
 	}
 
@@ -183,6 +211,11 @@
 		// quick-260926-kvz: lazy for the same reason as share-arrival (SSR-SAFETY header) — a failed
 		// chunk keeps the raw text (never-throw).
 		import('$lib/stores/names.svelte').then(({ names }) => (lock = (s) => names.zhLock(s))).catch(() => {});
+		// quick-261102-covgate: the unified-cover probe, lazy for the same SSR reason — a failed
+		// chunk leaves the OG hero in place (never-throw).
+		import('$lib/stores/cover-version.svelte')
+			.then(({ readCoverByUidOrName }) => (coverProbe = readCoverByUidOrName))
+			.catch(() => {});
 		// onMount, NEVER a tracked rune effect: the arrival writes player state, and a tracked effect
 		// that reads then writes that state self-invalidates into a loop
 		// (restore-effect-self-invalidation-loop — see the untrack() block at
@@ -202,11 +235,11 @@
 	<!-- quick-261006-gear: settings gear at the top-right corner (every page). -->
 	<div class="share-top"><SettingsGear /></div>
 	<section class="song-share">
-	{#if coverFailed}
+	{#if heroFailed}
 		<div class="cover cover--placeholder" aria-hidden="true"></div>
 	{:else}
 		<!-- Decorative: the title + artist are rendered as text immediately below. -->
-		<img class="cover" src={coverSrc} alt="" onerror={() => (coverFailed = true)} />
+		<img class="cover" src={heroSrc} alt="" onerror={() => (failedFor = heroSrc)} />
 	{/if}
 	<h1 class="title">{shownTitle}</h1>
 	{#if shownArtist}

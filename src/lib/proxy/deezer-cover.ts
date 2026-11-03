@@ -121,12 +121,14 @@ function pickAlbumCover(album: DzAlbum | undefined, prefer: 'xl' | 'big'): strin
 }
 
 /** Normalize one Deezer hit to the client-facing shape. */
-function reshapeHit(it: DzResult | undefined): DeezerHit | null {
+function reshapeHit(it: DzResult | undefined, prefer: 'xl' | 'big' = 'xl'): DeezerHit | null {
 	if (!it || it.id === undefined || it.id === null) return null;
-	// Always the legacy xl-first order: `results` is a CLIENT-only payload (dedupe /
-	// recommendation, quick-260607-jau); /api/og reads cover/artistPicture only, so `prefer`
-	// deliberately does not reach here.
-	const rawCover = pickAlbumCover(it.album, 'xl');
+	// The legacy xl-first order is the DEFAULT and stays byte-identical for every client caller
+	// (dedupe / recommendation, quick-260607-jau). quick-261102-covgate: /api/og now also reads
+	// `results` (it identity-validates candidates instead of trusting data[0]), so `prefer`
+	// reaches here — a 'big' caller gets the card-sized cover per hit, an 'xl' caller (every
+	// pre-existing one) gets exactly what it got before.
+	const rawCover = pickAlbumCover(it.album, prefer);
 	return {
 		id: String(it.id),
 		title: it.title ?? '',
@@ -163,7 +165,7 @@ export function reshapeDeezerSearch(
 	if (limit > 1) {
 		base.results = arr
 			.slice(0, limit)
-			.map(reshapeHit)
+			.map((it) => reshapeHit(it, prefer))
 			.filter((h): h is DeezerHit => h !== null);
 	}
 	return base;

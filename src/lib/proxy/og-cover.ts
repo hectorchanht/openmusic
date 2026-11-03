@@ -83,7 +83,8 @@ import {
 } from '$lib/proxy/safe-image-url';
 import { buildKuwoSearchUrl, mapSearch } from '$lib/proxy/kuwo';
 import { buildItunesSearchUrl, upgradeArtwork } from '$lib/services/itunes-cover';
-import { isChineseLine, t2sConvertLines } from '$lib/services/zh-convert';
+import { isChineseLine, s2tConvertLines, t2sConvertLines } from '$lib/services/zh-convert';
+import { norm } from '$lib/services/match-key';
 
 /** The closed set of card kinds /api/og understands. */
 export const OG_TYPES = ['song', 'album', 'artist'] as const;
@@ -126,7 +127,20 @@ const OG_ARTWORK_SIZE = '600x600bb';
  */
 type TierOutcome = { kind: 'hit'; url: string } | { kind: 'miss' } | { kind: 'error' };
 
-type Tier = (type: OgType, artist: string, title: string, deadline: AbortSignal) => Promise<TierOutcome>;
+/** One acceptable identity for a card: the request {artist, title} pair in ONE script (the
+ *  chain searches in two — original + t2s-converted — so a candidate may echo either). */
+export interface OgIdentity {
+	artist: string;
+	title: string;
+}
+
+type Tier = (
+	type: OgType,
+	artist: string,
+	title: string,
+	deadline: AbortSignal,
+	wants: readonly OgIdentity[]
+) => Promise<TierOutcome>;
 
 /**
  * Per-tier budget UNDER the overall deadline — the AbortSignal.any feature-detect from
@@ -366,6 +380,104 @@ function pickLastfmImage(images: unknown): string | null {
 	return best ? best.url : null;
 }
 
+// =============================================================================================
+// quick-261102-covgate — the CANDIDATE IDENTITY GATE (read this before touching any tier)
+// =============================================================================================
+//
+// WHY IT EXISTS. Every tier used to take its keyword search's FIRST result and trust its cover
+// outright. The incident (2026-11-02, Hector's screenshot): the song page for 高爾宣 OSN
+// 《Without You (Explicit)》 (uid qq:003OVf2Y349s0Z) showed a photo of a stranger in a red
+// hoodie while the nowbar on the same screen showed the real album art. Proven byte-identical
+// (md5) to Deezer cover hash 1a18a3631eb049dbd2fbd2fc4afae088 — 'Without you explicit' by
+// Lilcory_offical, a DIFFERENT artist. The path: Deezer has no such track under the full term
+// (total 0, probed), iTunes' top hits were OTHER OSN songs, the kuwo tier's correct row never
+// got to win that run — and Fallback B, a TITLE-ONLY Deezer search with no artist term at all,
+// returned the Lilcory track as data[0] and the chain believed it. The 24 h resolve cache then
+// pinned the wrong answer.
+//
+// THE RULE — the same identity discipline the playback chain applies to audio: a cover
+// candidate is acceptable only if the track it belongs to canonically IS the requested song
+// (title + artist, compared against the request in BOTH scripts the chain searches with). A
+// candidate that fails the gate is a MISS for its tier — never an error, never a hit — so the
+// chain falls through and, at worst, serves the branded card. A wrong cover is worse than no
+// cover: it is the one outcome this endpoint must never produce again.
+//
+// COMPARISON rides `norm` (match-key.ts): case/space/punctuation-insensitive, bracketed
+// qualifiers dropped. Two deliberate loosenings, both forced by real catalog shapes:
+//  - ogTitleKey ALSO strips a BARE trailing explicit/clean/remaster/live/acoustic word —
+//    norm() drops those only after a dash or inside brackets, but Deezer literally titles the
+//    incident's wrong candidate "Without you explicit". Its title SHOULD match (it is the
+//    artist gate that rejects it), and a pressing titled without the "(Explicit)" must too.
+//  - Artist matching accepts segment equality and containment either way, because catalogs
+//    credit this catalog's artists inconsistently: request "高爾宣 OSN" vs iTunes' "Osn" vs a
+//    CN row's "高爾宣" are one artist. A different artist ("Lilcory_offical") shares no segment
+//    and contains nothing — rejected.
+//
+// ABSENT IDENTITY: a candidate carrying NO identity fields at all (both empty) is accepted.
+// Every probed upstream contract (module header) carries title+artist on every hit, so total
+// absence means a synthetic body, not a real candidate; a PARTIALLY present identity is
+// validated on the fields it does carry. Tighten this only alongside a fixture-wide contract
+// change — the endpoint suite's minimal bodies rely on it.
+
+/** Title comparison key: norm() plus bare trailing version-word stripping (see gate header). */
+function ogTitleKey(s: string): string {
+	let k = norm(s);
+	for (const w of ['explicit', 'clean', 'remastered', 'remaster', 'live', 'acoustic']) {
+		while (k.length > w.length && k.endsWith(w)) k = k.slice(0, -w.length);
+	}
+	return k;
+}
+
+/** Artist comparison: equality, credited-segment equality, or containment (see gate header). */
+function ogArtistMatches(req: string, cand: string): boolean {
+	const r = norm(req);
+	const c = norm(cand);
+	if (!r || !c) return false;
+	if (r === c) return true;
+	const segs = (s: string) =>
+		s
+			.split(/[、,&/·・×]|feat\.?|ft\.?/i)
+			.map(norm)
+			.filter(Boolean);
+	const rs = segs(req);
+	const cs = segs(cand);
+	if (rs.some((x) => cs.includes(x))) return true;
+	// Containment either way (Osn ⊂ 高爾宣 OSN), with a 2-char floor so a single letter or a
+	// lone CJK character can never "contain" its way into a match.
+	if (r.length >= 2 && c.includes(r)) return true;
+	if (c.length >= 2 && r.includes(c)) return true;
+	return false;
+}
+
+/**
+ * Does candidate (candArtist, candTitle) canonically identify as the wanted song? Each field
+ * is validated against the UNION of the wanted pairs' values for that field: the pairs differ
+ * only by script (original vs t2s), and real catalog rows mix scripts per field (a kuwo row
+ * for the converted query can carry a Simplified artist beside a Traditional title), so a
+ * pair-as-unit comparison would reject the very song it was asked for. A field the CANDIDATE
+ * carries is validated whenever some want carries it; a field the candidate does not carry
+ * cannot convict it (partial bodies validate on what they have). Both fields absent → the
+ * gate header's absent-identity accept.
+ */
+function ogIdentityMatches(
+	wants: readonly OgIdentity[],
+	candArtist: string,
+	candTitle: string
+): boolean {
+	const ca = (candArtist ?? '').trim();
+	const ct = (candTitle ?? '').trim();
+	if (!ca && !ct) return true;
+	if (ca) {
+		const artists = wants.map((w) => w.artist.trim()).filter(Boolean);
+		if (artists.length > 0 && !artists.some((a) => ogArtistMatches(a, ca))) return false;
+	}
+	if (ct) {
+		const titles = wants.map((w) => w.title.trim()).filter(Boolean);
+		if (titles.length > 0 && !titles.some((t) => ogTitleKey(t) === ogTitleKey(ct))) return false;
+	}
+	return true;
+}
+
 /**
  * Tier 0 — Last.fm track.getInfo, built ONLY when a key is present (see the module header). ONE
  * subrequest, retries=0 like every other tier. The key is interpolated into the fixed upstream
@@ -373,7 +485,7 @@ function pickLastfmImage(images: unknown): string | null {
  * this function (T-38i-01).
  */
 function lastfmTier(key: string): Tier {
-	return async (type, artist, title, deadline) => {
+	return async (type, artist, title, deadline, wants) => {
 		// track.getInfo needs both halves and has no album/artist analogue worth a subrequest here.
 		if (type !== 'song' || !artist.trim() || !title.trim()) return { kind: 'miss' };
 		try {
@@ -391,7 +503,12 @@ function lastfmTier(key: string): Tier {
 			);
 			if (!res.ok) return { kind: 'error' };
 			const body = (await res.json()) as {
-				track?: { image?: unknown; album?: { image?: unknown } };
+				track?: {
+					name?: string;
+					artist?: string | { name?: string };
+					image?: unknown;
+					album?: { image?: unknown };
+				};
 				error?: number;
 			} | null;
 			// Last.fm answers its own faults with a 200 + { error, message } — drift, never a clean miss.
@@ -399,7 +516,16 @@ function lastfmTier(key: string): Tier {
 			if (!body.track) return { kind: 'error' }; // contract drift (kuwoTier's posture)
 			// The SAME preference api/lastfm/info/+server.ts:249 uses, so the card matches the client.
 			const url = pickLastfmImage(body.track.image) ?? pickLastfmImage(body.track.album?.image);
-			return url ? { kind: 'hit', url } : { kind: 'miss' }; // no art / placeholder-only → cacheable
+			if (!url) return { kind: 'miss' }; // no art / placeholder-only → cacheable
+			// quick-261102-covgate: this tier queries with autocorrect=1, so the track Last.fm
+			// hands back may be a SUBSTITUTED song, not the requested one. The body's own
+			// name/artist must pass the identity gate or the art is treated as not found.
+			const candArtist =
+				typeof body.track.artist === 'string'
+					? body.track.artist
+					: (body.track.artist?.name ?? '');
+			if (!ogIdentityMatches(wants, candArtist, body.track.name ?? '')) return { kind: 'miss' };
+			return { kind: 'hit', url };
 		} catch {
 			// Non-ok / abort / timeout / malformed JSON / network failure → fault, not a miss.
 			return { kind: 'error' };
@@ -413,39 +539,75 @@ function tierTerm(type: OgType, artist: string, title: string): string {
 }
 
 /** Tier 1 — Deezer. `prefer: 'big'` = the 500 px cover (72 KB, not 208 KB). retries=0: the
- *  OG_RESOLVE_MS deadline cannot afford fetchWithRetry's 150–300 ms backoff. */
-const deezerTier: Tier = async (type, artist, title, deadline) => {
+ *  OG_RESOLVE_MS deadline cannot afford fetchWithRetry's 150–300 ms backoff.
+ *  quick-261102-covgate: the search now asks for up to 5 hits and the tier returns the first
+ *  candidate that passes the identity gate — same ONE subrequest, just a wider net, so a wrong
+ *  first hit is skipped instead of trusted. */
+const deezerTier: Tier = async (type, artist, title, deadline, wants) => {
 	const term = tierTerm(type, artist, title);
 	if (!term) return { kind: 'miss' };
-	const dz = await fetchDeezerCover(term, tierSignal(TIER_MS.deezer, deadline), 0, 'big');
+	const dz = await fetchDeezerCover(term, tierSignal(TIER_MS.deezer, deadline), 0, 'big', 5);
 	// null = fault (non-ok / malformed / abort / network) — never negative-cacheable.
 	if (!dz) return { kind: 'error' };
 	// Re-apply the Deezer allow-list at the tier boundary: reshapeDeezerSearch already filtered,
 	// and this keeps the "every tier gates its own host" invariant true by construction.
-	const url = safeDeezerImageUrl(type === 'artist' ? dz.artistPicture : dz.cover);
+	if (type === 'artist') {
+		// The picture belongs to data[0]'s artist (results[0] IS data[0], reshaped) — validate
+		// THAT artist. A body whose hits carry no identity at all takes the gate's absent-
+		// identity accept, exactly like the pre-gate behaviour.
+		if (!ogIdentityMatches(wants, dz.results?.[0]?.artist ?? '', '')) return { kind: 'miss' };
+		const url = safeDeezerImageUrl(dz.artistPicture);
+		return url ? { kind: 'hit', url } : { kind: 'miss' };
+	}
+	const candidates = dz.results ?? [];
+	for (const hit of candidates) {
+		if (!ogIdentityMatches(wants, hit.artist, type === 'album' ? hit.album : hit.title)) continue;
+		const url = safeDeezerImageUrl(hit.cover);
+		if (url) return { kind: 'hit', url };
+	}
+	if (candidates.length > 0) return { kind: 'miss' }; // real candidates, none of them this song
+	// No reshaped candidates (an id-less body): data[0]'s cover keeps its pre-gate meaning via
+	// the gate header's absent-identity rule.
+	const url = safeDeezerImageUrl(dz.cover);
 	return url ? { kind: 'hit', url } : { kind: 'miss' };
 };
 
-/** Tier 2 — iTunes. Reuses buildItunesSearchUrl as-is; the artist card uses the top-album proxy. */
-const itunesTier: Tier = async (type, artist, title, deadline) => {
+/** Tier 2 — iTunes. Reuses buildItunesSearchUrl as-is; the artist card uses the top-album proxy.
+ *  quick-261102-covgate: asks for up to 5 results and takes the first that passes the identity
+ *  gate. iTunes' relevance order put OTHER songs by the right artist ahead of the right song
+ *  in the incident, so results[0] alone is not evidence of identity any more. */
+const itunesTier: Tier = async (type, artist, title, deadline, wants) => {
 	const term = tierTerm(type, artist, title);
 	if (!term) return { kind: 'miss' };
 	const upstream =
 		type === 'artist'
-			? buildItunesSearchUrl(term, 'album', 'artistTerm')
-			: buildItunesSearchUrl(term, type);
+			? buildItunesSearchUrl(term, 'album', 'artistTerm', 5)
+			: buildItunesSearchUrl(term, type, undefined, 5);
 	try {
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): this is the SERVER-SIDE (Cloudflare edge)
 		// fetch of an ABSOLUTE itunes.apple.com URL. apiFetch is the CLIENT seam — it prepends the
 		// /api base and must never run edge-side.
 		const res = await fetchWithRetry(upstream, { signal: tierSignal(TIER_MS.itunes, deadline) }, 0);
 		if (!res.ok) return { kind: 'error' };
-		const body = (await res.json()) as { results?: { artworkUrl100?: string }[] } | null;
+		const body = (await res.json()) as {
+			results?: {
+				artworkUrl100?: string;
+				trackName?: string;
+				collectionName?: string;
+				artistName?: string;
+			}[];
+		} | null;
 		const results = Array.isArray(body?.results) ? body.results : [];
-		const art = results[0]?.artworkUrl100;
-		if (!art) return { kind: 'miss' };
-		const url = safeItunesImageUrl(upgradeArtwork(art, OG_ARTWORK_SIZE));
-		return url ? { kind: 'hit', url } : { kind: 'miss' };
+		for (const r of results) {
+			// The candidate's title is the TRACK name for a song card, the COLLECTION name for an
+			// album card, and unconstrained for an artist card (any top album by that artist).
+			const candTitle =
+				type === 'song' ? (r.trackName ?? '') : type === 'album' ? (r.collectionName ?? '') : '';
+			if (!ogIdentityMatches(wants, r.artistName ?? '', candTitle)) continue;
+			const url = safeItunesImageUrl(upgradeArtwork(r.artworkUrl100, OG_ARTWORK_SIZE));
+			if (url) return { kind: 'hit', url };
+		}
+		return { kind: 'miss' };
 	} catch {
 		// Non-ok / abort / timeout / malformed JSON / network failure → fault, not a miss.
 		return { kind: 'error' };
@@ -453,7 +615,7 @@ const itunesTier: Tier = async (type, artist, title, deadline) => {
 };
 
 /** Tier 3 — kuwo, the CN tier, ONE subrequest (the search body already carries `pic`). */
-const kuwoTier: Tier = async (type, artist, title, deadline) => {
+const kuwoTier: Tier = async (type, artist, title, deadline, wants) => {
 	const term = tierTerm(type, artist, title);
 	if (!term) return { kind: 'miss' };
 	try {
@@ -469,7 +631,13 @@ const kuwoTier: Tier = async (type, artist, title, deadline) => {
 		// negative-cached (quick-261004-n1i keeps the posture the old code:200 guard had).
 		if (rows === null) return { kind: 'error' };
 		if (rows.length === 0) return { kind: 'miss' }; // clean "no such song" → cacheable
-		const url = safeKuwoImageUrl(rows[0].pic);
+		// quick-261102-covgate: the one row is validated like every other tier's candidate —
+		// kuwo's first row for an exact artist+title query is usually right, but "usually" is
+		// what the gate exists to replace. rn stays 1: validation, not volume, is the fix here.
+		const row = rows[0];
+		if (!ogIdentityMatches(wants, row.artist, type === 'album' ? row.album : row.name))
+			return { kind: 'miss' };
+		const url = safeKuwoImageUrl(row.pic);
 		return url ? { kind: 'hit', url } : { kind: 'miss' };
 	} catch {
 		return { kind: 'error' };
@@ -526,8 +694,14 @@ export async function resolveCoverTiered(
 	// Running this tier on the converted terms would therefore have broken it on the exact song the
 	// mismatch was reported for. The client hero queries Last.fm with the raw track fields too, so the
 	// unconverted form is also what parity requires. A hit additionally skips the dict load entirely.
+	// quick-261102-covgate: the identity pairs every tier validates against. The Last.fm tier
+	// searches the ORIGINAL pair, so it validates against that pair alone; the tiers below
+	// validate against every script form of the request (a candidate may echo any of them —
+	// see the wants construction after the convert-first block, and the gate header above
+	// ogTitleKey).
+	const wantOriginal: OgIdentity = { artist, title };
 	if (type === 'song' && lastfmKey && !deadline.aborted) {
-		const lf = await lastfmTier(lastfmKey)(type, artist, title, deadline);
+		const lf = await lastfmTier(lastfmKey)(type, artist, title, deadline, [wantOriginal]);
 		if (lf.kind === 'hit') return lf.url;
 		if (lf.kind === 'error') sawError = true;
 	}
@@ -567,9 +741,26 @@ export async function resolveCoverTiered(
 		}
 	}
 
+	// quick-261102-covgate — the wants list, widened BOTH script directions. The chain only ever
+	// SEARCHES with the t2s pair (the CN catalogs), but the global catalogs (iTunes/Deezer)
+	// often credit the OTHER script: a Simplified request whose wants stopped at the converted
+	// pair false-rejected the artist's own Traditional-credited rows (probed live 2026-11-02:
+	// Simplified 陈奕迅/孤勇者 requests gated out every non-kuwo tier). Identity exists in every
+	// script form, so validation accepts original + t2s + s2t, deduped — the SEARCH behaviour
+	// above is untouched, and a non-Chinese request never loads the s2t dict either.
+	const wantList: OgIdentity[] = [{ artist: qArtist, title: qTitle }];
+	if (qArtist !== artist || qTitle !== title) wantList.push(wantOriginal);
+	if (isChineseLine(artist) || isChineseLine(title)) {
+		const [tArtist, tTitle] = await s2tConvertLines([artist, title]);
+		if (!wantList.some((w) => w.artist === tArtist && w.title === tTitle)) {
+			wantList.push({ artist: tArtist, title: tTitle });
+		}
+	}
+	const wants: readonly OgIdentity[] = wantList;
+
 	for (const tier of [deezerTier, itunesTier, kuwoTier]) {
 		if (deadline.aborted) break;
-		const out = await tier(type, qArtist, qTitle, deadline);
+		const out = await tier(type, qArtist, qTitle, deadline, wants);
 		if (out.kind === 'hit') return out.url;
 		if (out.kind === 'error') sawError = true;
 	}
@@ -579,7 +770,7 @@ export async function resolveCoverTiered(
 	// copy of the primary query above. Covers the case where the catalog indexes the Traditional
 	// name after all (or the t2s output over-converts a proper noun).
 	if (substituted && !deadline.aborted) {
-		const orig = await deezerTier(type, artist, title, deadline);
+		const orig = await deezerTier(type, artist, title, deadline, wants);
 		if (orig.kind === 'hit') return orig.url;
 		if (orig.kind === 'error') sawError = true;
 	}
@@ -591,7 +782,11 @@ export async function resolveCoverTiered(
 	// net, not the CJK fix. Skipped when it would repeat a query already run: type=artist has no
 	// title, and an empty artist means the chain above already searched the bare title.
 	if (!deadline.aborted && type !== 'artist' && artist.trim() && title.trim()) {
-		const titleOnly = await deezerTier(type, '', title, deadline);
+		// quick-261102-covgate: the SEARCH is title-only, but the identity gate still validates
+		// against the full request pair — this fallback is the incident rung (it served a
+		// different artist's cover for the OSN song), and a title-only search makes the gate
+		// MORE necessary, not less: the artist half can now only come from validation.
+		const titleOnly = await deezerTier(type, '', title, deadline, wants);
 		if (titleOnly.kind === 'hit') return titleOnly.url;
 		if (titleOnly.kind === 'error') sawError = true;
 	}
