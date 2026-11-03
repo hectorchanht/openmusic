@@ -358,6 +358,43 @@ export async function deezerArtist(
 }
 
 /**
+ * deezerArtist with NAME-FORM fallbacks (2026-11-02, sunkis hero fix).
+ *
+ * WHY: the proxy's `alias` params only RE-RANK the candidates one search returns — they
+ * cannot rescue a search that returns nothing. A combined credited name is exactly such
+ * a dead search: Deezer finds sunkis under "sunkis" and under "宋秉勤" (same profile,
+ * real picture) but returns ZERO candidates for "sunkis 宋秉勤", so the artist page's
+ * hero lost its artist photo entirely and fell back to a track cover. So when the
+ * primary lookup yields no picture, retry the search under each alternate known form
+ * (MusicBrainz canonical + aliases) until one produces a picture. A result WITH a
+ * picture always wins; otherwise the first non-null result survives (fan/album counts
+ * still render). Every leg is the cached deezerArtist, so repeat visits are free.
+ * Never throws; a total miss returns null exactly like deezerArtist.
+ */
+export async function deezerArtistWithFallbacks(
+	name: string,
+	forms: string[] = [],
+	signal?: AbortSignal
+): Promise<DeezerArtistInfo | null> {
+	if (signal?.aborted) return null;
+	const clean = (name ?? '').trim();
+	if (!clean) return null;
+	const alternates = [...new Set((forms ?? []).map((f) => (f ?? '').trim()).filter(Boolean))]
+		.filter((f) => f !== clean)
+		.slice(0, 4);
+	const primary = await deezerArtist(clean, signal, alternates);
+	if (primary?.picture) return primary;
+	let best: DeezerArtistInfo | null = primary;
+	for (const form of alternates) {
+		if (signal?.aborted) break;
+		const info = await deezerArtist(form, signal);
+		if (info?.picture) return info;
+		if (!best && info) best = info;
+	}
+	return best;
+}
+
+/**
  * Resolve Deezer album info (hi-res cover, release date, label, genres, track count, fans,
  * duration) via the OWN-ORIGIN proxy. The title + artist combine into the search query for a
  * better hit. Returns null on already-aborted signal / empty title / non-ok / abort / throw

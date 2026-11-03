@@ -25,7 +25,10 @@
 	import TagChips from '$lib/components/TagChips.svelte';
 	import { enrichArtist, type EnrichResult } from '$lib/services/lastfm';
 	import { getSimilarArtists } from '$lib/services/similar';
-	import { deezerArtistCover, deezerArtist, type DeezerArtistInfo } from '$lib/services/deezer';
+	import { deezerArtistCover, deezerArtistWithFallbacks, type DeezerArtistInfo } from '$lib/services/deezer';
+	import { fullestDisplayName, creditSegments, pickHeroCover } from '$lib/services/artist-display';
+	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
+	import { isCoverUrlDead } from '$lib/services/dead-cover-urls';
 	import { filterByType, typeLabelKey, releaseYear, albumHref, fallbackCoverSeed, type DiscographyEntry } from '$lib/services/discography';
 	import { loadDiscography, isCjkName } from '$lib/services/discography-source';
 	import { pickLocaleName, mbArtist } from '$lib/services/musicbrainz';
@@ -132,6 +135,28 @@
 	const mbAliases = $derived(Object.values(mbNames));
 	const rankedSongs = $derived(rankByArtistExactness(songs, name, mbAliases));
 
+	// 2026-11-02 (Hector's sunkis report): displayArtist above is a MATCHING-side answer —
+	// MusicBrainz's canonical for sunkis is the Latin-only "sunkis" (aliases split the name
+	// into {zh: 宋秉勤, en: Chris Sung}), so with the default 'off' artist-language the
+	// header dropped 宋秉勤 entirely even though every source credits him bilingually.
+	// Canonical forms are for matching/lookup, never for display replacement when SHORTER
+	// than the credited name: fullestDisplayName restores the most complete credited form
+	// that belongs to this artist (the route name first, then the loaded tracks' credited
+	// segments). Identity/queue/favourite behaviour still keys off the route `name`.
+	const artistForms = $derived(
+		[name, mbCanonical ?? '', ...mbAliases].map((s) => s.trim()).filter(Boolean)
+	);
+	const creditedForms = $derived.by(() => {
+		const out: string[] = [name];
+		for (const t of rankedSongs) {
+			for (const seg of creditSegments(t.artist)) {
+				if (seg && !out.includes(seg)) out.push(seg);
+			}
+		}
+		return out;
+	});
+	const displayName = $derived(fullestDisplayName(displayArtist, creditedForms, artistForms));
+
 	// "More like this" shelf (quick-260607-jip). getSimilarArtists() chains Last.fm → Deezer
 	// (jau-added fallback) → same-artist. Each related artist gets its avatar via Deezer's
 	// artist-picture endpoint (4 in-flight cap; never throws). Race-guarded on `name`.
@@ -142,8 +167,8 @@
 
 	// ---- Deezer artist info (Phase 17, ENRICH-04 / D-14·D-16) ----
 	// PARALLEL race-guarded effect cloning the enrichedFor idiom with its own `dzFor` guard.
-	// deezerArtist never throws (own-origin /api/deezer/artist proxy) — a miss settles `dz` to
-	// null → the Deezer info section is silently absent (D-14). Best-quality image + counts are
+	// deezerArtistWithFallbacks never throws (own-origin /api/deezer/artist proxy) — a miss
+	// settles `dz` to null → the Deezer info section is silently absent (D-14). Best-quality image + counts are
 	// merged with the Last.fm enrich via the pure mergeEnrichArtist helper (D-15).
 	let dz = $state<DeezerArtistInfo | null>(null);
 	let dzFor = '';
@@ -235,7 +260,20 @@
 		}
 	}
 
-	const hero = $derived(rankedSongs.find((t) => t.cover)?.cover ?? null);
+	// 2026-11-02 (Hector's sunkis report): the hero fallback used to be the first ranked
+	// track with ANY cover — for sunkis that was KnowKnow's "BRAND NEW", a single he merely
+	// features on, while his own top hit sat below it. pickHeroCover now requires the
+	// PRIMARY credit first (his own release), falling back to the first cover of any kind
+	// only when no primary-credit cover exists. The cover read mirrors the rows' chain
+	// (shared cache, then the stub cover unless known-dead) so the hero paints the same
+	// art as the hit-song row for that track. A real artist photo still outranks this via
+	// merged.image below (Deezer hi-res > Last.fm art).
+	const hero = $derived(
+		pickHeroCover(rankedSongs, artistForms, (trk) =>
+			readCoverByUidOrName(trk.uid, trk.artist, trk.title) ??
+			(trk.cover && !isCoverUrlDead(trk.cover) ? trk.cover : null)
+		)
+	);
 	// Prefer the best-quality enrichment image (Deezer hi-res > Last.fm art, via the merge)
 	// ONLY when present; otherwise keep the derived cover so a real hero NEVER regresses to a
 	// placeholder (ENRICH-02/D-15 override D-03).
@@ -429,15 +467,20 @@
 					// search for 姜濤 picks the exact-spelled 13-fan impostor profile (whose picture
 					// is Gin Lee's 沈慧雯 duet artwork) over the real "Keung To" profile (128 fans,
 					// real photo). mbArtist is client-cached (24h), so the albums effect's later
-					// loadDiscography call reuses it for free; a miss/throw → no aliases → the
+					// loadDiscography call reuses it for free; a miss/throw → no forms → the
 					// pre-fix behaviour exactly.
-					let aliases: string[] = [];
+					// 2026-11-02: the forms (canonical FIRST, then aliases) now also feed
+					// deezerArtistWithFallbacks' retry searches — the alias params alone only
+					// re-rank one search's candidates, and Deezer returns ZERO candidates for a
+					// combined credited name ("sunkis 宋秉勤"), which silently cost the hero
+					// its artist photo even though "sunkis" / "宋秉勤" each find the real one.
+					let forms: string[] = [];
 					if (isCjkName(n)) {
 						const identity = await mbArtist(n).catch(() => null);
 						if (dzFor !== n) return; // superseded while the identity resolved
-						aliases = Object.values(identity?.names ?? {});
+						forms = [identity?.name ?? '', ...Object.values(identity?.names ?? {})];
 					}
-					const r = await deezerArtist(n, undefined, aliases);
+					const r = await deezerArtistWithFallbacks(n, forms);
 					if (dzFor === n) dz = r; // race guard — discard if name changed
 				} finally {
 					if (dzFor === n) dzLoading = false;
@@ -471,8 +514,11 @@
 	<!-- quick-260831-re9: displayArtist is the MusicBrainz locale-resolved name when MB identified
 	     this artist (so 周傑倫 / Jay Chou / 周杰倫 all render per the artist-language setting), else
 	     the route name. names.dnArtist still runs so the existing translation layer is unchanged
-	     for every non-MB artist. -->
-	<h1>{names.dnArtist(displayArtist)}</h1>
+	     for every non-MB artist. 2026-11-02: the header renders displayName — displayArtist
+	     passed through fullestDisplayName, so a canonical/locale pick SHORTER than the
+	     credited name (MB canonical "sunkis" for "sunkis 宋秉勤") can no longer shrink the
+	     header below the name the user arrived with. -->
+	<h1>{names.dnArtist(displayName)}</h1>
 	<!-- <p class="note">{t('artist.derived', { count: songs.length })}</p> -->
 
 	<!-- kmn: action bar — Favourite / Play (random hit) / Share. quick-260926-vdp: round icon-only
