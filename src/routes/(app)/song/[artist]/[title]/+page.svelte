@@ -42,9 +42,12 @@
 	// cold dict repaints when warmLock lands and flipping the setting repaints. `title` / `artist` and
 	// every raw `data.artist` / `data.name` use (the /api/og coverSrc, arriveShared, replayShared)
 	// stay untouched — they are resolution keys, not display.
-	let lock = $state<((s: string) => string) | null>(null);
-	const shownTitle = $derived(lock ? lock(title) : title);
-	const shownArtist = $derived(lock ? lock(artist) : artist);
+	// quick-261102-tlo (DECISIONS.md §8): the ONE display derivation (names.dnTitle / dnArtist —
+	// translation + rescued aliases + the script lock), not the script lock alone, so a song reads
+	// the same here as in the Nowbar. Still bound lazily in onMount (null during SSR).
+	let dn = $state<{ title: (t: string, a: string) => string; artist: (a: string) => string } | null>(null);
+	const shownTitle = $derived(dn ? dn.title(title, artist) : title);
+	const shownArtist = $derived(dn ? dn.artist(artist) : artist);
 
 	// OG-PAGE-01 / Pitfall 7: the in-app cover goes through apiUrl(), NEVER data.og.image. og.image is
 	// an ABSOLUTE origin-derived URL for the meta tag; inside the Capacitor WebView that origin is
@@ -210,7 +213,9 @@
 		if (!browser) return;
 		// quick-260926-kvz: lazy for the same reason as share-arrival (SSR-SAFETY header) — a failed
 		// chunk keeps the raw text (never-throw).
-		import('$lib/stores/names.svelte').then(({ names }) => (lock = (s) => names.zhLock(s))).catch(() => {});
+		import('$lib/stores/names.svelte')
+			.then(({ names }) => (dn = { title: (t, a) => names.dnTitle(t, a), artist: (a) => names.dnArtist(a) }))
+			.catch(() => {});
 		// quick-261102-covgate: the unified-cover probe, lazy for the same SSR reason — a failed
 		// chunk leaves the OG hero in place (never-throw).
 		import('$lib/stores/cover-version.svelte')

@@ -154,7 +154,9 @@ describe('legacy song share page — visible text follows the script lock (quick
 
 	it('binds the lock from a LAZY names import (no static store import — SSR-SAFETY)', () => {
 		expect(src).toContain("import('$lib/stores/names.svelte')");
-		expect(src).toContain('names.zhLock(');
+		// quick-261102-tlo: the ONE display derivation (dnTitle/dnArtist), not the bare script lock.
+		expect(src).toContain('names.dnTitle(');
+		expect(src).toContain('names.dnArtist(');
 		expect(src).not.toMatch(/^\s*import\s[^(]*from '\$lib\/stores\//m);
 	});
 

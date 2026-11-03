@@ -495,8 +495,9 @@
 					<li>
 						{#if e.cover}<img src={e.cover} alt="" loading="lazy" width="40" height="40" />{/if}
 						<span class="t">
-							<strong>{e.title}</strong>
-							<span class="a">{e.artist}{#if e.album} · {e.album}{/if}</span>
+							<!-- quick-261102-tlo (DECISIONS.md §8): display names via the names layer (were raw catalog text) -->
+							<strong>{names.dnTitle(e.title, e.artist)}</strong>
+							<span class="a">{names.dnArtist(e.artist)}{#if e.album} · {names.dnTitle(e.album, e.artist)}{/if}</span>
 						</span>
 					</li>
 				{/each}

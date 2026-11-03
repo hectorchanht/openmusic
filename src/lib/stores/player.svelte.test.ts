@@ -5792,7 +5792,7 @@ describe('player.play — history-preserving fresh-play queue model (quick-26061
 describe('skip reasons + genuine retry (quick-260926-l69)', () => {
 	type SkipInternals = {
 		recordSkip(uid: string, reason: SkipReason): void;
-		emitSkipNotice(title: string, reason: SkipReason): void;
+		emitSkipNotice(track: { title: string; artist: string }, reason: SkipReason): void;
 		fallbackEpisodeKey: string | null;
 		skipBurst: number;
 		skipBurstTimer: ReturnType<typeof setTimeout> | null;
@@ -5831,12 +5831,14 @@ describe('skip reasons + genuine retry (quick-260926-l69)', () => {
 
 	it('the skip notice carries the closed-union reason as data (keys only, no localized text)', () => {
 		internals().recordSkip('qq:1', 'no-source');
-		internals().emitSkipNotice('T', 'no-source');
+		internals().emitSkipNotice({ title: 'T', artist: 'A' }, 'no-source');
+		// quick-261102-tlo: RAW title + artist as data — the host renders them via names.dnTitle.
 		expect(player.notice).toEqual({
 			kind: 'skip',
 			msg: 'toast.skipped',
 			count: 1,
 			title: 'T',
+			artist: 'A',
 			skipReason: 'no-source'
 		});
 	});

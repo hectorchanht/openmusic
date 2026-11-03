@@ -225,7 +225,7 @@ describe('names + songShareUrl — share links carry display-language names (qui
 		],
 		[
 			'src/routes/(app)/artist/[name]/+page.svelte',
-			[/names\.dnArtist\(name\)/],
+			[/names\.dnArtist\(displayName\)/], // quick-261102-tlo: the header's name, not the route segment
 			[/entityCardUrl\(\{ type: 'artist', name \}\)/]
 		]
 	])('%s builds its share URL from names.dn* display strings', async (file, present, absent) => {

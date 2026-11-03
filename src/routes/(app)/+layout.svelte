@@ -105,7 +105,8 @@
 				const text =
 					(n.count ?? 1) > 1
 						? t('toast.skippedMany', { count: n.count ?? 1, reason })
-						: t('toast.skipped', { title: n.title ?? '', reason });
+						: // quick-261102-tlo (DECISIONS.md §8): the ONE display derivation (was the raw catalog title)
+							t('toast.skipped', { title: names.dnTitle(n.title ?? '', n.artist ?? ''), reason });
 				host = { kind: 'skip', text };
 				// Auto-dismiss; restart the timer on every new skip so a burst replaces, not stacks.
 				clearSkipTimer();

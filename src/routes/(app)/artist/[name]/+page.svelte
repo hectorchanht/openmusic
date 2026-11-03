@@ -231,7 +231,7 @@
 		// and falls back to the raw text on a miss, so this is exactly what the page rendered; the
 		// zh-Hant s2t dict is boot-warmed (quick-260712-et3) → synchronous. The recipient-side
 		// Traditional-vs-Simplified resolution risk is closed by resolveStub's t2s rescue-on-miss.
-		const dName = names.dnArtist(name);
+		const dName = names.dnArtist(displayName); // quick-261102-tlo: same name the header shows
 		const url = entityCardUrl({ type: 'artist', name: dName });
 		const title = dName;
 		try {
@@ -493,7 +493,8 @@
 	const numFmt = new Intl.NumberFormat();
 </script>
 
-<svelte:head><title>{name} · openmusic</title></svelte:head>
+<!-- quick-261102-tlo (DECISIONS.md §8): every surface on this page shows the header's name -->
+<svelte:head><title>{names.dnArtist(displayName)} · openmusic</title></svelte:head>
 {#if data.og}
 	<PageOg og={data.og} />
 {/if}
@@ -630,7 +631,7 @@
 {#if loading}
 	<section>
 		<h2>{t('artist.hitSongs')}</h2>
-		<ul class="list" aria-label={t('artist.loading', { name: names.dnArtist(name) })}>
+		<ul class="list" aria-label={t('artist.loading', { name: names.dnArtist(displayName) })}>
 			{#each Array(8) as _, i (i)}
 				<li>
 					<span class="row" aria-hidden="true">
@@ -676,7 +677,7 @@
 			{:else if rankedSongs.length > shown || hasMoreSongs}
 				<div class="more"><button class="act" use:tapBounce onclick={loadMoreSongs}>{t('artist.showMore')}<ChevronDown size={18}/></button></div>
 			{/if}
-		{:else}<p class="muted">{t('artist.noSongs', { name: names.dnArtist(name) })}</p>{/if}
+		{:else}<p class="muted">{t('artist.noSongs', { name: names.dnArtist(displayName) })}</p>{/if}
 	</section>
 {/if}
 

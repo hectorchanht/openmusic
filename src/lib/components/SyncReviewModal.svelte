@@ -12,6 +12,7 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
 	import { auth } from '$lib/stores/auth.svelte';
+	import { names } from '$lib/stores/names.svelte';
 	import type { PreviewList, SyncPreview } from '$lib/sync/merge-logic';
 
 	let preview = $derived(auth.firstSyncPreview);
@@ -33,8 +34,9 @@
 
 	function sections(p: SyncPreview): Section[] {
 		const out: Section[] = [];
+		// quick-261102-tlo (DECISIONS.md §8): display names through the names layer, like every other surface.
 		const fmtTrack = (x: { title: string; artist: string }): string =>
-			x.artist ? `${x.title} — ${x.artist}` : x.title;
+			x.artist ? `${names.dnTitle(x.title, x.artist)} — ${names.dnArtist(x.artist)}` : names.dnTitle(x.title);
 		const tracks = p.library.tracks;
 		if (tracks.incoming.length + tracks.outgoing.length + tracks.willDelete.length > 0) {
 			out.push({

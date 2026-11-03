@@ -180,8 +180,10 @@ export interface PlayerNotice {
 	reason?: 'loop-guard' | 'offline' | 'up-next-dry';
 	/** 'skip' only: number of consecutive skips collapsed into this one message (D-02). */
 	count?: number;
-	/** 'skip' only: the title of the most recently skipped track. */
+	/** 'skip' only: the RAW catalog title + artist of the most recently skipped track. The host
+	 *  renders it through names.dnTitle — the store never converts display text (quick-261102-tlo). */
 	title?: string;
+	artist?: string;
 	/** quick-260926-l69: 'skip' only — why the most recent track was skipped. Deliberately NOT the
 	 *  `reason` field above (that is the 'stopped' discriminator). The host maps it via SKIP_REASON_KEY. */
 	skipReason?: SkipReason;
@@ -2134,7 +2136,7 @@ class Player {
 		// 31-D-18: the user is looking at a song stuck on the loading line — say that it was dropped.
 		// Same batched channel as every other visible skip. Deliberately does NOT touch failoverSkips:
 		// this path never counted toward the systemic ceiling and 31-D-17 keeps that accounting frozen.
-		this.emitSkipNotice(this.current.title, 'timeout');
+		this.emitSkipNotice(this.current, 'timeout');
 		// bg-lockscreen-stall-noskip (round 2): ONE bg skip per audible streak — the skipped-to track
 		// must itself produce audio (`playing` re-arms the flag) before another hidden-tab skip is
 		// allowed, so even the audible-bg path can never burn more than one hop down the queue.
@@ -2886,7 +2888,7 @@ class Player {
 				// already collapses N skips inside SKIP_BURST_WINDOW_MS into ONE notice with a count, so a
 				// storm cannot become a toast storm. Emitted inside the else path, so the STOP branch above
 				// keeps its sticky Retry notice untouched.
-				if (this.current) this.emitSkipNotice(this.current.title, 'load-error');
+				if (this.current) this.emitSkipNotice(this.current, 'load-error');
 				this.next();
 				return;
 			}
@@ -5640,7 +5642,7 @@ class Player {
 			return;
 		}
 		// D-02: emit a batched skip notice and auto-skip to the next track.
-		this.emitSkipNotice(failed.title, reason);
+		this.emitSkipNotice(failed, reason);
 		this.next();
 	}
 
@@ -5724,7 +5726,7 @@ class Player {
 	 * skipped" rather than N stacked toasts). Each skip (re)starts the debounce; when it elapses
 	 * with no further skip the burst counter resets so the NEXT isolated failure starts at 1.
 	 */
-	private emitSkipNotice(title: string, reason: SkipReason) {
+	private emitSkipNotice(track: { title: string; artist: string }, reason: SkipReason) {
 		this.skipBurst++;
 		this.notice = {
 			kind: 'skip',
@@ -5732,7 +5734,8 @@ class Player {
 			// not a phantom `player.notice.skip` token that exists in no dictionary.
 			msg: this.skipBurst > 1 ? 'toast.skippedMany' : 'toast.skipped',
 			count: this.skipBurst,
-			title,
+			title: track.title,
+			artist: track.artist,
 			skipReason: reason // quick-260926-l69: the most recent skip's cause (keys only)
 		};
 		if (this.skipBurstTimer) clearTimeout(this.skipBurstTimer);

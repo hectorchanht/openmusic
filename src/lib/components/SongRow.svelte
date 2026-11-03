@@ -220,7 +220,12 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 		if (a.toLowerCase() === (track.title ?? '').trim().toLowerCase()) return '';
 		return names.dnTitle(a);
 	});
-	const sub = $derived(subtitle ?? (smartArtist ? smartSub : names.dnArtist(track.album || track.artist)));
+	// quick-261102-tlo (DECISIONS.md §8): an ALBUM name goes through the title derivation, never the artist
+	// translator (was dnArtist(track.album || track.artist)).
+	const sub = $derived(
+		subtitle ??
+			(smartArtist ? smartSub : track.album ? names.dnTitle(track.album, track.artist) : names.dnArtist(track.artist))
+	);
 	// quick-261024-vid1: the MV tag — ytmusic rows are watchable unless a past resolve
 	// proved otherwise (videoAvailability) or the user disabled videos in Settings.
 	const mvTag = $derived(
