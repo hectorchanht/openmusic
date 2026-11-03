@@ -8,6 +8,7 @@
   --color-text-muted: #a0a0ad;
   --color-primary: #0abab5; /* tiffany-261020: matches DEFAULT_ACCENT; applyTheme() overrides at runtime */
   --color-primary-hover: #09a49f; /* tiffany-261020: darken(DEFAULT_ACCENT, 0.12) */
+  --color-on-primary: #0b0b0f; /* quick-261102-rrb: default for tiffany (white is 2.41:1); applyTheme() sets onColor(primary) at runtime */
 
   --src-netease: #c20c0c;
   --src-qq: #1db954;

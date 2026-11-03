@@ -312,7 +312,7 @@
 		padding: 8px 16px; font-size: 0.8125rem; font-weight: 600; cursor: pointer;
 		transition: background 0.12s ease, color 0.12s ease;
 	}
-	.tab[aria-pressed='true'] { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+	.tab[aria-pressed='true'] { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ }
 
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 
@@ -321,7 +321,7 @@
 	.offline-title { font-size: 0.9375rem; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
 	.offline-body { font-size: 0.8125rem; margin: 0 0 16px; }
 	.offline-cta {
-		background: var(--color-primary); border: none; color: #fff; border-radius: 999px;
+		background: var(--color-primary); border: none; color: var(--color-on-primary); /* quick-261102-rrb */ border-radius: 999px;
 		padding: 9px 18px; font-size: 0.8125rem; font-weight: 600; cursor: pointer;
 	}
 

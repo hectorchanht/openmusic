@@ -303,7 +303,7 @@
 	.rm-btn.primary {
 		background: var(--color-primary);
 		border-color: var(--color-primary);
-		color: #fff;
+		color: var(--color-on-primary); /* quick-261102-rrb */
 		margin-bottom: 8px;
 	}
 	.rm-row2 {

@@ -435,7 +435,7 @@
 		white-space: nowrap;
 	}
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
-	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.chip.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	/* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte; .row-toggle/.sw went with the
 	   three toggle rows the previews replaced. */
 	.sub { display: flex; align-items: center; gap: 6px; font-size: 0.8125rem; font-weight: 600; margin: 16px 0 8px; position: relative; }

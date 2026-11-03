@@ -194,7 +194,7 @@
 		white-space: nowrap;
 	}
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
-	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.chip.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	.share-row { margin-top: 4px; }
 	/* donor-wall-ui 2026-10-14: the featured support card — the app's primary accent
 	   surface, so the donor wall is visible without scrolling. */

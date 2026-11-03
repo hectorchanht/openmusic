@@ -73,5 +73,5 @@
 	.magic h1 { font-size: 1.25rem; margin: 6px 0 0; }
 	.magic p { color: var(--color-text-muted); font-size: 0.875rem; margin: 0; line-height: 1.5; }
 	.magic :global(.magic-ic) { color: var(--color-primary); }
-	.home { margin-top: 14px; background: var(--color-primary); color: #fff; border: none; border-radius: 999px; padding: 10px 22px; font-size: 0.875rem; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; }
+	.home { margin-top: 14px; background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border: none; border-radius: 999px; padding: 10px 22px; font-size: 0.875rem; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; }
 </style>

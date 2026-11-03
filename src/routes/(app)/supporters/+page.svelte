@@ -82,7 +82,7 @@
 <style>
 	.wall { padding: 4px 16px 32px; max-width: 680px; margin: 0 auto; }
 	.lead { font-size: 0.9375rem; line-height: 1.55; color: var(--color-text-muted); margin: 8px 0 0; }
-	.cta { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; margin-top: 16px; padding: 13px; border-radius: 12px; font-size: 0.9375rem; font-weight: 700; background: var(--color-primary); color: #fff; border: none; cursor: pointer; }
+	.cta { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; margin-top: 16px; padding: 13px; border-radius: 12px; font-size: 0.9375rem; font-weight: 700; background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border: none; cursor: pointer; }
 	.note { font-size: 0.875rem; line-height: 1.55; color: var(--color-text-muted); margin: 16px 0 0; }
 	.empty { margin-top: 20px; background: var(--color-surface); border: 1px dashed var(--color-border); border-radius: 14px; padding: 18px 16px; }
 	.empty-title { font-size: 1rem; font-weight: 700; color: var(--color-text); margin: 0; }

@@ -360,7 +360,7 @@
 	.body { margin: 8px 4px 0; font-size: 0.875rem; color: var(--color-text-muted); line-height: 1.5; }
 	.tip-title { margin: 16px 4px 0; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-muted); }
 	.tip-note { margin: 6px 4px 0; font-size: 0.8125rem; color: var(--color-text-muted); }
-	.cta { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; margin-top: 12px; padding: 13px; border-radius: 12px; font-size: 0.9375rem; font-weight: 700; background: var(--color-primary); color: #fff; text-decoration: none; border: none; cursor: pointer; box-sizing: border-box; }
+	.cta { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; margin-top: 12px; padding: 13px; border-radius: 12px; font-size: 0.9375rem; font-weight: 700; background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ text-decoration: none; border: none; cursor: pointer; box-sizing: border-box; }
 	/* Supporters wall opt-in (2026-10-24). */
 	.wallchk { margin-top: 12px; }
 	.wallchk .switch-label { font-size: 0.875rem; }
@@ -380,7 +380,7 @@
 	.keyrow .vtxt { flex: 1; min-width: 0; }
 	.vbtn.icon { width: 44px; min-height: 44px; margin-top: 0; padding: 0; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; }
 	.vcopied { color: var(--color-text-muted); font-size: 0.75rem; margin: 6px 0 0; }
-	.vbtn { width: 100%; margin-top: 12px; min-height: 44px; padding: 12px 16px; background: var(--color-primary); color: #fff; border: none; border-radius: 12px; font-size: 0.9375rem; font-weight: 700; cursor: pointer; }
+	.vbtn { width: 100%; margin-top: 12px; min-height: 44px; padding: 12px 16px; background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border: none; border-radius: 12px; font-size: 0.9375rem; font-weight: 700; cursor: pointer; }
 	.vbtn:disabled { opacity: 0.5; cursor: default; }
 	.vhint { margin: 12px 0 0; font-size: 0.75rem; line-height: 1.5; color: var(--color-text-muted); }
 	/* Hide-strip toggle: plain checkbox styled as a switch (no extra a11y burden). */

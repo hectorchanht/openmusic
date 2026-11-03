@@ -961,7 +961,7 @@
 	/* User 2026-10-06 (audit): 34px -> 44px width for minimum touch target. */
 	@media (hover: hover) { .clear-input:hover { color: var(--color-text); } }
 	.bar button {
-		background: var(--color-primary); border: none; color: #fff; border-radius: 999px;
+		background: var(--color-primary); border: none; color: var(--color-on-primary); /* quick-261102-rrb */ border-radius: 999px;
 		width: 44px; height: 44px; font-weight: 700; cursor: pointer;
 		display: inline-flex; align-items: center; justify-content: center;
 	}
@@ -987,7 +987,7 @@
 	.offline-title { font-size: 0.9375rem; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
 	.offline-body { font-size: 0.8125rem; margin: 0 0 16px; }
 	.offline-cta {
-		background: var(--color-primary); border: none; color: #fff; border-radius: 999px;
+		background: var(--color-primary); border: none; color: var(--color-on-primary); /* quick-261102-rrb */ border-radius: 999px;
 		padding: 9px 18px; font-size: 0.8125rem; font-weight: 600; cursor: pointer;
 	}
 

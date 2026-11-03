@@ -395,7 +395,7 @@
 		white-space: nowrap;
 	}
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
-	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.chip.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	.chip:disabled { cursor: default; }
 	.skip { margin-top: 12px; }
 	.skip.disabled { opacity: 0.45; pointer-events: none; }
@@ -426,7 +426,7 @@
 	   drop it a step to keep the fill visible. The selected states are restated at the higher
 	   specificity the descendant selector creates. */
 	.advanced .chip { background: var(--color-bg); }
-	.advanced .chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.advanced .chip.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	.advanced .skipchip.on { background: var(--color-surface); color: var(--color-primary); border-color: var(--color-primary); }
 	/* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte — the quick-260919-2jo Chinese
 	   script control is pixel-identical there, because the rules were lifted verbatim. */
@@ -441,7 +441,7 @@
 		background: var(--color-surface-2); color: var(--color-text-muted);
 		border: 1px solid var(--color-border); cursor: pointer; white-space: nowrap;
 	}
-	.tab.on { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.tab.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	.tabpane { padding: 4px 0; }
 	.tabpane .sublabel { margin: 0 0 10px; color: var(--color-text-muted); font-size: 0.85rem; }
 </style>

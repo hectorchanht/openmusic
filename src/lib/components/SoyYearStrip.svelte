@@ -73,6 +73,6 @@
 	.ypill.active {
 		background: var(--color-primary);
 		border-color: var(--color-primary);
-		color: #fff;
+		color: var(--color-on-primary); /* quick-261102-rrb */
 	}
 </style>

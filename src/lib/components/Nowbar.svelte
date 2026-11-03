@@ -643,7 +643,7 @@
     .np-btn {
         background: var(--color-primary);
         border: none;
-        color: #fff;
+        color: var(--color-on-primary); /* quick-261102-rrb */
         width: 40px;
         height: 40px;
         border-radius: 50%;

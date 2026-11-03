@@ -911,7 +911,7 @@
 	.offline-title { font-size: 0.9375rem; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
 	.offline-body { font-size: 0.8125rem; margin: 0 0 16px; }
 	.offline-cta {
-		background: var(--color-primary); border: none; color: #fff; border-radius: 999px;
+		background: var(--color-primary); border: none; color: var(--color-on-primary); /* quick-261102-rrb */ border-radius: 999px;
 		padding: 9px 18px; font-size: 0.8125rem; font-weight: 600; cursor: pointer;
 	}
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -955,7 +955,7 @@
 	   (use:tapBounce supplies the one-shot touch press feedback). */
 	@media (hover: hover) { .act:active { transform: scale(0.92); } }
 	.act:disabled { opacity: 0.4; cursor: default; }
-	.act.play { width: 56px; height: 56px; background: var(--color-primary); border-color: transparent; color: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); }
+	.act.play { width: 56px; height: 56px; background: var(--color-primary); border-color: transparent; color: var(--color-on-primary); /* quick-261102-rrb */ box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4); }
 	/* ---- add-to-playlist picker (mirrors the track menu sheet) ---- */
 	.scrim { position: fixed; inset: 0; z-index: 80; background: rgba(0, 0, 0, 0.45); border: none; }
 	.picker { position: fixed; left: 12px; right: 12px; bottom: 16px; z-index: 81; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 16px; padding: 8px; max-width: 680px; margin: 0 auto; box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5); max-height: 70vh; overflow-y: auto; }

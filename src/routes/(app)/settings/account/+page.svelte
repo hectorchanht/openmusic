@@ -429,7 +429,7 @@
 	   block; the Verify button reuses the .send style. */
 	.codeform { margin-top: 12px; }
 	.codeform .field input { text-align: center; font-size: 1.5rem; letter-spacing: 0.5em; text-indent: 0.5em; font-family: ui-monospace, monospace; font-weight: 700; }
-	.send { width: 100%; background: var(--color-primary); color: #fff; border: none; border-radius: 999px; padding: 12px 20px; font-size: 0.9375rem; font-weight: 600; cursor: pointer; }
+	.send { width: 100%; background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border: none; border-radius: 999px; padding: 12px 20px; font-size: 0.9375rem; font-weight: 600; cursor: pointer; }
 	.send:disabled { opacity: 0.55; cursor: default; }
 	/* quick-261020-google — the divider + second sign-in path. */
 	.or { display: flex; align-items: center; gap: 10px; margin: 16px 0 12px; color: var(--color-text-muted); font-size: 0.75rem; }

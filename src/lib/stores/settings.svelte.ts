@@ -28,7 +28,7 @@ import {
 import { isSupporter } from '$lib/config/sponsored';
 // Pure util (no DOM/browser/store imports) — settings stays a LEAF store. Used by
 // applyTheme() to derive --color-primary-hover from the chosen accent (UX-07 root-cause fix).
-import { darken } from '$lib/services/color';
+import { darken, onColor } from '$lib/services/color';
 import { CHART_REGIONS, HOME_LAYOUT_VERSION, clampShelfSize, migrateDensity, migrateHomeLayout, type ChartRegion, type HomeDensity, type HomeLandingTab, type HomeSectionId } from '$lib/services/home-layout';
 // quick-261006-mnu: pure catalog + order normalizer for the customizable TrackMenu grid.
 // PURE (imports nothing from stores) — the LEAF invariant holds, same as home-layout above.
@@ -676,6 +676,9 @@ class Settings {
 		// runtime, so hover surfaces (buttons/tabs/chips) ignored the chosen accent. Derive it from
 		// the accent — ~12% darken matches today's #0abab5 → #09a49f relationship (A3).
 		r.style.setProperty('--color-primary-hover', darken(primary, 0.12));
+		// quick-261102-rrb: text/icons on a primary fill read this — dark or white, whichever
+		// contrasts more with the effective primary (tiffany needs dark; white was 2.41:1).
+		r.style.setProperty('--color-on-primary', onColor(primary));
 		// Appearance scales (fnp) — multipliers off the per-rule base sizes. 100% → 1 (no change).
 		// quick-260920-kxz: the ROOT multiplier — app.css turns it into
 		// `html { font-size: calc(100% * var(--fs-app, 1)) }`, so it moves every rem rule at once

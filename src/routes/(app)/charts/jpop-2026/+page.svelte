@@ -243,7 +243,7 @@
 		height: 56px;
 		background: var(--color-primary);
 		border-color: var(--color-primary);
-		color: #fff;
+		color: var(--color-on-primary); /* quick-261102-rrb */
 	}
 	.act.download {
 		border-color: var(--color-primary);

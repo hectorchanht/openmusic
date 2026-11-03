@@ -653,7 +653,7 @@
 	.update-btn {
 		flex: none;
 		background: var(--color-primary, #7c5cff);
-		color: #fff;
+		color: var(--color-on-primary); /* quick-261102-rrb */
 		border: none;
 		border-radius: 999px;
 		padding: 4px 14px;
@@ -699,7 +699,7 @@
 	.notice-toast .retry {
 		flex: none;
 		background: var(--color-primary, #7c5cff);
-		color: #fff;
+		color: var(--color-on-primary); /* quick-261102-rrb */
 		border: none;
 		border-radius: 999px;
 		padding: 5px 14px;

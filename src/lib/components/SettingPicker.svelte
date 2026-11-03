@@ -132,7 +132,7 @@
 	}
 	.seg button.on {
 		background: var(--color-primary);
-		color: #fff;
+		color: var(--color-on-primary); /* quick-261102-rrb */
 	}
 	.seg button:disabled {
 		cursor: default;
@@ -286,7 +286,7 @@
 		padding: 2px 4px;
 		border-radius: 999px;
 		background: var(--color-primary);
-		color: #fff;
+		color: var(--color-on-primary); /* quick-261102-rrb */
 		flex: none;
 	}
 	.mock :global(.mock-badge.ghost) {

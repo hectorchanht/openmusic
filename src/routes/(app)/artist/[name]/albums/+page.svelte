@@ -399,7 +399,7 @@
 		border: 1px solid var(--color-border); background: var(--color-surface);
 		color: var(--color-text); cursor: pointer;
 	}
-	.act.play { width: 56px; height: 56px; background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+	.act.play { width: 56px; height: 56px; background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ }
 	.act.download { border-color: var(--color-primary); color: var(--color-primary); }
 	.act:disabled { opacity: 0.45; cursor: default; }
 	.dl-status { color: var(--color-primary); font-size: 0.78rem; font-weight: 600; margin: 8px 0 0; }
@@ -408,7 +408,7 @@
 	.chips { display: flex; gap: 8px; padding: 10px 4px 4px; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; }
 	.chips::-webkit-scrollbar { display: none; width: 0; }
 	.chip { flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--color-border); background: none; color: var(--color-text-muted); font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
-	.chip.on { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+	.chip.on { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ }
 
 	.list { list-style: none; margin: 8px 0 0; padding: 0 0 32px; }
 	.row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 4px; background: none; border: none; color: var(--color-text); text-align: left; cursor: pointer; }

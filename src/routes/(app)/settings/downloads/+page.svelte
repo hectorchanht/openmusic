@@ -549,7 +549,7 @@
 	.flash { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar-h) + 70px); background: #000; color: #fff; padding: 10px 16px; border-radius: 999px; font-size: 0.8125rem; }
 
 	/* Contract 3/4 + UI-SPEC Color: the import CTA is this page's single accent-filled action. */
-	.cta { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--color-primary); color: #fff; border: none; border-radius: 12px; font-size: 0.9375rem; font-weight: 600; cursor: pointer; }
+	.cta { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border: none; border-radius: 12px; font-size: 0.9375rem; font-weight: 600; cursor: pointer; }
 	.cta:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 	.cta.busy { background: var(--color-surface-2); color: var(--color-text); border: 1px solid var(--color-border); justify-content: space-between; padding: 0 8px 0 14px; gap: 12px; font-weight: 400; }
 	.lbl-prog { font-size: 0.8125rem; color: var(--color-text-muted); white-space: nowrap; }
@@ -590,7 +590,7 @@
 		flex: none;
 		white-space: nowrap;
 	}
-	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.chip.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	.row-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 13px 14px; border-radius: 12px; font-size: 0.875rem; cursor: pointer; margin: 8px 0 0; }
 	.sw { width: 40px; height: 22px; border-radius: 999px; background: var(--color-border); position: relative; transition: background 0.15s ease; flex: none; }
 	.sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.15s ease; }

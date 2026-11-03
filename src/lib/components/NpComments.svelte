@@ -281,7 +281,7 @@
 	.bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 	.post {
 		background: var(--color-primary);
-		color: #fff;
+		color: var(--color-on-primary); /* quick-261102-rrb */
 		border: none;
 		border-radius: 999px;
 		padding: 6px 14px;

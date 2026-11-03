@@ -620,7 +620,7 @@
 	   labelled via aria-label + title. `.edit-btn` lives only in `.actions`. */
 	.edit-btn { display: grid; place-items: center; min-width: 44px; height: 44px; padding: 0; border-radius: 12px; background: var(--color-surface-2); border: 1px solid transparent; color: var(--color-text); cursor: pointer; transition: background 0.15s, transform 0.1s; }
 	@media (hover: hover) { .edit-btn:active { transform: scale(0.92); } }
-	.edit-btn[aria-pressed='true'] { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.edit-btn[aria-pressed='true'] { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	.actions { display: flex; gap: 8px; margin-bottom: 14px; }
 	.actions .edit-btn { flex: 1 1 0; min-width: 0; }
 	/* fav-artists tiles only — the track rows' copy of this is SongRow's `danger`. */
@@ -629,7 +629,7 @@
 	.tabs { display: flex; gap: 8px; margin-bottom: 14px; }
 	.tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 14px 0; border-radius: 999px; cursor: pointer; min-width: 0; }
 	/* User 2026-10-06 (audit): 10px -> 14px padding for 44px minimum touch target. */
-	.tabs button.active { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.tabs button.active { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 	/* D-11 used to lay out the swipe-wrap beside a trailing DownloadControl. quick-260919-l9e
 	   moved that control INSIDE the row (settings.rowActions), so the wrap is now the only child

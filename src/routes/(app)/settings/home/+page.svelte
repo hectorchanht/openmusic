@@ -654,7 +654,7 @@
 	.density-seg { display: inline-flex; max-width: 100%; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 999px; padding: 2px; gap: 2px; flex: none; }
 	.density-seg::-webkit-scrollbar { display: none; width: 0; }
 	.dseg-btn { background: none; border: none; color: var(--color-text-muted); padding: 5px 10px; border-radius: 999px; font-size: 0.6875rem; cursor: pointer; white-space: nowrap; flex: none; }
-	.dseg-btn.on { background: var(--color-primary); color: #fff; }
+	.dseg-btn.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ }
 	/* Chips (multiselect) */
 	/* quick-261007-hscroll: chip strips scroll horizontally (never wrap, never clip) —
 	   same pattern as the realufo.org chip rows: overflow-x + hidden scrollbar.
@@ -677,7 +677,7 @@
 		white-space: nowrap;
 	}
 	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
-	.chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.chip.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	/* Selected chips are draggable to reorder — own the touch gesture so a drag reorders
 	   rather than scrolls the page; lift the chip while dragging. */
 	.chip[data-chip-index] { touch-action: none; cursor: grab; }
@@ -698,7 +698,7 @@
 	/* Unselected chips and rows are --color-surface-2 and sit ON a --color-surface-2 panel, so drop
 	   them a step; the selected chip is restated at the descendant selector's specificity. */
 	.advanced .chip { background: var(--color-bg); }
-	.advanced .chip.on { background: var(--color-primary); color: #fff; border-color: transparent; }
+	.advanced .chip.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	.advanced .rrow { background: var(--color-bg); }
 	/* Classic is a GROUP disclosure, not a settings row: the Playback page's uppercase summary type
 	   and its 22px margin (UI-SPEC §Spacing), so it reads as de-emphasised. */
