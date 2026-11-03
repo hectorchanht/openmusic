@@ -49,7 +49,7 @@ import { fetchVariants, versionsIncludingOwn } from '$lib/services/variants';
 import { probeDownload, type DownloadProbe } from '$lib/services/download-probe';
 import { nativeFetchStreamBlob } from '$lib/services/ytmusic-native';
 import { isQqRateLimited } from '$lib/sources/qq';
-import { effectiveQuality } from '$lib/sources/quality';
+import { effectiveQuality, qualityRank, wantedQualityRank } from '$lib/sources/quality';
 
 /**
  * 'saved' = blob fetched + saved to disk; 'no-audio' = nothing to download; 'failed' = fetch/save
@@ -118,10 +118,11 @@ async function fetchRetrying(url: string, attempts: number): Promise<Response> {
 // the streamed quality already meets/exceeds the wanted tier.
 //   - 'auto' / '320' / '128' → any resolved stream (320k or lossless) meets/exceeds the tier
 //   - 'lossless'             → reuse ONLY when the current stream is already lossless; else re-resolve
+// quick-261102-to0 (DECISIONS.md §7): through THE ranker + the resolved tier. It used to treat 'auto'
+// as met by any stream (while donorMatchesTier, a few lines down, resolved 'auto' to lossless on wifi)
+// and to compare 'lossless' by string equality, so a FLAC-labelled stream never met a lossless want.
 export function currentQualityMeets(curQuality: string | null, want: DefaultQuality): boolean {
-	if (want === 'auto' || want === '320' || want === '128') return true;
-	// want === 'lossless'
-	return (curQuality ?? '').toLowerCase() === 'lossless';
+	return qualityRank(curQuality) >= wantedQualityRank(want);
 }
 
 // quick-261001-0p9: how good a donor's file is, for the album loop's after-the-wait donor pick.
@@ -134,11 +135,7 @@ type DonorFile = { container: string | null; quality: string | null };
 
 export function donorRank(p: DonorFile): 0 | 1 | 2 | 3 {
 	if (p.container && LOSSLESS_CONTAINERS.has(p.container)) return 3;
-	const q = p.quality ?? '';
-	if (/lossless|flac|sq|hi-?res|无损/i.test(q)) return 3;
-	if (/320|hq/i.test(q)) return 2;
-	if (/128|160|192|standard|low/i.test(q)) return 1;
-	return 0;
+	return qualityRank(p.quality); // quick-261102-to0: the one tag ranker
 }
 
 // quick-261001-0p9: is this donor the SAME quality tier AND format class as the download tier? The
@@ -146,8 +143,7 @@ export function donorRank(p: DonorFile): 0 | 1 | 2 | 3 {
 // (mp3) tier either. An unknown container falls back to the band alone.
 export function donorMatchesTier(p: DonorFile, want: DefaultQuality): boolean {
 	const tier = effectiveQuality(want);
-	const wanted = tier === 'lossless' ? 3 : tier === '320' ? 2 : 1;
-	if (donorRank(p) !== wanted) return false;
+	if (donorRank(p) !== wantedQualityRank(want)) return false;
 	if (p.container === null) return true;
 	return LOSSLESS_CONTAINERS.has(p.container) === (tier === 'lossless');
 }

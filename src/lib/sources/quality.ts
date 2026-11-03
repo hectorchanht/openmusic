@@ -80,3 +80,25 @@ export function effectiveQuality(pref: DefaultQuality): Exclude<DefaultQuality, 
 	if (!c || c.saveData === true) return '320';
 	return c.type === 'wifi' || c.type === 'ethernet' ? 'lossless' : '320';
 }
+
+/**
+ * quick-261102-to0 (DECISIONS.md §7) — THE quality tier of a tag/label: 3 lossless (flac, sq,
+ * hi-res, atmos, 母带, 无损), 2 high (320, hq, 高品), 1 standard (128/160/192/64, aac, std, low),
+ * 0 unknown. Every ranker reads this one function — download-upgrade's adopt rule, the album
+ * donor pick, dedupe's group winner and currentQualityMeets used four different regex sets
+ * (atmos/母带 lossless in one, unknown in another; FLAC ≠ "lossless" by string equality).
+ */
+export function qualityRank(label: string | null | undefined): 0 | 1 | 2 | 3 {
+	const q = (label ?? '').toLowerCase();
+	if (!q) return 0;
+	if (/flac|lossless|atmos|hi-?res|\bsq\b|母带|母帶|无损|無損/.test(q)) return 3;
+	if (/320|\bhq\b|高品/.test(q)) return 2;
+	if (/128|160|192|\b64\b|\baac\b|standard|\bstd\b|\blow\b/.test(q)) return 1;
+	return 0;
+}
+
+/** quick-261102-to0: the tier rank a download/stream preference asks for (auto resolved first). */
+export function wantedQualityRank(pref: DefaultQuality): 1 | 2 | 3 {
+	const tier = effectiveQuality(pref);
+	return tier === 'lossless' ? 3 : tier === '320' ? 2 : 1;
+}

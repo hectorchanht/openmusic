@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 // PURE module — no runes, no $app, no store imports — so the node Vitest project compiles it.
-import { qualityRank, shouldAdoptDownloaded, ADOPT_MIN_REMAINING_SEC } from './download-upgrade';
+import { shouldAdoptDownloaded, ADOPT_MIN_REMAINING_SEC } from './download-upgrade';
+import { qualityRank } from '$lib/sources/quality';
 
 describe('qualityRank', () => {
 	it('ranks the standard band at 1', () => {

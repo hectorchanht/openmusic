@@ -5,6 +5,7 @@
 import type { SourceId, Track } from '$lib/sources/types';
 import { foldScript } from '$lib/services/zh-convert';
 import { playbackRank, COVER_ORDER } from '$lib/sources/source-order';
+import { qualityRank } from '$lib/sources/quality';
 // quick-261102-t7i: dedupe ↔ song-variant is a deliberate import cycle — both sides use the other
 // only inside function bodies (never at module evaluation), so either load order is safe.
 import { candidateTier } from '$lib/services/song-variant';
@@ -42,13 +43,10 @@ import { splitArtists } from '$lib/util/artist-split';
 // (`makeUid`), and this rank never decides identity, only which of two same-song rows survives.
 // Cross-ref: the roadmap's pending "netease upstream health-gate" item already suspected this rank-4.
 
-/** Higher = better. Reads qualityLabel/quality strings (often null pre-resolve). */
-function qualityRank(t: Track): number {
-	const q = `${t.qualityLabel ?? ''} ${t.quality ?? ''}`.toLowerCase();
-	if (/flac|lossless|atmos|hi-?res|\bsq\b|母带|无损/.test(q)) return 3;
-	if (/320|\bhq\b|高品/.test(q)) return 2;
-	if (/128|192|\baac\b|64/.test(q)) return 1;
-	return 0;
+/** Higher = better. quick-261102-to0: THE ranker (sources/quality qualityRank) over the row's
+ *  label + tier strings (often null pre-resolve). */
+function trackQualityRank(t: Track): number {
+	return qualityRank(`${t.qualityLabel ?? ''} ${t.quality ?? ''}`);
 }
 
 const HAN = /\p{Script=Han}/u;
@@ -367,8 +365,8 @@ export function sameSongByCredit(
  * collapse and preferenceOrder's NON-collapsing sort share one rule.
  */
 function comparePreference(a: Track, b: Track, preferred?: SourceId): number {
-	const qa = qualityRank(a);
-	const qb = qualityRank(b);
+	const qa = trackQualityRank(a);
+	const qb = trackQualityRank(b);
 	if (qa !== qb) return qb - qa;
 	// quality tie → a user-preferred source wins, else the static source ranking
 	if (preferred) {

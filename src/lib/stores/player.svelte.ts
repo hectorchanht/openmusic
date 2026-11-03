@@ -16,6 +16,7 @@ import { Capacitor } from '@capacitor/core';
 // untouched (34-D-01), so it is the one lyric path a local file can actually use — and it returns a
 // bare string, so this branch structurally cannot adopt an audioUrl for a device track.
 // quick-260926-l69: evictSearch lets an explicit ✗-row retry drop the song's cached searches.
+import { withDownloadQuality } from '$lib/services/display-quality';
 import { ensureTrackDetails, lyricByName, evictSearch } from '$lib/services/catalog';
 // 37-02: the memoised, never-throws read of an offline blob's OWN embedded LRC + front cover.
 import { localEnrichment } from '$lib/services/local-tags';
@@ -1331,10 +1332,8 @@ class Player {
 		try {
 			const dlUid = library.downloadUidFor(t);
 			if (!dlUid) return t;
-			const q = library.qualityForDownload(dlUid);
-			if (!q) return t;
-			if (t.quality === q.quality && t.qualityLabel === q.qualityLabel) return t;
-			return { ...t, ...q };
+			// quick-261102-to0 (DECISIONS.md §7): the shared merge (display-quality), not a hand copy.
+			return withDownloadQuality(t, library.qualityForDownload(dlUid));
 		} catch {
 			return t;
 		}

@@ -57,7 +57,7 @@
 	import { downloadLabel } from '$lib/services/download-label';
 	// quick-261102-qtruth: the Detail sheet's quality merge + label read through the ONE
 	// shared derivation (services/display-quality) — the same one the Now-Playing pill uses.
-	import { trackQualityLabel, withDownloadQuality } from '$lib/services/display-quality';
+	import { trackQualityLabel, trackSourceLabel, withDownloadQuality } from '$lib/services/display-quality';
 	// quick-260915-26g: the shared probe + the shared label formatter. TrackMenu cannot mount
 	// DownloadControl (its Check state is blob-backed and its rows are full-width text buttons, not
 	// 40x40 icons), so it consumes the same SERVICE instead — one implementation, two surfaces.
@@ -2116,7 +2116,8 @@
 			     `{#if !isDevice}`). Left as-is rather than restructuring the device branch — for an
 			     imported file the Detail sheet is the right home for its numbers anyway. -->
 			<dt>{t('menu.detailFile')}</dt><dd>{localMeta ?? t('menu.detailUnknown')}</dd>
-			<dt>{t('menu.detailSource')}</dt><dd>{detailTrack.source}</dd>
+			<!-- quick-261102-to0: the adapter label every other surface shows (was the raw source id) -->
+			<dt>{t('menu.detailSource')}</dt><dd>{names.zhLock(trackSourceLabel(detailTrack) ?? detailTrack.source)}</dd>
 			<dt>{t('menu.detailUid')}</dt><dd class="mono">{detailTrack.uid}</dd>
 			<dt>{t('menu.detailSongId')}</dt><dd class="mono">{detailTrack.songid || '—'}</dd>
 			{#if detailTrack.songMid || detailTrack.jooxSongMid || detailTrack.qqId || detailTrack.jooxSongId}

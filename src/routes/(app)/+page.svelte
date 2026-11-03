@@ -91,6 +91,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	import { arriveTrack } from '$lib/services/share-arrival';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
+	import { displayQualityLabel } from '$lib/services/display-quality';
 	import { history as playHistory } from '$lib/stores/history.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { t, type TranslationKey } from '$lib/i18n';
@@ -1196,6 +1197,11 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 		// Cycle 3: stage the remaining shelves in over the next frames (see shelfBudget).
 		requestAnimationFrame(revealShelves);
 	});
+	// quick-261102-to0: the download record's quality pair for a fallback tile (display-quality input).
+	function homeDlQuality(track: Track) {
+		const uid = library.downloadUidFor(track);
+		return uid ? library.qualityForDownload(uid) : null;
+	}
 </script>
 
 {#if data.og}
@@ -1260,7 +1266,9 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 					     badge and scrim above it. -->
 					<div class="art" style:background-image={fallbackCover(track.uid)}></div>
 					{#if art}<img class="al-cover-img" src={art} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
-					{#if track.qualityLabel || track.quality}<span class="q">{track.qualityLabel ?? track.quality}</span>{/if}
+					<!-- quick-261102-to0 (DECISIONS.md §7): the ONE quality derivation (download record > stamps)
+					     and the Now Playing tag toggle, like every other quality pill -->
+					{#if settings.showQualityTag && displayQualityLabel(track, homeDlQuality(track))}<span class="q">{displayQualityLabel(track, homeDlQuality(track))}</span>{/if}
 					<div class="scrim"></div>
 					<div class="label">
 						<div class="t-title">{names.dnTitle(track.title, track.artist)}</div>

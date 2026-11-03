@@ -11,26 +11,9 @@
 // "should we swap" decision; the swap itself (blob read, pendingSeek, driveSrc)
 // lives in player.svelte.ts next to reresolveCurrent, its shape-twin.
 
-/**
- * Coarse quality ladder for a source's quality TAG: 0 unknown · 1 standard band ·
- * 2 the 320k band · 3 lossless. The bands mirror donorRank's tag regexes in
- * download-track.ts (qq 'hq' is its 320k tier; netease/kuwo spell it '320k';
- * 'standard' is qq's 128k tier) — donorRank additionally weighs container evidence
- * from a probe, which a saved record does not carry, so the tag is all we rank here.
- * An unknown/null tag ranks 0: it can be upgraded FROM, never upgraded TO (we never
- * swap toward a file whose tier we cannot name — the conservative posture
- * currentQualityMeets takes in download-track.ts).
- */
-export function qualityRank(quality: string | null | undefined): 0 | 1 | 2 | 3 {
-	if (!quality) return 0;
-	const q = quality.toLowerCase();
-	if (/lossless|flac|sq|hi-?res|无损/.test(q)) return 3;
-	if (/320|hq/.test(q)) return 2;
-	// donorRank's standard band, plus 'std' — this helper may be handed a qualityLabel
-	// (the record fallback in the caller), and 'std' is how labels spell the same band.
-	if (/128|160|192|standard|std|low/.test(q)) return 1;
-	return 0;
-}
+// quick-261102-to0 (DECISIONS.md §7): the quality ladder is sources/quality.ts qualityRank — the one
+// ranker (an unknown/null tag ranks 0: it can be upgraded FROM, never upgraded TO).
+import { qualityRank } from '$lib/sources/quality';
 
 /** Everything the adopt decision needs, as plain values (the store reads them off
  *  `player.current`, the download record and the <audio> element). */
