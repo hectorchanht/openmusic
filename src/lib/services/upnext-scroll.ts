@@ -37,3 +37,24 @@ export function upNextPaneOpen(wide: boolean, sheetState: 'closed' | 'half' | 'f
 export function upNextScrollKey(open: boolean, currentUid: string | null | undefined): string | null {
 	return open && currentUid ? currentUid : null;
 }
+
+/**
+ * quick-261102-twq (DECISIONS.md §10) — THE Up-Next window rule: the index the visible list starts at.
+ * It starts at the anchor (the song the list was installed on, so played songs stay listed) but
+ * NEVER after the current song: start = min(anchorIdx, currentIdx) when both are in the queue.
+ * The anchor contract guaranteed this only inside reorderQueue — playNext (moving the anchor row
+ * after current), prev() (current before an anchor sitting on its old self), a restore with no
+ * persisted anchor, or a late list install could all put current BEFORE the anchor and slice it
+ * out of the list. Missing anchor → current; nothing playing → 0.
+ */
+export function upNextWindowStart(
+	queue: readonly { uid: string }[],
+	currentUid: string | null | undefined,
+	anchorUid: string | null | undefined
+): number {
+	const ci = currentUid ? queue.findIndex((t) => t.uid === currentUid) : -1;
+	const ai = anchorUid ? queue.findIndex((t) => t.uid === anchorUid) : -1;
+	if (ai >= 0 && ci >= 0) return Math.min(ai, ci);
+	if (ai >= 0) return ai;
+	return ci >= 0 ? ci : 0;
+}

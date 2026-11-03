@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { upNextWindowStart } from '$lib/services/upnext-scroll';
 	import { untrack } from 'svelte';
 	import { Spring } from 'svelte/motion';
 	import { fly, fade } from 'svelte/transition';
@@ -380,12 +381,11 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	// row moves with its uid). CLAMP: if the anchor uid is gone from the queue (removed) or never set
 	// (cold/restore), fall back to the live current index `ci` (the 260618-ink behavior) so the list
 	// still renders with current first and never goes blank.
-	const anchorIdx = $derived(
-		player.upNextAnchorUid
-			? player.queue.findIndex((tk) => tk.uid === player.upNextAnchorUid)
-			: -1
+	// quick-261102-twq (DECISIONS.md §10): THE window rule (upnext-scroll upNextWindowStart) — the
+	// anchor, but never after the current song, so no reorder / prev / playNext can hide it.
+	const upNextStart = $derived(
+		upNextWindowStart(player.queue, player.current?.uid, player.upNextAnchorUid)
 	);
-	const upNextStart = $derived(anchorIdx >= 0 ? anchorIdx : ci >= 0 ? ci : 0);
 	const upNextList = $derived(player.queue.slice(upNextStart)); // [anchor, ...current, ...tail]
 
 	const prevCover = $derived(ci > 0 ? player.queue[ci - 1] : null);
