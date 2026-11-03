@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nextScrollLeft, canScroll, gridColumns, GRID_ROWS_PER_PAGE } from './shelf-scroll';
+import { nextScrollLeft, canScroll, gridColumns, gridRowsPerPage } from './shelf-scroll';
 
 // quick-260919-et3: the step maths behind the desktop shelf chevrons, extracted pure so the one
 // branchy bit of that component is testable without a DOM (this project's Vitest is node-only).
@@ -92,7 +92,26 @@ describe('gridColumns — responsive grid-pager columns', () => {
 	});
 
 	it('derives an honest page size from the columns (this is what the dots count)', () => {
-		expect(gridColumns(343) * GRID_ROWS_PER_PAGE).toBe(9); // unchanged 3x3 on mobile
-		expect(gridColumns(1684) * GRID_ROWS_PER_PAGE).toBe(24);
+		const pageSize = (w: number) => gridColumns(w) * gridRowsPerPage(gridColumns(w));
+		expect(pageSize(343)).toBe(9); // unchanged 3x3 on mobile
+		expect(pageSize(888)).toBe(8); // 4x2
+		expect(pageSize(1684)).toBe(16); // 8x2
+	});
+});
+
+// quick-261102-syk: desktop grid shelves page 2 rows; the mobile 3-column floor keeps 3.
+describe('gridRowsPerPage — desktop shelves are 2 rows', () => {
+	it('keeps 3 rows at the mobile 3-column floor', () => {
+		expect(gridRowsPerPage(3)).toBe(3);
+	});
+
+	it('pages 2 rows on any track wider than 3 columns', () => {
+		expect(gridRowsPerPage(4)).toBe(2);
+		expect(gridRowsPerPage(8)).toBe(2);
+	});
+
+	it('falls back to the mobile shape when unmeasured', () => {
+		expect(gridRowsPerPage(gridColumns(0))).toBe(3);
+		expect(gridRowsPerPage(gridColumns(Number.NaN))).toBe(3);
 	});
 });
