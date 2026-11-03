@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { MENU_ACTIONS, MENU_GRID_SLOTS, normalizeMenuOrder, type MenuActionId } from './track-menu-order';
 
 describe('MENU_GRID_SLOTS', () => {
-	it('is 16 — the menu is always a 4x4 icon grid (user 2026-10-06)', () => {
-		expect(MENU_GRID_SLOTS).toBe(16);
+	it('is 20 — the menu grid is 4 columns x 5 rows (user 2026-11-02, superseding the 2026-10-06 4x4)', () => {
+		expect(MENU_GRID_SLOTS).toBe(20);
 	});
 
 	it('is smaller than the catalog — the live grid caps, extras stay in the edit pool', () => {
@@ -87,7 +87,7 @@ describe('normalizeMenuOrder', () => {
 	});
 
 	// quick-261006-44u: missing ids insert at their CATALOG positions (not appended),
-	// so new actions land inside the visible 16 instead of piling up beyond the grid.
+	// so new actions land inside the visible 20 instead of piling up beyond the grid.
 	it('inserts missing catalog ids at their catalog positions', () => {
 		const out = normalizeMenuOrder(['share']);
 		expect(out).toEqual([...MENU_ACTIONS]);

@@ -73,10 +73,11 @@ export const MENU_ACTIONS: readonly MenuActionId[] = [
 	'clearQueue'
 ] as const;
 
-// quick-261006-44g — the menu is ALWAYS a 4x4 icon grid (user 2026-10-06). The live grid
+// quick-261006-44g — the menu is ALWAYS an icon grid (user 2026-10-06). The live grid
 // renders at most this many cells: the user's enabled-and-visible actions in their order,
-// extras silently stay in the edit pool. 16 = 4 columns x 4 rows, no dangling 5th row.
-export const MENU_GRID_SLOTS = 16;
+// extras silently stay in the edit pool. User 2026-11-02: widened from 4 rows to 5 —
+// 20 = 4 columns x 5 rows (was 16 = 4x4).
+export const MENU_GRID_SLOTS = 20;
 
 const KNOWN = new Set<string>(MENU_ACTIONS);
 
@@ -89,7 +90,7 @@ const KNOWN = new Set<string>(MENU_ACTIONS);
  * change lacks it. Mirror the new default arrangement for those users: the edit
  * affordance takes repeat's old slot and repeat moves to the back, so an existing
  * user gets exactly the arrangement the user asked for instead of finding the pencil
- * appended invisibly beyond the 16-slot cap.
+ * appended invisibly beyond the 20-slot cap.
  */
 export function normalizeMenuOrder(saved: unknown): MenuActionId[] {
 	// quick-261021-menu3 (user): one-time migration — any saved order containing the
@@ -116,7 +117,7 @@ export function normalizeMenuOrder(saved: unknown): MenuActionId[] {
 	}
 	// quick-261006-44u: any other missing catalog ids (new actions for pre-existing
 	// users) insert at their catalog positions — not appended at the end — so they
-	// land inside the visible grid instead of piling up invisibly beyond the 16 slots.
+	// land inside the visible grid instead of piling up invisibly beyond the 20 slots.
 	for (const id of MENU_ACTIONS) {
 		if (!kept.includes(id)) {
 			kept.splice(Math.min(MENU_ACTIONS.indexOf(id), kept.length), 0, id);

@@ -131,8 +131,8 @@
 	// `{#if !isDevice}` tri-state gate together with the non-current gate that wrapped the
 	// noImport/removeDownload pair. The live grid renders
 	// `settings.trackMenuOrder.filter(canShow)` row-major, 4 columns, capped at
-	// MENU_GRID_SLOTS (quick-261006-44g: the menu is ALWAYS a 4x4 grid — no blank
-	// placeholders, no dangling 5th row; extras stay in the edit pool).
+	// MENU_GRID_SLOTS (quick-261006-44g: the menu grid is 4 columns x 5 rows since
+	// user 2026-11-02 (was 4x4) — no blank placeholders; extras stay in the edit pool).
 	function canShow(id: MenuActionId): boolean {
 		switch (id) {
 			case 'download':
@@ -145,7 +145,7 @@
 				return nonCurrent;
 			// quick-261006-44s: playNext lives HERE now, not as an empty render inside its
 			// snippet — the old inner {#if} consumed a grid slot while rendering nothing for
-			// the current track (15 visible cells instead of 16). The gate is identical.
+			// the current track (19 visible cells instead of 20). The gate is identical.
 			case 'playNext':
 				return nonCurrent;
 			// quick-261101-chk: the 'lyricsTiming' case is gone with its catalog entry
@@ -176,7 +176,7 @@
 	}
 	// quick-261006-44r: the customize cell is PINNED visible — with the header pencil
 	// retired it is the only way into edit mode, so it can never be capped out or
-	// hidden. It keeps its ordered position inside the first 16; if the user drags it
+	// hidden. It keeps its ordered position inside the first MENU_GRID_SLOTS; if the user drags it
 	// beyond the cap it is pulled into the last visible slot instead (no edit-mode
 	// trap). canShow('customize') is unconditionally true.
 	const visibleIds = $derived.by(() => {
@@ -354,8 +354,8 @@
 		if (id === 'customize') return;
 		const i = editOrder.indexOf(id);
 		// quick-261006-44t (user 2026-10-06): NO cap on enabling — the user can enable and
-		// reorder more than 16 actions freely; the live grid simply renders the first 16
-		// (see visibleIds). The Done button never counts against anyone's 16.
+		// reorder more than 20 actions freely; the live grid simply renders the first 20
+		// (see visibleIds). The Done button never counts against anyone's 20.
 		editOrder = i >= 0 ? editOrder.filter((x) => x !== id) : [...editOrder, id];
 		commitEdit();
 	}
@@ -849,7 +849,7 @@
 		overlays.navigateAway(() => goto(dest));
 	}
 	// quick-261006-44g — Go to album is UNCONDITIONAL in the grid now (user 2026-10-06:
-	// some songs showed the cell, some didn't — the 4x4 grid must not come and go).
+	// some songs showed the cell, some didn't — the grid must not come and go).
 	// Mirrors gotoArtist: same navigateAway single dismiss path, same script-lock rule —
 	// `names.zhLock` (re-script only), NEVER the display-language dn* strings
 	// (quick-260926-hl9). The album route is the 2-segment /album/{artist}/{name} shape
@@ -1538,7 +1538,7 @@
 		{/snippet}
 		<!-- Play next — non-current tracks only. quick-261006-44s: the gate lives in
 	     canShow now (the old inner {#if} consumed a grid slot while rendering nothing
-	     for the current track — 15 visible cells instead of 16). -->
+	     for the current track — 19 visible cells instead of 20). -->
 		{#snippet cellPlayNext(tr: Track)}
 			<button class="gi" onclick={playNext} use:tapBounce><ListStart size={22} /><span class="gi-label">{t('menu.playNext')}</span></button>
 		{/snippet}
@@ -1723,7 +1723,7 @@
 			<button class="gi" onclick={gotoArtist} use:tapBounce><User size={22} /><span class="gi-label">{t('menu.goToArtist')}</span></button>
 		{/snippet}
 		<!-- quick-261006-mnu: Go to album — the menu finally answers "which album is this from",
-		     grouped after Go to artist. quick-261006-44g: always rendered now (the 4x4 grid
+		     grouped after Go to artist. quick-261006-44g: always rendered now (the grid
 		     must not come and go); gotoAlbum() resolves details first when the stub carries
 		     no album and toasts only when there is still nothing to navigate to. The route
 		     takes the script-locked names like gotoArtist. -->
@@ -1785,7 +1785,7 @@
 						aria-label={t(EDIT_META[id].label)}
 						title={t(EDIT_META[id].label)}
 						style:transform={draggingThis && (mDragDx || mDragDy) ? `translate(${mDragDx}px, ${mDragDy}px)` : undefined}
-						style:order={i < 16 ? 0 : 2}
+						style:order={i < MENU_GRID_SLOTS ? 0 : 2}
 						onpointerdown={(e) => mDown(e, id)}
 						onpointermove={mMove}
 						onpointerup={mUp}
@@ -1795,12 +1795,12 @@
 						animate:flip={{ duration: draggingThis || settings.reduceMotion ? 0 : 180 }}
 					><Icon size={22} /><span class="gi-label">{t(EDIT_META[id].label)}</span></button>
 				{/each}
-				<!-- quick-261021-menu5 (user): divider after the 16 visible slots — rows 5+
+				<!-- quick-261021-menu5 (user): divider after the 20 visible slots — rows 6+
 				     are the hidden pool, still reorderable via drag. Moved OUT of the keyed
 				     each: animate:flip requires the button to be its only child (Svelte 5
 				     animation_invalid_placement — this broke the Pages build 6x). Placed back
-				     into position via order:1; cells use order 0 (first 16) / 2 (rest). -->
-				{#if editIds.length >= 16}
+				     into position via order:1; cells use order 0 (first 20) / 2 (rest). -->
+				{#if editIds.length >= MENU_GRID_SLOTS}
 					<div class="edit-divider" style="order: 1"><span>{t('menu.hiddenItems')}</span></div>
 				{/if}
 			</div>
@@ -2076,7 +2076,7 @@
 	.hd-btn { display: inline-flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--color-border, #444); border-radius: 8px; color: var(--color-text); padding: 8px 16px; font-size: 0.875rem; cursor: pointer; }
 	.hd-btn.done { border-color: var(--color-text-muted, #888); color: var(--color-text); }
 	.hd-btn.done:active { background: rgba(255,255,255,0.08); }
-	/* quick-261021-menu5: divider between the 16 visible slots and the hidden pool. */
+	/* quick-261021-menu5: divider between the 20 visible slots and the hidden pool. */
 	.edit-divider { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding: 12px 4px 4px; color: var(--color-text-muted); font-size: 0.75rem; }
 	.edit-divider::before, .edit-divider::after { content: ''; flex: 1; height: 1px; background: var(--color-border, #333); }
 	/* D-08/D-09/D-10: two-row marquee header + top-right action/Close cluster (quick-260913-je8:
