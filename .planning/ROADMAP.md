@@ -593,3 +593,13 @@ Plans:
 
 Plans:
 - [ ] TBD (run /gsd-plan-phase 42 to break down)
+
+### Phase 43: SoundCloud + Bandcamp sources
+
+**Goal:** Add SoundCloud and Bandcamp as real playback sources (own audio) that flow through every resolver path like the CN sources — search, song detail, prefetch/buffer, download, fallback, name-stub — seated last on the resolve floor. (Scope narrowed 2026-11-04 from all mdl providers: DRM platforms have no own audio and are not added.)
+**Requirements**: TBD
+**Depends on:** Phase 42
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 43 to break down)

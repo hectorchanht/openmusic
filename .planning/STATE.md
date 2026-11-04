@@ -228,6 +228,8 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 
 ### Roadmap Evolution
 
+- Phase 43 scope narrowed in discuss (2026-11-04): SoundCloud + Bandcamp only; no name-only providers (D-01).
+- Phase 43 added (2026-11-04): Multi-platform sources, mdl-style (ref github.com/labithiotis/mdl). Real audio: SoundCloud, Bandcamp. Metadata-only (DRM, play resolves by title+artist via existing floor): Spotify (embed __NEXT_DATA__ scrape, no key), Apple Music, Amazon Music, Tidal, Qobuz. Deezer + YouTube Music already exist, gain paste-link import only.
 - Phase 42 added: YouTube video + embed playback — Now Playing Video toggle for any song (YT search match), web embed fallback when the edge audio proxy fails (YouTube bot-gates Cloudflare egress per invocation, measured 2026-10-04)
 - Phase 41 added: Cut up-front home-page JavaScript for faster mobile LCP (target simulated mobile LCP < 4 s, FCP < 2.5 s; baseline 7.9–16.2 s after the 2026-10-02 PSI fixes)
 - Phase 40 added: Album download-all into an OpenMusic/<album> device folder (album-page button currently fails, hidden) + cover re-rank (QQ + iTunes highest, YT Music demoted) + cloud-shared cover pick auto-chosen for all users, like the lyric-offset store
