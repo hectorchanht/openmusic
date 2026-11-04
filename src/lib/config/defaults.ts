@@ -92,9 +92,10 @@ export const APPEARANCE_DEFAULTS = {
 		'download',
 		'like',
 		// Group 2
-		'versions',
+		'playNext',
 		'changeCover',
 		'changeLyrics',
+		'shuffleQueue',
 		'goToArtist',
 		'goToAlbum',
 		// Group 3
@@ -106,13 +107,12 @@ export const APPEARANCE_DEFAULTS = {
 		'detail',
 		'sleepTimer',
 		'editTags',
-		'playNext',
 		// The remainder of the catalog, in a stable order.
 		'addQueue',
 		'startRadio',
+		'versions',
 		'viewComments',
 		'viewRelated',
-		'shuffleQueue',
 		'clearQueue'
 	] as readonly MenuActionId[]
 } as const;
@@ -171,11 +171,11 @@ export const PLAYBACK_DEFAULTS = {
 	 *  (registry adapter label — JOOX, Netease（GD）, …) immediately before the quality
 	 *  tag on the Now-Playing page. ON by default: Hector asked for the pill to exist;
 	 *  this toggle is the opt-out, mirroring showQualityTag beside it. */
-	showSourceTag: true,
+	showSourceTag: false,
 	/** quick-261024-vid1: the Now Playing MV video layer (ytmusic tracks). ON by default —
 	 *  the layer is inert until the user taps Watch MV, so nobody pays its data cost by
 	 *  accident; the toggle exists so it can be banished entirely (rows stop tagging too). */
-	videoEnabled: true,
+	videoEnabled: false,
 	/** quick-261024-vid1: height cap for the MV layer, shared by Settings and the Now
 	 *  Playing quality menu (one setting, two surfaces). */
 	videoQuality: 720 as VideoQuality,
@@ -184,7 +184,7 @@ export const PLAYBACK_DEFAULTS = {
 	 *  showQualityTag (before quick-260925-vtg flipped it): it
 	 *  REPLACES information already on screen with different information, so a user who never opens
 	 *  Settings must keep exactly today's Nowbar. */
-	nowbarLyrics: false,
+	nowbarLyrics: true,
 	/** Per-source search enable map. quick-261104-defs: every source is listed explicitly — flip
 	 *  one to `false` to ship it off. A source missing here falls back to its adapter's own
 	 *  `enabledByDefault` (registry.ts getEnabledAdapters). */
