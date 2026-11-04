@@ -370,7 +370,7 @@ class Settings {
 				this.enabledSources =
 					v.enabledSources && typeof v.enabledSources === 'object' && !Array.isArray(v.enabledSources)
 						? (v.enabledSources as Partial<Record<SourceId, boolean>>)
-						: {};
+						: { ...PLAYBACK_DEFAULTS.enabledSources };
 				// Up-next sourcing (Phase 17). perContext: same object-not-array guard as
 				// enabledSources (T-17-01 — malformed → safe defaults); mode validated against the
 				// 2-value union, else the global default.

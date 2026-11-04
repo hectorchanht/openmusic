@@ -11,8 +11,11 @@
 // It also OWNS the discovery POOL constants (DISCOVERY_TAGS/COUNTRIES). They live here —
 // not in discovery.ts — to break a circular import: settings.svelte.ts needs the pools for
 // its default subsets, and discovery.ts already imports settings (inside resolveStub). Since
-// home-layout imports nothing, `settings → home-layout` and `discovery → home-layout` are
-// safe one-way edges; discovery.ts re-exports the pools so existing consumers are unchanged.
+// home-layout imports nothing but config/defaults.ts (itself a type-only-import LEAF),
+// `settings → home-layout` and `discovery → home-layout` are safe one-way edges; discovery.ts
+// re-exports the pools so existing consumers are unchanged.
+// quick-261104-defs: the DEFAULT_* selections below are read from config/defaults.ts
+// HOME_DEFAULTS, where they are written as literals — edit them THERE.
 
 // ---- Discovery pool (the AVAILABLE tags/countries the user subsets from) ---------------
 // Curated genre/mood tags for the per-tag home shelves (DISCO-02). Each becomes one
@@ -22,6 +25,8 @@
 // hip-hop/r&b/electronic/indie/country/metal, the CJK blocs (mando/canto/k-pop/j-pop), Latin,
 // classical/jazz, reggae/soul/folk/blues, and Afrobeats. The user subsets + reorders these via
 // the home-layout settings; only the selected ones become shelves.
+import { HOME_DEFAULTS } from '$lib/config/defaults';
+
 export const DISCOVERY_TAGS: string[] = [
 	'pop',
 	'rock',
@@ -84,29 +89,8 @@ export const DISCOVERY_COUNTRIES: string[] = [
 // cover-backfill set grows with it. Both stay behind the existing limiters — the home's
 // FANOUT_CAP=4, cover-backfill's CAP=6 in-flight pool, and apiFetch's GET dedupe /
 // MAX_CONCURRENT_REQUESTS=8 / circuit breaker. No new throttle is needed or wanted here.
-const CURATED_HOME_TAGS: string[] = [
-	'cantopop',
-	'mandopop',
-	'pop',
-	'hip-hop',
-	'rock',
-	'k-pop',
-	'electronic',
-	'latin'
-];
-export const DEFAULT_HOME_TAGS: string[] = [
-	...CURATED_HOME_TAGS,
-	...DISCOVERY_TAGS.filter((tag) => !CURATED_HOME_TAGS.includes(tag))
-];
-export const DEFAULT_HOME_COUNTRIES: string[] = [
-	'United States',
-	'Hong Kong',
-	'Japan',
-	'Taiwan',
-	'China',
-	'South Korea',
-	'United Kingdom'
-];
+export const DEFAULT_HOME_TAGS: string[] = [...HOME_DEFAULTS.homeTags];
+export const DEFAULT_HOME_COUNTRIES: string[] = [...HOME_DEFAULTS.homeCountries];
 
 // ---- Chart region (39-D-09) ------------------------------------------------------------
 
@@ -226,19 +210,7 @@ export const DEEZER_GENRE_IDS: readonly number[] = CHART_GENRE_IDS.flatMap((g) =
 /** quick-260925-vtg — every pool genre, in pool order (the user's own exported settings adopted
  *  as the defaults; supersedes the 39-D-10 8-genre lock). Kept as an explicit literal, not
  *  `[...CHART_GENRE_IDS]`, so a future pool addition does not silently widen the default. */
-export const DEFAULT_CHART_GENRES: readonly ChartGenre[] = [
-	'cantopop',
-	'mandopop',
-	'kpop',
-	'jpop',
-	'hiphop',
-	'rock',
-	'dance',
-	'rnb',
-	'electronic',
-	'alternative',
-	'asian'
-];
+export const DEFAULT_CHART_GENRES: readonly ChartGenre[] = HOME_DEFAULTS.homeChartGenres;
 
 /**
  * Resolve the persisted genre selection: pool ids only, de-duped, saved order kept (it is the
@@ -309,27 +281,7 @@ export type ChartSectionId = (typeof CHART_SECTIONS)[number];
  * home-layout.test.ts) because resolveSectionOrder returns it verbatim as the fallback.
  * HOME_SECTIONS itself stays the canonical/append order and is unchanged.
  */
-export const DEFAULT_SECTION_ORDER: HomeSectionId[] = [
-	'radio',
-	'downloads',
-	'liked',
-	'chart-songs',
-	'new-releases',
-	'chart-artists',
-	'chart-albums',
-	'yt-trending',
-	'genres',
-	'top-hits',
-	'top-artists',
-	'regions',
-	'tags',
-	'countries',
-	// quick-261010-soy: "Songs of the Year" sits right after the country shelves.
-	'songs-of-year',
-	'fav-artists',
-	'playlists',
-	'history'
-];
+export const DEFAULT_SECTION_ORDER: HomeSectionId[] = [...HOME_DEFAULTS.homeSectionOrder];
 
 /**
  * Resolve a persisted section order into a VALID render order. Always returns a
@@ -413,10 +365,9 @@ export function resolveSubset(saved: string[] | undefined, pool: string[]): stri
 
 export const SHELF_MIN = 8;
 export const SHELF_MAX = 24;
-/** quick-260919-hm1: the default is now the MAXIMUM the slider allows (SHELF_MAX). 24 is also
- *  under HomeGridPager's MAX_TILES=27, so a full shelf is rendered whole — nothing is sliced off
- *  the end at any column count. */
-export const SHELF_DEFAULT = SHELF_MAX;
+/** quick-260919-hm1: the default is the MAXIMUM the slider allows (SHELF_MAX). Literal lives in
+ *  config/defaults.ts HOME_DEFAULTS.homeShelfSize (quick-261104-defs). */
+export const SHELF_DEFAULT: number = HOME_DEFAULTS.homeShelfSize;
 
 /**
  * Coerce a persisted items-per-shelf value into a SAFE integer in [SHELF_MIN, SHELF_MAX]
@@ -504,7 +455,7 @@ export const LANDING_PATHS: Record<HomeLandingTab, string> = {
  * its upnextPerContext block): without it, a classic shelf the user re-enables would be re-hidden
  * on every load.
  */
-export const HOME_LAYOUT_VERSION = 2;
+export const HOME_LAYOUT_VERSION: number = HOME_DEFAULTS.homeLayoutVersion;
 
 /** Old shelf → its chart counterpart, for the per-section density carry-over. */
 const DENSITY_CARRY: [HomeSectionId, HomeSectionId][] = [

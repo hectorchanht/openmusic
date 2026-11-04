@@ -12,6 +12,8 @@
 // collapsed, and any catalog ids missing from the saved array are appended in catalog
 // order — that last rule is what makes a FUTURE new action appear instead of vanishing
 // silently for existing users.
+import { APPEARANCE_DEFAULTS } from '$lib/config/defaults';
+
 export type MenuActionId =
 	| 'remix'
 	| 'playNext'
@@ -38,40 +40,9 @@ export type MenuActionId =
 	| 'downloadSource';
 
 /** The full action catalog, in default (shipping) order. Also the settings default. */
-export const MENU_ACTIONS: readonly MenuActionId[] = [
-	// quick-261021-menu2 (user 2026-10-21):
-	// Group 1: remix (autoplay), share, download, like.
-	// Group 2: versions (play from source), changeCover, changeLyrics, goToArtist, goToAlbum.
-	// Group 3: customize, downloadSource, repeat, addToPlaylist.
-	// Group 4: detail, sleepTimer, editTags, playNext.
-	// quick-261021-menu3: lyricsTiming REMOVED from catalog — it's now a toggle inside
-	// the Fix lyrics picker, not a standalone menu item. Existing saved orders drop it
-	// as unknown via normalizeMenuOrder.
-	'remix',
-	'share',
-	'download',
-	'like',
-	'versions',
-	'changeCover',
-	'changeLyrics',
-	'goToArtist',
-	'goToAlbum',
-	'customize',
-	'downloadSource',
-	'repeat',
-	'addToPlaylist',
-	'detail',
-	'sleepTimer',
-	'editTags',
-	'playNext',
-	// The remainder of the catalog, in a stable order.
-	'addQueue',
-	'startRadio',
-	'viewComments',
-	'viewRelated',
-	'shuffleQueue',
-	'clearQueue'
-] as const;
+/** quick-261104-defs: the catalog + default order now live as a literal in
+ *  config/defaults.ts (APPEARANCE_DEFAULTS.trackMenuOrder) — edit the order THERE. */
+export const MENU_ACTIONS: readonly MenuActionId[] = APPEARANCE_DEFAULTS.trackMenuOrder;
 
 // quick-261006-44g — the menu is ALWAYS an icon grid (user 2026-10-06). The live grid
 // renders at most this many cells: the user's enabled-and-visible actions in their order,

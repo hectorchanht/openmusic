@@ -7,20 +7,15 @@
 // the Settings class field initializer; 3) it appears in the matching reset method
 // automatically. No new infrastructure needed.
 
+//
+// quick-261104-defs: EVERY default is a literal written in this file — no value is pulled in
+// from another module. The imports below are TYPE-ONLY, which keeps this file a dependency
+// LEAF: home-layout.ts and track-menu-order.ts import their default lists FROM here (one-way),
+// so editing a value here is the whole change.
+
 import type { AppLang } from '$lib/i18n';
-import {
-	DEFAULT_SECTION_ORDER,
-	DEFAULT_HOME_TAGS,
-	DEFAULT_HOME_COUNTRIES,
-	SHELF_DEFAULT,
-	DEFAULT_CHART_GENRES,
-	CLASSIC_SECTIONS,
-	HOME_LAYOUT_VERSION,
-	type ChartRegion,
-	type HomeDensity,
-	type HomeLandingTab,
-	type HomeSectionId
-} from '$lib/services/home-layout';
+import type { ChartGenre, ChartRegion, HomeDensity, HomeLandingTab, HomeSectionId } from '$lib/services/home-layout';
+import type { MenuActionId } from '$lib/services/track-menu-order';
 import type { SourceId } from '$lib/sources/types';
 import type { LyricsLang, SourceLang, TranslateMode, DefaultQuality, DefaultSource, Theme, ZhScriptSetting, RowAction } from '$lib/stores/settings.svelte';
 
@@ -86,7 +81,40 @@ export const APPEARANCE_DEFAULTS = {
 	 *  rationale is superseded — long-press (touch) and right-click (desktop, quick-261010-rcm)
 	 *  both open the same TrackMenu, so hiding the ⋮ loses no action. Toggled from the Song
 	 *  rows editor in Settings → Appearance, where the replica's ⋮ IS the switch. */
-	showRowMenu: true
+	showRowMenu: true,
+	/** quick-261006-mnu / quick-261021-menu2: the TrackMenu grid, IN ORDER (row-major, 4 columns).
+	 *  quick-261104-defs: this list is ALSO the action catalog (track-menu-order.ts MENU_ACTIONS
+	 *  reads it), so reorder freely, but deleting an id deletes that action from the menu. */
+	trackMenuOrder: [
+		// Group 1
+		'remix',
+		'share',
+		'download',
+		'like',
+		// Group 2
+		'versions',
+		'changeCover',
+		'changeLyrics',
+		'goToArtist',
+		'goToAlbum',
+		// Group 3
+		'customize',
+		'downloadSource',
+		'repeat',
+		'addToPlaylist',
+		// Group 4
+		'detail',
+		'sleepTimer',
+		'editTags',
+		'playNext',
+		// The remainder of the catalog, in a stable order.
+		'addQueue',
+		'startRadio',
+		'viewComments',
+		'viewRelated',
+		'shuffleQueue',
+		'clearQueue'
+	] as readonly MenuActionId[]
 } as const;
 
 // ---- Translation -----------------------------------------------------------------------
@@ -157,8 +185,26 @@ export const PLAYBACK_DEFAULTS = {
 	 *  REPLACES information already on screen with different information, so a user who never opens
 	 *  Settings must keep exactly today's Nowbar. */
 	nowbarLyrics: false,
-	/** Per-source enable map. Empty = each adapter's own enabledByDefault wins. */
-	enabledSources: {} as Partial<Record<SourceId, boolean>>
+	/** Per-source search enable map. quick-261104-defs: every source is listed explicitly — flip
+	 *  one to `false` to ship it off. A source missing here falls back to its adapter's own
+	 *  `enabledByDefault` (registry.ts getEnabledAdapters). */
+	enabledSources: {
+		qq: true,
+		joox: true,
+		netease: true,
+		gdnetease: true,
+		kuwo: true,
+		suyin: true,
+		kugou: true,
+		migu: true,
+		fivesing: true,
+		jamendo: true,
+		audius: true,
+		archive: true,
+		ccmixter: true,
+		bilibili: true,
+		ytmusic: true
+	} as Partial<Record<SourceId, boolean>>
 } as const;
 
 // ---- Up-next sourcing (Phase 17, QUEUE-03) ---------------------------------------------
@@ -247,18 +293,69 @@ export const UPNEXT_DEFAULTS = {
 } as const;
 
 // ---- Home layout -----------------------------------------------------------------------
-// homeSectionOrder/homeTags/homeCountries pull from the canonical pools in home-layout.ts
-// so this file stays a single source of truth (no risk of drift).
+// quick-261104-defs: every list below is a literal. home-layout.ts derives DEFAULT_SECTION_ORDER /
+// DEFAULT_HOME_TAGS / DEFAULT_HOME_COUNTRIES / DEFAULT_CHART_GENRES / SHELF_DEFAULT /
+// HOME_LAYOUT_VERSION FROM these (one-way), so the two never drift.
 export const HOME_DEFAULTS = {
-	homeSectionOrder: [...DEFAULT_SECTION_ORDER] as HomeSectionId[],
-	// 39-D-39: the four classic Deezer/Last.fm shelves stay available but start hidden. A fresh
-	// install and Reset-to-default get the chart layout from here; an existing install gets it from
-	// the one-time migration in settings.load(), because its persisted `homeHidden: []` is a real
-	// value the type guard keeps (this default never reaches it).
-	homeHidden: [...CLASSIC_SECTIONS] as string[],
-	homeTags: [...DEFAULT_HOME_TAGS] as string[],
-	homeCountries: [...DEFAULT_HOME_COUNTRIES] as string[],
-	homeShelfSize: SHELF_DEFAULT,
+	/** quick-260925-vtg: the user's exported order. MUST stay a permutation of all 18
+	 *  HOME_SECTIONS ids (home-layout.test.ts) — reorder, never add/remove. */
+	homeSectionOrder: [
+		'radio',
+		'downloads',
+		'liked',
+		'chart-songs',
+		'new-releases',
+		'chart-artists',
+		'chart-albums',
+		'yt-trending',
+		'genres',
+		'top-hits',
+		'top-artists',
+		'regions',
+		'tags',
+		'countries',
+		// quick-261010-soy: "Songs of the Year" sits right after the country shelves.
+		'songs-of-year',
+		'fav-artists',
+		'playlists',
+		'history'
+	] as HomeSectionId[],
+	// 39-D-39: the four classic Deezer/Last.fm shelves (CLASSIC_SECTIONS) stay available but start
+	// hidden. A fresh install and Reset-to-default get the chart layout from here; an existing
+	// install gets it from the one-time migration in settings.load(), because its persisted
+	// `homeHidden: []` is a real value the type guard keeps (this default never reaches it).
+	homeHidden: ['top-hits', 'top-artists', 'tags', 'countries'] as string[],
+	/** quick-260919-hm1: the WHOLE DISCOVERY_TAGS pool, curated CJK/global mix first. Each tag is
+	 *  one `tag.getTopTracks` call on a cold home — fewer tags = fewer requests. */
+	homeTags: [
+		'cantopop',
+		'mandopop',
+		'pop',
+		'hip-hop',
+		'rock',
+		'k-pop',
+		'electronic',
+		'latin',
+		'rnb',
+		'dance',
+		'indie',
+		'j-pop',
+		'classical',
+		'jazz',
+		'metal',
+		'country',
+		'reggae',
+		'soul',
+		'folk',
+		'afrobeats',
+		'lo-fi',
+		'workout'
+	] as string[],
+	/** ISO 3166-1 NAMES from DISCOVERY_COUNTRIES, not codes. */
+	homeCountries: ['United States', 'Hong Kong', 'Japan', 'Taiwan', 'China', 'South Korea', 'United Kingdom'] as string[],
+	/** quick-260919-hm1: items per shelf, clamped to [SHELF_MIN=8, SHELF_MAX=24] on load. 24 is
+	 *  under HomeGridPager's MAX_TILES=27, so a full shelf renders whole. */
+	homeShelfSize: 24,
 	homeLandingTab: 'home' as HomeLandingTab,
 	homeDensity: 'grid' as HomeDensity,
 	/** Per-section density OVERRIDE map (HOME-02 / D-07). Empty = every section uses the
@@ -269,14 +366,27 @@ export const HOME_DEFAULTS = {
 	homeShowRandomize: true,
 	// 39-D-25 locked 'auto' region + no extra regions + the 8-genre set. quick-260925-vtg
 	// supersedes those three by explicit user request (the user's exported settings): region
-	// 'hk', extra ['us'], genres = all 11 (sourced from home-layout.ts so the two never drift).
-	// A persisted 'auto' is still honoured by load() and resolved at render by resolveChartRegion.
+	// 'hk', extra ['us'], genres = all 11. A persisted 'auto' is still honoured by load() and
+	// resolved at render by resolveChartRegion.
 	homeChartRegion: 'hk' as 'auto' | ChartRegion,
 	homeExtraRegions: ['us'] as string[],
-	homeChartGenres: [...DEFAULT_CHART_GENRES] as string[],
-	/** 39-D-40: the persisted home-layout version. A fresh install / reset is already on the chart
-	 *  layout, so it starts at the current version and never runs the migration. */
-	homeLayoutVersion: HOME_LAYOUT_VERSION
+	/** Every CHART_GENRES pool genre, in pool order. */
+	homeChartGenres: [
+		'cantopop',
+		'mandopop',
+		'kpop',
+		'jpop',
+		'hiphop',
+		'rock',
+		'dance',
+		'rnb',
+		'electronic',
+		'alternative',
+		'asian'
+	] as ChartGenre[],
+	/** 39-D-40: NOT a preference — the persisted home-layout version that gates the one-time chart
+	 *  migration in settings.load(). Only bump it alongside a new migrateHomeLayout step. */
+	homeLayoutVersion: 2
 } as const;
 
 /** All groups in one place — used to drive the reset-group helpers. */
