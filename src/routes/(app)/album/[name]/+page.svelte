@@ -16,7 +16,7 @@
 	import { toast as globalToast } from '$lib/stores/toast.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
-	import { ListEnd, ListStart } from '@lucide/svelte';
+	import { Heart, ListEnd, ListStart } from '@lucide/svelte';
 	import { t } from '$lib/i18n';
 	import { goto } from '$app/navigation';
 	import { resolveStub } from '$lib/services/discovery';
@@ -324,7 +324,7 @@
 
 	// UX-04 / D-03/D-04: row swipe-actions. Album rows are {artist,title} STUBS, so — exactly like
 	// tap-to-play and long-press-menu — the stub is resolved to a real Track BEFORE the queue/next
-	// commit. swipe-right = add to queue (player.addToQueue, append-to-end), swipe-left = play next
+	// commit. swipe-right = like + Undo (quick-261104-swipe; was player.addToQueue), swipe-left = play next
 	// (player.playNext, splice-after-current — quick-260711-trh, matching search/library/artist/charts).
 	// Both fire the GLOBAL toast (Plan 01) + a commit-tier haptic tick;
 	// a stub that resolves to no CN-source match degrades to the existing unplayable toast (no throw).
@@ -758,7 +758,7 @@
 				<li class="row-line">
 					<div class="swipe-wrap">
 						<!-- UX-04 reveal layers behind the row; the row translateX exposes them. -->
-						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
+						<span class="reveal reveal-queue" aria-hidden="true"><Heart size={20} /></span>
 						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
 						<!-- The tap path is untouched (quick-260919-alb): playStub installs the optimistic
 						     now-bar and albumQueue(i, real) slot-substitutes in the same tick. `lazy={false}`

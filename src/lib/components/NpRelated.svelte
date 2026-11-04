@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { ListEnd, ListStart } from '@lucide/svelte';
+	import { Heart, ListStart } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
+	import { likeWithUndo } from '$lib/components/like-with-undo';
 	import { t } from '$lib/i18n';
 	import { searchAll } from '$lib/services/catalog';
 	import { dedupeBest, sameSongKey } from '$lib/services/dedupe';
@@ -131,12 +132,12 @@
 	});
 
 	// quick-260625-pzs-02: swipe-to-queue on the Related list, mirroring search/+page.svelte:41-50.
-	// swipe-right = add to queue (D-03), swipe-left = play next (D-04). Reuses the shared swipeAction
+	// swipe-right = 收藏 like + Undo (quick-261104-swipe, was add-to-queue D-03), swipe-left = play next (D-04). Reuses the shared swipeAction
 	// (tap-preserving + vertical-yielding) so tap-to-play and long-press menu keep working.
-	function relatedSwipeQueue(track: Track) {
-		player.addToQueue(track);
-		toast.show(t('toast.addedToQueue'));
+	// quick-261104-swipe: right-swipe = 收藏 (like + Undo, shared likeWithUndo); was append-to-queue.
+	function relatedSwipeLike(track: Track) {
 		hapticTick();
+		likeWithUndo(track);
 	}
 	function relatedSwipeNext(track: Track) {
 		player.playNext(track);
@@ -172,12 +173,12 @@
 				     Phase 40 D-14: rung 0 is readChosenCover — the pin, then the crowd pick. -->
 				{@const rArt = sizedCover(pickRowCover(readChosenCover(track.uid, track.artist, track.title), undefined, resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title)), ROW_COVER_PX)}
 				<!-- quick-260625-pzs-02: reveal layers sit BEHIND the row; the row translateX
-				     (use:swipeAction) slides to expose them. Right-drag → queue, left-drag → play
+				     (use:swipeAction) slides to expose them. Right-drag → like (quick-261104-swipe), left-drag → play
 				     next. aria-hidden (the same actions stay reachable via the long-press menu). -->
 				<li class="swipe-wrap related-swipe">
-					<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
+					<span class="reveal reveal-queue" aria-hidden="true"><Heart size={20} /></span>
 					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-					<button class="row rel-row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); onMenu(track); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); onMenu(track); }} onclick={() => relatedTapPlay(track)} use:swipeAction={{ onSwipeRight: () => relatedSwipeQueue(track), onSwipeLeft: () => relatedSwipeNext(track) }}><span class="q-art" style:background-image={rArt ? `url(${rArt})` : coverGradient(track.uid)}></span><span class="r-meta"><span class="r-title">{names.dnTitle(track.title, track.artist)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></span><RowBadges uid={track.uid} {track} /></button>
+					<button class="row rel-row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); onMenu(track); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); onMenu(track); }} onclick={() => relatedTapPlay(track)} use:swipeAction={{ onSwipeRight: () => relatedSwipeLike(track), onSwipeLeft: () => relatedSwipeNext(track) }}><span class="q-art" style:background-image={rArt ? `url(${rArt})` : coverGradient(track.uid)}></span><span class="r-meta"><span class="r-title">{names.dnTitle(track.title, track.artist)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></span><RowBadges uid={track.uid} {track} /></button>
 				</li>
 			{/each}
 		</ul>

@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { pickTab, syncTabUrl } from '$lib/services/url-tab';
-	import { ListEnd, ListStart } from '@lucide/svelte';
+	import { Heart, ListStart } from '@lucide/svelte';
 	import {
 		getChartTopTracks,
 		getChartTopArtists,
@@ -19,6 +19,7 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import * as haptics from '$lib/util/haptics';
+	import { likeWithUndo } from '$lib/components/like-with-undo';
 	import { t } from '$lib/i18n';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
@@ -124,8 +125,8 @@
 	// racing playNext). Reassign-for-reactivity + finally-delete per PATTERNS §3.2.
 	let swipeInFlight = $state(new Set<string>());
 
-	async function swipeQueue(it: DiscoveryTrack) {
-		const key = `q:${rowKey(it)}`;
+	async function swipeLike(it: DiscoveryTrack) {
+		const key = `like:${rowKey(it)}`;
 		if (!shouldRun(swipeInFlight, key)) return;
 		swipeInFlight = new Set(swipeInFlight).add(key);
 		try {
@@ -134,9 +135,8 @@
 				toast.show(t('home.unplayable'));
 				return;
 			}
-			player.addToQueue(tr); // D-03: append to end (TrackMenu addQueue semantics)
 			haptics.tick();
-			toast.show(t('toast.addedToQueue'));
+			likeWithUndo(tr); // quick-261104-swipe: right-swipe = 收藏 (like + Undo); was append-to-queue
 		} finally {
 			const n = new Set(swipeInFlight);
 			n.delete(key);
@@ -266,14 +266,14 @@
 				{@const stub = stubTrack(it)}
 				<li class="row-wrap">
 					<!-- Reveal layers behind the row: right=queue (primary), left=play next. -->
-					<span class="reveal reveal-right" aria-hidden="true"><ListEnd size={20} /></span>
+					<span class="reveal reveal-right" aria-hidden="true"><Heart size={20} /></span>
 					<span class="reveal reveal-left" aria-hidden="true"><ListStart size={20} /></span>
 					<SongRow
 						track={stub}
 						resolve={() => resolveStub(it.artist, it.title).catch(() => null)}
 						onplay={() => play(it)}
 						onrequestmenu={() => openMenu(it)}
-						swipe={{ onSwipeRight: () => swipeQueue(it), onSwipeLeft: () => swipeNext(it) }}
+						swipe={{ onSwipeRight: () => swipeLike(it), onSwipeLeft: () => swipeNext(it) }}
 					/>
 				</li>
 			{/each}

@@ -38,7 +38,7 @@
 	import { pickTab, tabHref } from '$lib/services/url-tab';
 	import { LIBRARY_TAB_SET, DEFAULT_LIBRARY_TAB, type LibraryTab } from '$lib/services/library-tabs';
 
-	// UX-04 / D-03/D-04 swipe-right = queue, swipe-left = play next: the handlers moved INTO
+	// UX-04 / D-03/D-04 swipe-right = like (quick-261104-swipe), swipe-left = play next: the handlers moved INTO
 	// SongRow (quick-260919-l9e), so this page no longer declares them. Still wired on the TRACK
 	// rows only — fav-artist tiles and playlist FOLDER rows are not tracks and render no SongRow.
 
@@ -477,10 +477,10 @@
 			{#each likedList.slice(0, rowCap) as track (track.uid)}
 				<li class="row-line">
 					<div class="swipe-wrap">
-						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
+						<span class="reveal reveal-queue" aria-hidden="true"><Heart size={20} /></span>
 						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
 						<!-- quick-260919-l9e: the shared row. `swipe` is omitted — the app convention
-						     (right = queue, left = play next) now lives in the component. `onplay` still
+						     (right = like, left = play next — quick-261104-swipe) now lives in the component. `onplay` still
 						     routes through rowAction, so in bulk-edit mode a row tap REMOVES; `danger`
 						     is what makes that visible, replacing the old .edit-row tint and the
 						     Trash-instead-of-Play trailing glyph. The row's own inline Download button
@@ -523,7 +523,7 @@
 						{#each plList.slice(0, rowCap) as track (track.uid)}
 							<li class="row-line">
 								<div class="swipe-wrap">
-									<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
+									<span class="reveal reveal-queue" aria-hidden="true"><Heart size={20} /></span>
 									<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
 									<!-- The shared row (see the liked list above). rowAction carries pl.id so
 									     a bulk-edit tap removes from THIS playlist. -->
@@ -549,7 +549,7 @@
 			{#each downloadsList.slice(0, rowCap) as track (track.uid)}
 				<li class="row-line">
 					<div class="swipe-wrap">
-						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
+						<span class="reveal reveal-queue" aria-hidden="true"><Heart size={20} /></span>
 						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
 						<!-- The shared row (see the liked list above). On THIS tab the inline Download
 						     button renders its greyed "downloaded" state, which is what the sibling
@@ -592,7 +592,7 @@
 			{#each historyList as track (track.uid)}
 				<li class="row-line">
 					<div class="swipe-wrap">
-						<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
+						<span class="reveal reveal-queue" aria-hidden="true"><Heart size={20} /></span>
 						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
 						<!-- The shared row (see the liked list above). History is deliberately NOT
 						     bulk-editable (it has its own Clear all), so no `danger` here. -->

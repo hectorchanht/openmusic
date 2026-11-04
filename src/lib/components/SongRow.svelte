@@ -88,6 +88,7 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import { t } from '$lib/i18n';
 	import { rowActionTarget, hasRealIdentity } from '$lib/components/row-action-target';
+	import { likeWithUndo } from '$lib/components/like-with-undo';
 	import RowBadges from '$lib/components/RowBadges.svelte';
 	import DownloadControl from '$lib/components/DownloadControl.svelte';
 	import DownloadRing from '$lib/components/DownloadRing.svelte';
@@ -101,7 +102,7 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 		onplay: () => void;
 		/** REQUIRED. Long-press or the ⋮. The HOST owns TrackMenu state (the CompactRow contract). */
 		onrequestmenu: () => void;
-		/** undefined = the app convention (right = add to queue, left = play next), implemented
+		/** undefined = the app convention (right = 收藏 like + Undo — quick-261104-swipe, left = play next), implemented
 		 *  below. `null` = no swipe. An object OVERRIDES both directions — the seam Up Next needs
 		 *  (its left-swipe is remove-with-undo, its right-swipe is the version picker). */
 		swipe?: SwipeActionOpts | null;
@@ -321,12 +322,21 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 		};
 	});
 
-	// The app-wide swipe convention, lifted verbatim from the per-page copies it replaces (UX-04
-	// D-03/D-04). swipeAction is a PURE DOM gesture and fires no haptics — the consumer must.
-	function queueTrack() {
-		player.addToQueue(track);
+	// The app-wide swipe convention (UX-04 D-03/D-04). swipeAction is a PURE DOM gesture and fires
+	// no haptics — the consumer must.
+	// quick-261104-swipe (Hector 2026-11-04): swipe-RIGHT = 收藏 (like, with Undo) — the old
+	// append-to-END-of-Up-Next was never useful. Swipe-LEFT = play next, unchanged. Resolves a stub
+	// row first exactly like the Like button does (likeTarget), then hands off to the shared
+	// likeWithUndo so charts / NpRelated / this row show one and the same toast.
+	async function likeTrack() {
+		const target = await likeTarget();
+		if (target === undefined) return; // superseded mid-resolve — act on nothing, say nothing
+		if (!target) {
+			toast.show(t('home.unplayable'));
+			return;
+		}
 		hapticTick();
-		toast.show(t('toast.addedToQueue'));
+		likeWithUndo(target);
 	}
 	function nextTrack() {
 		player.playNext(track);
@@ -334,7 +344,7 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 		toast.show(t('toast.playingNext'));
 	}
 	const swipeOpts = $derived<SwipeActionOpts>(
-		swipe === null ? { enabled: false } : (swipe ?? { onSwipeRight: queueTrack, onSwipeLeft: nextTrack })
+		swipe === null ? { enabled: false } : (swipe ?? { onSwipeRight: likeTrack, onSwipeLeft: nextTrack })
 	);
 
 	/**
@@ -374,8 +384,11 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 		onrequestmenu();
 	}
 
-	async function toggleLike() {
-		if (likeBusy) return; // second tap during a multi-second resolve: no-op, not a double-toggle
+	/** The Track a like-type action should act on: a real Track, `null` for a refused stub / failed
+	 *  resolve / a second press during a resolve, `undefined` when the row was superseded mid-resolve
+	 *  (act on nothing, say nothing). Shared by the Like button and the like swipe (quick-261104-swipe). */
+	async function likeTarget(): Promise<Track | null | undefined> {
+		if (likeBusy) return null; // second tap during a multi-second resolve: no-op, not a double-toggle
 		const gen = rowGen;
 		const plan = rowActionTarget(track, real, !!resolve);
 		let target = plan.kind === 'act' ? plan.track : null;
@@ -386,8 +399,15 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 			} finally {
 				likeBusy = false;
 			}
-			if (gen !== rowGen) return; // superseded mid-resolve — act on nothing, say nothing
+			if (gen !== rowGen) return undefined;
 		}
+		return target;
+	}
+
+	async function toggleLike() {
+		if (likeBusy) return; // second tap during a multi-second resolve: no-op, not a double-toggle
+		const target = await likeTarget();
+		if (target === undefined) return; // superseded mid-resolve — act on nothing, say nothing
 		// TELL THE TRUTH: a refused stub or a failed resolve is a button that did nothing, so it
 		// says so with the surfaces' own unplayable copy rather than claiming a Liked/Unliked that
 		// never happened.

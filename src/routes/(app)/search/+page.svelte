@@ -33,7 +33,7 @@
 	import { searchHistory } from '$lib/stores/searchHistory.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { t } from '$lib/i18n';
-	import { LoaderCircle, ListEnd, ListStart, Layers, X, Trash2, Search } from '@lucide/svelte';
+	import { LoaderCircle, Heart, ListStart, Layers, X, Trash2, Search } from '@lucide/svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { dragScroll } from '$lib/actions/dragScroll';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -45,7 +45,7 @@
 	// User 2026-10-06 (audit): replace native confirm() with in-app ConfirmModal for consistency.
 	import type { Track } from '$lib/sources/types';
 
-	// UX-04 / D-03/D-04 swipe-right = queue, swipe-left = play next: the handlers moved INTO
+	// UX-04 / D-03/D-04 swipe-right = like (quick-261104-swipe), swipe-left = play next: the handlers moved INTO
 	// SongRow (quick-260919-l9e), which is why this page no longer declares them. The reveal
 	// layers below stay here — they are the .swipe-wrap's decoration, not the row's.
 
@@ -944,13 +944,13 @@
 				{/if}
 				<div class="swipe-wrap">
 					<!-- UX-04 reveal layers sit BEHIND the row; the row translateX (use:swipeAction) slides
-					     to expose them. Right-drag exposes the left-anchored queue affordance; left-drag
+					     to expose them. Right-drag exposes the left-anchored like affordance (quick-261104-swipe); left-drag
 					     exposes the right-anchored like affordance. aria-hidden — the equivalent actions stay
 					     reachable via the long-press TrackMenu (swipe is an enhancement). -->
-					<span class="reveal reveal-queue" aria-hidden="true"><ListEnd size={20} /></span>
+					<span class="reveal reveal-queue" aria-hidden="true"><Heart size={20} /></span>
 					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
 					<!-- quick-260919-l9e: the shared row. `swipe` is OMITTED on purpose — this page wanted
-					     exactly the app convention (right = queue, left = play next), which now lives in
+					     exactly the app convention (right = like, left = play next — quick-261104-swipe), which now lives in
 					     the component, so the page's own swipeQueue/swipeNext are gone. Ordering is
 					     untouched: `results` is already rankList-sorted by scoreMatch and the row neither
 					     reads nor re-sorts it. quick-261103-tapsplice (Hector 2026-11-03): a tap routes

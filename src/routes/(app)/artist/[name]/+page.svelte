@@ -640,7 +640,7 @@
 			<ul class="list">
 				{#each rankedSongs.slice(0, shown) as track, i (track.uid)}
 					<!-- quick-260919-l9e: the shared row. Swipe is omitted ON PURPOSE — this page wants
-					     exactly the app convention (right = queue, left = play next), which now lives
+					     exactly the app convention (right = like, left = play next — quick-261104-swipe), which now lives
 					     inside the component. The key stays `track.uid` (IDENTITY).
 					     quick-261103-tapsplice (Hector 2026-11-03): a row tap splices the song into the listener's
 					     queue after current — `rankedSongs` no longer installs over it (the header

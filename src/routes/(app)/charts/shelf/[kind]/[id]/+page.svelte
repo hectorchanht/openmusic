@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { ListEnd, ListStart } from '@lucide/svelte';
+	import { Heart, ListStart } from '@lucide/svelte';
 	import {
 		poolTasks,
 		regionLabel,
@@ -28,6 +28,7 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { readArtistCover } from '$lib/stores/cover-version.svelte';
 	import * as haptics from '$lib/util/haptics';
+	import { likeWithUndo } from '$lib/components/like-with-undo';
 	import { t } from '$lib/i18n';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
@@ -128,16 +129,15 @@
 	// its resolve is in flight is a no-op (no duplicate addToQueue / racing playNext).
 	let swipeInFlight = $state(new Set<string>());
 
-	async function swipeQueue(it: DiscoveryTrack) {
-		const key = `q:${rowKey(it)}`;
+	async function swipeLike(it: DiscoveryTrack) {
+		const key = `like:${rowKey(it)}`;
 		if (!shouldRun(swipeInFlight, key)) return;
 		swipeInFlight = new Set(swipeInFlight).add(key);
 		try {
 			const tr = await resolveStub(it.artist, it.title);
 			if (!tr) { toast.show(t('home.unplayable')); return; }
-			player.addToQueue(tr);
 			haptics.tick();
-			toast.show(t('toast.addedToQueue'));
+			likeWithUndo(tr); // quick-261104-swipe: right-swipe = 收藏 (like + Undo); was append-to-queue
 		} finally {
 			const n = new Set(swipeInFlight);
 			n.delete(key);
@@ -215,14 +215,14 @@
 			     resolves first, and `resolve` lets the inline Like/Download key off the RESOLVED uid. -->
 			{@const stub = stubTrack(it)}
 			<li class="row-wrap">
-				<span class="reveal reveal-right" aria-hidden="true"><ListEnd size={20} /></span>
+				<span class="reveal reveal-right" aria-hidden="true"><Heart size={20} /></span>
 				<span class="reveal reveal-left" aria-hidden="true"><ListStart size={20} /></span>
 				<SongRow
 					track={stub}
 					resolve={() => resolveStub(it.artist, it.title).catch(() => null)}
 					onplay={() => play(it)}
 					onrequestmenu={() => openMenu(it)}
-					swipe={{ onSwipeRight: () => swipeQueue(it), onSwipeLeft: () => swipeNext(it) }}
+					swipe={{ onSwipeRight: () => swipeLike(it), onSwipeLeft: () => swipeNext(it) }}
 				/>
 			</li>
 		{/each}
