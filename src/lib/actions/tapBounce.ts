@@ -45,10 +45,23 @@ export interface TapBounceOpts {
 	only?: string;
 }
 
+// quick-261104-swipe — A DRAG IS NOT A TAP. SongRow mounts this AND use:swipeAction on the same
+// `.srow`, and the bounce keyframe animates `transform` — a CSS animation outranks an inline style
+// in the cascade, so for its 0.22s the swipe's inline translateX was INVISIBLE: a quick flick showed
+// no movement at all and a slower drag only started following the finger 220ms in. That is Hector's
+// "song-row swipe needs a very long drag / sometimes does nothing". Once the pointer travels past the
+// 8px slop the press has become a drag, so the bounce is dropped and the inline transform shows from
+// that frame. A real tap never moves that far, so tap feedback is unchanged.
+const DRAG_SLOP = 8;
+
 export const tapBounce: Action<HTMLElement, TapBounceOpts | undefined> = (node, opts) => {
 	let only = opts?.only;
+	let sx = 0;
+	let sy = 0;
 
 	const down = (e: PointerEvent) => {
+		sx = e.clientX;
+		sy = e.clientY;
 		// App reduce-motion flag: do nothing so no scale + no dangling class. (The global
 		// `:root[data-reduce-motion] *` rule in app.css ALSO kills the keyframe for defense-in-depth;
 		// this just avoids leaving the class on the node when the animation won't run.)
@@ -70,7 +83,17 @@ export const tapBounce: Action<HTMLElement, TapBounceOpts | undefined> = (node, 
 		if (e.animationName === 'tap-bounce') node.classList.remove('tap-bouncing');
 	};
 
+	// quick-261104-swipe: the press became a drag → drop the bounce so a co-mounted swipe's inline
+	// translateX is the computed transform from this frame on.
+	const move = (e: PointerEvent) => {
+		if (!node.classList.contains('tap-bouncing')) return;
+		if (Math.abs(e.clientX - sx) > DRAG_SLOP || Math.abs(e.clientY - sy) > DRAG_SLOP) {
+			node.classList.remove('tap-bouncing');
+		}
+	};
+
 	node.addEventListener('pointerdown', down);
+	node.addEventListener('pointermove', move);
 	node.addEventListener('animationend', end);
 
 	return {
@@ -79,6 +102,7 @@ export const tapBounce: Action<HTMLElement, TapBounceOpts | undefined> = (node, 
 		},
 		destroy() {
 			node.removeEventListener('pointerdown', down);
+			node.removeEventListener('pointermove', move);
 			node.removeEventListener('animationend', end);
 		}
 	};

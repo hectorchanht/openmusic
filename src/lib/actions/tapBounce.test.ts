@@ -77,6 +77,19 @@ describe('tapBounce — one-shot press feedback', () => {
 		expect(m.bouncing()).toBe(false);
 	});
 
+	// quick-261104-swipe: a press that becomes a DRAG drops the bounce, so a co-mounted swipe's
+	// inline translateX (which the keyframe's `transform` would otherwise override for 0.22s) is
+	// visible from the first dragged frame. A sub-slop wobble is still a tap and keeps bouncing.
+	it('pointer travel past the 8px slop cancels the bounce (a drag is not a tap)', () => {
+		const m = makeNode();
+		tapBounce(m.node, undefined);
+		m.fire('pointerdown', { ...pressOn('.hit'), clientX: 100, clientY: 50 });
+		m.fire('pointermove', { clientX: 105, clientY: 52 }); // sub-slop wobble → still a tap
+		expect(m.bouncing()).toBe(true);
+		m.fire('pointermove', { clientX: 112, clientY: 52 }); // 12px → a drag
+		expect(m.bouncing()).toBe(false);
+	});
+
 	it('animationend clears the class only for the tap-bounce keyframe (never latches)', () => {
 		const m = makeNode();
 		tapBounce(m.node, undefined);

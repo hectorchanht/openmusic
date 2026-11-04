@@ -1,6 +1,7 @@
 import type { Action } from 'svelte/action';
 import { createVelocityTracker } from '$lib/gestures/velocity';
 import { createSpringSnap } from '$lib/gestures/springSnap';
+import { swipeCommitDistance, shouldCommitSwipe, SWIPE_SLOP } from '$lib/gestures/swipeCommit';
 
 // use:coverSwipe — finger-drag-SIDEWAYS to change track (Phase 20, NP-01 cover carousel / NP-05
 // nowbar slide). A structural X-axis MIRROR of swipeRemove.ts: same arm-on-down /
@@ -58,11 +59,12 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 	let dx = 0;
 	let lastApplied = 0; // quick-261022-spring: the translate ACTUALLY applied on the last move
 	// (rubber-banded at a boundary, 1:1 otherwise) — the spring re-seeds from THIS, not raw dx.
-	let commitDist = 0; // 0.28 × measuredWidth, recomputed at each down()
+	// quick-261104-swipe: min(0.28 × measuredWidth, 120px), recomputed at each down(). The cap is the
+	// desktop fix — the rail-to-window Nowbar (800-1400px) and the sheet-wide reflowed cover needed a
+	// 225-400px mouse drag, so they slid and sprang back without ever firing prev/next.
+	let commitDist = 0;
 	let maxPull = 0; // 0.18 × measuredWidth, the rubber-band asymptote
-	const SLOP = 8; // px before a press becomes a drag (swipeRemove's SLOP / dragClose's DRAG_START)
-	const FLICK_V = 0.5; // px/ms — a fast horizontal flick commits even when not dragged far
-	const COMMIT_FRACTION = 0.28; // D-08 / UI-SPEC §3: distance commit = 28% of the element width
+	const SLOP = SWIPE_SLOP; // px before a press becomes a drag (shared with swipeAction / dragClose)
 	const MAX_PULL_FRACTION = 0.18; // UI-SPEC §2: rubber-band asymptote = 18% of the element width
 	const vel = createVelocityTracker();
 
@@ -152,7 +154,7 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 		// Measure the element width at gesture start (like NowPlaying.measureOffsets reads the live
 		// layout) so the commit + rubber-band scale with the actual cover/nowbar width, never hardcoded.
 		const width = node.getBoundingClientRect().width;
-		commitDist = COMMIT_FRACTION * width;
+		commitDist = swipeCommitDistance(width);
 		maxPull = MAX_PULL_FRACTION * width;
 		vel.reset();
 		vel.sample(e.clientX, e.timeStamp); // velocity tracker seeded on X (axis-agnostic helper)
@@ -231,10 +233,10 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 			dx = 0;
 			return;
 		}
-		// Commit on a far drag (≥ proportional commit) OR a fast horizontal flick. The |dx| > SLOP
-		// guard keeps the tap contract intact: a tap (sub-slop, low velocity) never commits.
+		// Commit on a far drag (≥ capped proportional commit) OR a fast horizontal flick in the drag
+		// direction — the shared rule (quick-261104-swipe); a sub-slop tap never commits.
 		const v = vel.velocity();
-		if (Math.abs(dx) >= commitDist || (Math.abs(v) > FLICK_V && Math.abs(dx) > SLOP)) {
+		if (shouldCommitSwipe(dx, v, commitDist)) {
 			// Direction → action (D-03): drag RIGHT = onprev, drag LEFT = onnext. No new advance
 			// logic — these are the host's player.prev()/player.next().
 			if (dx > 0) onprev();

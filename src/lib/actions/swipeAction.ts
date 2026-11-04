@@ -1,6 +1,7 @@
 import type { Action } from 'svelte/action';
 import { createVelocityTracker } from '$lib/gestures/velocity';
 import { createSpringSnap } from '$lib/gestures/springSnap';
+import { shouldCommitSwipe, SWIPE_SLOP } from '$lib/gestures/swipeCommit';
 
 // use:swipeAction — DIRECTIONAL finger-drag-SIDEWAYS that commits a per-direction callback then
 // ALWAYS springs the row back (Phase 23, UX-04 / D-01/D-02). A verbatim generalization of
@@ -60,8 +61,7 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 	let dx = 0;
 	let activePointerId = -1;
 	let lastMoveEvent: PointerEvent | null = null;
-	const SLOP = 8; // px before a press becomes a drag (swipeRemove's DRAG_START)
-	const FLICK_V = 0.5; // px/ms — a fast horizontal flick commits even when not dragged far
+	const SLOP = SWIPE_SLOP; // px before a press becomes a drag (shared with coverSwipe, quick-261104-swipe)
 	const vel = createVelocityTracker();
 
 	// pan-y: keep vertical scroll/pan with the browser, yield the horizontal axis to this action.
@@ -224,8 +224,8 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 		// Commit on a far drag OR a fast horizontal flick. The |dx| > SLOP guard keeps the tap
 		// contract intact: a tap (sub-slop, low velocity) never commits.
 		const v = vel.velocity();
-		const committed =
-			commit && (Math.abs(dx) > threshold || (Math.abs(v) > FLICK_V && Math.abs(dx) > SLOP));
+		// quick-261104-swipe: the shared commit rule — far drag OR a flick IN the drag direction.
+		const committed = commit && shouldCommitSwipe(dx, v, threshold);
 		if (committed) {
 			// quick-261102-u05: committed at the settle frame (flushCommit in onSettled), not here.
 			pendingCommit = dx > 0 ? (onSwipeRight ?? null) : (onSwipeLeft ?? null); // queue (D-03) / like (D-04)

@@ -121,6 +121,19 @@ describe('coverSwipe — horizontal axis-locked prev/next swipe (Phase 20 NP-01/
 		expect(o.onnext).not.toHaveBeenCalled();
 	});
 
+	// quick-261104-swipe: the desktop fix. An 804px-wide Nowbar used to need 0.28 × 804 = 225px of
+	// slow mouse travel (a 1920 monitor: ~400px); the commit distance is now capped at 120px.
+	it('on a WIDE desktop surface (804px) a slow 130px mouse drag LEFT commits onnext (cap 120px)', () => {
+		const o = opts();
+		const m = mount(o, 804);
+		m.fire('pointerdown', pe(400, 50, 0));
+		m.fire('pointermove', pe(388, 52, 16));
+		m.fire('pointermove', pe(270, 54, 600)); // dx = -130 ≥ cap 120, slow (no flick)
+		m.fire('pointerup', pe(270, 54, 900));
+		expect(o.onnext).toHaveBeenCalledTimes(1);
+		expect(o.onprev).not.toHaveBeenCalled();
+	});
+
 	// quick-261102-u05 (DECISIONS.md §12): the settle discipline — an abandoned gesture never commits.
 	it.each(['pointercancel', 'lostpointercapture'])('%s past the commit distance springs back — no prev/next', (ev) => {
 		const o = opts();
