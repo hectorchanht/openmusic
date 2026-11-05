@@ -1061,14 +1061,29 @@
 	function viewRelated() { hapticTick(); requestNpTab('related'); close(); }
 	// ii6: Shuffle moved off the NowPlaying transport row into the menu. Shown only when
 	// there's a queue to shuffle (otherwise the action would be a no-op).
-	function shuffleQueue() { player.toggleShuffle(); close(); }
+	// quick-261105-01q (user: "睇唔到有冇開"): the toggle worked, but the menu closed with no
+	// readout and no other surface shows shuffle/repeat state — so a tap read as "nothing
+	// happened". Toast the NEW state after the toggle (the like() shape); the toast host
+	// outlives the menu.
+	function shuffleQueue() {
+		hapticTick();
+		player.toggleShuffle();
+		toast.show(t(player.shuffle ? 'toast.shuffleOn' : 'toast.shuffleOff'));
+		close();
+	}
 	// quick-260919-0mw (correction): Repeat follows Shuffle off the NowPlaying transport row into this
 	// menu, so the transport row can hand its slot to Download. Same shape as shuffleQueue — cycle,
 	// then close — because a menu row that stays open after acting reads as "nothing happened".
 	// Closing costs the in-place cycle the old button had, so the row must show WHICH mode it is in
 	// before the tap, not after: the label itself swaps between the two existing nowplaying.* keys
 	// (see the template), which is the only state readout that survives the menu closing.
-	function cycleRepeatMode() { player.cycleRepeat(); close(); }
+	// quick-261105-01q: same as shuffleQueue — the label swap above only shows on the NEXT open.
+	function cycleRepeatMode() {
+		hapticTick();
+		player.cycleRepeat();
+		toast.show(t(player.repeatMode === 'one' ? 'toast.repeatOneOn' : 'toast.repeatOff'));
+		close();
+	}
 	// GLN-5: clear-queue relocated here from the NowPlaying subnav. Clearing a queue that is just
 	// [current] is a no-op, so the item is gated to queue.length > 1 in the template.
 	function clearQueue() { player.clearQueue(); close(); }
@@ -1961,7 +1976,7 @@
 		<!-- ii6: Shuffle moved off the NowPlaying transport row into the menu. Shown only when
 		     there's a queue to shuffle (otherwise the action would be a no-op). -->
 		{#snippet cellShuffleQueue(tr: Track)}
-			<button class="gi" class:on={player.shuffle} onclick={shuffleQueue} use:tapBounce><Shuffle size={22} /><span class="gi-label">{t('menu.shuffleQueue')}</span></button>
+			<button class="gi" class:on={player.shuffle} aria-pressed={player.shuffle} onclick={shuffleQueue} use:tapBounce><Shuffle size={22} /><span class="gi-label">{t('menu.shuffleQueue')}</span></button>
 		{/snippet}
 		<!-- GLN-5: clear-queue relocated here from the NowPlaying subnav. Clearing a queue that is just
 		     [current] is a no-op, so the item is gated to queue.length > 1 in canShow. -->
