@@ -29,6 +29,7 @@ export type SourceId =
 	| 'archive'
 	| 'bilibili'
 	| 'ccmixter'
+	| 'bandcamp' // 43: own-audio Western indie source
 	| 'ytmusic';
 
 export interface Track {
