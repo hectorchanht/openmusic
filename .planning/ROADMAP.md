@@ -599,7 +599,7 @@ Plans:
 **Goal:** Add Bandcamp as a real playback source (SoundCloud deferred 2026-11-05, D-10) (own audio) that flow through every resolver path like the CN sources — search, song detail, prefetch/buffer, download, fallback, name-stub — seated last on the resolve floor. (Scope narrowed 2026-11-04 from all mdl providers: DRM platforms have no own audio and are not added.)
 **Requirements**: none assigned — scope is 43-CONTEXT.md D-01..D-09 (own-audio providers only; SoundCloud HLS via native `<audio>` gated on canPlayType)
 **Depends on:** Phase 42
-**Plans:** 3/6 plans executed (2 deferred)
+**Plans:** 4/6 plans executed (2 deferred)
 
 Plans:
 - [x] 43-01-PLAN.md — Shared contracts: urlExpiresAt/versionMismatch/noticeOnAutoPick, freshness, cover allowlists, D-08 predicate + walkSource marker
@@ -607,6 +607,6 @@ Plans:
 - [-] 43-03-PLAN.md — DEFERRED (D-10): SoundCloud edge — see todos/pending/soundcloud-source-official-api.md
 - [x] 43-04-PLAN.md — HLS module + stitched .m4a downloads + CLAUDE.md/README copy + page=8 todo
 - [ ] 43-05-PLAN.md — Bandcamp adapter + registration (seat after suyin, default-on, lyricless)
-- [ ] 43-06-PLAN.md — D-08 "may not be the original" notice: store kind + layout host + i18n x15
+- [x] 43-06-PLAN.md — D-08 "may not be the original" notice: store kind + layout host + i18n x15
 - [-] 43-07-PLAN.md — DEFERRED (D-10): SoundCloud adapter
 - [ ] 43-08-PLAN.md — Phase gate: full suite + route smoke + VALIDATION sign-off + device/prod human check

@@ -4,13 +4,13 @@ milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
 stopped_at: Phase 43 planned (8 plans, 5 waves)
-last_updated: "2026-11-05T03:13:27.100Z"
+last_updated: "2026-11-05T07:04:09.115Z"
 last_activity: 2026-11-05
 progress:
   total_phases: 22
   completed_phases: 10
-  total_plans: 120
-  completed_plans: 104
+  total_plans: 118
+  completed_plans: 105
   percent: 45
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10)
 ## Current Position
 
 Phase: 43 (SoundCloud + Bandcamp sources) — EXECUTING
-Plan: 4 of 8
+Plan: 5 of 8
 Status: Executing Phase 43
 
 ### 36-05 checkpoint status
@@ -226,6 +226,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 43 P01 | 6min | 3 tasks | 9 files |
 | Phase 43 P04 | 10 min | 3 tasks | 8 files |
 | Phase 43 P02 | 10min | 3 tasks | 7 files |
+| Phase 43 P06 | 10min | 2 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -432,6 +433,7 @@ Recent decisions affecting current work:
 - [Phase 43]: 43-D-09: adapter-stamped Track.urlExpiresAt tightens freshness; only ever makes a track stale
 - [Phase 43]: 43-04: HLS download = browser stitch (init+segments -> audio/mp4, ext m4a), detected by .m3u8 URL shape; parts must be https
 - [Phase 43]: 43-02: Bandcamp songid = band_id-track_id; resolveBandcampStream is the single SSRF seam (stream route re-checks bcbits host)
+- [Phase 43]: 43-06: versionNotified re-armed only on manual full recovery, not on playing (else every play re-toasts)
 
 ### Pending Todos
 
@@ -702,7 +704,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-05T03:13:22.053Z
+Last session: 2026-11-05T07:04:05.683Z
 Stopped at: Phase 43 planned (8 plans, 5 waves)
 Resume: run 32-08-PLAN.md (device checkpoints). **32-07 closed VALIDATION #6 and the v2 half of #3, and BLOCKED two v3 walks — 32-08 must pick them up.** PROVEN LIVE on the deployed workerd edge (https://openmusic.lol, which is already running 32-04): cold GET `{"hit":false}` -> warm GET `{"hit":true}` with a qq `songid`, NO `url` field, `avail.qq:"ok"`; 9/9 warm hits across the YVR and SEA PoPs; POST bust `{"busted":true}` -> miss -> unattended re-fill -> hit (the 32-D-10a repair path works); `Cache-Control: no-store` on every route response (31-D-09 intact). BLOCKED, carry to 32-08: the two 32-D-20 v3 url-layer walks — (1) stale-url -> refresh, (2) bust -> miss -> mid-only -> url-warm — because v3 is on `main` but NOT deployed (the live entries carry no `url` keys, while v3's fill emits explicit nulls), and no preview server could be started here. Exact commands are in 32-07-SUMMARY.md § Task 2; run `pnpm build && pnpm preview` (NOT `pnpm dev` — `edgeCache()` returns null there) or `pnpm run deploy` (NEVER bare `pnpm deploy`). Expect every warm entry to miss once on the v2->v3 key rollover; that is by design. Folded todo `edge-resolve-cache-returns-miss.md` RESOLVED and moved to completed/ — root cause was the probe using `?artist=&title=` when the route has only ever read `a`/`t`, so it hit the `if (!a && !t)` zero-touch short-circuit and never consulted the cache. Still outstanding from Phase 30, unchanged: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
