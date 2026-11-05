@@ -1866,7 +1866,9 @@ describe('downloadTrack — direct-first downloads (quick-261006-r2)', () => {
 
 describe('downloadTrack — HLS playlist is stitched to .m4a (43-D-09)', () => {
 	const M3U8 = 'https://cdn.example/x/playlist.m3u8';
-	beforeEach(() => hls.stitchHls.mockReset().mockResolvedValue(new Blob(['fmp4'], { type: 'audio/mp4' })));
+	beforeEach(() => {
+		hls.stitchHls.mockReset().mockResolvedValue(new Blob(['fmp4'], { type: 'audio/mp4' }));
+	});
 
 	it('stitches an .m3u8 url instead of fetching it, saves as .m4a', async () => {
 		mocks.ensureTrackDetails.mockResolvedValue(mk({ uid: 'x-1', audioUrl: M3U8 }));
@@ -1880,7 +1882,9 @@ describe('downloadTrack — HLS playlist is stitched to .m4a (43-D-09)', () => {
 
 	it('a stitch failure is "failed", nothing saved, song kept in library', async () => {
 		mocks.ensureTrackDetails.mockResolvedValue(mk({ uid: 'x-1', audioUrl: M3U8 }));
-		hls.stitchHls.mockRejectedValue(new Error('403'));
+		hls.stitchHls.mockImplementation(async () => {
+			throw new Error('403');
+		});
 		stubFetch(new Blob(['playlist text']));
 		const res = await downloadTrack(mk({ uid: 'x-1', audioUrl: null, detailsLoaded: false }));
 		expect(res).toBe('failed');
