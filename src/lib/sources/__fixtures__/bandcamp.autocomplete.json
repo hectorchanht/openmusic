@@ -1,0 +1,110 @@
+{
+	"auto": {
+		"results": [
+			{
+				"type": "t",
+				"id": 2834446269,
+				"art_id": 2734277808,
+				"img_id": null,
+				"name": "LOFI (w/ DJ Earl)",
+				"band_id": 2636669871,
+				"band_name": "INVT",
+				"album_name": null,
+				"item_url_root": "https://invt.bandcamp.com",
+				"item_url_path": "https://invt.bandcamp.com/track/lofi-w-dj-earl",
+				"img": "https://f4.bcbits.com/img/2734277808_3.jpg",
+				"album_id": null,
+				"stat_params": "search_item_id=2834446269&search_item_type=t&search_match_part=%3F&search_page_id=5932219383&search_page_no=0&search_rank=1"
+			},
+			{
+				"type": "t",
+				"id": 622801949,
+				"art_id": 2360153958,
+				"img_id": null,
+				"name": "WYS - Snowman",
+				"band_id": 1027450800,
+				"band_name": "Various Artists",
+				"album_name": "1 A.M Study Session 📚 - [lofi hip hop/chill beats]",
+				"item_url_root": "https://lofigirl.bandcamp.com",
+				"item_url_path": "https://lofigirl.bandcamp.com/track/wys-snowman",
+				"img": "https://f4.bcbits.com/img/2360153958_3.jpg",
+				"album_id": 1090376719,
+				"stat_params": "search_item_id=622801949&search_item_type=t&search_match_part=%3F&search_page_id=5932219383&search_page_no=0&search_rank=2"
+			},
+			{
+				"type": "t",
+				"id": 1468740017,
+				"art_id": 704484372,
+				"img_id": null,
+				"name": "sakdat balaur - loFi phrases",
+				"band_id": 1071417041,
+				"band_name": "sakdat",
+				"album_name": "loFi phrases",
+				"item_url_root": "https://sakdat.bandcamp.com",
+				"item_url_path": "https://sakdat.bandcamp.com/track/sakdat-balaur-lofi-phrases",
+				"img": "https://f4.bcbits.com/img/0704484372_3.jpg",
+				"album_id": 1580900039,
+				"stat_params": "search_item_id=1468740017&search_item_type=t&search_match_part=%3F&search_page_id=5932219383&search_page_no=0&search_rank=3"
+			},
+			{
+				"type": "t",
+				"id": 3501906417,
+				"art_id": 595665843,
+				"img_id": null,
+				"name": "Krypsis - LoFi Rider",
+				"band_id": 4225589530,
+				"band_name": "Extra Spicy",
+				"album_name": "XTR003",
+				"item_url_root": "https://extraspicy.bandcamp.com",
+				"item_url_path": "https://extraspicy.bandcamp.com/track/krypsis-lofi-rider",
+				"img": "https://f4.bcbits.com/img/0595665843_3.jpg",
+				"album_id": 3217633220,
+				"stat_params": "search_item_id=3501906417&search_item_type=t&search_match_part=%3F&search_page_id=5932219383&search_page_no=0&search_rank=4"
+			},
+			{
+				"type": "t",
+				"id": 1178695254,
+				"art_id": 3914443989,
+				"img_id": null,
+				"name": "Rainy Lofi Vibes ☔ - An Atmospheric Lofi Mix",
+				"band_id": 2929173621,
+				"band_name": "Akira The Don",
+				"album_name": null,
+				"item_url_root": "https://akirathedon.bandcamp.com",
+				"item_url_path": "https://akirathedon.bandcamp.com/track/rainy-lofi-vibes-an-atmospheric-lofi-mix",
+				"img": "https://f4.bcbits.com/img/3914443989_3.jpg",
+				"album_id": null,
+				"stat_params": "search_item_id=1178695254&search_item_type=t&search_match_part=%3F&search_page_id=5932219383&search_page_no=0&search_rank=5"
+			},
+			{
+				"type": "t",
+				"id": 3915442555,
+				"art_id": 2813003957,
+				"img_id": null,
+				"name": "Lofi Chill Hip Hop [No Copyright Music]",
+				"band_id": 3972069381,
+				"band_name": "Mokka",
+				"album_name": null,
+				"item_url_root": "https://mokkamusic.bandcamp.com",
+				"item_url_path": "https://mokkamusic.bandcamp.com/track/lofi-chill-hip-hop-no-copyright-music",
+				"img": "https://f4.bcbits.com/img/2813003957_3.jpg",
+				"album_id": null,
+				"stat_params": "search_item_id=3915442555&search_item_type=t&search_match_part=%3F&search_page_id=5932219383&search_page_no=0&search_rank=6"
+			},
+			{
+				"type": "a",
+				"id": 1111111111,
+				"art_id": 222,
+				"name": "Some Album (non-track row)",
+				"band_id": 333,
+				"band_name": "X",
+				"item_url_path": "https://x.bandcamp.com/album/y",
+				"img": "https://f4.bcbits.com/img/a222_3.jpg"
+			}
+		],
+		"stat_params_for_tag": "search_item_id=2&search_item_type=%40&search_match_part=%3F&search_page_id=5932219383&search_page_no=0&search_rank=1",
+		"time_ms": 93
+	},
+	"tag": {},
+	"genre": {}
+}
