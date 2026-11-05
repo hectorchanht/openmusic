@@ -113,6 +113,12 @@ vi.mock('$lib/services/variants', async (orig) => ({
 vi.mock('$lib/services/download-probe', () => ({ probeDownload: mocks.probeDownload }));
 vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => mocks.native } }));
 vi.mock('$lib/services/ytmusic-native', () => ({ nativeFetchStreamBlob: mocks.nativeFetchStreamBlob }));
+// 43-D-09: the HLS stitch seam. isHlsUrl stays REAL (URL-shape detection is what's under test).
+const hls = vi.hoisted(() => ({ stitchHls: vi.fn(async (_u: string, _o?: unknown) => new Blob(['fmp4'], { type: 'audio/mp4' })) }));
+vi.mock('$lib/services/hls', async (orig) => ({
+	...(await orig<typeof import('$lib/services/hls')>()),
+	stitchHls: hls.stitchHls
+}));
 
 import {
 	downloadTrack,
@@ -1855,5 +1861,39 @@ describe('downloadTrack — direct-first downloads (quick-261006-r2)', () => {
 		// the download leg proved this URL dead — the client resolve cache must not serve it again
 		expect(getCachedDirectUrl('netease', '1')).toBeNull();
 		__resetDirectUrlCache();
+	});
+});
+
+describe('downloadTrack — HLS playlist is stitched to .m4a (43-D-09)', () => {
+	const M3U8 = 'https://cdn.example/x/playlist.m3u8';
+	beforeEach(() => hls.stitchHls.mockReset().mockResolvedValue(new Blob(['fmp4'], { type: 'audio/mp4' })));
+
+	it('stitches an .m3u8 url instead of fetching it, saves as .m4a', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ uid: 'x-1', audioUrl: M3U8 }));
+		const f = stubFetch(new Blob(['playlist text']));
+		const res = await downloadTrack(mk({ uid: 'x-1', audioUrl: null, detailsLoaded: false }));
+		expect(res).toBe('saved');
+		expect(hls.stitchHls).toHaveBeenCalledWith(M3U8, expect.anything());
+		expect(f).not.toHaveBeenCalled();
+		expect(mocks.saveBlobToDisk.mock.calls[0][1]).toBe('Artist - Song.m4a');
+	});
+
+	it('a stitch failure is "failed", nothing saved, song kept in library', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ uid: 'x-1', audioUrl: M3U8 }));
+		hls.stitchHls.mockRejectedValue(new Error('403'));
+		stubFetch(new Blob(['playlist text']));
+		const res = await downloadTrack(mk({ uid: 'x-1', audioUrl: null, detailsLoaded: false }));
+		expect(res).toBe('failed');
+		expect(mocks.saveBlobToDisk).not.toHaveBeenCalled();
+		expect(mocks.put).not.toHaveBeenCalled();
+		expect(mocks.library.addDownload).toHaveBeenCalledTimes(1);
+	});
+
+	it('a plain .mp3 url keeps the fetch path (stitch not called)', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ audioUrl: 'https://cdn.example.com/x.mp3' }));
+		const f = stubFetch(new Blob(['a']));
+		expect(await downloadTrack(mk({ audioUrl: null, detailsLoaded: false }))).toBe('saved');
+		expect(hls.stitchHls).not.toHaveBeenCalled();
+		expect(f).toHaveBeenCalledWith('https://cdn.example.com/x.mp3');
 	});
 });
