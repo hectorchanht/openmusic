@@ -1017,7 +1017,7 @@ describe('lyricByName — name-only lyric walk (37-D-03)', () => {
 // describe block above (lyricByName) is the regression gate for that extraction and is deliberately
 // left unmodified.
 describe('collectLyricCandidates — every source with an LRC (quick-260919-1we)', () => {
-	const LYRICLESS: SourceId[] = ['jamendo', 'audius', 'fivesing', 'ccmixter'];
+	const LYRICLESS: SourceId[] = ['jamendo', 'audius', 'fivesing', 'ccmixter', 'bandcamp'];
 
 	/** Every source silent by default, so "which rung ran" is provable rather than inferred. */
 	function silenceAllSearches() {

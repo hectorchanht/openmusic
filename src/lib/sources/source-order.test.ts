@@ -40,7 +40,7 @@ describe('source priority — one table per purpose (quick-261102-sqn)', () => {
 
 	it('fallback floor is PLAYBACK_ORDER (suyin last of the auto floor, search-only sources never)', () => {
 		expect(fallbackOrder('netease')).toEqual([
-			'joox', 'kuwo', 'kugou', 'qq', 'gdnetease', 'migu', 'fivesing', 'jamendo', 'audius', 'suyin'
+			'joox', 'kuwo', 'kugou', 'qq', 'gdnetease', 'migu', 'fivesing', 'jamendo', 'audius', 'suyin', 'bandcamp'
 		]);
 	});
 

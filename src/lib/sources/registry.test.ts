@@ -14,7 +14,7 @@ import { makeUid, type SourceId } from './types';
 // quick-261102-sqn (DECISIONS.md §5): SOURCES is built from PLAYBACK_ORDER (product truth).
 const EXPECTED_KEYS: SourceId[] = [
 	'joox', 'kuwo', 'kugou', 'qq', 'netease', 'gdnetease', 'migu',
-	'fivesing', 'jamendo', 'audius', 'suyin',
+	'fivesing', 'jamendo', 'audius', 'suyin', 'bandcamp',
 	'archive', 'ccmixter', 'bilibili', 'ytmusic'
 ];
 
@@ -83,10 +83,26 @@ describe('getEnabledAdapters', () => {
 			audius: false,
 			archive: false,
 			ccmixter: false,
+			bandcamp: false,
 			bilibili: false,
 			ytmusic: false
 		});
 		expect(onlyNetease.map((a) => a.id)).toEqual(['netease']);
+	});
+});
+
+// 43-D-05/D-06/D-08: bandcamp is default-on, floor-eligible (no explicit flag), carries the
+// auto-pick notice, and sits directly after suyin.
+describe('43 bandcamp registry placement', () => {
+	it('is registered, default-on, floor-eligible, notice-on-auto-pick, seated after suyin', () => {
+		expect(SOURCES.bandcamp.id).toBe('bandcamp');
+		expect(SOURCES.bandcamp.label).toBe('Bandcamp');
+		expect(SOURCES.bandcamp.enabledByDefault).toBe(true);
+		expect(SOURCES.bandcamp.autoResolveEligible).toBeUndefined();
+		expect(isAutoResolveEligible('bandcamp')).toBe(true);
+		expect(SOURCES.bandcamp.noticeOnAutoPick).toBe(true);
+		const keys = Object.keys(SOURCES);
+		expect(keys.indexOf('bandcamp')).toBe(keys.indexOf('suyin') + 1);
 	});
 });
 

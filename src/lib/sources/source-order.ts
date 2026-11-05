@@ -13,10 +13,12 @@ import type { SourceId } from '$lib/sources/types';
  * (autoResolveEligible:false) after everything, ytmusic in its load-bearing LAST seat.
  * Drives: the cross-source fallback ladder, the name-stub walk, the search fan-out start order +
  * interleave, the tier-1 search set, and dedupe's source tie-break.
+ * 43-D-06: bandcamp closes the auto-resolvable section right after suyin — a last-resort
+ * failover / name-stub target; the search-only block is unchanged after it.
  */
 export const PLAYBACK_ORDER: readonly SourceId[] = [
 	'joox', 'kuwo', 'kugou', 'qq', 'netease', 'gdnetease', 'migu',
-	'fivesing', 'jamendo', 'audius', 'suyin',
+	'fivesing', 'jamendo', 'audius', 'suyin', 'bandcamp',
 	'archive', 'ccmixter', 'bilibili', 'ytmusic'
 ];
 

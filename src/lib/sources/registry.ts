@@ -16,6 +16,7 @@ import { audius } from './audius';
 import { archive } from './archive';
 import { bilibili } from './bilibili';
 import { ccmixter } from './ccmixter';
+import { bandcamp } from './bandcamp';
 import { ytmusic } from './ytmusic';
 import { settings } from '$lib/stores/settings.svelte';
 import { PLAYBACK_ORDER, TIER_1_SIZE } from './source-order';
@@ -78,7 +79,9 @@ export { PLAYBACK_ORDER, COVER_ORDER, COVER_SKIP, COVER_RACE_TIERS, PRIORITY_WIN
 // netease, migu, suyin last). SOURCES is BUILT from that table, so object-key order — which every
 // getEnabledAdapters consumer (search fan-out, interleave, name-stub walk, lyric walk, fallback
 // base) inherits — can never drift from it.
-const ADAPTERS: Record<SourceId, SourceAdapter> = { qq, joox, netease, gdnetease, kuwo, suyin, kugou, migu, fivesing, jamendo, audius, archive, ccmixter, bilibili, ytmusic };
+// 43: bandcamp — own-audio Western source, floor-eligible (autoResolveEligible undefined) and seated
+// right after suyin, so it is a last-resort failover / name-stub target and past tier-1 by position.
+const ADAPTERS: Record<SourceId, SourceAdapter> = { qq, joox, netease, gdnetease, kuwo, suyin, kugou, migu, fivesing, jamendo, audius, archive, ccmixter, bandcamp, bilibili, ytmusic };
 export const SOURCES: Record<SourceId, SourceAdapter> = Object.fromEntries(
 	PLAYBACK_ORDER.map((id) => [id, ADAPTERS[id]])
 ) as Record<SourceId, SourceAdapter>;

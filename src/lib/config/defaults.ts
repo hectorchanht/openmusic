@@ -202,6 +202,7 @@ export const PLAYBACK_DEFAULTS = {
 		audius: true,
 		archive: true,
 		ccmixter: true,
+		bandcamp: true,
 		bilibili: true,
 		ytmusic: true
 	} as Partial<Record<SourceId, boolean>>

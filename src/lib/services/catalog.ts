@@ -27,7 +27,7 @@ import { settings } from '$lib/stores/settings.svelte';
  * these is expected (not the regression), so the cross-source lyric fallback must NOT fire for them
  * (neither as the track to backfill nor as a fallback candidate). The CN/JOOX sources DO carry lyrics.
  */
-const LYRICLESS_SOURCES = new Set<SourceId>(['jamendo', 'audius', 'fivesing', 'ccmixter']);
+const LYRICLESS_SOURCES = new Set<SourceId>(['jamendo', 'audius', 'fivesing', 'ccmixter', 'bandcamp']); // 43: bandcamp has no upstream lyrics
 
 // Re-exported so tests (and any future cache-busting caller) can reset the search
 // cache between cases — the 3 existing fan-out spy tests rely on this in afterEach.
