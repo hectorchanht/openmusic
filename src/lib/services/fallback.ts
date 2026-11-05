@@ -10,7 +10,7 @@
 
 import { searchAll, ensureTrackDetails } from '$lib/services/catalog';
 import { cjkSearchQuery } from '$lib/services/dedupe';
-import { rankAutoCandidates, candidateTier } from '$lib/services/song-variant';
+import { rankAutoCandidates, candidateTier, isNotableVersionMismatch } from '$lib/services/song-variant';
 import { SOURCES, getEnabledAdapters, onlySource, isAutoResolveEligible } from '$lib/sources/registry';
 import { PRIORITY_WINDOW_MS } from '$lib/sources/source-order';
 import { isDeviceUid } from '$lib/services/device-track';
@@ -398,6 +398,14 @@ export async function walkSource(
 		}
 		if (signal.aborted) return { hit: null, verdict: 'inconclusive' };
 		if (resolved.audioUrl) {
+			// 43-D-08: the ONE seam shared by the fallback race, the exhaustive pass, the prefetch
+			// cross-source swap and resolveNameStub — stamping here covers every auto-pick path. Gated
+			// on a registry FLAG so this file never names a source. ensureTrackDetails returns
+			// resolveNameStub's track unchanged, so the marker survives to player.play(), which emits
+			// the "may not be the original" notice.
+			if (SOURCES[src].noticeOnAutoPick && isNotableVersionMismatch(resolved, failed)) {
+				resolved.versionMismatch = true;
+			}
 			return {
 				hit: {
 					track: resolved,
