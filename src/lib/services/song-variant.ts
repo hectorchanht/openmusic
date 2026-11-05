@@ -430,6 +430,24 @@ export function rankAutoCandidates<T extends Named & { duration?: number }>(
 	);
 }
 
+/**
+ * 43-D-08 — "PLAY it but say so". Does an AUTO-picked substitute notably differ from the song the
+ * user asked for? Never rejects anything: it only decides whether the pick deserves the "may not be
+ * the original" notice. True when candidateTier calls it a variant / implausibly short, or when both
+ * durations are known and differ by more than max(30 s, 15 % of the TARGET). Unknown duration is
+ * neutral. Threshold is A5 (assumed) — tune it here only.
+ */
+export function isNotableVersionMismatch(
+	candidate: { title: string; duration?: number },
+	target: { title: string; duration?: number }
+): boolean {
+	if (candidateTier(candidate, target.title, [], target.duration) === 1) return true;
+	const a = candidate.duration;
+	const b = target.duration;
+	if (!a || !b) return false;
+	return Math.abs(a - b) > Math.max(30, 0.15 * b);
+}
+
 // quick-261102-tdc (DECISIONS.md §6): bare trailing words a cover candidate may carry without
 // being a different release — Deezer literally titles a pressing "Without you explicit", and a
 // clean/remastered/live/acoustic pressing shares the song's art.
