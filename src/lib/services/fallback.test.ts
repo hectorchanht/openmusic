@@ -17,12 +17,15 @@ import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 // it here proves the exclusion is what keeps the mainstream-floor assertions green (without the filter,
 // ytmusic would leak into every fallbackOrder result). The mainstream sources carry no flag (undefined).
 vi.mock('$lib/sources/registry', () => {
-	const SOURCES: Record<string, { id: string; autoResolveEligible?: boolean }> = {
+	// 43-D-08: `audius` is a fake flagged entry (NOT in getEnabledAdapters, so fallbackOrder never
+	// sees it) that walkSource is driven against directly to prove the noticeOnAutoPick gate.
+	const SOURCES: Record<string, { id: string; autoResolveEligible?: boolean; noticeOnAutoPick?: boolean }> = {
 		kuwo: { id: 'kuwo' },
 		qq: { id: 'qq' },
 		netease: { id: 'netease' },
 		joox: { id: 'joox' },
-		ytmusic: { id: 'ytmusic', autoResolveEligible: false }
+		ytmusic: { id: 'ytmusic', autoResolveEligible: false },
+		audius: { id: 'audius', noticeOnAutoPick: true }
 	};
 	return {
 		SOURCES,
@@ -53,7 +56,7 @@ vi.mock('$lib/sources/registry', () => {
 vi.mock('$lib/services/catalog', () => ({ searchAll: vi.fn(), ensureTrackDetails: vi.fn() }));
 
 import { deviceUid } from '$lib/services/device-track';
-import { fallbackOrder, tryFallback } from './fallback';
+import { fallbackOrder, tryFallback, walkSource } from './fallback';
 import { searchAll, ensureTrackDetails } from '$lib/services/catalog';
 
 const mockSearch = vi.mocked(searchAll);
@@ -542,5 +545,34 @@ describe('tryFallback — bilingual title split (quick-261103-cjk)', () => {
 		expect(out).toBeNull();
 		const queries = new Set(mockSearch.mock.calls.map((c) => c[0]));
 		expect(queries).toEqual(new Set(['Artist Song']));
+	});
+});
+
+describe('43-D-08 walkSource versionMismatch marker', () => {
+	beforeEach(() => {
+		mockSearch.mockReset();
+		mockEnsure.mockReset();
+	});
+
+	async function hitFrom(src: SourceId, candTitle: string, candDuration: number) {
+		const cand = { ...mk(src, '9', 'Artist', candTitle, null), duration: candDuration };
+		mockSearch.mockResolvedValue({ interleaved: [cand], perSource: [{ source: src, status: 'ok' }] } as never);
+		mockEnsure.mockImplementation(async (t) => ({ ...t, audioUrl: 'https://cdn/x.mp3' }));
+		const failed = { ...mk('netease', '1', 'Artist', 'Song', null), duration: 240 };
+		const out = await walkSource(src, 'Song Artist', failed, new AbortController().signal);
+		expect(out.verdict).toBe('hit');
+		return out.hit!.track;
+	}
+
+	it('flagged source + live variant → versionMismatch true', async () => {
+		expect((await hitFrom('audius', 'Song (Live)', 240)).versionMismatch).toBe(true);
+	});
+
+	it('unflagged source, same variant → no marker', async () => {
+		expect((await hitFrom('qq', 'Song (Live)', 240)).versionMismatch).toBeUndefined();
+	});
+
+	it('flagged source + plain same-length original → no marker (flag alone is not enough)', async () => {
+		expect((await hitFrom('audius', 'Song', 240)).versionMismatch).toBeUndefined();
 	});
 });
