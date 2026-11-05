@@ -9584,3 +9584,56 @@ describe('Phase 40 crowd cover (D-14 / D-16 / D-19)', () => {
 		expect(rc()).toBe('https://cdn/fresh.jpg'); // the chain re-resolved
 	});
 });
+
+describe('43-D-08 — version-mismatch notice: play it, surface it once per uid', () => {
+	const S = () => stub('audius', 'V1', 'Oasis', 'Wonderwall');
+	const versionNotified = () => (player as unknown as { versionNotified: Set<string> }).versionNotified;
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		player.current = null;
+		player.queue = [];
+		player.notice = null;
+		versionNotified().clear();
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it('a flagged resolve emits the toast.mayNotBeOriginal notice and still plays', async () => {
+		const s = S();
+		mockEnsure.mockResolvedValue({ ...s, audioUrl: 'https://x/a.mp3', detailsLoaded: true, resolvedAt: Date.now(), versionMismatch: true });
+		await player.play(s);
+		expect(player.notice).toEqual({ kind: 'version', msg: 'toast.mayNotBeOriginal', title: s.title, artist: s.artist });
+		expect(player.current?.uid).toBe(s.uid);
+	});
+
+	it('the same uid does not re-toast on a second play()', async () => {
+		const s = S();
+		mockEnsure.mockResolvedValue({ ...s, audioUrl: 'https://x/a.mp3', detailsLoaded: true, resolvedAt: Date.now(), versionMismatch: true });
+		await player.play(s);
+		player.notice = null;
+		await player.play(S());
+		expect(player.notice).toBeNull();
+	});
+
+	it('auto-clears after the burst window', async () => {
+		vi.useFakeTimers();
+		const s = S();
+		mockEnsure.mockResolvedValue({ ...s, audioUrl: 'https://x/a.mp3', detailsLoaded: true, resolvedAt: Date.now(), versionMismatch: true });
+		await player.play(s);
+		expect(player.notice?.kind).toBe('version');
+		vi.advanceTimersByTime(2500);
+		expect(player.notice).toBeNull();
+	});
+
+	it('an unflagged resolve emits no notice', async () => {
+		const s = S();
+		mockEnsure.mockResolvedValue({ ...s, audioUrl: 'https://x/a.mp3', detailsLoaded: true, resolvedAt: Date.now() });
+		await player.play(s);
+		expect(player.notice).toBeNull();
+	});
+});
