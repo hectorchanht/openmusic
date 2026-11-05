@@ -597,9 +597,16 @@ Plans:
 ### Phase 43: SoundCloud + Bandcamp sources
 
 **Goal:** Add SoundCloud and Bandcamp as real playback sources (own audio) that flow through every resolver path like the CN sources — search, song detail, prefetch/buffer, download, fallback, name-stub — seated last on the resolve floor. (Scope narrowed 2026-11-04 from all mdl providers: DRM platforms have no own audio and are not added.)
-**Requirements**: TBD
+**Requirements**: none assigned — scope is 43-CONTEXT.md D-01..D-09 (own-audio providers only; SoundCloud HLS via native `<audio>` gated on canPlayType)
 **Depends on:** Phase 42
-**Plans:** 0 plans
+**Plans:** 8 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 43 to break down)
+- [ ] 43-01-PLAN.md — Shared contracts: urlExpiresAt/versionMismatch/noticeOnAutoPick, freshness, cover allowlists, D-08 predicate + walkSource marker
+- [ ] 43-02-PLAN.md — Bandcamp edge: proxy helpers + search/resolve/stream routes
+- [ ] 43-03-PLAN.md — SoundCloud edge: client_id scrape/cache, pickTranscoding, search/resolve routes
+- [ ] 43-04-PLAN.md — HLS module + stitched .m4a downloads + CLAUDE.md/README copy + page=8 todo
+- [ ] 43-05-PLAN.md — Bandcamp adapter + registration (seat after suyin, default-on, lyricless)
+- [ ] 43-06-PLAN.md — D-08 "may not be the original" notice: store kind + layout host + i18n x15
+- [ ] 43-07-PLAN.md — SoundCloud adapter + registration (canPlayType HLS gate, urlExpiresAt)
+- [ ] 43-08-PLAN.md — Phase gate: full suite + route smoke + VALIDATION sign-off + device/prod human check
