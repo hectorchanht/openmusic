@@ -34,10 +34,17 @@ const RESOLVED_URL_MAX_AGE_MS = RESOLVE_URL_TTL_S * 1000;
  * age-validated" and is STALE by construction. Re-resolving costs ~100ms (measured); serving a dead
  * url costs ~8.4s per strike before the player routes past it. That asymmetry is the whole argument
  * for defaulting to stale.
+ *
+ * 43-D-09 (Pitfall 3): `urlExpiresAt`, when an adapter stamps it, is a SECOND, tighter bound. Some
+ * upstreams sign URLs that die well inside the 15-min window (minutes, not a quarter hour), so a url
+ * resolved "seconds ago" by the `resolvedAt` measure can still be dead. Expiry can only make a track
+ * STALE (one cheap re-resolve) — it never marks a dead url fresh.
  */
 function isUrlFresh(track: Track): boolean {
 	return (
-		typeof track.resolvedAt === 'number' && Date.now() - track.resolvedAt < RESOLVED_URL_MAX_AGE_MS
+		typeof track.resolvedAt === 'number' &&
+		Date.now() - track.resolvedAt < RESOLVED_URL_MAX_AGE_MS &&
+		(track.urlExpiresAt === undefined || Date.now() < track.urlExpiresAt)
 	);
 }
 

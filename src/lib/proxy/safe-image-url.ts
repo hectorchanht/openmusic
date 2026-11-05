@@ -74,6 +74,16 @@ export const KUWO_IMAGE_HOSTS: ImageHostAllowlist = {
 	suffix: ['.kuwo.cn']
 };
 
+/** 43: SoundCloud art, e.g. i1.sndcdn.com/artworks-…-t500x500.jpg. Apex not permitted. */
+export const SOUNDCLOUD_IMAGE_HOSTS: ImageHostAllowlist = {
+	suffix: ['.sndcdn.com']
+};
+
+/** 43: Bandcamp art, e.g. f4.bcbits.com/img/a{art_id}_16.jpg. Apex not permitted. */
+export const BANDCAMP_IMAGE_HOSTS: ImageHostAllowlist = {
+	suffix: ['.bcbits.com']
+};
+
 /** KKBOX art: every cover is i.kfs.io/…/fit/500x500.jpg. Exact host only, so neither `kfs.io` nor `notkfs.io` passes. */
 export const KKBOX_IMAGE_HOSTS: ImageHostAllowlist = {
 	exact: ['i.kfs.io'],

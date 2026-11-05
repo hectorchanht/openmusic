@@ -62,6 +62,18 @@ export interface Track {
 	 *  NOT in the serializeTrack whitelist: persist already nulls `audioUrl` + resets
 	 *  `detailsLoaded`, so a restored track re-resolves regardless. */
 	resolvedAt?: number;
+	/** 43-D-09 (Pitfall 3): absolute `Date.now()`-epoch ms after which `audioUrl` is dead upstream.
+	 *  Stamped only by an adapter whose URL TTL is shorter than RESOLVE_URL_TTL_S (the 15-min client
+	 *  trust window) — otherwise a signed URL that dies after a few minutes still passes the
+	 *  `resolvedAt` age check and is handed to `<audio>` already 403. `undefined` = no extra bound.
+	 *  Deliberately NOT in the serializeTrack whitelist (like `proxyUrl`): a restored track
+	 *  re-resolves anyway. */
+	urlExpiresAt?: number;
+	/** 43-D-08: set ONLY by `fallback.ts walkSource` when an auto-picked substitute (failover or
+	 *  name-stub resolve) notably differs from the requested song (live/remix tag or a big duration
+	 *  delta) AND its source carries `noticeOnAutoPick`. Read once by `player.play()` to emit the
+	 *  "may not be the original" notice. `undefined` = no notice. */
+	versionMismatch?: boolean;
 	quality: string | null;
 	qualityLabel: string | null;
 	/** Search keyword — QQ/JOOX detail calls need it. */
@@ -148,6 +160,11 @@ export interface SourceAdapter {
 	 *  adapter's search short-circuits to [] without asking upstream, so an empty pool from it is
 	 *  "never tried" (inconclusive), not "the source has nothing" — the fallback walker reads this. */
 	health?: { isGated(): boolean };
+	/** 43-D-08 registry FLAG: when this source is AUTO-picked as a failover / name-stub target, the
+	 *  pick is still played but `walkSource` stamps `Track.versionMismatch` on a notable mismatch so
+	 *  the player surfaces a notice instead of silently playing a different version. `undefined` =
+	 *  no notice (every existing source). */
+	noticeOnAutoPick?: boolean;
 	search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]>;
 	/** Lazy resolution: audioUrl + lrc + quality + detailsLoaded.
 	 *  `quality` (WR-07): an explicit per-call quality tier — used by the download path to

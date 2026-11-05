@@ -6,7 +6,9 @@ import {
 	APPLE_IMAGE_HOSTS,
 	KKBOX_IMAGE_HOSTS,
 	YOUTUBE_IMAGE_HOSTS,
-	COVER_PICK_IMAGE_HOSTS
+	COVER_PICK_IMAGE_HOSTS,
+	SOUNDCLOUD_IMAGE_HOSTS,
+	BANDCAMP_IMAGE_HOSTS
 } from './safe-image-url';
 
 // This guard had FOUR copies across the Deezer and Last.fm routes and NO test. It is a security
@@ -167,5 +169,20 @@ describe('COVER_PICK_IMAGE_HOSTS (Phase 40 D-18, 40-CR-01)', () => {
 			expect(safeImageUrl(url, COVER_PICK_IMAGE_HOSTS)).toBeNull();
 		}
 		for (const junk of [null, undefined]) expect(safeImageUrl(junk, COVER_PICK_IMAGE_HOSTS)).toBeNull();
+	});
+});
+
+describe('43 — SoundCloud + Bandcamp art hosts', () => {
+	it('accepts shard covers', () => {
+		const sc = 'https://i1.sndcdn.com/artworks-x-t500x500.jpg';
+		const bc = 'https://f4.bcbits.com/img/a123_16.jpg';
+		expect(safeImageUrl(sc, SOUNDCLOUD_IMAGE_HOSTS)).toBe(sc);
+		expect(safeImageUrl(bc, BANDCAMP_IMAGE_HOSTS)).toBe(bc);
+	});
+
+	it('rejects lookalikes, the apex and plain http', () => {
+		expect(safeImageUrl('https://evilsndcdn.com/x.jpg', SOUNDCLOUD_IMAGE_HOSTS)).toBeNull();
+		expect(safeImageUrl('https://bcbits.com/x.jpg', BANDCAMP_IMAGE_HOSTS)).toBeNull();
+		expect(safeImageUrl('http://i1.sndcdn.com/x.jpg', SOUNDCLOUD_IMAGE_HOSTS)).toBeNull();
 	});
 });

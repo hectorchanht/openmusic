@@ -84,3 +84,17 @@ describe('isTrackReady — "is there nothing left to resolve?"', () => {
 		expect(isTrackReady(mk({ resolvedAt: undefined }))).toBe(false);
 	});
 });
+
+describe('43-D-09 — adapter-stamped urlExpiresAt', () => {
+	it('an expired urlExpiresAt is stale even when resolvedAt is seconds old', () => {
+		const t = mk({ urlExpiresAt: Date.now() - 1 });
+		expect(hasFreshAudioUrl(t)).toBe(false);
+		expect(isTrackReady(t)).toBe(false);
+	});
+
+	it('a future urlExpiresAt stays fresh', () => {
+		const t = mk({ urlExpiresAt: Date.now() + 60_000 });
+		expect(hasFreshAudioUrl(t)).toBe(true);
+		expect(isTrackReady(t)).toBe(true);
+	});
+});
