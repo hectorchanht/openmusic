@@ -46,6 +46,10 @@ publicly, so only they are in scope.
   notice ("may not be the original"), via the existing store→UI notice path (`TranslationKey`, all 16
   locales, double quotes). Do not silently reject.
 
+### SoundCloud playback format (decided after research, 2026-11-04)
+- **D-09:** Research found only ~0-3% of SoundCloud tracks still have a progressive stream; the rest are HLS-only (fMP4 AAC). User chose Option B: play the HLS `.m3u8` via NATIVE `<audio>` only when `audio.canPlayType('application/vnd.apple.mpegurl')` is truthy (iOS Safari, Chrome 141+ native HLS); where it isn't, the track fails over like any unplayable track. Progressive stream preferred when present. Downloads stitch init + segments in the browser into an `.m4a`. No JS HLS player (no hls.js / MSE) — the CLAUDE.md "No HLS" constraint is relaxed to "no HLS in JS" and CLAUDE.md must be updated to say so. Android APK WebView behaviour needs a device check (human UAT).
+- SNIP (30 s preview) / BLOCK tracks are excluded.
+
 ### Claude's Discretion
 - SoundCloud access method (api-v2 with a `client_id` scraped edge-side from the web app JS, cached;
   or another public route) and how to choose a transcoding: prefer a progressive (non-HLS) stream;
@@ -54,6 +58,7 @@ publicly, so only they are in scope.
 - Bandcamp search (public search endpoint/page) and resolve (track page `data-tralbum` → free
   `mp3-128` stream URL). Bandcamp stream URLs expire — use the existing freshness guard
   (`hasFreshAudioUrl`) semantics.
+- Source order between the two (research recommends `suyin, bandcamp, soundcloud, archive`).
 - Whether the browser can fetch audio directly (CORS / referrer) or needs the edge, following the
   existing `/api/stream-url` / proxy patterns.
 - Cover host allowlist entries in `proxy/safe-image-url.ts` (sndcdn.com, bcbits.com).
