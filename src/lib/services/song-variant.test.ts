@@ -10,6 +10,7 @@ import {
 	poolExpectedDuration,
 	isImplausiblyShort,
 	candidateTier,
+	isNotableVersionMismatch,
 	isAutoAcceptableArtist,
 	ALLOW_COVER_AS_AUTO_SUBSTITUTE
 } from './song-variant';
@@ -426,5 +427,36 @@ describe('isAutoAcceptableArtist — artist-identity gate (quick-261102-cov1)', 
 	it('a group name with connectors still matches itself', () => {
 		expect(isAutoAcceptableArtist('Earth, Wind & Fire', 'Earth, Wind & Fire')).toBe(true);
 		expect(isAutoAcceptableArtist('Bones & The Boy', 'Bones & The Boy')).toBe(true);
+	});
+});
+
+describe('43-D-08 — isNotableVersionMismatch', () => {
+	it('flags a variant title tag at equal duration', () => {
+		expect(
+			isNotableVersionMismatch({ title: '晴天 (Live)', duration: 240 }, { title: '晴天', duration: 240 })
+		).toBe(true);
+	});
+
+	it('flags a duration delta above the 30 s floor', () => {
+		expect(isNotableVersionMismatch({ title: '晴天', duration: 280 }, { title: '晴天', duration: 240 })).toBe(true);
+	});
+
+	it('stays quiet on a small delta', () => {
+		expect(isNotableVersionMismatch({ title: '晴天', duration: 250 }, { title: '晴天', duration: 240 })).toBe(false);
+	});
+
+	it('uses 15 % on long songs (beats the 30 s floor)', () => {
+		expect(isNotableVersionMismatch({ title: 'Song', duration: 344 }, { title: 'Song', duration: 300 })).toBe(false);
+		expect(isNotableVersionMismatch({ title: 'Song', duration: 346 }, { title: 'Song', duration: 300 })).toBe(true);
+	});
+
+	it('is neutral on unknown durations', () => {
+		expect(isNotableVersionMismatch({ title: 'Song', duration: 200 }, { title: 'Song' })).toBe(false);
+		expect(isNotableVersionMismatch({ title: 'Song' }, { title: 'Song', duration: 200 })).toBe(false);
+		expect(isNotableVersionMismatch({ title: 'Song', duration: 0 }, { title: 'Song', duration: 200 })).toBe(false);
+	});
+
+	it('flags an implausibly short clip', () => {
+		expect(isNotableVersionMismatch({ title: 'Song', duration: 20 }, { title: 'Song', duration: 240 })).toBe(true);
 	});
 });
