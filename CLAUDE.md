@@ -30,7 +30,7 @@ A mobile-first web music player that searches and streams tracks aggregated from
 - Kotlin — Android MediaStore bridge under `android/` (Capacitor native shell).
 
 ## Runtime
-- **Node.js `>=22`** for tooling (`.nvmrc`, CI, `engine-strict=true`).
+- **Node.js `>=24`** for tooling (`.nvmrc`, CI, `engine-strict=true`).
 - **Cloudflare Workers (workerd)** for the deployed edge — server routes run at the edge (`wrangler.jsonc`: `compatibility_flags: ["nodejs_compat"]`).
 - Browser (iOS Safari + Android Chrome) for the client SPA/PWA; Android WebView (Capacitor) for the native APK.
 - **Package manager: pnpm `8.15.5`** (pinned via `packageManager` + corepack). Lockfile `pnpm-lock.yaml` present; CI uses `--frozen-lockfile`.
@@ -47,7 +47,7 @@ A mobile-first web music player that searches and streams tracks aggregated from
 - Runtime `dependencies` are Capacitor plugins + the icon lib only; the web app has NO third-party runtime npm deps (sources/proxy/services are hand-written over platform `fetch`/`URL`/`IndexedDB`/Cloudflare Cache).
 - `@lucide/svelte` — icon components (per-icon imports for tree-shaking).
 - `@capacitor/{app,filesystem,splash-screen,status-bar}`, `@jofr/capacitor-media-session` (lock-screen controls), `capacitor-blob-writer` (stream audio Blob to disk, no base64 bloat). Capacitor code is `browser`/`isNativePlatform()`-guarded — no-op on the web build.
-- **Audio: native HTML `<audio>`** with `src` set directly to a CDN URL or a `blob:` URL from IndexedDB. No HLS/DASH, no MediaSource, no Web Audio.
+- **Audio: native HTML `<audio>`** with `src` set directly to a CDN URL or a `blob:` URL from IndexedDB. No HLS in JS (native `<audio>` HLS allowed, gated on `canPlayType('application/vnd.apple.mpegurl')` — 43-D-09), no DASH, no MediaSource, no Web Audio.
 
 ## Configuration
 - Server secrets live in Cloudflare (`wrangler pages secret put …`), typed in `src/lib/proxy/proxy-types.ts` `Env`: `JOOX_TOKEN` (required for JOOX), `LASTFM_KEY`/`LASTFM_SECRET` (optional). Local dev values in `.dev.vars`. Secrets are injected edge-side only — never in the client bundle.
@@ -185,7 +185,7 @@ UPSTREAMS  CN music proxies, Deezer, iTunes, Last.fm, translate APIs + native <a
 - **Circular imports:** avoided by discipline — `settings` is a LEAF; `player` imports settings/library/history/names/actionLog one-way.
 - **Runes files:** anything using `$state`/`$derived`/`$effect` MUST be `*.svelte.ts` or `*.svelte`; pure logic stays `.ts`.
 - **Secrets:** `JOOX_TOKEN`, `LASTFM_SECRET` live ONLY in Cloudflare `platform.env`, injected edge-side in proxy adapters — never in the client bundle.
-- **Audio engine:** native HTML `<audio>` (`referrerpolicy=no-referrer`); `src` set directly to a CDN or `blob:` URL. No MediaSource/HLS/Web Audio.
+- **Audio engine:** native HTML `<audio>` (`referrerpolicy=no-referrer`); `src` set directly to a CDN or `blob:` URL. No MediaSource/Web Audio; HLS only via native `<audio>`, never hls.js/MSE (43-D-09).
 - **CORS:** all `/api/*` get allowlisted CORS via `hooks.server.ts` — never `*`.
 - **SSR:** disabled app-wide; every store/service touching `localStorage`/`window`/`document` is `browser`-guarded.
 
