@@ -175,7 +175,7 @@ export interface PlayerNotice {
 	 *  still playing; it is surfaced only so a silently-vanished download is not a mystery.
 	 *  43-D-08 adds 'version': an auto-picked cross-source substitute whose title/duration notably
 	 *  differ from the request (`Track.versionMismatch`, stamped by walkSource). Informational,
-	 *  auto-dismissing, playback continues. `msg` is 'toast.mayNotBeOriginal'; `title`/`artist` are
+	 *  auto-dismissing, playback continues. `msg` is the may-not-be-original toast key; `title`/`artist` are
 	 *  the NOW-PLAYING track's, rendered by the host through names.dnTitle. */
 	kind: 'skip' | 'stopped' | 'corrupt-download' | 'version';
 	/** A REAL TranslationKey the UI may render directly via t() (WR-03) — the structured fields

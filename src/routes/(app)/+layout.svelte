@@ -98,6 +98,18 @@
 					host = null;
 					skipTimer = null;
 				}, SKIP_DISMISS_MS);
+			} else if (n.kind === 'version') {
+				// 43-D-08: an auto-picked substitute may not be the original. Playback did not stop, so
+				// the auto-dismissing 'skip' shape — no sticky pill, no Retry.
+				host = {
+					kind: 'skip',
+					text: t('toast.mayNotBeOriginal', { title: names.dnTitle(n.title ?? '', n.artist ?? '') })
+				};
+				clearSkipTimer();
+				skipTimer = setTimeout(() => {
+					host = null;
+					skipTimer = null;
+				}, SKIP_DISMISS_MS);
 			} else if (n.kind === 'skip') {
 				// D-02: count is always ≥ 1; >1 collapses into the batched "{n} songs skipped" wording.
 				// quick-260926-l69: the store emits a closed-union skipReason; localize it here.

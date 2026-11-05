@@ -590,6 +590,7 @@ const pt: Dict = {
 	"toast.openedAudio": "Áudio aberto · adicionado à Biblioteca",
 	"toast.downloadFailedKeptInLibrary": "Não foi possível salvar · {label} — mantido na Biblioteca",
 	"toast.downloadCorrupted": "Download corrompido · transmitindo em vez disso",
+	"toast.mayNotBeOriginal": "Tocando {title} — pode não ser a versão original",
 	"toast.shareCopied": "Compartilhar link copiado",
 	"toast.liked": "Curtido",
 	"toast.coverPinned": "Capa atualizada",

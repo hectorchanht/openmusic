@@ -590,6 +590,7 @@ const vi: Dict = {
 	"toast.openedAudio": "Đã mở âm thanh · đã thêm vào Thư viện",
 	"toast.downloadFailedKeptInLibrary": "Không thể lưu · {label} — vẫn giữ trong Thư viện",
 	"toast.downloadCorrupted": "Tệp đã tải bị hỏng · phát trực tuyến thay thế",
+	"toast.mayNotBeOriginal": "Đang phát {title} — có thể không phải bản gốc",
 	"toast.shareCopied": "Đã sao chép liên kết chia sẻ",
 	"toast.liked": "Đã thích",
 	"toast.coverPinned": "Đã cập nhật ảnh bìa",

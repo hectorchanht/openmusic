@@ -590,6 +590,7 @@ const tr: Dict = {
 	"toast.openedAudio": "Açılan ses · Kitaplığa eklendi",
 	"toast.downloadFailedKeptInLibrary": "Kaydedilemedi · {label} — Kitaplıkta tutuldu",
 	"toast.downloadCorrupted": "İndirilen dosya bozuk · bunun yerine akış",
+	"toast.mayNotBeOriginal": "{title} çalınıyor — orijinal sürüm olmayabilir",
 	"toast.shareCopied": "Paylaşım bağlantısı kopyalandı",
 	"toast.liked": "Beğenildi",
 	"toast.coverPinned": "Kapak güncellendi",

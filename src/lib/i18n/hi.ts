@@ -590,6 +590,7 @@ const hi: Dict = {
 	"toast.openedAudio": "ऑडियो खोला गया · लाइब्रेरी में जोड़ा गया",
 	"toast.downloadFailedKeptInLibrary": "सहेजा नहीं जा सका · {label} — लाइब्रेरी में रखा गया",
 	"toast.downloadCorrupted": "डाउनलोड ख़राब था · इसके बजाय स्ट्रीमिंग",
+	"toast.mayNotBeOriginal": "{title} चल रहा है — शायद यह मूल संस्करण नहीं है",
 	"toast.shareCopied": "शेयर लिंक कॉपी किया गया",
 	"toast.liked": "पसंद किया",
 	"toast.coverPinned": "कवर अपडेट हुआ",

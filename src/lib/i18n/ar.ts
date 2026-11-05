@@ -590,6 +590,7 @@ const ar: Dict = {
 	"toast.openedAudio": "تم فتح الصوت · تمت إضافته إلى المكتبة",
 	"toast.downloadFailedKeptInLibrary": "تعذّر الحفظ · {label} — تم الاحتفاظ به في المكتبة",
 	"toast.downloadCorrupted": "الملف الذي تم تنزيله تالف · يتم البث بدلاً من ذلك",
+	"toast.mayNotBeOriginal": "جارٍ تشغيل {title} — قد لا تكون النسخة الأصلية",
 	"toast.shareCopied": "تم نسخ رابط المشاركة",
 	"toast.liked": "تمت الإضافة للمفضلة",
 	"toast.coverPinned": "تم تحديث الغلاف",

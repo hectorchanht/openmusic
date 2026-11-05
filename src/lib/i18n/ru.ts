@@ -590,6 +590,7 @@ const ru: Dict = {
 	"toast.openedAudio": "Открытый аудио · добавлен в библиотеку",
 	"toast.downloadFailedKeptInLibrary": "Не удалось сохранить · {label} — осталось в библиотеке",
 	"toast.downloadCorrupted": "Загруженный файл повреждён · воспроизведение из сети",
+	"toast.mayNotBeOriginal": "Играет {title} — возможно, это не оригинальная версия",
 	"toast.shareCopied": "Ссылка для общего доступа скопирована.",
 	"toast.liked": "В избранном",
 	"toast.coverPinned": "Обложка обновлена",

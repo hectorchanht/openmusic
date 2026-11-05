@@ -590,6 +590,7 @@ const id: Dict = {
 	"toast.openedAudio": "Audio yang dibuka · ditambahkan ke Perpustakaan",
 	"toast.downloadFailedKeptInLibrary": "Tidak dapat menyimpan · {label} — tetap di Perpustakaan",
 	"toast.downloadCorrupted": "Unduhan rusak · streaming sebagai gantinya",
+	"toast.mayNotBeOriginal": "Memutar {title} — mungkin bukan versi aslinya",
 	"toast.shareCopied": "Bagikan tautan disalin",
 	"toast.liked": "Disukai",
 	"toast.coverPinned": "Sampul diperbarui",

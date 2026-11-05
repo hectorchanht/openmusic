@@ -590,6 +590,7 @@ const th: Dict = {
 	"toast.openedAudio": "เปิดเสียง · เพิ่มลงในห้องสมุดแล้ว",
 	"toast.downloadFailedKeptInLibrary": "บันทึกไม่สำเร็จ · {label} — เก็บไว้ในไลบรารี",
 	"toast.downloadCorrupted": "ไฟล์ที่ดาวน์โหลดเสียหาย · เล่นแบบสตรีมแทน",
+	"toast.mayNotBeOriginal": "กำลังเล่น {title} — อาจไม่ใช่เวอร์ชันต้นฉบับ",
 	"toast.shareCopied": "คัดลอกลิงก์แชร์แล้ว",
 	"toast.liked": "ถูกใจแล้ว",
 	"toast.coverPinned": "อัปเดตปกแล้ว",

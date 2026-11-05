@@ -680,6 +680,7 @@ const en = {
 	"toast.openedAudio": "Opened audio · added to Library",
 	"toast.downloadFailedKeptInLibrary": "Couldn't save · {label} — kept in Library",
 	"toast.downloadCorrupted": "Download was corrupted · streaming instead",
+	"toast.mayNotBeOriginal": "Playing {title} — may not be the original version",
 	"toast.shareCopied": "Share link copied",
 	"toast.liked": "Liked",
 	"toast.coverPinned": "Cover updated",
