@@ -599,10 +599,10 @@ Plans:
 **Goal:** Add SoundCloud and Bandcamp as real playback sources (own audio) that flow through every resolver path like the CN sources — search, song detail, prefetch/buffer, download, fallback, name-stub — seated last on the resolve floor. (Scope narrowed 2026-11-04 from all mdl providers: DRM platforms have no own audio and are not added.)
 **Requirements**: none assigned — scope is 43-CONTEXT.md D-01..D-09 (own-audio providers only; SoundCloud HLS via native `<audio>` gated on canPlayType)
 **Depends on:** Phase 42
-**Plans:** 8 plans
+**Plans:** 1/8 plans executed
 
 Plans:
-- [ ] 43-01-PLAN.md — Shared contracts: urlExpiresAt/versionMismatch/noticeOnAutoPick, freshness, cover allowlists, D-08 predicate + walkSource marker
+- [x] 43-01-PLAN.md — Shared contracts: urlExpiresAt/versionMismatch/noticeOnAutoPick, freshness, cover allowlists, D-08 predicate + walkSource marker
 - [ ] 43-02-PLAN.md — Bandcamp edge: proxy helpers + search/resolve/stream routes
 - [ ] 43-03-PLAN.md — SoundCloud edge: client_id scrape/cache, pickTranscoding, search/resolve routes
 - [ ] 43-04-PLAN.md — HLS module + stitched .m4a downloads + CLAUDE.md/README copy + page=8 todo

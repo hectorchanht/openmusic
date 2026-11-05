@@ -4,13 +4,13 @@ milestone: v1.5
 milestone_name: YTMusic-Powered Up-Next
 status: executing
 stopped_at: Phase 43 planned (8 plans, 5 waves)
-last_updated: "2026-11-05T03:02:04.133Z"
-last_activity: "2026-11-03 - Completed quick task 261103-hdn: artist + album audit round 2"
+last_updated: "2026-11-05T03:05:38.504Z"
+last_activity: 2026-11-05
 progress:
   total_phases: 22
   completed_phases: 10
   total_plans: 120
-  completed_plans: 101
+  completed_plans: 102
   percent: 45
 ---
 
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-10)
 
 **Core value:** A user on their phone can search a song, tap it, and have it play instantly with a smooth, native-app-like experience — and keep playing when the screen locks.
-**Current focus:** Phase 40 — album-download-all-cover-re-rank-cloud-shared-cover-pick
+**Current focus:** Phase 43 — SoundCloud + Bandcamp sources
 
 ## Current Position
 
-Phase: 40 (album-download-all-cover-re-rank-cloud-shared-cover-pick) — EXECUTING
-Plan: 9 of 9
-Status: Executing Phase 40
+Phase: 43 (SoundCloud + Bandcamp sources) — EXECUTING
+Plan: 2 of 8
+Status: Executing Phase 43
 
 ### 36-05 checkpoint status
 
@@ -95,7 +95,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-11-03 - Completed quick task 261103-hdn: artist + album audit round 2
+Last activity: 2026-11-05
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -223,6 +223,7 @@ Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deplo
 | Phase 40 P07 | 5min | 3 tasks | 6 files |
 | Phase 40 P08 | 35min | 3 tasks | 12 files |
 | Phase 40 P09 | 6min | 2 tasks | 8 files |
+| Phase 43 P01 | 6min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -425,6 +426,8 @@ Recent decisions affecting current work:
 - [Phase 40]: 40-08: /api/cover-pick edge-caches under /api/cover-pick/__edge (adapter-cloudflare serves public-URL cache hits CORS-less, breaking the APK)
 - [Phase 40]: 40-08: crowd cover name key uses versionedMatchKey so (Live)/Remix versions keep their own pick; Traditional/Simplified folding deferred
 - [Phase 40]: 40-09: every display surface reads readChosenCover (pin then crowd) at rung 0; readPinnedCover no longer used by components
+- [Phase 43]: 43-D-08: version-mismatch notice gated by SourceAdapter.noticeOnAutoPick, stamped only in walkSource; threshold max(30s,15%)
+- [Phase 43]: 43-D-09: adapter-stamped Track.urlExpiresAt tightens freshness; only ever makes a track stale
 
 ### Pending Todos
 
@@ -695,7 +698,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-11-05T03:02:04.118Z
+Last session: 2026-11-05T03:05:34.494Z
 Stopped at: Phase 43 planned (8 plans, 5 waves)
 Resume: run 32-08-PLAN.md (device checkpoints). **32-07 closed VALIDATION #6 and the v2 half of #3, and BLOCKED two v3 walks — 32-08 must pick them up.** PROVEN LIVE on the deployed workerd edge (https://openmusic.lol, which is already running 32-04): cold GET `{"hit":false}` -> warm GET `{"hit":true}` with a qq `songid`, NO `url` field, `avail.qq:"ok"`; 9/9 warm hits across the YVR and SEA PoPs; POST bust `{"busted":true}` -> miss -> unattended re-fill -> hit (the 32-D-10a repair path works); `Cache-Control: no-store` on every route response (31-D-09 intact). BLOCKED, carry to 32-08: the two 32-D-20 v3 url-layer walks — (1) stale-url -> refresh, (2) bust -> miss -> mid-only -> url-warm — because v3 is on `main` but NOT deployed (the live entries carry no `url` keys, while v3's fill emits explicit nulls), and no preview server could be started here. Exact commands are in 32-07-SUMMARY.md § Task 2; run `pnpm build && pnpm preview` (NOT `pnpm dev` — `edgeCache()` returns null there) or `pnpm run deploy` (NEVER bare `pnpm deploy`). Expect every warm entry to miss once on the v2->v3 key rollover; that is by design. Folded todo `edge-resolve-cache-returns-miss.md` RESOLVED and moved to completed/ — root cause was the probe using `?artist=&title=` when the route has only ever read `a`/`t`, so it hit the `if (!a && !t)` zero-touch short-circuit and never consulted the cache. Still outstanding from Phase 30, unchanged: install `android/app/build/outputs/apk/debug/app-debug.apk` on an Android device, open `/song/Olivia-Dean/Man-I-Need` (proven to return a real 30,840 B JPEG from production), confirm the cover renders rather than a broken image, then kill the network and confirm the gradient fallback appears. That single check closes 30-06 and Phase 30. Do NOT run `/gsd:verify-work` for Phase 30 until it is approved — OG-PAGE-01 terminates in it. Optional, non-blocking leftovers: iMessage/Slack cards, and real 24h cache TTL/eviction.
 
