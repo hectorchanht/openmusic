@@ -9586,7 +9586,10 @@ describe('Phase 40 crowd cover (D-14 / D-16 / D-19)', () => {
 });
 
 describe('43-D-08 — version-mismatch notice: play it, surface it once per uid', () => {
-	const S = () => stub('audius', 'V1', 'Oasis', 'Wonderwall');
+	// Fresh songid per test: repeated plays of ONE uid across tests trip the src re-drive brake.
+	let n = 0;
+	let id = 'V0';
+	const S = () => stub('audius', id, 'Oasis', 'Wonderwall');
 	const versionNotified = () => (player as unknown as { versionNotified: Set<string> }).versionNotified;
 
 	beforeEach(() => {
@@ -9597,6 +9600,7 @@ describe('43-D-08 — version-mismatch notice: play it, surface it once per uid'
 		player.queue = [];
 		player.notice = null;
 		versionNotified().clear();
+		id = `V${++n}`;
 		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
 	});
 	afterEach(() => {

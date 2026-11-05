@@ -172,8 +172,12 @@ export interface PlayerNotice {
 	/** 31-D-14 adds 'corrupt-download': the downloaded blob for the CURRENT track failed to decode,
 	 *  so it was evicted and playback continued over the network. Informational + auto-dismissing
 	 *  (never sticky, never a Retry) — nothing failed from the user's point of view, the song is
-	 *  still playing; it is surfaced only so a silently-vanished download is not a mystery. */
-	kind: 'skip' | 'stopped' | 'corrupt-download';
+	 *  still playing; it is surfaced only so a silently-vanished download is not a mystery.
+	 *  43-D-08 adds 'version': an auto-picked cross-source substitute whose title/duration notably
+	 *  differ from the request (`Track.versionMismatch`, stamped by walkSource). Informational,
+	 *  auto-dismissing, playback continues. `msg` is 'toast.mayNotBeOriginal'; `title`/`artist` are
+	 *  the NOW-PLAYING track's, rendered by the host through names.dnTitle. */
+	kind: 'skip' | 'stopped' | 'corrupt-download' | 'version';
 	/** A REAL TranslationKey the UI may render directly via t() (WR-03) — the structured fields
 	 *  below remain the preferred mapping input for hosts that want richer wording. Previously a
 	 *  free `string` carrying phantom `player.notice.*` tokens that existed in no dictionary. */
@@ -382,6 +386,9 @@ class Player {
 	 *  it — by the time the bytes land the user has moved on, and that is fine); these Sets are the
 	 *  bound instead. Cleared wherever the other per-session guards reset. Plain fields. */
 	private corruptNotified = new Set<string>();
+	/** 43-D-08: one 'version' toast per uid. Re-armed only by a manual full recovery — NOT on the
+	 *  `playing` event (unlike corruptNotified), or every successful play would re-toast. Plain field. */
+	private versionNotified = new Set<string>();
 	private redownloadQueued = new Set<string>();
 	/**
 	 * Audio-element error burst counter (CR-03). The dominant region-lock failure mode is "detail
@@ -4496,6 +4503,23 @@ class Player {
 				clearTimeout(resolveTimer); // fast resolve → no dangling timer / spurious late abort
 			}
 			if (myGen !== this.playGen) return; // CR-02: superseded mid-resolve — discard
+			// 43-D-08: PLAY the auto-picked substitute but say it may not be the original. Emitted here
+			// (after resolve + gen-check), never gated on `playing` (unreliable on iOS). Names the resolved
+			// track — for a fallback swap `track` IS the swap, so both agree. Once per uid.
+			if (resolved.versionMismatch && !this.versionNotified.has(resolved.uid)) {
+				this.versionNotified.add(resolved.uid);
+				logAction('version.mismatch', { uid: resolved.uid });
+				this.notice = {
+					kind: 'version',
+					msg: 'toast.mayNotBeOriginal',
+					title: resolved.title,
+					artist: resolved.artist
+				};
+				// WR-04 window-close discipline (mirrors the corrupt-download notice).
+				setTimeout(() => {
+					if (this.notice?.kind === 'version') this.notice = null;
+				}, Player.SKIP_BURST_WINDOW_MS);
+			}
 			if (timedOut) {
 				// Make the hang→fallback transition visible in the Activity log (Settings → Activity log).
 				logAction('resolve.timeout', { uid: track.uid, source: track.source });
@@ -5877,6 +5901,7 @@ class Player {
 		this.driveBurst = 0; // SINGLE AUTHORITY (debug-song-click-lrc-flood-noplay): a manual retry re-arms the src brake.
 		this.lastDriveUid = null;
 		this.corruptNotified.clear(); // 31-D-12: a full recovery re-arms the corrupt-blob one-shots too
+		this.versionNotified.clear(); // 43-D-08: …and the may-not-be-original one-shots
 		this.redownloadQueued.clear();
 		this.errorBurst = 0;
 		this.rapidErrorBurst = 0; // RAPID-FIRE BRAKE (debug-nowbar-freeze-reresolve-loop): a full recovery re-arms it too.
