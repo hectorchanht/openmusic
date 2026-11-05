@@ -44,7 +44,7 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
-	import { downloadTrack } from '$lib/services/download-track';
+	import { downloadTrackWithDonor } from '$lib/services/download-track';
 import { player } from '$lib/stores/player.svelte';
 	import { downloadLabel } from '$lib/services/download-label';
 	import { names } from '$lib/stores/names.svelte';
@@ -162,7 +162,9 @@ import { player } from '$lib/stores/player.svelte';
 			// third resolve and saves the file the label promised. A stale probe just re-resolves there.
 			const picked = probed?.track && probed.track.uid === target.uid ? probed.track : target;
 			// DL-BUG-01: downloadTrack never navigates; it returns a sentinel the UI localizes here.
-			const res = await downloadTrack(picked, { persist });
+			// quick-261105-heal: the donor variant — an own-provider refusal falls back to the
+			// same recording from another source at the same quality tier.
+			const res = await downloadTrackWithDonor(picked, { persist });
 			// quick-261020-hqswitch: downloading the PLAYING song at a higher tier swaps
 			// the live stream to the downloaded file, position + state preserved.
 			if (res === 'saved') void player.adoptDownloadedCurrent(target.uid);

@@ -631,6 +631,33 @@ export async function* donorProbes(
  * match saved, tried best-first by `donorRank` (stable on ties) so the album still finishes.
  * No donor → 'no-audio'; every donor failed → 'failed'. D-17 never-throws.
  */
+/**
+ * quick-261105-heal (Hector 2026-11-05): the user-initiated single-song download WITH the
+ * multi-source donor fallback. An album by 周杰倫 failed at ~60% because every song hammered
+ * the SAME provider and the provider blocked/throttled the burst — a 'failed' (or 'no-audio'
+ * / 'rate-limited') own-source attempt now walks the OTHER sources for the SAME song at the
+ * SAME quality tier first (`prefer: 'tier'` — a FLAC tier takes a FLAC donor, not an mp3),
+ * then the best remaining authentic donor (`downloadFromDonor`'s rank order), all saved under
+ * the ORIGINAL uid. The donor identity comes from the shared variant grouping
+ * (`fetchVariants` → `sameSongKey`), so a donor is the same credited recording, never a
+ * same-title cover by another act.
+ *
+ * USER-INITIATED CALLERS ONLY (TrackMenu / DownloadControl / the heal-all sweep): the donor
+ * walk costs one `searchAll` fan-out, so silent background paths (player repair, backup
+ * restore) keep calling plain `downloadTrack`. An explicit `audioFrom` pick is exempt — the
+ * user chose THAT source's measured file, so a failure is reported, never substituted.
+ * Result mapping: donor 'saved' wins; otherwise a 'failed' on either leg reads 'failed'
+ * (bytes were attempted and refused), else the own-source result stands. Never throws.
+ */
+export async function downloadTrackWithDonor(track: Track, opts?: DownloadOpts): Promise<DownloadResult> {
+	if (opts?.audioFrom) return downloadTrack(track, opts);
+	const res = await downloadTrack(track, opts);
+	if (res === 'saved') return res;
+	const donor = await downloadFromDonor(track, opts, { exclude: [track.source], prefer: 'tier' });
+	if (donor === 'saved') return 'saved';
+	return res === 'failed' || donor === 'failed' ? 'failed' : res;
+}
+
 export async function downloadFromDonor(
 	track: Track,
 	opts?: DownloadOpts,

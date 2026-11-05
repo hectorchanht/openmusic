@@ -53,7 +53,7 @@
 	// aria-checked>). No `type="checkbox"` exists anywhere in src, so the Remove-download confirm
 	// borrows this rather than hand-rolling one.
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
-	import { downloadTrack, pickedFileAlreadyOnDisk } from '$lib/services/download-track';
+	import { downloadTrack, downloadTrackWithDonor, pickedFileAlreadyOnDisk } from '$lib/services/download-track';
 	import { downloadLabel } from '$lib/services/download-label';
 	// quick-261102-qtruth: the Detail sheet's quality merge + label read through the ONE
 	// shared derivation (services/display-quality) — the same one the Now-Playing pill uses.
@@ -1196,7 +1196,10 @@
 		// settings.downloadQuality, so pass that Track back in — downloadTrack's reuseInput branch then
 		// saves the exact file the row just measured instead of re-resolving a third time.
 		const picked = dlProbe?.track && dlProbe.track.uid === track.uid ? dlProbe.track : track;
-		const res = await downloadTrack(picked);
+		// quick-261105-heal: a user tap gets the donor fallback — if this song's own provider
+		// refuses (blocked/throttled), the same recording is fetched from another source at the
+		// same quality tier instead of failing outright.
+		const res = await downloadTrackWithDonor(picked);
 		// quick-261020-hqswitch: if THIS song is the one playing and the saved file is a
 		// higher tier than the stream, the player hot-swaps to the local file in place.
 		if (res === 'saved') void player.adoptDownloadedCurrent(track.uid);

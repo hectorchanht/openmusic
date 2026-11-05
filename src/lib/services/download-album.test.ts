@@ -593,11 +593,25 @@ describe('downloadAlbum — wait for qq first, then donors (quick-261001-0p9)', 
 		expect(qq2Calls()).toHaveLength(1);
 	});
 
-	it("'failed' takes no donor pass and no retry", async () => {
+	// quick-261105-heal: 'failed' used to take no donor pass (quick-261001-0p9) — reversed by
+	// Hector 2026-11-05 after whole single-provider albums failed at ~60%: a failed song now
+	// goes straight to ONE donor pass (same tier first), with NO same-source retry.
+	it("'failed' takes ONE donor pass and no same-source retry; a donor save heals the song", async () => {
 		mocks.native = true;
 		mocks.downloadTrack.mockImplementation(async (tr: Track) => (tr.uid === 'qq:2' ? 'failed' : 'saved'));
+		mocks.downloadFromDonor.mockImplementation(async () => 'saved');
+		expect(await downloadAlbum([mk(1), mk(2)], META)).toEqual({ saved: 2, total: 2 });
+		expect(mocks.downloadFromDonor).toHaveBeenCalledTimes(1);
+		expect(mocks.downloadFromDonor.mock.calls[0][2]).toEqual(DONOR_OPTS);
+		expect(qq2Calls()).toHaveLength(1);
+	});
+
+	it("'failed' with no donor available is still skipped, the album completes", async () => {
+		mocks.native = true;
+		mocks.downloadTrack.mockImplementation(async (tr: Track) => (tr.uid === 'qq:2' ? 'failed' : 'saved'));
+		mocks.downloadFromDonor.mockImplementation(async () => 'no-audio');
 		expect(await downloadAlbum([mk(1), mk(2)], META)).toEqual({ saved: 1, total: 2 });
-		expect(mocks.downloadFromDonor).not.toHaveBeenCalled();
+		expect(mocks.downloadFromDonor).toHaveBeenCalledTimes(1);
 	});
 
 	it('a backoff sleep holds no resolve slot — three other songs resolve meanwhile', async () => {

@@ -4,7 +4,7 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { Heart, ListMusic, Download, Trash2, Play, Clock, Pencil, Check, Users, ListEnd, ListStart, Shuffle, Ellipsis, X, Radio } from '@lucide/svelte';
+	import { Heart, ListMusic, Download, Trash2, Play, Clock, Pencil, Check, Users, ListEnd, ListStart, Shuffle, Ellipsis, X, Radio, CircleAlert } from '@lucide/svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { history } from '$lib/stores/history.svelte';
 	import { player } from '$lib/stores/player.svelte';
@@ -19,6 +19,7 @@
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
+	import { healDownloads } from '$lib/stores/heal.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
@@ -297,6 +298,19 @@
 	// store lists themselves stay the edit-mode / clear source of truth.
 	const likedList = $derived(dedupeShelfList(library.liked));
 	const downloadsList = $derived(dedupeShelfList(library.downloads));
+	// quick-261105-heal: the FAILED downloads — store records whose file is marked unavailable
+	// (the red-glyph rows in the list below). Derived from the store list, not the deduped
+	// view: healing acts on records, and a failed record hidden behind a downloaded twin still
+	// needs its own repair decision by the sweep's blob re-probe.
+	const failedDownloads = $derived(library.downloads.filter((tr) => library.isUnavailable(tr.uid)));
+
+	// quick-261105-heal: one-click Heal all — the run itself lives in the heal store (it
+	// survives leaving this page); this handler only kicks it off with the current failed
+	// snapshot and reports the settled count.
+	async function healAllFailed() {
+		const r = await healDownloads.healAll(failedDownloads);
+		if (r) toast.show(t('toast.healed', { saved: r.saved, total: r.total }));
+	}
 	const historyList = $derived(dedupeShelfList(history.entries) as Track[]);
 	const playlistLists = $derived(
 		new Map(library.playlists.map((p) => [p.id, dedupeShelfList(p.tracks)] as const))
@@ -545,6 +559,16 @@
 	{:else}<p class="empty"><ListMusic size={28} /><span>{t('library.noPlaylists')}</span></p>{/if}
 {:else if tab === 'downloads'}
 	{#if library.downloads.length}
+		<!-- quick-261105-heal: when failed downloads exist, they are the red-glyph rows in the
+		     list below — this bar sits on top of that list with the one-click repair for all
+		     of them. While a run is in flight it shows the store's live counter instead. -->
+		{#if failedDownloads.length > 0 || healDownloads.job}
+			<div class="heal-bar">
+				<CircleAlert size={18} />
+				<span class="heal-label">{healDownloads.job ? t('heal.progress', { n: healDownloads.job.done, total: healDownloads.job.total }) : t('heal.failedCount', { n: failedDownloads.length })}</span>
+				<button class="heal-btn" disabled={healDownloads.job !== null} onclick={healAllFailed} use:tapBounce>{t('heal.all')}</button>
+			</div>
+		{/if}
 		<ul class="list">
 			{#each downloadsList.slice(0, rowCap) as track (track.uid)}
 				<li class="row-line">
@@ -701,6 +725,11 @@
 	.empty { display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--color-text-muted); padding: 48px 16px; text-align: center; font-size: 0.875rem; }
 	.empty-sm { color: var(--color-text-muted); font-size: 0.8125rem; padding: 4px 8px; }
 	.note { color: var(--color-text-muted); font-size: 0.6875rem; margin-top: 12px; }
+	/* quick-261105-heal: the failed-downloads repair bar above the downloads list. */
+	.heal-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 10px 12px; border-radius: 10px; background: var(--color-surface-2); color: var(--color-danger-text); }
+	.heal-label { flex: 1; min-width: 0; font-size: 0.8125rem; font-weight: 600; color: var(--color-text); }
+	.heal-btn { flex: none; background: var(--color-primary); border: none; color: #fff; border-radius: 999px; padding: 7px 14px; font-size: 0.8125rem; font-weight: 600; cursor: pointer; }
+	.heal-btn:disabled { opacity: 0.4; cursor: default; }
 	/* kyf: fav-artists tab grid — responsive round-avatar tiles. */
 	.fav-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 14px; }
 	.fav-tile { position: relative; background: none; border: none; padding: 6px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--color-text); border-radius: 12px; }

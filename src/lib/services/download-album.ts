@@ -54,7 +54,12 @@
 //     donor at the same quality AND format as the download tier first, else the best other
 //     donor so the album still finishes. Why: tang refills in ~3 s, so donor-first handed
 //     a FLAC-tier song an instant mp3 from netease for a blip; qq's own file after a short wait, or
-//     a like-for-like file, beats that downgrade. 'failed' still takes no retry and no donor.
+//     a like-for-like file, beats that downgrade.
+//     quick-261105-heal (Hector 2026-11-05): 'failed' NOW takes the donor pass too (no same-source
+//     retry — a refused body fetch will not heal by asking the same provider again). Measured on
+//     device: whole 周杰倫 albums from one provider failed at ~60% (the burst gets the provider
+//     blocked/throttled), so a failed song spreads to the other sources for the same recording at
+//     the same tier instead of dying with its own provider.
 //
 // ponytail: 4 retries / 30 s cap, one donor walk; add per-host backoff state if a second limited host
 // appears. 8 lossless bodies can sit in heap at once (~400 MB worst case); lower TRANSFER_POOL or
@@ -215,7 +220,10 @@ export async function downloadAlbum(
 						if (res !== 'rate-limited') break;
 					}
 				}
-				if (res === 'rate-limited' || res === 'no-audio') {
+				// quick-261105-heal: 'failed' joins the donor pass — the own provider refused the
+				// body (the album-burst block), so the same recording is fetched from another
+				// source at the same tier instead of being written off.
+				if (res === 'rate-limited' || res === 'no-audio' || res === 'failed') {
 					res = await downloadFromDonor(tr, dl, { exclude: [tr.source], prefer: 'tier' });
 				}
 				if (res !== 'saved') return;

@@ -122,6 +122,7 @@ vi.mock('$lib/services/hls', async (orig) => ({
 
 import {
 	downloadTrack,
+	downloadTrackWithDonor,
 	downloadFromDonor,
 	donorMatchesTier,
 	donorRank,
@@ -1529,6 +1530,61 @@ describe('downloadTrack — rate-limited + downloadFromDonor (quick-260930-x3q)'
 		expect(await downloadFromDonor(qqT(), {}, { exclude: ['qq'] })).toBe('saved');
 		stubFetchBy(['https://cdn.example/netease:7.m4a', 'https://cdn.example/kuwo:5.m4a']);
 		expect(await downloadFromDonor(qqT(), {}, { exclude: ['qq'] })).toBe('failed');
+	});
+});
+
+// quick-261105-heal: the user-initiated single-song download — an own-source failure of ANY
+// kind walks the other sources for the same recording at the same tier; a success never does.
+describe('downloadTrackWithDonor (quick-261105-heal)', () => {
+	const ownT = (over: Partial<Track> = {}) =>
+		mk({ uid: 'qq:9', source: 'qq', songid: '9', audioUrl: null, detailsLoaded: false, ...over });
+	const neteaseT = () => mk({ uid: 'netease:7', source: 'netease', songid: '7', audioUrl: null });
+
+	function stubFetchBy(bad: string[] = []) {
+		const f = vi.fn(async (url: string) =>
+			bad.includes(url) ? { ok: false, blob: async () => new Blob([]) } : { ok: true, blob: async () => new Blob(['a']) }
+		);
+		vi.stubGlobal('fetch', f);
+		return f;
+	}
+
+	it('an own-source save never looks up donors', async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ uid: 'qq:9', source: 'qq', audioUrl: 'https://cdn.example.com/own.flac' }));
+		stubFetchBy();
+		expect(await downloadTrackWithDonor(ownT())).toBe('saved');
+		expect(mocks.fetchVariants).not.toHaveBeenCalled();
+	});
+
+	it("a 'failed' own download heals from a donor under the ORIGINAL uid", async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ uid: 'qq:9', source: 'qq', audioUrl: 'https://cdn.example.com/own.flac' }));
+		mocks.fetchVariants.mockImplementation(async () => [neteaseT()]);
+		const f = stubFetchBy(['https://cdn.example.com/own.flac']);
+		expect(await downloadTrackWithDonor(ownT())).toBe('saved');
+		expect(f).toHaveBeenCalledWith('https://cdn.example/netease:7.m4a');
+		expect(mocks.put.mock.calls.at(-1)?.[0]).toBe('qq:9');
+	});
+
+	it("a 'no-audio' own download heals from a donor; no donor anywhere stays 'no-audio'", async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ uid: 'qq:9', source: 'qq', audioUrl: null, detailsLoaded: true }));
+		mocks.fetchVariants.mockImplementation(async () => [neteaseT()]);
+		stubFetchBy();
+		expect(await downloadTrackWithDonor(ownT())).toBe('saved');
+		mocks.fetchVariants.mockImplementation(async () => []);
+		expect(await downloadTrackWithDonor(ownT())).toBe('no-audio');
+	});
+
+	it('an explicit audioFrom pick is exempt — its failure is reported, never substituted', async () => {
+		const donor = mk({ uid: 'kuwo:5', source: 'kuwo', audioUrl: 'https://cdn.example.com/picked.flac' });
+		stubFetchBy(['https://cdn.example.com/picked.flac']);
+		expect(await downloadTrackWithDonor(ownT(), { audioFrom: donor })).toBe('failed');
+		expect(mocks.fetchVariants).not.toHaveBeenCalled();
+	});
+
+	it("every donor failing reads 'failed', not 'no-audio'", async () => {
+		mocks.ensureTrackDetails.mockResolvedValue(mk({ uid: 'qq:9', source: 'qq', audioUrl: 'https://cdn.example.com/own.flac' }));
+		mocks.fetchVariants.mockImplementation(async () => [neteaseT()]);
+		stubFetchBy(['https://cdn.example.com/own.flac', 'https://cdn.example/netease:7.m4a']);
+		expect(await downloadTrackWithDonor(ownT())).toBe('failed');
 	});
 });
 

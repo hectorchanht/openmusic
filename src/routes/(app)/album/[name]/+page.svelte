@@ -16,7 +16,7 @@
 	import { toast as globalToast } from '$lib/stores/toast.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
-	import { Heart, ListEnd, ListStart } from '@lucide/svelte';
+	import { Heart, ListEnd, ListStart, CircleAlert } from '@lucide/svelte';
 	import { t } from '$lib/i18n';
 	import { goto } from '$app/navigation';
 	import { resolveStub } from '$lib/services/discovery';
@@ -392,6 +392,13 @@
 	/** This album's "Download all" is in flight (resolve → download → zip) — the header's busy source. */
 	const albumDownloading = $derived(library.albumJobs.has(albumKey));
 
+	// quick-261105-heal: how many of this album's rows are FAILED downloads — the rows painting
+	// the red alert glyph (a resolved uid whose download record is marked unavailable). Drives
+	// the Heal-all bar under the action row.
+	const failedAlbumCount = $derived(
+		resolvedRows.filter((tr) => tr !== null && library.isUnavailable(tr.uid)).length
+	);
+
 	// Long-press TrackMenu (ii6 #4): album rows are STUBS, so we resolve on long-press, then
 	// open the menu against the real Track. `menuLoading` shows the TrackMenu skeleton while
 	// the resolve is in flight, mirroring the home-shelf long-press idiom.
@@ -586,6 +593,15 @@
 		void downloadAlbum();
 	}
 
+	// quick-261105-heal: one-click Heal all for this album's failed songs. It re-runs the SAME
+	// album pipeline — re-click-safe by construction (songs already held are reused, never
+	// re-fetched), so only the failed ones actually download again, now with the multi-source
+	// donor pass when their own provider refuses. Deliberately NOT supporter-gated: healing a
+	// download the user already made is a repair, not a new bulk perk.
+	function healAlbum() {
+		void downloadAlbum();
+	}
+
 	// Share the album = the two-segment album page URL `/album/{artist}/{name}` (both halves of the
 	// tracklist key ride the path). Native share sheet when available, else copy to clipboard.
 	async function shareAlbum() {
@@ -746,6 +762,16 @@
 		<button class="act" aria-label={t('menu.addToQueue')} title={t('menu.addToQueue')} onclick={queueAlbum} use:tapBounce><ListEnd size={20} /></button>
 		<button class="act" aria-label={t('menu.share')} title={t('menu.share')} disabled={busyAction === 'share'} onclick={shareAlbum} use:tapBounce><Share2 size={20} /></button>
 	</div>
+	<!-- quick-261105-heal: the failed songs are listed right below as the red-glyph rows; when
+	     any exist, this bar offers the one-click repair for all of them at once. Busy follows
+	     the same store album job as Download all, so the two can never run over each other. -->
+	{#if failedAlbumCount > 0}
+		<div class="heal-bar">
+			<CircleAlert size={18} />
+			<span class="heal-label">{t('heal.failedCount', { n: failedAlbumCount })}</span>
+			<button class="heal-btn" disabled={albumDownloading} onclick={healAlbum} use:tapBounce>{t('heal.all')}</button>
+		</div>
+	{/if}
 	<ul class="list">
 		{#each tracks as track, i (i)}
 			<!-- quick-260919-l9e: the shared row. A tracklist entry is an AlbumStub ({artist,title}),
@@ -870,6 +896,11 @@
 	   quick-261103-2xk: 5 buttons since w2q (like / add-to-playlist went), so this no longer has to
 	   squeeze — 12px is still kept so the 44px hit areas (::before below) never overlap. */
 	.album-actions { display: flex; align-items: center; justify-content: center; gap: clamp(12px, 3.2vw, 16px); margin: 2px 0 20px; }
+	/* quick-261105-heal: the failed-downloads repair bar between the actions and the tracklist. */
+	.heal-bar { display: flex; align-items: center; gap: 10px; margin: -6px 0 14px; padding: 10px 12px; border-radius: 10px; background: var(--color-surface-2); color: var(--color-danger-text); }
+	.heal-label { flex: 1; min-width: 0; font-size: 0.8125rem; font-weight: 600; color: var(--color-text); }
+	.heal-btn { flex: none; background: var(--color-primary); border: none; color: #fff; border-radius: 999px; padding: 7px 14px; font-size: 0.8125rem; font-weight: 600; cursor: pointer; }
+	.heal-btn:disabled { opacity: 0.4; cursor: default; }
 	.act { position: relative; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--color-surface-2); border: 1px solid transparent; color: var(--color-text); cursor: pointer; transition: background 0.15s, transform 0.1s; }
 	/* quick-261102-w2q: the 34px circle stays the visual; the hit area grows to the 44px floor. */
 	.act::before { content: ''; position: absolute; inset: -5px; border-radius: 50%; }
