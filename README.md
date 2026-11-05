@@ -19,7 +19,7 @@
 
 ## ✨ The 30-second tour
 
-🔎 **Search everything at once.** NetEase, QQ, Kuwo, Kugou, Migu, JOOX, 5sing, Jamendo, Audius, Internet Archive, Bilibili, SoundCloud, Bandcamp and YouTube Music,
+🔎 **Search everything at once.** NetEase, QQ, Kuwo, Kugou, Migu, JOOX, 5sing, Jamendo, Audius, Internet Archive, Bilibili, Bandcamp and YouTube Music,
 all in one go. Duplicates get merged, and the best-quality copy wins.
 
 🏠 **A home that knows what's hot.** Deezer's top hits, Last.fm shelves by genre and country,
@@ -58,7 +58,6 @@ Italiano, Русский, Türkçe, العربية, हिन्दी, Bahasa I
 | Jamendo | Creative Commons indie | Open catalog |
 | Internet Archive | Live recordings, netlabel releases, Creative Commons | Open archive |
 | Audius | Indie and electronic on a decentralized network | Open network |
-| SoundCloud | Uploads, remixes, indie (own audio; HLS on browsers with native HLS) | Unofficial |
 | Bandcamp | Indie / label releases (mp3-128 streams) | Unofficial |
 | YouTube Music | A bit of everything | Anonymous, no account (and never used for downloads) |
 
