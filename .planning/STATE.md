@@ -269,62 +269,62 @@ Recent decisions affecting current work:
 - [Phase 26-03]: Up-Next PRIMARY = Last.fm track.getSimilar via a NEW dedicated /api/lastfm/similar-tracks edge route (mirrors /api/similar's key/CORS/absent-key posture; cannot reuse /api/similar [artist-only] or /api/lastfm/info [*.getinfo allow-list]). buildSimilarQueue: 56 calls → 1.
 - [Phase 26-03]: Up-Next items are lazy name-only stubs (Plan 26-01 resolveByName marker) with a STABLE synthetic uid = `${primary}:similar-${matchKey(artist,title)}` (colon-form, never collides with a real numeric songid). The seed (a real track) is dropped by normalized identity; excludeUids + same-song dedupe key on the synthetic uid. Player NOT edited — play()'s indexOf queue-swap already adopts the resolved real uid.
 - [Phase 26-03]: Dry-fallback (track.getSimilar returns 0 for thin-scrobble CN songs) stays SINGLE-source: artist.getSimilar → one kuwo-first single-source searchAll per artist (onlyPrimarySource prefs), never the 8-source fan-out. Last-resort same-artist search is single-source too.
-- [Phase 43]: 09-01: Endpoint fork B — dedicated /api/lastfm/discovery for LIST methods; /api/lastfm/info extended only for album tracklist
-- [Phase 43]: 09-01: Cache API cache key = own-origin discovery Request (secret never cached); per-method public TTLs charts 1h/tags 6h/topalbums 24h
-- [Phase 43]: 09-02: Home is the Last.fm discovery surface — FOUR shelves (top hits / top artists / per-tag / per-country); tag+country fan-out capped via mapWithConcurrency (≤4 in-flight, Pitfall 11); v2 localStorage shelf cache + background revalidate
-- [Phase 43]: 09-02: Discovery tracks are {artist,title} stubs — tap-to-play resolves via resolveStub (searchAll+dedupeBest) then player.play (D-03); top-artist tiles goto to the artist page; buildDiversePicks stays as the no-key/empty fallback (D-06)
-- [Phase 43]: 09-03: album artist carried via ?artist= URL query param (artist-page link), read with page.url.searchParams.get — replaces the tracks[0]?.artist derivation; the album tracklist is the real album.getInfo ordered stubs resolved on tap via resolveStub
+- [Phase ?]: 09-01: Endpoint fork B — dedicated /api/lastfm/discovery for LIST methods; /api/lastfm/info extended only for album tracklist
+- [Phase ?]: 09-01: Cache API cache key = own-origin discovery Request (secret never cached); per-method public TTLs charts 1h/tags 6h/topalbums 24h
+- [Phase ?]: 09-02: Home is the Last.fm discovery surface — FOUR shelves (top hits / top artists / per-tag / per-country); tag+country fan-out capped via mapWithConcurrency (≤4 in-flight, Pitfall 11); v2 localStorage shelf cache + background revalidate
+- [Phase ?]: 09-02: Discovery tracks are {artist,title} stubs — tap-to-play resolves via resolveStub (searchAll+dedupeBest) then player.play (D-03); top-artist tiles goto to the artist page; buildDiversePicks stays as the no-key/empty fallback (D-06)
+- [Phase ?]: 09-03: album artist carried via ?artist= URL query param (artist-page link), read with page.url.searchParams.get — replaces the tracks[0]?.artist derivation; the album tracklist is the real album.getInfo ordered stubs resolved on tap via resolveStub
 - [Phase 14-01]: D-04 TTL cache wraps the searchAll seam (key=normQuery|sources|page, 5-min TTL, __clearSearchCache() for tests); caches final merged superset metadata only, never audio URLs
 - [Phase 14-01]: D-03 client-ladder reorder via pure pickByQualityPref; settings.defaultQuality default auto->128 read by QQ(STD)/JOOX(probe order)/Kuwo(level=128k best-effort) adapters importing settings directly; JOOX_BR=4 untouched (proxy.test.ts green)
 - [Phase 14-01]: D-05 searchHistory store (key openmusic:search-history:v1, cap 12) DISTINCT in symbol+key from play-history; pure recordQuery/parseSearchHistory + thin browser-guarded runes wrapper
 - [Phase 14-01]: D-06 progressive searchAll via optional trailing onPartial (non-breaking); accumulate->re-interleave->emit with sig.aborted guard in .finally; cache HIT fires onPartial once with pending:0
-- [Phase 43]: [Phase 14-02]: D-02 searchSession is IN-MEMORY runes singleton (q/results/page/hasMore/scrollY/searched); SSR-leak (T-14-05) mitigated by browser-side-write discipline + HAS_WINDOW backstop, NOT persistence; onMount restores instantly (no refetch) + scroll after tick, new query overwrites via save()
-- [Phase 43]: [Phase 14-02]: D-01 one {#snippet skeletonRows} shared by first-load (loading && results.length===0) + load-more; D-06 onPartial re-runs dedupeBest per partial with two-layer abort guard (myAc.signal.aborted || kw!==q.trim()), results cleared at run() start so skeleton yields to first partial; loadMore stays blocking
-- [Phase 43]: [Phase 14-02]: D-05 suggestions on inputFocused && q.trim()==='' && !searched; 150ms blur-delay + onmousedown-preventDefault so tap registers; recorded on submit (zero-result queries listed); +search.recent/search.clear i18n in 3 dicts
-- [Phase 43]: [Phase 18-01]: Sleep-timer deadline is ABSOLUTE wall-clock (Date.now()+ms, D-14), survives bg-tab throttling; 1s UI tick recomputes remaining, never accumulates. Store in-memory only (D-13). decideEndedAction pure-tested locks D-03 (sleep beats repeat-one beats advance). canFadeVolume typed structural {volume} so iOS read-only path is node-testable.
-- [Phase 43]: [Phase 18-02]: Sleep-timer expiry wired into player at four seams; blocker proven in code (expiry never calls next()/runFallback, never bumps playGen, never touches failure counters); wake-timer backstop armed via public player.onSleepTimerSet().
+- [Phase ?]: [Phase 14-02]: D-02 searchSession is IN-MEMORY runes singleton (q/results/page/hasMore/scrollY/searched); SSR-leak (T-14-05) mitigated by browser-side-write discipline + HAS_WINDOW backstop, NOT persistence; onMount restores instantly (no refetch) + scroll after tick, new query overwrites via save()
+- [Phase ?]: [Phase 14-02]: D-01 one {#snippet skeletonRows} shared by first-load (loading && results.length===0) + load-more; D-06 onPartial re-runs dedupeBest per partial with two-layer abort guard (myAc.signal.aborted || kw!==q.trim()), results cleared at run() start so skeleton yields to first partial; loadMore stays blocking
+- [Phase ?]: [Phase 14-02]: D-05 suggestions on inputFocused && q.trim()==='' && !searched; 150ms blur-delay + onmousedown-preventDefault so tap registers; recorded on submit (zero-result queries listed); +search.recent/search.clear i18n in 3 dicts
+- [Phase ?]: [Phase 18-01]: Sleep-timer deadline is ABSOLUTE wall-clock (Date.now()+ms, D-14), survives bg-tab throttling; 1s UI tick recomputes remaining, never accumulates. Store in-memory only (D-13). decideEndedAction pure-tested locks D-03 (sleep beats repeat-one beats advance). canFadeVolume typed structural {volume} so iOS read-only path is node-testable.
+- [Phase ?]: [Phase 18-02]: Sleep-timer expiry wired into player at four seams; blocker proven in code (expiry never calls next()/runFallback, never bumps playGen, never touches failure counters); wake-timer backstop armed via public player.onSleepTimerSet().
 - [Phase 18-03]: Sleep-timer UI is a globally-mounted SleepTimerSheet (3rd pickerOpen instance, overlay 'trackmenu-timer', open-only $effect) driven by a new sleepTimer.sheetOpen flag; TrackMenu item + nowbar moon/countdown badge + now-playing full readout all converge on the same sheet (D-08). Four i18n keys (timer.minutes a single {n} interpolation key) in all 15 dicts, no expiry-toast key (D-09). The sheet arms player.onSleepTimerSet() after set() (18-02 contract). Browser-verified (set/reopen/restart/cancel/i18n/zero-console); expiry-fade + D-03/D-04/D-05 + lock-screen deferred to device testing.
 - [Phase 19]: 19-01: D-06 force-generate = a 'remix' QueueContext enum value + a one-line effectiveUpnextMode early-return (if ctx===remix return generated); least-churn vs threading a mode param (A1). Player store unchanged — Remix reuses setQueue/play({fresh})/regenerate verbatim.
 - [Phase 19]: 19-01: MENU-01 gating extracted to PURE helper track-menu-gate.ts (isGatedReady = detailsLoaded && uid && audioUrl; shouldStartResolve = !inFlight.has(key)) so it is node-testable without a DOM; the new Set() reassign-for-reactivity stays in the component (19-02). i18n parity test widened from 3 to all 15 locales.
 - [Phase 19]: 19-02: TrackMenu rework landed as ONE atomic commit (the 3 contracts are mutually-dependent edits to one component file that won't compile in partial states); overlay $effect kept byte-unchanged (dep open-only, untrack, sole-dismiss cleanup, {#if open && track}); new Close (X) calls close() only. doDownload/doDetail refactored to gated run(resolved) callbacks; Download re-resolves at downloadQuality inside the callback (WR-07 preserved).
-- [Phase 43]: 19-03: MENU-03/D-12 stuck-highlight fix lands ENTIRELY at the 6 long-press trigger sites + one global app.css tap-highlight reset; longpress.ts and all onclick handlers untouched (suppressNextClick trailing-click guard + pointercancel/pointerup :active release preserved). Each sticky :hover/:active wrapped in @media (hover: hover) byte-unchanged; every onlongpress calls (e.currentTarget as HTMLElement)?.blur(). pnpm check 0/0, 626 tests green; device-pass deferred.
+- [Phase ?]: 19-03: MENU-03/D-12 stuck-highlight fix lands ENTIRELY at the 6 long-press trigger sites + one global app.css tap-highlight reset; longpress.ts and all onclick handlers untouched (suppressNextClick trailing-click guard + pointercancel/pointerup :active release preserved). Each sticky :hover/:active wrapped in @media (hover: hover) byte-unchanged; every onlongpress calls (e.currentTarget as HTMLElement)?.blur(). pnpm check 0/0, 626 tests green; device-pass deferred.
 - [Phase 25]: 25-01: Import tongwen-core/esm/{converter,dictionary} submodules (not the index) — the index re-exports a DOM walker (NodeFilter, undefined in the node Vitest project); deep-import is walker-free and trims the browser chunk
 - [Phase 25]: 25-01: Offline s2t converter is lazy (dynamic import() only, memoized) + never-throw identity fallback; s2t char+phrase dicts only, t2s empty to keep the lazy chunk ~72 KB (D-01/D-03/D-04)
-- [Phase 43]: D-05: /api/translate runs an ordered Azure -> DeepL -> Google provider cascade, advancing on transport error / non-2xx / rate-limit / echo — single free-Google endpoint rate-limited + silently echoed originals; cascade keeps translation working when one provider is down (25-02)
-- [Phase 43]: D-06: Azure/DeepL provider keys are OPTIONAL + edge-only in Env (parity with JOOX_TOKEN/LASTFM_*) — absent key skips that tier and the cascade falls through to keyless Google; keys never appear in response body or client bundle (25-02)
-- [Phase 43]: 25-03: zh-Hant offline routing intercepted in translateLinesEx choke point (D-02) — Chinese lines convert client-side (zero network), only non-Chinese remainder hits /api/translate; CACHE_VER v2->v3; ZERO caller changes
-- [Phase 43]: 25-03: blank lines are neither offline-converted nor API-sent (trivially complete) so all-Chinese lyrics with blank separators make ZERO network calls
-- [Phase 43]: 26-01: registry reorder is DATA-ONLY — kuwo-first SOURCES order propagates to getEnabledAdapters/fallbackOrder/interleave/resolveNameStub; contracts/enabledByDefault/SOURCE_RANK unchanged
-- [Phase 43]: 26-01: resolveNameStub + crossSourceLyric walk the kuwo-first order ONE source per searchAll (onlySource prefs) — never an all-source fan-out on a resolve path; onlySource duplicated in catalog.ts to avoid a catalog<->fallback cycle
+- [Phase ?]: D-05: /api/translate runs an ordered Azure -> DeepL -> Google provider cascade, advancing on transport error / non-2xx / rate-limit / echo — single free-Google endpoint rate-limited + silently echoed originals; cascade keeps translation working when one provider is down (25-02)
+- [Phase ?]: D-06: Azure/DeepL provider keys are OPTIONAL + edge-only in Env (parity with JOOX_TOKEN/LASTFM_*) — absent key skips that tier and the cascade falls through to keyless Google; keys never appear in response body or client bundle (25-02)
+- [Phase ?]: 25-03: zh-Hant offline routing intercepted in translateLinesEx choke point (D-02) — Chinese lines convert client-side (zero network), only non-Chinese remainder hits /api/translate; CACHE_VER v2->v3; ZERO caller changes
+- [Phase ?]: 25-03: blank lines are neither offline-converted nor API-sent (trivially complete) so all-Chinese lyrics with blank separators make ZERO network calls
+- [Phase ?]: 26-01: registry reorder is DATA-ONLY — kuwo-first SOURCES order propagates to getEnabledAdapters/fallbackOrder/interleave/resolveNameStub; contracts/enabledByDefault/SOURCE_RANK unchanged
+- [Phase ?]: 26-01: resolveNameStub + crossSourceLyric walk the kuwo-first order ONE source per searchAll (onlySource prefs) — never an all-source fan-out on a resolve path; onlySource duplicated in catalog.ts to avoid a catalog<->fallback cycle
 - [Phase 27]: 27-03: /api/ytmusic/stream/:videoId = ANDROID_VR player (clientVersion 1.60.19 + cached anonymous visitorData) -> select itag 140 (AAC/mp4, iOS-Safari-safe; never Opus itag 251) -> RAW edge byte-fetch (fetchWithRetry retries=1, NOT the api-base governor) of the IP-locked googlevideo url in the SAME invocation, streaming res.body back with Range passthrough (206 seek + 200 download). Bot gate -> getVisitorData(true) refresh ONCE + retry -> still-not-OK -> 502 (client cross-source fallback engages, never hang). Only ever fetches the adaptiveFormats url (no open relay). CARRIED RISK T-27-03-OP: same-IP egress within one invocation + bot-challenge rate under load are UAT-gated on a DEPLOYED Worker (not unit-provable); real 206 playback/seek + a real download also device-UAT-gated.
 - [Phase 26]: 26-05: netease dry-spell health-gate — a pure in-memory neteaseHealth trips after DRY_THRESHOLD(3) consecutive [] responses, netease.search() short-circuits to [] (no apiFetch) for GATE_WINDOW_MS(~60s), auto-probes on expiry, recordOk() = instant recovery; contract-drift THROW preserved and never counted as dry
-- [Phase 43]: [Phase 26-04]: groupVariants reuses dedupe's private key() (identity single-source); the search page keys variant groups by uid so a deduped winner resolves its cross-source siblings without exporting key().
-- [Phase 43]: [Phase 26-04]: version picker consumes the retained pre-dedupe interleaved variants — ZERO new API calls (VERSIONS-01); trigger shown only on >1-source rows; default row tap stays kuwo-first fast.
+- [Phase ?]: [Phase 26-04]: groupVariants reuses dedupe's private key() (identity single-source); the search page keys variant groups by uid so a deduped winner resolves its cross-source siblings without exporting key().
+- [Phase ?]: [Phase 26-04]: version picker consumes the retained pre-dedupe interleaved variants — ZERO new API calls (VERSIONS-01); trigger shown only on >1-source rows; default row tap stays kuwo-first fast.
 - [Phase 27]: [27-02]: getVisitorData caches an anonymous visitorData token under a synthetic own-origin edgeCache key (never the key-bearing upstream URL), ~6h soft TTL; a refresh clears the cache so a known-bad token is never reused
 - [Phase 27]: [27-02]: /api/ytmusic/search returns an empty-but-valid shelf envelope (musicShelfRenderer, zero rows) on empty-q/upstream-error so the 27-01 client parse yields [] instead of throwing its shelf-absent contract-drift guard
-- [Phase 43]: 29-01: consolidated {artist} - {title}.{ext} into one pure download-filename helper (D-08); saveBlobToDisk anchor seam returns false instead of navigating on save failure (DL-BUG-01)
-- [Phase 43]: 29-02: library.downloading transient reactive per-uid Set (never persisted, D-10/T-29-02-01); off the player (D-18)
-- [Phase 43]: 29-02: 5 download/migration i18n keys added to all 15 locales, double-quoted, {moved}/{total} verbatim
-- [Phase 43]: 29-04: shared DownloadControl.svelte is the single tri-state download affordance; album stubs resolve on tap (persist:false); CompactRow shows a passive downloaded badge only (initiation stays in the menu)
-- [Phase 43]: 30-01: share URLs are carrier-free — identity rides two path segments (artist first), cover rides own-origin /api/og; no share-time zhs→zht conversion (OG-ZH-01 resolved as removal)
-- [Phase 43]: 30-02: fetchDeezerCover takes a 5th limit param beyond the planned signature — the route ?limit=N results payload has a live caller (deezerSearchTracks, limit=10)
-- [Phase 43]: 30-02: two-valued never-throw sentinel in $lib/proxy — null = fault (never cached), { cover: null, artistPicture: null } = clean miss (cacheable)
-- [Phase 43]: 30-03: /api/og validates upstream Content-Type after stripping parameters (real CDNs send 'image/jpeg; charset=binary'); the bytes cache stores a rebuilt CORS-free copy, never the streamed clone (WR-01)
-- [Phase 43]: 30-04: new album route is an SSR OG landing that replaceState-forwards to the single existing album page; the in-app album nav deliberately stays on the legacy ?artist= shape to avoid a double hop
-- [Phase 43]: 30-04: og:image is spliced OVER buildOg's result (never passed as cover) so the own-origin /api/og URL survives the isHttpsUrl carrier gate on an http dev origin
-- [Phase 43]: 30-04: a +page.ts is unit-testable only if synchronous, fetch-free and importing ./$types type-only — treat those as loader design constraints
-- [Phase 43]: 30-05: four decodeURIComponent(params) sites existed, not three — artist/[name]/+page.svelte was missed by RESEARCH; audit both 'params' and 'page.params' forms
-- [Phase 43]: 31-D-13 blob size gate lives inside blobStore.get + nativeGet (read-only, never mutates)
-- [Phase 43]: 31-D-12 blob provenance is a recorded lastSrcKind flag threaded through driveSrc, not a blob: prefix sniff
-- [Phase 43]: 31-D-06/D-09: ONE versioned caches.default entry (lookup+url+avail); a MISS returns immediately and fills out of band via platform.ctx.waitUntil; the bust POST is structurally delete-only
-- [Phase 43]: 31-D-03 pre-warm lives in $lib/services/prewarm.ts — one uid-Set-deduped ensureTrackDetails, fired only by the top search result and TrackMenu open, never on scroll
-- [Phase 43]: 31-D-16: STRIKE_CAP raised 2 to 3 only; eager strike clearing on 'online' + foreground return is the cheap half of the fix, the cap raise is the expensive half
-- [Phase 43]: 31-D-16: strike clearing is wired as a plain window listener, not a runes effect — attach() must add no tracked read (restore-effect-self-invalidation-loop)
-- [Phase 43]: 31-D-15: the cross-source retry lives at handleDefinitiveFailure and reuses the existing per-episode fallbackAttempted set; it never increments failoverSkips because it repairs a track rather than skipping one
-- [Phase 43]: 31-D-18: needed zero new i18n keys — routing the two visible silent skip paths into the existing batched emitSkipNotice channel was the whole job
-- [Phase 43]: 31-D-17: bg-error-skip keeps BOTH omissions (no notice, no failoverSkips increment) and now documents why — counting it would let an unattended locked device reach SYSTEMIC_SKIP_CAP and pause itself
-- [Phase 43]: 31-04: the resolve-cache bust self-gates in the service via a served-url registry — the player gains one unconditional line and no new provenance flag
-- [Phase 43]: 31-04: a source-bearing track adopts a cached url only on source+songid equality; a dry-source filter that would empty the walk degrades to the full order
+- [Phase ?]: 29-01: consolidated {artist} - {title}.{ext} into one pure download-filename helper (D-08); saveBlobToDisk anchor seam returns false instead of navigating on save failure (DL-BUG-01)
+- [Phase ?]: 29-02: library.downloading transient reactive per-uid Set (never persisted, D-10/T-29-02-01); off the player (D-18)
+- [Phase ?]: 29-02: 5 download/migration i18n keys added to all 15 locales, double-quoted, {moved}/{total} verbatim
+- [Phase ?]: 29-04: shared DownloadControl.svelte is the single tri-state download affordance; album stubs resolve on tap (persist:false); CompactRow shows a passive downloaded badge only (initiation stays in the menu)
+- [Phase ?]: 30-01: share URLs are carrier-free — identity rides two path segments (artist first), cover rides own-origin /api/og; no share-time zhs→zht conversion (OG-ZH-01 resolved as removal)
+- [Phase ?]: 30-02: fetchDeezerCover takes a 5th limit param beyond the planned signature — the route ?limit=N results payload has a live caller (deezerSearchTracks, limit=10)
+- [Phase ?]: 30-02: two-valued never-throw sentinel in $lib/proxy — null = fault (never cached), { cover: null, artistPicture: null } = clean miss (cacheable)
+- [Phase ?]: 30-03: /api/og validates upstream Content-Type after stripping parameters (real CDNs send 'image/jpeg; charset=binary'); the bytes cache stores a rebuilt CORS-free copy, never the streamed clone (WR-01)
+- [Phase ?]: 30-04: new album route is an SSR OG landing that replaceState-forwards to the single existing album page; the in-app album nav deliberately stays on the legacy ?artist= shape to avoid a double hop
+- [Phase ?]: 30-04: og:image is spliced OVER buildOg's result (never passed as cover) so the own-origin /api/og URL survives the isHttpsUrl carrier gate on an http dev origin
+- [Phase ?]: 30-04: a +page.ts is unit-testable only if synchronous, fetch-free and importing ./$types type-only — treat those as loader design constraints
+- [Phase ?]: 30-05: four decodeURIComponent(params) sites existed, not three — artist/[name]/+page.svelte was missed by RESEARCH; audit both 'params' and 'page.params' forms
+- [Phase ?]: 31-D-13 blob size gate lives inside blobStore.get + nativeGet (read-only, never mutates)
+- [Phase ?]: 31-D-12 blob provenance is a recorded lastSrcKind flag threaded through driveSrc, not a blob: prefix sniff
+- [Phase ?]: 31-D-06/D-09: ONE versioned caches.default entry (lookup+url+avail); a MISS returns immediately and fills out of band via platform.ctx.waitUntil; the bust POST is structurally delete-only
+- [Phase ?]: 31-D-03 pre-warm lives in $lib/services/prewarm.ts — one uid-Set-deduped ensureTrackDetails, fired only by the top search result and TrackMenu open, never on scroll
+- [Phase ?]: 31-D-16: STRIKE_CAP raised 2 to 3 only; eager strike clearing on 'online' + foreground return is the cheap half of the fix, the cap raise is the expensive half
+- [Phase ?]: 31-D-16: strike clearing is wired as a plain window listener, not a runes effect — attach() must add no tracked read (restore-effect-self-invalidation-loop)
+- [Phase ?]: 31-D-15: the cross-source retry lives at handleDefinitiveFailure and reuses the existing per-episode fallbackAttempted set; it never increments failoverSkips because it repairs a track rather than skipping one
+- [Phase ?]: 31-D-18: needed zero new i18n keys — routing the two visible silent skip paths into the existing batched emitSkipNotice channel was the whole job
+- [Phase ?]: 31-D-17: bg-error-skip keeps BOTH omissions (no notice, no failoverSkips increment) and now documents why — counting it would let an unattended locked device reach SYSTEMIC_SKIP_CAP and pause itself
+- [Phase ?]: 31-04: the resolve-cache bust self-gates in the service via a served-url registry — the player gains one unconditional line and no new provenance flag
+- [Phase ?]: 31-04: a source-bearing track adopts a cached url only on source+songid equality; a dry-source filter that would empty the walk degrades to the full order
 - [Phase 32]: 32-D-02: 'auto' quality resolves in ONE seam (effectiveQuality in sources/quality.ts); defaultQuality now ships as 'auto'
 - [Phase 32]: 32-D-03: no connection signal or a non-whitelisted navigator.connection.type resolves to '320' (fail closed); iOS Safari + desktop Chrome get '320' by design
 - [Phase 32]: 32-D-04: the '128' rung selects QQ song_play_url_standard at a measured 98 kbps, not the '128-160k band' the old D-03 comment claimed
@@ -337,28 +337,28 @@ Recent decisions affecting current work:
 - [Phase 32]: 32-03: real-device tang RTT DEFERRED at user request (2026-08-31) — Phase 32 verification MUST use 'lossless by default with NO ADDED latency vs Phase 31', not the ROADMAP's absolute 'tap→audio under a second' (unfalsifiable without the measurement)
 - [Phase 32]: 32-D-12/13: qq detail resolves DIRECT to tang via apiFetch with a one-shot /api/qq/detail fallback — msg dropped (mid alone returns the full ladder, verified live 200 in 2.0s)
 - [Phase 32]: 32-D-18/19: accom (伴奏, .ogg) demoted below every real-song rung and labelled ACCOM; inferQualityFromUrl is now a fallback, never an overwrite of the tier the ladder picked
-- [Phase 43]: 32-D-15: 24 MB prebuffer ceiling read from Content-Length (all sources, no Track plumbing) rather than the qq-only song_size_*_str — FLAC streams, every lossy tier still prebuffers
+- [Phase ?]: 32-D-15: 24 MB prebuffer ceiling read from Content-Length (all sources, no Track plumbing) rather than the qq-only song_size_*_str — FLAC streams, every lossy tier still prebuffers
 - [Phase 32]: 32-D-20: the edge resolve entry carries BOTH a permanent qq song_mid and a short-TTL playable url; the url's 900s lifetime lives as an in-payload urlExp the edge checks at read time, so writeResolveEntry's payload-driven Cache-Control split (32-D-10a) is byte-unchanged
 - [Phase 32]: 32-09: catalog's own-mid equality guard covers BOTH the url adoption and the mid adoption — with lossless mid-holders now reading the cache, guarding only the url branch would leave the sibling branch able to rewrite a known track's identity on a matchKey collision
-- [Phase 43]: 33-01: bearerMatches uses a WebCrypto digest-then-XOR compare and fails closed on an unset secret — no timingSafeEqual, so the node-tested path is the workerd production path
-- [Phase 43]: 33-01: screenLogPayload delegates parse+validate to the existing parseActionLog and screens 512 KiB before parsing (Workers free-tier 10ms CPU budget)
-- [Phase 43]: 33-02: Allow-Headers widened to include Authorization for the cross-origin APK preflight; Allow-Origin allowlist untouched (never wildcard)
-- [Phase 43]: 33-02: DIAG R2 binding + DIAG_UPLOAD_TOKEN/DIAG_READ_TOKEN typed as OPTIONAL edge-only Env members; bucket creation + secrets deferred to Plan 06 human checkpoint
-- [Phase 43]: 33-03: activity-log upload strings are token-free (no interpolation) so no upload token renders into UI chrome
-- [Phase 43]: 33-04: one /api/diag route file with ?key= rather than a [key]/+server.ts param route — diag keys contain a slash
-- [Phase 43]: 33-04: the ?key= reply streams the stored R2 object body instead of using jsonResponse — it is already serialized JSON and re-encoding would burn the 10ms Workers Free CPU budget
-- [Phase 43]: 33-05: diagnostics upload token is entered at runtime (prompt) and stored under openmusic:diag:v1, never a build-time env var; a 401 evicts it so the next tap re-prompts
-- [Phase 43]: 33-05: log upload is onclick-only with a re-entrancy guard and no retry path, routed through apiFetch's governor (D-04)
-- [Phase 43]: 33-06: diagnostic tokens generated ONCE into gitignored .dev.vars then piped into wrangler pages secret put — local and prod share one pair, which Plan 07's curls depend on
-- [Phase 43]: 33-06: openmusic is hosted under Cloudflare user f147259@gmail.com (account f1868a07…), not frank.chan@flowtheroom.com — this machine's wrangler login now points there; Flow-account work needs another wrangler login
-- [Phase 43]: 36-01: NEVER auto-bump taglib-wasm — pinned at exactly 2.2.2 (no range); a wasm version change is a review event, not a pnpm update (T-36-01)
-- [Phase 43]: 36-01: Node 24 across .nvmrc/engines/3 workflows; .npmrc engine-strict=true kept. Cloudflare Pages NODE_VERSION=24 env var is a pending human dashboard action (non-blocking)
+- [Phase ?]: 33-01: bearerMatches uses a WebCrypto digest-then-XOR compare and fails closed on an unset secret — no timingSafeEqual, so the node-tested path is the workerd production path
+- [Phase ?]: 33-01: screenLogPayload delegates parse+validate to the existing parseActionLog and screens 512 KiB before parsing (Workers free-tier 10ms CPU budget)
+- [Phase ?]: 33-02: Allow-Headers widened to include Authorization for the cross-origin APK preflight; Allow-Origin allowlist untouched (never wildcard)
+- [Phase ?]: 33-02: DIAG R2 binding + DIAG_UPLOAD_TOKEN/DIAG_READ_TOKEN typed as OPTIONAL edge-only Env members; bucket creation + secrets deferred to Plan 06 human checkpoint
+- [Phase ?]: 33-03: activity-log upload strings are token-free (no interpolation) so no upload token renders into UI chrome
+- [Phase ?]: 33-04: one /api/diag route file with ?key= rather than a [key]/+server.ts param route — diag keys contain a slash
+- [Phase ?]: 33-04: the ?key= reply streams the stored R2 object body instead of using jsonResponse — it is already serialized JSON and re-encoding would burn the 10ms Workers Free CPU budget
+- [Phase ?]: 33-05: diagnostics upload token is entered at runtime (prompt) and stored under openmusic:diag:v1, never a build-time env var; a 401 evicts it so the next tap re-prompts
+- [Phase ?]: 33-05: log upload is onclick-only with a re-entrancy guard and no retry path, routed through apiFetch's governor (D-04)
+- [Phase ?]: 33-06: diagnostic tokens generated ONCE into gitignored .dev.vars then piped into wrangler pages secret put — local and prod share one pair, which Plan 07's curls depend on
+- [Phase ?]: 33-06: openmusic is hosted under Cloudflare user f147259@gmail.com (account f1868a07…), not frank.chan@flowtheroom.com — this machine's wrangler login now points there; Flow-account work needs another wrangler login
+- [Phase ?]: 36-01: NEVER auto-bump taglib-wasm — pinned at exactly 2.2.2 (no range); a wasm version change is a review event, not a pnpm update (T-36-01)
+- [Phase ?]: 36-01: Node 24 across .nvmrc/engines/3 workflows; .npmrc engine-strict=true kept. Cloudflare Pages NODE_VERSION=24 env var is a pending human dashboard action (non-blocking)
 - [Phase 35]: 35-01: the import rollback snapshot lives in the per-tab Storage, never the persistent one — the 5 live keys already hold ~740 KB of a ~5 MB origin budget and library.save()'s quota catch is silent — A snapshot that overflows quota would fail invisibly and take the live data with it; applyEnvelope refuses the import outright when the snapshot cannot be stored (35-D-09)
-- [Phase 43]: 36-02: audio-tags.ts is the ONE tag codec — pure, store-free, never-throws; taglib-wasm behind a memoised dynamic import; container sniffed from bytes, never a URL extension
-- [Phase 43]: 36-02: binary test fixtures co-located at src/lib/services/__fixtures__/ (repo has no tests/ dir); Vitest's include glob never collects them
-- [Phase 43]: 35-02: the 22 backup.* UI strings live in 15 locale dicts (not the 16 CONTEXT D-11/CLAUDE.md claim); the three D-11 failure messages are distinct sentences in every language
-- [Phase 43]: 36-03: SvelteKit's build array DID list the taglib wasm — the SW precache filter removes a real 230 kB gzip cost on every install and every deploy
-- [Phase 43]: 36-03: album track numbers come from the album page's resolved.entries() index; displayIndex banned by source guard at both sites
+- [Phase ?]: 36-02: audio-tags.ts is the ONE tag codec — pure, store-free, never-throws; taglib-wasm behind a memoised dynamic import; container sniffed from bytes, never a URL extension
+- [Phase ?]: 36-02: binary test fixtures co-located at src/lib/services/__fixtures__/ (repo has no tests/ dir); Vitest's include glob never collects them
+- [Phase ?]: 35-02: the 22 backup.* UI strings live in 15 locale dicts (not the 16 CONTEXT D-11/CLAUDE.md claim); the three D-11 failure messages are distinct sentences in every language
+- [Phase ?]: 36-03: SvelteKit's build array DID list the taglib wasm — the SW precache filter removes a real 230 kB gzip cost on every install and every deploy
+- [Phase ?]: 36-03: album track numbers come from the album page's resolved.entries() index; displayIndex banned by source guard at both sites
 - [Phase 35]: 35-04: Settings → Data stays a thin caller — validation in backup-logic.ts, platform branch in backup-io.ts, strings in the dictionaries
 - [Phase 35]: 35-04: the import/undo rollback snapshot is read from sessionStorage; swapping to localStorage is a one-argument change if the APK checkpoint shows it does not survive the reload
 - [Phase 36]: 36-04: Settings → Downloads is a NEW route (settings/playback keeps download quality); Phase 34's device-import button joins it
@@ -366,28 +366,28 @@ Recent decisions affecting current work:
 - [Phase 36]: 36-04: nativePut deletes the previously recorded public content URI before saveToMusic, so a re-put replaces instead of creating 'name (1).m4a' duplicates
 - [Phase 34]: 34-03: presets are fixed audited regexes; only the custom pattern is untrusted — compiled, group-checked and time-probed at save (ReDoS layer 1)
 - [Phase 34]: 34-03: AUDIO_EXTENSIONS exported from download-filename.ts as the single audio-extension vocabulary shared by export and import
-- [Phase 43]: 34-04: scan is API 29+ only; API<=28 resolves 'unsupported' instead of carrying a second column set
-- [Phase 43]: 34-04: MediaStore paging branches at API 30 — QUERY_ARG_LIMIT/OFFSET on R+, LIMIT in sort order on API 29
-- [Phase 43]: 34-05: settings.groupDownloads pair reused from Phase 36 (36-D-17) rather than re-added — /settings/downloads is a shared retag+import page, so the index-row description is left for whichever plan ships the page
-- [Phase 43]: 34-05: 42 device-import translation keys (import.* x37, toast.* x4, menu.unavailable) now live in all 15 locales; en values verbatim from the 34-UI-SPEC Copywriting Contract
-- [Phase 43]: 34-02: device uids short-circuit ensureTrackDetails and bar tryFallback — a local file is never adapter-dispatched nor cross-source substituted
-- [Phase 43]: 34-02: library.unavailable is PERSISTED (unlike downloading) and pruned by setDownloads; the D-06 guard lives at the player's silent eviction site, not in removeDownload, so explicit user removal still works
-- [Phase 43]: 34-06: device-import.ts is the pure import brain — syncDevice drops only on a complete scan, the merge lane writes a URI and nothing else, and a runaway custom regex is demoted mid-run
-- [Phase 43]: 34-07: the import completion toast is a PRECEDENCE (failed > patternFellBack > done), not sequential assignments — one notice slot with no await between writes made toast.patternFellBack unreachable
-- [Phase 43]: 34-07: plan.relink is applied BEFORE library.setDownloads, so a relinked song is playable immediately rather than after the next launch
-- [Phase 43]: 34-08: /settings/downloads index row stays visible on web — Phase 36's retag shares the page and works there, so the native gate lives in the page body, not the navigation
+- [Phase ?]: 34-04: scan is API 29+ only; API<=28 resolves 'unsupported' instead of carrying a second column set
+- [Phase ?]: 34-04: MediaStore paging branches at API 30 — QUERY_ARG_LIMIT/OFFSET on R+, LIMIT in sort order on API 29
+- [Phase ?]: 34-05: settings.groupDownloads pair reused from Phase 36 (36-D-17) rather than re-added — /settings/downloads is a shared retag+import page, so the index-row description is left for whichever plan ships the page
+- [Phase ?]: 34-05: 42 device-import translation keys (import.* x37, toast.* x4, menu.unavailable) now live in all 15 locales; en values verbatim from the 34-UI-SPEC Copywriting Contract
+- [Phase ?]: 34-02: device uids short-circuit ensureTrackDetails and bar tryFallback — a local file is never adapter-dispatched nor cross-source substituted
+- [Phase ?]: 34-02: library.unavailable is PERSISTED (unlike downloading) and pruned by setDownloads; the D-06 guard lives at the player's silent eviction site, not in removeDownload, so explicit user removal still works
+- [Phase ?]: 34-06: device-import.ts is the pure import brain — syncDevice drops only on a complete scan, the merge lane writes a URI and nothing else, and a runaway custom regex is demoted mid-run
+- [Phase ?]: 34-07: the import completion toast is a PRECEDENCE (failed > patternFellBack > done), not sequential assignments — one notice slot with no await between writes made toast.patternFellBack unreachable
+- [Phase ?]: 34-07: plan.relink is applied BEFORE library.setDownloads, so a relinked song is playable immediately rather than after the next launch
+- [Phase ?]: 34-08: /settings/downloads index row stays visible on web — Phase 36's retag shares the page and works there, so the native gate lives in the page body, not the navigation
 - [Phase 38]: 38-D-08/D-09: share carrier is the separator-less {source}{songid} form, reusing parseEntityParam as the validator — Zero new validation code and the closed source enum doubles as the input-validation allowlist for the attacker-controllable ?u= param
 - [Phase 38]: 38-D-30: the share source enum now includes audius|ytmusic — It is the allowlist standing between the ?u= carrier and a SOURCES[source].resolve dispatch, so it must equal the SourceId union
 - [Phase 38]: 38-02: armTrack splices via spliceAfterCurrent directly — playNext autoplays on an empty queue (38-D-29), so the cold share arrival must never route through it
 - [Phase 38]: 38-02: armTrack owns a separate armGen counter (not playStub's pendingGen) and also snapshots playGen, so a user play() wins over an in-flight arm
-- [Phase 43]: 38-04: one arriveTrack dispatcher — cold arms via armTrack (never playNext, D-29), warm splices; a carrier miss falls through to the name resolve (D-10)
-- [Phase 43]: 38-06: TrackMenu passes the Track as songShareUrl 4th arg, so every emitted share link carries ?u={source}{songid} (D-08)
-- [Phase 43]: 38-06: toast.sharedPlaying added to all 15 locales, each value reusing that locale's own queue noun (D-20)
-- [Phase 43]: 38-05: /song/[slug] kept, not deprecated — both landing routes share one arrival module (u: null for the legacy shape)
-- [Phase 43]: 38-05: the share CTA stays tappable during the mount resolve so the tap adopts it (D-16); toggle() guarded on !player.playing
-- [Phase 43]: 38-08: Release cert fingerprint derived from a signed release APK via keytool -printcert -jarfile (D-22); keystore and passwords never entered the repo
-- [Phase 43]: 38-09: App Links verified on the emulator with the DEBUG key only — the release fingerprint and felt first-tap latency stay unverified until a real device runs Task 3
-- [Phase 43]: 38-09: java_home -v 21 resolves to JDK 20 here — pnpm apk needs the literal /opt/homebrew/opt/openjdk@21
+- [Phase ?]: 38-04: one arriveTrack dispatcher — cold arms via armTrack (never playNext, D-29), warm splices; a carrier miss falls through to the name resolve (D-10)
+- [Phase ?]: 38-06: TrackMenu passes the Track as songShareUrl 4th arg, so every emitted share link carries ?u={source}{songid} (D-08)
+- [Phase ?]: 38-06: toast.sharedPlaying added to all 15 locales, each value reusing that locale's own queue noun (D-20)
+- [Phase ?]: 38-05: /song/[slug] kept, not deprecated — both landing routes share one arrival module (u: null for the legacy shape)
+- [Phase ?]: 38-05: the share CTA stays tappable during the mount resolve so the tap adopts it (D-16); toggle() guarded on !player.playing
+- [Phase ?]: 38-08: Release cert fingerprint derived from a signed release APK via keytool -printcert -jarfile (D-22); keystore and passwords never entered the repo
+- [Phase ?]: 38-09: App Links verified on the emulator with the DEBUG key only — the release fingerprint and felt first-tap latency stay unverified until a real device runs Task 3
+- [Phase ?]: 38-09: java_home -v 21 resolves to JDK 20 here — pnpm apk needs the literal /opt/homebrew/opt/openjdk@21
 - [Phase 39]: 39-D-04: parseYtCharts returns [] unless the echoed countryCode equals the requested cc (YouTube serves the global chart with a 200 for unsupported countries)
 - [Phase 39]: 39-D-06: parseItunesGenreFeed keeps only rows whose category im:id equals the requested genre (a bogus genre id returns the overall chart with a 200)
 - [Phase 39]: 39-D-07: fuseCharts = reciprocal-rank fusion (k=60, cap 50) keyed by matchKey; caller list order is display precedence ([apple, kkbox])
@@ -415,7 +415,7 @@ Recent decisions affecting current work:
 - [Phase 39]: 39-10: Auto chip/label resolve resolveChartRegion('auto') separately from the effective region so 'Auto (…)' stays truthful while an explicit region is saved
 - [Phase 39]: 39-10: onReorder→reorderListed shipped in the same commit as the template iterating listed (drag indices only mean listed-index once the template renders listed)
 - [Phase 39]: 39-10: Classic accordion keeps Playback 22px margin and a sentence-case .cur ('Off'/'1 on') inside its uppercase summary
-- [Phase 43]: 40-01: buildZip returns null (no Zip64) above 0xFFFF entries or 0xFFFFFFFF bytes, checked before streaming; path segments byte-capped at 180 UTF-8 bytes via sanitizePathSegment over sanitizeFilename
+- [Phase ?]: 40-01: buildZip returns null (no Zip64) above 0xFFFF entries or 0xFFFFFFFF bytes, checked before streaming; path segments byte-capped at 180 UTF-8 bytes via sanitizePathSegment over sanitizeFilename
 - [Phase 40]: 40-04: other-CN cover tier prefs are { qq: false, ytmusic: false } (chain + picker); PER_TIER_CAP 3
 - [Phase 40]: 40-04: chain YTM winner writes uid layer only for uid-bearing tracks (isYtmCoverUrl); uid-less stubs keep name-layer write
 - [Phase 40]: 40-06: /api/cover-pick POST refuses an absent Origin (stricter than lyric-offset); stored urls re-screened on read; no quorum (one vote publishes)
