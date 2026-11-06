@@ -3,7 +3,7 @@
 	import { afterNavigate, goto } from '$app/navigation';
 	import { searchAll } from '$lib/services/catalog';
 	import { prewarmTrack } from '$lib/services/prewarm';
-	import { dedupeBest, groupVariants } from '$lib/services/dedupe';
+	import { dedupeBest } from '$lib/services/dedupe';
 	import { rankPool } from '$lib/services/song-variant';
 	import { scoreMatch } from '$lib/services/score-match';
 	import { computeSetContext, tokenizeQuery } from '$lib/services/score-context';
@@ -33,13 +33,12 @@
 	import { searchHistory } from '$lib/stores/searchHistory.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { t } from '$lib/i18n';
-	import { LoaderCircle, Heart, ListStart, Layers, X, Trash2, Search } from '@lucide/svelte';
+	import { LoaderCircle, Heart, ListStart, X, Trash2, Search } from '@lucide/svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { dragScroll } from '$lib/actions/dragScroll';
 	import { toast } from '$lib/stores/toast.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
-	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import SettingsGear from '$lib/components/SettingsGear.svelte';
 	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
 	// User 2026-10-06 (audit): replace native confirm() with in-app ConfirmModal for consistency.
@@ -51,27 +50,6 @@
 
 	let menuTrack = $state<Track | null>(null);
 	let menuOpen = $state(false);
-
-	// VERSIONS-01: the version picker consumes the RETAINED pre-dedupe variants. `variantGroups`
-	// maps EVERY variant uid → its same-song cross-source group (built from the interleaved
-	// pre-dedupe set via groupVariants). A displayed (deduped) row's uid is a member of its own
-	// group, so `variantGroups[row.uid]` yields the full source list for that song — no private
-	// identity key needed here. Zero new API calls: the data is already in the search result set.
-	let variantGroups = $state<Record<string, Track[]>>({});
-	let pickerVersions = $state<Track[]>([]);
-	let pickerOpen = $state(false);
-	// aria-label for the trigger, resolved OUTSIDE the {#each results as t} block where `t` is the
-	// loop's Track (shadowing the i18n `t()`); $derived so it re-resolves on appLang change.
-	const verOpenLabel = $derived(t('versions.open'));
-
-	// Build the uid → variant-group lookup from the interleaved pre-dedupe set. Pure/local.
-	function buildVariantGroups(interleaved: Track[]): Record<string, Track[]> {
-		const byUid: Record<string, Track[]> = {};
-		for (const group of groupVariants(interleaved).values()) {
-			for (const v of group) byUid[v.uid] = group;
-		}
-		return byUid;
-	}
 
 	let q = $state('');
 	let queryInputEl = $state<HTMLInputElement | null>(null);
@@ -248,7 +226,6 @@
 	function resetResults() {
 		results = [];
 		lastPrewarmedUid = ''; // 31-D-03: a fresh query may pre-warm its own top row
-		variantGroups = {};
 		artistTiles = [];
 		artistTilesFor = '';
 		hasMore = false;
@@ -488,7 +465,6 @@
 		// D-01 first-load skeleton shows immediately.
 		results = [];
 		lastPrewarmedUid = ''; // 31-D-03: the new query's top row is a new pre-warm candidate
-		variantGroups = {}; // VERSIONS-01: drop the prior query's variant groups too
 		inputFocused = false;
 		loading = true;
 		// BUGFIX: raise the dwell-floored skeleton flag and stamp the start so the finally
@@ -506,12 +482,9 @@
 				// SRCH-01/D-02: re-sort by score INSIDE the race guard (Pitfall 3 — a superseded
 				// partial returns above before ever reaching here).
 				results = rankList(dedupeBest(partial.interleaved, settings.preferredSource), kw);
-				// VERSIONS-01: retain the pre-dedupe variants alongside the displayed rows.
-				variantGroups = buildVariantGroups(partial.interleaved);
 			});
 			// Final value is authoritative — re-derive from the complete superset, then re-sort.
 			results = rankList(dedupeBest(interleaved, settings.preferredSource), kw);
-			variantGroups = buildVariantGroups(interleaved); // VERSIONS-01
 			// kyf: derive artist tiles from the settled result set (race-guarded inside).
 			void refreshArtistTiles(kw, results);
 			// Reset pagination: assume more may exist whenever page 1 returned anything;
@@ -573,7 +546,6 @@
 			} else {
 				// REPLACE with the cumulative superset (never concatenate — see pagination_mechanism).
 				results = merged;
-				variantGroups = buildVariantGroups(interleaved); // VERSIONS-01: grow the variant groups too
 				page = next;
 				persistSession(); // D-02: keep the session fresh so a mid-scroll nav restores the larger set
 			}
@@ -927,21 +899,9 @@
 			<!-- quick-260910-qwt: the shared three-rung row cover read. It must sit directly under the
 			     {#each} — Svelte only allows {@const} as an immediate block child. -->
 			<li class="row-line">
-				<!-- VERSIONS-01: version-picker trigger. A SIBLING tap target (its own ≥44px hit area,
-				     mirroring CompactRow's .opt layout) placed BEFORE the play/grip control, so it never
-				     nests inside the row play button. Rendered ONLY when this song has >1 source variant
-				     (a single-source song has nothing to pick). Opens the picker with the retained
-				     pre-dedupe variant group — zero new API calls. -->
-				{#if (variantGroups[t.uid]?.length ?? 0) > 1}
-					<button
-						class="ver"
-						aria-label={verOpenLabel}
-						onclick={() => { pickerVersions = [t, ...(variantGroups[t.uid] ?? []).filter((v) => v.uid !== t.uid)]; pickerOpen = true; }}
-						use:tapBounce
-					>
-						<Layers size={18} />
-					</button>
-				{/if}
+				<!-- quick-261104-nover (Hector 2026-11-04): the leading VERSIONS-01 Layers trigger is gone —
+				     this was the only list that rendered one. Play-from-source stays reachable via the
+				     long-press TrackMenu (openVersions). -->
 				<div class="swipe-wrap">
 					<!-- UX-04 reveal layers sit BEHIND the row; the row translateX (use:swipeAction) slides
 					     to expose them. Right-drag exposes the left-anchored like affordance (quick-261104-swipe); left-drag
@@ -1004,17 +964,6 @@
 	confirmLabel={t('search.clear')}
 	onconfirm={() => { searchHistory.clear(); clearAllOpen = false; }}
 	onclose={() => (clearAllOpen = false)}
-/>
-
-<!-- VERSIONS-01: ONE VersionPicker mount (mirrors the single TrackMenu mount), driven by
-     pickerVersions/pickerOpen. onpick plays the chosen source's EXACT variant; default row tap
-     is unchanged (still plays the deduped winner). -->
-<VersionPicker
-	versions={pickerVersions}
-	open={pickerOpen}
-	overlayId="versionpicker-list"
-	onclose={() => (pickerOpen = false)}
-	onpick={(v) => player.tapPlay(v)}
 />
 
 <style>
@@ -1118,16 +1067,9 @@
 	}
 
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-	/* VERSIONS-01: a song row = the optional leading version trigger + the swipeable play row, laid
-	   out together so the trigger is a SIBLING tap target (its own ≥44px hit area) rather than nested
-	   inside the play button. The swipe-wrap flexes to fill the remaining width. */
+	/* A song row = the swipeable play row (the leading VERSIONS-01 trigger was removed in
+	   quick-261104-nover). The swipe-wrap flexes to fill the remaining width. */
 	.row-line { display: flex; align-items: center; gap: 8px; min-height: 44px; }
-	.ver {
-		flex: none; width: 44px; height: 44px; display: grid; place-items: center;
-		background: none; border: none; border-radius: var(--radius-full, 999px);
-		color: var(--color-text-muted); cursor: pointer;
-	}
-	@media (hover: hover) { .ver:hover { background: var(--color-surface); color: var(--color-text); } }
 	/* UX-04: positioning context for the swipe reveal layers. The reveal spans sit BEHIND the row
 	   (the row carries an opaque background); the row's translateX (use:swipeAction) slides to
 	   expose the correct side. overflow:hidden clips the row's off-screen travel + keeps the
