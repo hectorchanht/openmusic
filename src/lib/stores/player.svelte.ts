@@ -3163,6 +3163,15 @@ class Player {
 		// EXTERNAL-PAUSE SELF-HEAL: an OS/lock-screen pause is INTENTIONAL — route through pauseAudio()
 		// so the `pause` listener honours it instead of re-playing the track.
 		ms.setActionHandler('pause', () => this.pauseAudio());
+		// Voice "Hey Google, stop the music" arrives as onStop (native) / 'stop' (web). With no
+		// handler the native plugin never advertises ACTION_STOP, so Assistant had nothing to call.
+		// Treated as an intentional pause (keeps the track + queue resumable). try/catch: older
+		// browsers throw TypeError on an action they don't know.
+		try {
+			ms.setActionHandler('stop', () => this.pauseAudio());
+		} catch {
+			/* unsupported action — voice stop just isn't offered there */
+		}
 		ms.setActionHandler('previoustrack', () => this.prev());
 		ms.setActionHandler('nexttrack', () => this.next());
 		ms.setActionHandler('seekbackward', (details) => {
