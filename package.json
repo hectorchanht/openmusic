@@ -7,7 +7,7 @@
 		"node": ">=24"
 	},
 	"scripts": {
-		"dev": "vite dev",
+		"dev": "BUILD_TARGET=native vite dev",
 		"build": "vite build",
 		"build:native": "BUILD_TARGET=native VITE_API_BASE=https://openmusic.lol vite build",
 		"preview": "wrangler pages dev .svelte-kit/cloudflare --port 4173",
