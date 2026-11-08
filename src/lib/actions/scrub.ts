@@ -82,7 +82,15 @@ export const scrub: Action<HTMLElement, ScrubOpts> = (node, opts) => {
 	node.addEventListener('pointerup', up);
 	const cancel = (e: PointerEvent) => up(e, false);
 	node.addEventListener('pointercancel', cancel);
-	node.addEventListener('lostpointercapture', cancel); // quick-261102-u05 (DECISIONS.md §12): a lost capture no longer leaves the preview stuck
+	// quick-261108-swp: `lostpointercapture` BUBBLES. On touch the finger's implicit capture sits on
+	// the CHILD under it (a cover <img>, a title span); our setPointerCapture moves it to this node,
+	// so the child fires lostpointercapture, it bubbles here and was read as OUR capture being lost
+	// — every touch swipe cancelled itself one frame after it began and sprang back (Hector,
+	// 2026-11-08, Android Chrome + APK). Only the node's own loss counts.
+	const lostCapture = (e: PointerEvent) => {
+		if (e.target === node) cancel(e);
+	};
+	node.addEventListener('lostpointercapture', lostCapture); // quick-261102-u05 (DECISIONS.md §12): a lost capture no longer leaves the preview stuck
 
 	return {
 		update(next: ScrubOpts) {
@@ -97,7 +105,7 @@ export const scrub: Action<HTMLElement, ScrubOpts> = (node, opts) => {
 			node.removeEventListener('pointermove', move);
 			node.removeEventListener('pointerup', up);
 			node.removeEventListener('pointercancel', cancel);
-			node.removeEventListener('lostpointercapture', cancel);
+			node.removeEventListener('lostpointercapture', lostCapture);
 			if (pointerId !== null) {
 				try {
 					node.releasePointerCapture(pointerId);

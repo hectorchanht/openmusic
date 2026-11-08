@@ -241,7 +241,13 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 	// exactly like a release at the current offset (pointercancel parity: an abandoned touch
 	// swipe ends the same way). After a NORMAL pointerup this fires with dragging already
 	// false and no-ops.
-	function lostCapture() {
+	// quick-261108-swp: `lostpointercapture` BUBBLES. On touch the finger's implicit capture sits on
+	// the CHILD under it (a cover <img>, a title span); our setPointerCapture moves it to this node,
+	// so the child fires lostpointercapture, it bubbles here and was read as OUR capture being lost
+	// — every touch swipe cancelled itself one frame after it began and sprang back (Hector,
+	// 2026-11-08, Android Chrome + APK). Only the node's own loss counts.
+	function lostCapture(e: PointerEvent) {
+		if (e.target !== node) return;
 		if (dragging) cancel(); // quick-261102-u05: lost capture is an abandoned gesture — spring back, no commit
 	}
 

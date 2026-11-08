@@ -246,7 +246,7 @@
 			onpointermove={pmove}
 			onpointerup={() => up()}
 			onpointercancel={() => up(false)}
-			onlostpointercapture={() => up(false)}
+			onlostpointercapture={(e) => { if (e.target === e.currentTarget) up(false); }}
 			onclick={() => click(a)}
 			onkeydown={(e) => keydown(e, a)}
 		>

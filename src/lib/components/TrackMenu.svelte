@@ -583,7 +583,9 @@
 		mEndDrag(false);
 	}
 
-	function mLostCapture() {
+	function mLostCapture(e: PointerEvent) {
+		// quick-261108-swp: a CHILD's implicit-touch-capture loss bubbles here — not ours.
+		if (e.target !== e.currentTarget) return;
 		// Fires after every normal pointerup too (the capture release) — mUp has
 		// already ended the pointer phase by then, so this only acts when capture
 		// was lost mid-gesture.

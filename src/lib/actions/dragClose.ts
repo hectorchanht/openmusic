@@ -146,7 +146,15 @@ export const dragClose: Action<HTMLElement, DragCloseOpts> = (node, opts) => {
 		up(false);
 	}
 	node.addEventListener('pointercancel', cancel);
-	node.addEventListener('lostpointercapture', cancel);
+	// quick-261108-swp: `lostpointercapture` BUBBLES. On touch the finger's implicit capture sits on
+	// the CHILD under it (a cover <img>, a title span); our setPointerCapture moves it to this node,
+	// so the child fires lostpointercapture, it bubbles here and was read as OUR capture being lost
+	// — every touch swipe cancelled itself one frame after it began and sprang back (Hector,
+	// 2026-11-08, Android Chrome + APK). Only the node's own loss counts.
+	const lostCapture = (e: PointerEvent) => {
+		if (e.target === node) cancel();
+	};
+	node.addEventListener('lostpointercapture', lostCapture);
 
 	return {
 		update(next: DragCloseOpts) {
@@ -160,7 +168,7 @@ export const dragClose: Action<HTMLElement, DragCloseOpts> = (node, opts) => {
 			node.removeEventListener('pointermove', move);
 			node.removeEventListener('pointerup', release);
 			node.removeEventListener('pointercancel', cancel);
-			node.removeEventListener('lostpointercapture', cancel);
+			node.removeEventListener('lostpointercapture', lostCapture);
 			resetTransform();
 			node.style.touchAction = '';
 			node.style.overscrollBehavior = '';

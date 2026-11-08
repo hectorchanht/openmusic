@@ -231,7 +231,8 @@ describe('chipReorder — drag behaviour (quick-261102-chipflip)', () => {
 		container.fire('pointerdown', pev(40, 16, chips[0]));
 		container.fire('pointermove', pev(52, 16, chips[0]));
 		container.fire('pointermove', pev(130, 16, chips[0])); // target 1
-		container.fire('lostpointercapture', pev(130, 16, chips[0]));
+		// quick-261108-swp: the capture holder is the CONTAINER, so its own loss targets it.
+		container.fire('lostpointercapture', { ...pev(130, 16, chips[0]), target: container.node } as PointerEvent);
 		expect(onReorder).not.toHaveBeenCalled();
 		expect(chips[0].style.transform).toBe('');
 		expect(chips[1].style.transform).toBe('');

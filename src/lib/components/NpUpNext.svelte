@@ -308,7 +308,7 @@
 					onpointermove={gripDragMove}
 					onpointerup={() => gripDragUp()}
 					onpointercancel={() => gripDragUp(false)}
-					onlostpointercapture={() => gripDragUp(false)}
+					onlostpointercapture={(e) => { if (e.target === e.currentTarget) gripDragUp(false); }}
 					onclick={(e) => e.stopPropagation()}
 				><GripVertical size={18} /></button>
 			</li>

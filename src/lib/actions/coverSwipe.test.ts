@@ -50,7 +50,8 @@ function makeNode(width = 300) {
 		captureCalls,
 		releaseCalls,
 		fire(type: string, e: PointerEvent) {
-			handlers.get(type)?.(e);
+			// quick-261108-swp: events land on the node unless a test says otherwise (a bubbled child event).
+			handlers.get(type)?.(Object.assign({ target: node }, e));
 		},
 		has: (type: string) => handlers.has(type)
 	};
@@ -144,6 +145,21 @@ describe('coverSwipe — horizontal axis-locked prev/next swipe (Phase 20 NP-01/
 		m.fire(ev, pe(200, 54, 700));
 		expect(o.onprev).not.toHaveBeenCalled();
 		expect(o.onnext).not.toHaveBeenCalled();
+	});
+
+	// quick-261108-swp (Hector, Android: the Now Playing cover "springs back after a little drag"):
+	// the touch's implicit capture sits on the cover <img>; our setPointerCapture moves it to the
+	// strip, the img's lostpointercapture BUBBLES to the strip — it must not cancel the swipe.
+	it("a CHILD's bubbled lostpointercapture does not cancel — the swipe still commits", () => {
+		const o = opts();
+		const m = mount(o);
+		m.fire('pointerdown', pe(200, 50, 0));
+		m.fire('pointermove', pe(188, 52, 16)); // horizontal commit (captured)
+		m.fire('lostpointercapture', { ...pe(188, 52, 17), target: {} } as PointerEvent);
+		m.fire('pointermove', pe(100, 54, 400));
+		expect(m.style.transform).toBe('translateX(-100px)');
+		m.fire('pointerup', pe(100, 54, 700));
+		expect(o.onnext).toHaveBeenCalledTimes(1);
 	});
 
 	it('horizontal drag LEFT past 0.28×width (84px), slow → onnext once, onprev not called (D-03)', () => {

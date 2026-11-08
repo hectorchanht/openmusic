@@ -353,7 +353,15 @@ export const chipReorder: Action<HTMLElement, ChipReorderOpts> = (node, opts) =>
 	node.addEventListener('pointermove', onMove);
 	node.addEventListener('pointerup', onUp);
 	node.addEventListener('pointercancel', onCancel);
-	node.addEventListener('lostpointercapture', onCancel);
+	// quick-261108-swp: `lostpointercapture` BUBBLES. On touch the finger's implicit capture sits on
+	// the CHILD under it (a cover <img>, a title span); our setPointerCapture moves it to this node,
+	// so the child fires lostpointercapture, it bubbles here and was read as OUR capture being lost
+	// — every touch swipe cancelled itself one frame after it began and sprang back (Hector,
+	// 2026-11-08, Android Chrome + APK). Only the node's own loss counts.
+	const onLostCapture = (e: PointerEvent) => {
+		if (e.target === node) onCancel();
+	};
+	node.addEventListener('lostpointercapture', onLostCapture);
 
 	return {
 		update(next: ChipReorderOpts) {
@@ -373,7 +381,7 @@ export const chipReorder: Action<HTMLElement, ChipReorderOpts> = (node, opts) =>
 			node.removeEventListener('pointermove', onMove);
 			node.removeEventListener('pointerup', onUp);
 			node.removeEventListener('pointercancel', onCancel);
-			node.removeEventListener('lostpointercapture', onCancel);
+			node.removeEventListener('lostpointercapture', onLostCapture);
 		}
 	};
 };

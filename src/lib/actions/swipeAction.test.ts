@@ -42,7 +42,8 @@ function makeNode() {
 		style,
 		captureCalls,
 		fire(type: string, e: PointerEvent) {
-			handlers.get(type)?.(e);
+			// quick-261108-swp: events land on the node unless a test says otherwise (a bubbled child event).
+			handlers.get(type)?.(Object.assign({ target: node }, e));
 		},
 		has: (type: string) => handlers.has(type)
 	};
@@ -301,6 +302,19 @@ describe('swipeAction — unconditional settle (quick-261102-settle)', () => {
 
 	// quick-261102-u05 (DECISIONS.md §12): the settle discipline — lost capture / pointercancel are an
 	// ABANDONED gesture: spring back to rest and never commit, however far the row was dragged.
+	// quick-261108-swp: on touch the implicit capture sits on the CHILD under the finger; our
+	// setPointerCapture moves it, and the child's lostpointercapture BUBBLES to the node. That is
+	// not our capture — the drag must keep following the finger and commit on release.
+	it("a CHILD's bubbled lostpointercapture does not cancel the drag", () => {
+		const onSwipeRight = vi.fn();
+		const m = mount({ onSwipeRight, onSwipeLeft: vi.fn(), threshold: 96 });
+		m.fire('pointerdown', peb(100, 50, 0));
+		m.fire('pointermove', peb(112, 52, 16)); // horizontal commit → capture moves child → node
+		m.fire('lostpointercapture', { ...peb(112, 52, 17), target: {} } as PointerEvent);
+		m.fire('pointermove', peb(220, 54, 200));
+		expect(m.style.transform).toBe('translateX(120px)'); // still following the finger
+	});
+
 	it.each(['lostpointercapture', 'pointercancel'])('%s PAST the threshold springs back WITHOUT committing', (ev) => {
 		const onSwipeRight = vi.fn();
 		const m = mount({ onSwipeRight, onSwipeLeft: vi.fn(), threshold: 96 });
