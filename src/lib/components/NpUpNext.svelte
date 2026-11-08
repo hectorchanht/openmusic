@@ -18,7 +18,6 @@
 	import { coverGradient } from '$lib/services/cover-gradient';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import RowBadges from '$lib/components/RowBadges.svelte';
-	import LoadingState from '$lib/components/LoadingState.svelte';
 	import type { Track } from '$lib/sources/types';
 
 	// quick-260919-np3: the Up-Next pane, lifted OUT of NowPlaying.svelte verbatim. Nothing about the
@@ -314,8 +313,16 @@
 				><GripVertical size={18} /></button>
 			</li>
 		{/each}
+		{#if player.upNextPending}
+			<!-- quick-261108-h3w: the SAME skeleton rows as NpRelated's loading list (Hector), in
+			     place of the stale tail while a Generate tap rebuilds it. Skeleton only — no
+			     spinner (quick-261029-xor1 XOR rule). -->
+			<li class="vh">{t('common.loading')}</li>
+			{#each Array(8) as _, i (i)}
+				<li><span class="row skel" aria-hidden="true"><span class="r-title sk"></span><span class="r-artist sk"></span></span></li>
+			{/each}
+		{/if}
 	</ul>
-	{#if player.upNextPending}<LoadingState label={t('common.loading')} rows={6} />{/if}
 {:else}<p class="empty">{t('nowplaying.noQueue')}</p>{/if}
 
 <style>
@@ -391,4 +398,10 @@
 	.r-skip { font-size: calc(0.75rem * var(--fs-artist, 1)); font-weight: 600; color: var(--color-text-muted); margin-inline-end: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.r-why { margin-inline-start: 6px; }
 	.empty { color: var(--color-text-muted); font-size: 0.875rem; text-align: center; padding: 24px; }
+	/* quick-261108-h3w: NpRelated's skeleton row rules, copied with the markup (scoped styles). */
+	.row.skel { pointer-events: none; gap: 6px; }
+	.row.skel .sk { display: block; }
+	.row.skel .r-title { width: 55%; height: 14px; }
+	.row.skel .r-artist { width: 38%; height: 12px; }
+	.vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 </style>

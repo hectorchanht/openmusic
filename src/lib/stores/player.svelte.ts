@@ -3937,6 +3937,13 @@ class Player {
 		this.prebufferController?.abort();
 		this.prebufferController = new AbortController();
 		const sig = this.prebufferController.signal;
+		// quick-261108-h3w (Hector: Up Next a..e rebuilt to f..j, track end played A's audio under
+		// F's title/lyrics): the held blob belongs to the PREVIOUS uid. Claiming a new uid without
+		// dropping it re-labelled A's bytes as F's whenever F's own fetch then failed / hit the size
+		// ceiling — and play()'s consume check (`prebufferedUid === uid && blob`) swapped them in.
+		// Never the live src: play() moves a consumed blob to cachedBlobUrl and nulls this slot.
+		if (this.prebufferedBlobUrl) URL.revokeObjectURL(this.prebufferedBlobUrl);
+		this.prebufferedBlobUrl = null;
 		this.prebufferedUid = track.uid;
 		try {
 			const resp = await fetch(url, { signal: sig, referrerPolicy: 'no-referrer' });

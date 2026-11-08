@@ -1806,6 +1806,31 @@ describe('player.prefetchNext — pre-resolve next track for gapless-ish play', 
 		expect(state.prebufferedBlobUrl).toBeNull();
 	});
 
+	it("drops the previous uid's blob when a new next is claimed — never plays A's bytes as F (quick-261108-h3w)", async () => {
+		// Up Next a..e was buffered for `a`, then rebuilt to f..j. F's own prebuffer fails (here: a
+		// dead URL) — the slot must not end up as { uid: F, blob: A's bytes }.
+		vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
+		const revokeSpy = vi.fn();
+		vi.stubGlobal('URL', { createObjectURL: vi.fn(), revokeObjectURL: revokeSpy } as unknown as typeof URL);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		const state = player as unknown as { prebufferedUid: string | null; prebufferedBlobUrl: string | null };
+		state.prebufferedUid = 'qq:A';
+		state.prebufferedBlobUrl = 'blob:a-bytes';
+
+		const cur = mk('netease', '0', 'A', 'Now');
+		const f = stub('qq', 'F', 'F', 'Fresh');
+		player.queue = [cur, f];
+		player.current = cur;
+		mockEnsure.mockResolvedValue({ ...f, detailsLoaded: true, audioUrl: 'https://cdn/f.mp3' });
+
+		await prefetch();
+		await flush();
+
+		expect(state.prebufferedUid).toBe(f.uid);
+		expect(state.prebufferedBlobUrl).toBeNull();
+		expect(revokeSpy).toHaveBeenCalledWith('blob:a-bytes');
+	});
+
 	it('prebuffers when the CDN exposes no Content-Length (unknown size falls through — 32-D-15)', async () => {
 		// Content-Length is not CORS-safelisted; a provider without access-control-expose-headers returns
 		// null. That MUST behave exactly as before the ceiling existed, or a header-less CDN silently
