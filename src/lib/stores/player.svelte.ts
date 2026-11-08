@@ -555,6 +555,13 @@ class Player {
 	 *  head uid is definitely present in this.queue. */
 	upNextAnchorUid = $state<string | null>(null);
 
+	/** quick-261108-h3w (Hector): a Generate-mode tap is rebuilding the Up Next tail. Set the
+	 *  instant the song is tapped so the pane hides the STALE upcoming rows and shows row
+	 *  skeletons instead; cleared when the newest regenerate settles (installed, failed or
+	 *  superseded), or when any other play takes over (see play() / postPlayQueue). The queue
+	 *  itself is NOT truncated — next() during the gap still has somewhere to go. */
+	upNextPending = $state(false);
+
 	/** Shuffle on: toggling true randomizes queue tail (current pinned). Off = no auto-shuffle on
 	 * next play, but the already-shuffled queue stays as is (gte: user-specified, no unshuffle). */
 	shuffle = $state(false);
@@ -4150,6 +4157,7 @@ class Player {
 			// the seed, exactly like an installing tap. `??=` mirrors the installers.
 			this.pendingHistory ??= this.captureHistory();
 			this.pendingManual ??= this.captureManual();
+			this.markUpNextPending();
 			void this.play(t, { fresh: true, forceGenerated: true });
 			return true;
 		}
@@ -4164,9 +4172,22 @@ class Player {
 		context: QueueContext = null
 	): Promise<Track | null> {
 		if (settings.tapUpnext === 'generate') {
-			return this.playStub(artist, title, cover, context, { forceGenerated: true });
+			this.markUpNextPending();
+			const tr = await this.playStub(artist, title, cover, context, { forceGenerated: true });
+			// quick-261108-h3w: a miss never reaches play()/regenerate, so nothing else would
+			// clear the skeletons.
+			if (!tr) this.upNextPending = false;
+			return tr;
 		}
 		return this.spliceStub(artist, title, cover);
+	}
+
+	/** quick-261108-h3w: a Generate tap starts a new Up Next — show skeletons, and void any
+	 *  build still in flight for the PREVIOUS song so it can neither install its now-stale
+	 *  tail nor clear the new tap's skeletons when it settles (regenerate's regenGen check). */
+	private markUpNextPending(): void {
+		this.upNextPending = true;
+		this.regenGen++;
 	}
 
 	/**
@@ -4201,6 +4222,10 @@ class Player {
 		// otherwise be skipped past when the 5s timer fires mid-resolve.
 		this.dryGrowRetries = 0;
 		this.clearDryGrowTimer();
+		// quick-261108-h3w: any play that is not the Generate tap itself (next/prev, an explicit
+		// list Play, auto-advance) ends the tap's pending state. A fallback swap continues the
+		// tap's episode, so it leaves the flag for postPlayQueue to settle.
+		if (!opts?.forceGenerated && !opts?.fromFallback) this.upNextPending = false;
 		// quick-260831-sp9: adopt the surface that started this play, WITHOUT touching the queue.
 		//
 		// The home shelves (liked / downloads / history / playlists) call play({fresh:true}) directly
@@ -4876,6 +4901,8 @@ class Player {
 			) {
 				this.runRegenerate(resolved);
 			} else {
+				// quick-261108-h3w: no build will run for this landing — stop the skeletons.
+				this.upNextPending = false;
 				void this.primeNext();
 			}
 		}
@@ -5353,6 +5380,10 @@ class Player {
 			logAction('upnext.source', { via, count: tail.length });
 		} catch {
 			/* leave queue as-is */
+		} finally {
+			// quick-261108-h3w: only the NEWEST build settles the Up Next skeletons — a superseded
+			// one must not clear them while the current tap's build is still in flight.
+			if (myRegenGen === this.regenGen) this.upNextPending = false;
 		}
 	}
 

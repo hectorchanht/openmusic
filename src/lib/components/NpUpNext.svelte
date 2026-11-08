@@ -18,6 +18,7 @@
 	import { coverGradient } from '$lib/services/cover-gradient';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import RowBadges from '$lib/components/RowBadges.svelte';
+	import LoadingState from '$lib/components/LoadingState.svelte';
 	import type { Track } from '$lib/sources/types';
 
 	// quick-260919-np3: the Up-Next pane, lifted OUT of NowPlaying.svelte verbatim. Nothing about the
@@ -53,6 +54,10 @@
 	// interactive (a tap replays via the existing non-fresh play). -1 when current isn't in the
 	// list; the anchor/clamp keeps it in, so that only happens transiently.
 	const currentRowIdx = $derived(rows.findIndex((t) => t.uid === player.current?.uid));
+	// quick-261108-h3w: while a Generate tap rebuilds the tail, the upcoming rows are the STALE
+	// list — keep only the played rows + current (none until the tapped song lands in the queue)
+	// and show skeleton rows in place of the tail. A prefix slice, so `i` still indexes `rows`.
+	const shownRows = $derived(player.upNextPending ? rows.slice(0, currentRowIdx + 1) : rows);
 
 	// quick-260910-q5a / quick-260910-qwt — POST-PAINT cover fill for THIS pane's rows.
 	//
@@ -228,9 +233,9 @@
 	});
 </script>
 
-{#if rows.length}
+{#if shownRows.length || player.upNextPending}
 	<ul class="list" bind:this={queueListEl}>
-		{#each rows as track, i (track.uid)}
+		{#each shownRows as track, i (track.uid)}
 			{@const reason = player.skipReason(track.uid)}
 			{@const skipped = player.isUnplayable(track.uid) || reason !== null}
 			<!-- quick-260910-q5a: the tile's three-rung cover read (see the Gap 3 block below).
@@ -310,6 +315,7 @@
 			</li>
 		{/each}
 	</ul>
+	{#if player.upNextPending}<LoadingState label={t('common.loading')} rows={6} />{/if}
 {:else}<p class="empty">{t('nowplaying.noQueue')}</p>{/if}
 
 <style>

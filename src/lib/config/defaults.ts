@@ -288,9 +288,10 @@ export const UPNEXT_DEFAULTS = {
 	 * via the queueGen guard.
 	 */
 	perContext: { album: 'same-list', artist: 'same-list', pack: 'same-list', 'songs-of-year': 'same-list' } as Partial<Record<UpnextSettingKey, UpnextMode>>,
-	/** Casual song-tap behaviour (quick-261103-tapsplice, Hector 2026-11-03): 'preserve'
-	 * by his pick — a casual tap must never destroy a queue the user built. */
-	tap: 'preserve' as TapUpnextMode
+	/** Casual song-tap behaviour (quick-261103-tapsplice, Hector 2026-11-03). Was 'preserve';
+	 * quick-261108-h3w (Hector 2026-11-08) flips the default to 'generate' — a tap builds a
+	 * fresh Up Next from the tapped song. Installs that already saved a choice keep it. */
+	tap: 'generate' as TapUpnextMode
 } as const;
 
 // ---- Home layout -----------------------------------------------------------------------

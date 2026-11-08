@@ -678,8 +678,8 @@ describe('player.tapPlay / tapStub — the settings.tapUpnext decider (quick-261
 		settings.tapUpnext = 'preserve';
 	});
 
-	it('preserve (the default): tapPlay splices after current; history and tail untouched', async () => {
-		expect(settings.tapUpnext).toBe('preserve');
+	it('preserve: tapPlay splices after current; history and tail untouched', async () => {
+		settings.tapUpnext = 'preserve';
 		const hist = mk('kuwo', 'H1', '王菲', '紅豆');
 		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
 		const tail = mk('qq', 'T1', '周杰倫', '青花瓷');
@@ -717,6 +717,30 @@ describe('player.tapPlay / tapStub — the settings.tapUpnext decider (quick-261
 		expect(uids[0]).toBe(hist.uid); // history kept at the head
 		expect(uids).toContain(sim.uid); // tail generated from the tapped song
 		expect(uids).not.toContain(stale.uid); // the old tail was replaced
+	});
+
+	it('generate: upNextPending is set on tap and cleared once the new tail lands (quick-261108-h3w)', async () => {
+		settings.tapUpnext = 'generate';
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		const tapped = { ...mk('netease', 'X1', '林俊傑', '江南'), audioUrl: 'https://cdn/x1.mp3' };
+		mockSimilar.mockResolvedValue([mk('joox', 'S1', '林俊傑', '修煉愛情')]);
+		player.queue = [cur, mk('qq', 'T9', '周杰倫', '青花瓷')];
+		player.current = cur;
+
+		player.tapPlay(tapped);
+		expect(player.upNextPending).toBe(true);
+		await flush();
+		await flush();
+		expect(player.upNextPending).toBe(false);
+	});
+
+	it('preserve: a tap never shows the pending state', () => {
+		settings.tapUpnext = 'preserve';
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		player.queue = [cur];
+		player.current = cur;
+		player.tapPlay({ ...mk('netease', 'X1', '林俊傑', '江南'), audioUrl: 'https://cdn/x1.mp3' });
+		expect(player.upNextPending).toBe(false);
 	});
 
 	it('preserve: tapStub resolves then splices — the queue survives', async () => {

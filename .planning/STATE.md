@@ -95,7 +95,7 @@ Full observed evidence: `.planning/phases/30-carrier-free-share-links-type-artis
 ### Prior phase (Phase 27 — YouTube Music Source, v1.4) — COMPLETE + E2E-VERIFIED
 
 Phase 27 complete (27-01..04). E2E-verified against LIVE YouTube via the dev-server routes: /api/ytmusic/search 200 (rows+videoId), /api/ytmusic/lyrics 200 (1513c + attribution), /api/ytmusic/stream 206 audio/mp4 + Range (playback) and 200 full-file (download). pnpm check clean, 1320 tests green. E2E caught + fixed a prod-breaking bug (quick-270715 / commit 29c1c7d): stream route exported non-HTTP-verb functions, illegal in SvelteKit +server.ts → 500; helpers moved to $lib/proxy/ytmusic.ts.
-Last activity: 2026-11-05
+Last activity: 2026-11-08 - Completed quick task 261108-h3w: tap default Generate + Up Next skeletons
 Remaining human UAT: real-device <audio> playback+seek + download-to-disk; deployed-Worker player+googlevideo same-IP egress + bot-challenge under load (T-27-03-OP). Account/library sync = separate legal-gated milestone (spike 008).
 
 ## Performance Metrics
@@ -688,6 +688,7 @@ Recent decisions affecting current work:
 | 261103-2xk | impeccable polish pass on artist + album pages | 2026-11-03 | 0a21ba4f | [261103-2xk-polish-artist-album-pages](./quick/261103-2xk-polish-artist-album-pages/) |
 | 261103-hdn | Artist + album audit round 2: fav toggle a11y, new-tab cue, aria-disabled download, use:lazyBg shelf covers, 44px heading links, DESIGN.md type steps + rounded.tile | 2026-11-03 | b52069e7 | [261103-hdn-artist-album-audit-round2](./quick/261103-hdn-artist-album-audit-round2/) |
 | 261105-01q | TrackMenu repeat-one / shuffle toast their new state (user could not tell they were on) | 2026-11-05 | 8e31f0ef | [261105-01q-fix-trackmenu-repeat-one-shuffle-and-oth](./quick/261105-01q-fix-trackmenu-repeat-one-shuffle-and-oth/) |
+| 261108-h3w | Tap default = Generate; stale Up Next hidden behind row skeletons while the new tail builds | 2026-11-08 | b1d86dee | [261108-h3w-upnext-tap-default-generated-with-skelet](./quick/261108-h3w-upnext-tap-default-generated-with-skelet/) |
 
 > Note: off planned phase order (Phase-4-shaped UI pulled forward as a demo). Basic playback only; full audio engine = Phase 6, formal Mobile UI Shell = Phase 4. NOTE (2026-06-10): many of the quick-tasks above already exercise the v1.2 surfaces (failover/prefetch in gte/t5r/hvu, offline blob in kyf, Deezer enrichment plumbing in jau/jip, cover backfill in rvy/0bb/wv8, gesture machines in ggj/h4s/nqf) — v1.2 phases formalize, harden, and complete these rather than build from scratch.
 
