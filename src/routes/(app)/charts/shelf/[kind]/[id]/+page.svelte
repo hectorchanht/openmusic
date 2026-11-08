@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { Heart, ListStart } from '@lucide/svelte';
 	import {
 		poolTasks,
 		regionLabel,
@@ -19,7 +18,6 @@
 	import { coverGradient } from '$lib/services/cover-gradient';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { marquee } from '$lib/actions/marquee';
-	import { shouldRun } from '$lib/actions/inflightGuard';
 	import { growOnScroll } from '$lib/actions/growOnScroll';
 	import { LIST_GROW_PAGE, hasMore, nextVisibleCount } from '$lib/services/list-grow';
 	import { player } from '$lib/stores/player.svelte';
@@ -27,11 +25,10 @@
 	import { names } from '$lib/stores/names.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { readArtistCover } from '$lib/stores/cover-version.svelte';
-	import * as haptics from '$lib/util/haptics';
-	import { likeWithUndo } from '$lib/components/like-with-undo';
 	import { t } from '$lib/i18n';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
+	import SwipeReveal from '$lib/components/SwipeReveal.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import type { Track } from '$lib/sources/types';
 
@@ -125,42 +122,7 @@
 		}
 	}
 
-	// D-16 / WR-03: per-row-per-action in-flight guard — a second swipe on the same row while
-	// its resolve is in flight is a no-op (no duplicate addToQueue / racing playNext).
-	let swipeInFlight = $state(new Set<string>());
-
-	async function swipeLike(it: DiscoveryTrack) {
-		const key = `like:${rowKey(it)}`;
-		if (!shouldRun(swipeInFlight, key)) return;
-		swipeInFlight = new Set(swipeInFlight).add(key);
-		try {
-			const tr = await resolveStub(it.artist, it.title);
-			if (!tr) { toast.show(t('home.unplayable')); return; }
-			haptics.tick();
-			likeWithUndo(tr); // quick-261104-swipe: right-swipe = 收藏 (like + Undo); was append-to-queue
-		} finally {
-			const n = new Set(swipeInFlight);
-			n.delete(key);
-			swipeInFlight = n;
-		}
-	}
-
-	async function swipeNext(it: DiscoveryTrack) {
-		const key = `n:${rowKey(it)}`;
-		if (!shouldRun(swipeInFlight, key)) return;
-		swipeInFlight = new Set(swipeInFlight).add(key);
-		try {
-			const tr = await resolveStub(it.artist, it.title);
-			if (!tr) { toast.show(t('home.unplayable')); return; }
-			player.playNext(tr);
-			haptics.tick();
-			toast.show(t('toast.playingNext'));
-		} finally {
-			const n = new Set(swipeInFlight);
-			n.delete(key);
-			swipeInFlight = n;
-		}
-	}
+	// quick-261108-swp: row swipes moved into SongRow (settings.swipeRow via rowSwipe).
 
 	// quick-260927-1fx: the page re-fetches through the same memoised chart services the home shelf
 	// used (6 h `cached()`), so a shelf-title tap costs zero requests and a cold deep-link costs the
@@ -215,14 +177,12 @@
 			     resolves first, and `resolve` lets the inline Like/Download key off the RESOLVED uid. -->
 			{@const stub = stubTrack(it)}
 			<li class="row-wrap">
-				<span class="reveal reveal-right" aria-hidden="true"><Heart size={20} /></span>
-				<span class="reveal reveal-left" aria-hidden="true"><ListStart size={20} /></span>
+				<SwipeReveal />
 				<SongRow
 					track={stub}
 					resolve={() => resolveStub(it.artist, it.title).catch(() => null)}
 					onplay={() => play(it)}
 					onrequestmenu={() => openMenu(it)}
-					swipe={{ onSwipeRight: () => swipeLike(it), onSwipeLeft: () => swipeNext(it) }}
 				/>
 			</li>
 		{/each}
@@ -272,12 +232,6 @@
 <style>
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 	.row-wrap { position: relative; overflow: hidden; border-radius: var(--radius-md); }
-	.reveal {
-		position: absolute; top: 0; bottom: 0; width: 72px; display: flex; align-items: center;
-		justify-content: center; color: #fff; pointer-events: none;
-	}
-	.reveal-right { left: 0; color: var(--color-text-muted); }
-	.reveal-left { right: 0; color: var(--color-text-muted); }
 	/* Song rows are SongRow.svelte (its styles travel with it). `.row` / `.art` / `.meta` serve the
 	   artist + album buttons below and the 12-row skeleton (the whole first paint of a cold page). */
 	.row {

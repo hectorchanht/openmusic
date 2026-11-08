@@ -22,7 +22,9 @@ import {
 	type UpnextSettingKey,
 	type VideoQuality,
 	type QueueContext,
-	type SyncItems
+	type SyncItems,
+	SWIPE_ACTS,
+	type SwipeMap
 } from '$lib/config/defaults';
 // quick-261023-perks: pure config module (no store imports) — the LEAF invariant holds.
 // Used only to demote supporter themes when the status is gone.
@@ -193,6 +195,9 @@ class Settings {
 	 * upcoming tail from it. Played history is kept under both. Global — the per-context
 	 * sourcing above governs list plays (Play / Shuffle buttons), not taps. */
 	tapUpnext = $state<TapUpnextMode>(UPNEXT_DEFAULTS.tap);
+	/** quick-261108-swp: per-direction swipe actions — player surfaces and list rows. */
+	swipePlayer = $state<SwipeMap>({ ...PLAYBACK_DEFAULTS.swipePlayer });
+	swipeRow = $state<SwipeMap>({ ...PLAYBACK_DEFAULTS.swipeRow });
 	/** Bio (Last.fm artist bio) target language. `'auto'` = follow appLang; `'off'` = untranslated
 	 * (the default since quick-260925-vtg); otherwise an explicit language (quick-260607-fnp;
 	 * supersedes the f4y note). */
@@ -398,6 +403,8 @@ class Settings {
 					v.tapUpnext === 'generate' || v.tapUpnext === 'preserve'
 						? v.tapUpnext
 						: UPNEXT_DEFAULTS.tap;
+				this.swipePlayer = readSwipeMap(v.swipePlayer, PLAYBACK_DEFAULTS.swipePlayer);
+				this.swipeRow = readSwipeMap(v.swipeRow, PLAYBACK_DEFAULTS.swipeRow);
 				this.bioLang = (v.bioLang as 'auto' | LyricsLang) ?? TRANSLATION_DEFAULTS.bioLang;
 				// Appearance scales (fnp): clamp to safe bounds; absent → the defaults.ts values.
 				// quick-260920-kxz / T-kxz-01 (tampering): same clamp as every sibling scale. A
@@ -626,6 +633,8 @@ class Settings {
 					upnextPerContext: this.upnextPerContext,
 					upnextMode: this.upnextMode,
 					tapUpnext: this.tapUpnext,
+					swipePlayer: this.swipePlayer,
+					swipeRow: this.swipeRow,
 					bioLang: this.bioLang,
 					fontScaleApp: this.fontScaleApp,
 					fontScaleTitle: this.fontScaleTitle,
@@ -808,6 +817,8 @@ class Settings {
 		this.upnextPerContext = { ...DEFAULTS.upnext.perContext };
 		this.upnextMode = DEFAULTS.upnext.mode;
 		this.tapUpnext = DEFAULTS.upnext.tap;
+		this.swipePlayer = { ...d.swipePlayer };
+		this.swipeRow = { ...d.swipeRow };
 		this.save();
 	}
 
@@ -860,6 +871,14 @@ class Settings {
 		this.homeLayoutVersion = d.homeLayoutVersion;
 		this.save();
 	}
+}
+
+/** quick-261108-swp: localStorage is untrusted — keep each direction only if it is a known act. */
+function readSwipeMap(v: unknown, fallback: SwipeMap): SwipeMap {
+	const o = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
+	const pick = (x: unknown, d: SwipeMap[keyof SwipeMap]) =>
+		SWIPE_ACTS.includes(x as SwipeMap['left']) ? (x as SwipeMap['left']) : d;
+	return { left: pick(o.left, fallback.left), right: pick(o.right, fallback.right) };
 }
 
 export const settings = new Settings();

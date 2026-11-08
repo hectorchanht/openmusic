@@ -609,3 +609,37 @@ describe('settings persistence round-trip — syncItems (quick-261020-sync)', ()
 		expect(settings.syncItems.library).toBe(false);
 	});
 });
+
+// quick-261108-swp: per-direction swipe actions — defaults from config/defaults.ts, a known act
+// round-trips, an unknown one (tampered storage) falls back per direction, resetPlayback restores.
+describe('settings persistence round-trip — swipePlayer / swipeRow (quick-261108-swp)', () => {
+	beforeEach(() => memStore.clear());
+
+	it('defaults come from PLAYBACK_DEFAULTS when nothing is persisted', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.swipePlayer).toEqual({ left: 'next', right: 'prev' });
+		expect(settings.swipeRow).toEqual({ left: 'playNext', right: 'like' });
+	});
+
+	it('a persisted choice wins; an unknown act falls back for that direction only', async () => {
+		memStore.set(
+			KEY,
+			JSON.stringify({ appLang: 'en', swipePlayer: { left: 'like', right: 'off' }, swipeRow: { left: 'nuke', right: 'queue' } })
+		);
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.swipePlayer).toEqual({ left: 'like', right: 'off' });
+		expect(settings.swipeRow).toEqual({ left: 'playNext', right: 'queue' });
+	});
+
+	it('save() persists the maps and resetPlayback() restores the defaults', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		settings.swipeRow = { left: 'off', right: 'next' };
+		settings.save();
+		expect(JSON.parse(localStorage.getItem(KEY) as string).swipeRow).toEqual({ left: 'off', right: 'next' });
+		settings.resetPlayback();
+		expect(settings.swipeRow).toEqual({ left: 'playNext', right: 'like' });
+	});
+});

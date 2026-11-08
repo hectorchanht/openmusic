@@ -7,7 +7,7 @@
 	// The host page owns the ONE track menu (its overlay id "trackmenu-menu" is fixed), so a row's menu
 	// request goes up through `onrequestmenu`.
 	import { onMount } from 'svelte';
-	import { ListEnd, ListStart, Radio } from '@lucide/svelte';
+	import { Radio } from '@lucide/svelte';
 	import { buildRadio } from '$lib/services/radio';
 	import { clampShelfSize } from '$lib/services/home-layout';
 	import { resolveStub } from '$lib/services/discovery';
@@ -17,6 +17,7 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { t } from '$lib/i18n';
 	import SongRow from '$lib/components/SongRow.svelte';
+	import SwipeReveal from '$lib/components/SwipeReveal.svelte';
 	import type { Track } from '$lib/sources/types';
 
 	let { onrequestmenu }: { onrequestmenu: (t: Track) => void } = $props();
@@ -90,8 +91,7 @@
 			     default: the generated Up Next already holds nameStub tracks, so addToQueue /
 			     playNext of a stub is the app's normal path. -->
 			<li class="row-wrap">
-				<span class="reveal reveal-right" aria-hidden="true"><ListEnd size={20} /></span>
-				<span class="reveal reveal-left" aria-hidden="true"><ListStart size={20} /></span>
+				<SwipeReveal />
 				<SongRow
 					track={tr}
 					resolve={() => resolveStub(tr.artist, tr.title).catch(() => null)}
@@ -106,12 +106,6 @@
 <style>
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 	.row-wrap { position: relative; overflow: hidden; border-radius: var(--radius-md); }
-	.reveal {
-		position: absolute; top: 0; bottom: 0; width: 72px; display: flex; align-items: center;
-		justify-content: center; color: #fff; pointer-events: none;
-	}
-	.reveal-right { left: 0; color: var(--color-text-muted); }
-	.reveal-left { right: 0; color: var(--color-text-muted); }
 	/* `.row` / `.art` / `.meta` serve only the skeleton; the real rows are SongRow.svelte. */
 	.row {
 		position: relative; z-index: 1; width: 100%; display: flex; align-items: center; gap: 12px;

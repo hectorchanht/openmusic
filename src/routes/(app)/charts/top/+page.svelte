@@ -3,7 +3,6 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { pickTab, syncTabUrl } from '$lib/services/url-tab';
-	import { Heart, ListStart } from '@lucide/svelte';
 	import {
 		getChartTopTracks,
 		getChartTopArtists,
@@ -13,16 +12,14 @@
 	import { resolveStub } from '$lib/services/discovery';
 	import { marquee } from '$lib/actions/marquee';
 	import { tapBounce } from '$lib/actions/tapBounce';
-	import { shouldRun } from '$lib/actions/inflightGuard';
 	import { player } from '$lib/stores/player.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { online } from '$lib/stores/online.svelte';
-	import * as haptics from '$lib/util/haptics';
-	import { likeWithUndo } from '$lib/components/like-with-undo';
 	import { t } from '$lib/i18n';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
+	import SwipeReveal from '$lib/components/SwipeReveal.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import type { Track } from '$lib/sources/types';
 
@@ -118,54 +115,7 @@
 		}
 	}
 
-	// --- swipe actions (UX-04 / D-02): resolve the stub, then queue/like + toast + haptic ---
-	// swipeAction is a pure DOM gesture; the host fires haptics here (PATTERNS §3.3).
-	// D-16 / WR-03: per-row-per-action in-flight guard — a second swipe on the same row while
-	// its multi-second resolve is still in flight is a no-op (prevents duplicate addToQueue and
-	// racing playNext). Reassign-for-reactivity + finally-delete per PATTERNS §3.2.
-	let swipeInFlight = $state(new Set<string>());
-
-	async function swipeLike(it: DiscoveryTrack) {
-		const key = `like:${rowKey(it)}`;
-		if (!shouldRun(swipeInFlight, key)) return;
-		swipeInFlight = new Set(swipeInFlight).add(key);
-		try {
-			const tr = await resolveStub(it.artist, it.title);
-			if (!tr) {
-				toast.show(t('home.unplayable'));
-				return;
-			}
-			haptics.tick();
-			likeWithUndo(tr); // quick-261104-swipe: right-swipe = 收藏 (like + Undo); was append-to-queue
-		} finally {
-			const n = new Set(swipeInFlight);
-			n.delete(key);
-			swipeInFlight = n;
-		}
-	}
-
-	// quick-260712-0md: swipe-left = play next (player.playNext, splice-after-current) —
-	// matches search/library/artist/album/charts. Resolves the discovery stub first
-	// (a DiscoveryTrack has no uid/audioUrl until resolved).
-	async function swipeNext(it: DiscoveryTrack) {
-		const key = `n:${rowKey(it)}`;
-		if (!shouldRun(swipeInFlight, key)) return;
-		swipeInFlight = new Set(swipeInFlight).add(key);
-		try {
-			const tr = await resolveStub(it.artist, it.title);
-			if (!tr) {
-				toast.show(t('home.unplayable'));
-				return;
-			}
-			player.playNext(tr); // D-04: splice after current (TrackMenu playNext semantics)
-			haptics.tick();
-			toast.show(t('toast.playingNext'));
-		} finally {
-			const n = new Set(swipeInFlight);
-			n.delete(key);
-			swipeInFlight = n;
-		}
-	}
+	// quick-261108-swp: row swipes moved into SongRow (settings.swipeRow via rowSwipe).
 
 	onMount(async () => {
 		// OFFL-03 / D-10: SHORT-CIRCUIT when offline — do NOT fire the chart fetches (which would
@@ -266,14 +216,12 @@
 				{@const stub = stubTrack(it)}
 				<li class="row-wrap">
 					<!-- Reveal layers behind the row: right=queue (primary), left=play next. -->
-					<span class="reveal reveal-right" aria-hidden="true"><Heart size={20} /></span>
-					<span class="reveal reveal-left" aria-hidden="true"><ListStart size={20} /></span>
+					<SwipeReveal />
 					<SongRow
 						track={stub}
 						resolve={() => resolveStub(it.artist, it.title).catch(() => null)}
 						onplay={() => play(it)}
 						onrequestmenu={() => openMenu(it)}
-						swipe={{ onSwipeRight: () => swipeLike(it), onSwipeLeft: () => swipeNext(it) }}
 					/>
 				</li>
 			{/each}
@@ -327,15 +275,9 @@
 
 	/* Row wrapper hosts the swipe reveal layers BEHIND the .row (which slides via translateX). */
 	.row-wrap { position: relative; overflow: hidden; border-radius: var(--radius-md); }
-	.reveal {
-		position: absolute; top: 0; bottom: 0; width: 72px; display: flex; align-items: center;
-		justify-content: center; color: #fff; pointer-events: none;
-	}
 	/* quick-260919-hdr: the reveal glyphs lost their coloured plates to match charts/tags and
 	   charts/countries — SongRow paints an OPAQUE --color-bg over them at rest, so the plate was
 	   only ever visible mid-swipe and differed from every other migrated list. */
-	.reveal-right { left: 0; color: var(--color-text-muted); }
-	.reveal-left { right: 0; color: var(--color-text-muted); }
 
 	/* quick-260919-hdr: the SONG rows are SongRow.svelte now (their styles travelled with it —
 	   Svelte scopes per component). `.row` / `.art` / `.meta` / `.r-title` are KEPT because the

@@ -150,6 +150,11 @@ export const TRANSLATION_DEFAULTS = {
 } as const;
 
 // ---- Playback --------------------------------------------------------------------------
+/** quick-261108-swp: one sideways-swipe action. 'off' = that direction does nothing. */
+export type SwipeAct = 'next' | 'prev' | 'like' | 'playNext' | 'queue' | 'off';
+export const SWIPE_ACTS: readonly SwipeAct[] = ['next', 'prev', 'like', 'playNext', 'queue', 'off'];
+export type SwipeMap = { left: SwipeAct; right: SwipeAct };
+
 export const PLAYBACK_DEFAULTS = {
 	// 32-D-02 (SUPERSEDES the old D-03 '128' default): 'auto' now has a real meaning —
 	// lossless on a connection positively identified as unmetered, '320' everywhere else.
@@ -205,7 +210,13 @@ export const PLAYBACK_DEFAULTS = {
 		bandcamp: true,
 		bilibili: true,
 		ytmusic: true
-	} as Partial<Record<SourceId, boolean>>
+	} as Partial<Record<SourceId, boolean>>,
+	/** quick-261108-swp (Hector 2026-11-08): what a sideways swipe does, per direction. `swipePlayer`
+	 *  governs the Nowbar + the Now Playing cover (the playing song); `swipeRow` governs song rows
+	 *  in lists (SongRow + Related). Defaults are the pre-setting behaviour. Up Next rows keep
+	 *  their own row-specific swipes (versions / remove). */
+	swipePlayer: { left: 'next', right: 'prev' } as SwipeMap,
+	swipeRow: { left: 'playNext', right: 'like' } as SwipeMap
 } as const;
 
 // ---- Up-next sourcing (Phase 17, QUEUE-03) ---------------------------------------------

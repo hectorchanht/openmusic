@@ -88,7 +88,7 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import { t } from '$lib/i18n';
 	import { rowActionTarget, hasRealIdentity } from '$lib/components/row-action-target';
-	import { likeWithUndo } from '$lib/components/like-with-undo';
+	import { rowSwipe } from '$lib/components/swipe-act';
 	import RowBadges from '$lib/components/RowBadges.svelte';
 	import DownloadControl from '$lib/components/DownloadControl.svelte';
 	import DownloadRing from '$lib/components/DownloadRing.svelte';
@@ -322,29 +322,16 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 		};
 	});
 
-	// The app-wide swipe convention (UX-04 D-03/D-04). swipeAction is a PURE DOM gesture and fires
-	// no haptics — the consumer must.
-	// quick-261104-swipe (Hector 2026-11-04): swipe-RIGHT = 收藏 (like, with Undo) — the old
-	// append-to-END-of-Up-Next was never useful. Swipe-LEFT = play next, unchanged. Resolves a stub
-	// row first exactly like the Like button does (likeTarget), then hands off to the shared
-	// likeWithUndo so charts / NpRelated / this row show one and the same toast.
-	async function likeTrack() {
-		const target = await likeTarget();
-		if (target === undefined) return; // superseded mid-resolve — act on nothing, say nothing
-		if (!target) {
-			toast.show(t('home.unplayable'));
-			return;
-		}
-		hapticTick();
-		likeWithUndo(target);
-	}
-	function nextTrack() {
-		player.playNext(track);
-		hapticTick();
-		toast.show(t('toast.playingNext'));
-	}
+	// The app-wide swipe convention (UX-04). quick-261108-swp: the default swipe follows the user's
+	// Settings → Playback swipe map via the shared rowSwipe (like / play next / queue / skip / off);
+	// Like resolves a stub first through likeTarget, exactly like the Like button; play next / queue
+	// resolve first too when the host supplied a resolver (charts / album stubs, as their old
+	// per-page swipes did), else take the row's track as-is (a name-stub in the queue is the app's
+	// normal path — the player resolves it on play). A host-supplied `swipe` still wins; `null` disables it.
 	const swipeOpts = $derived<SwipeActionOpts>(
-		swipe === null ? { enabled: false } : (swipe ?? { onSwipeRight: likeTrack, onSwipeLeft: nextTrack })
+		swipe === null
+			? { enabled: false }
+			: (swipe ?? rowSwipe(settings.swipeRow, (act) => (act === 'like' || resolve ? likeTarget() : track), rowId))
 	);
 
 	/**

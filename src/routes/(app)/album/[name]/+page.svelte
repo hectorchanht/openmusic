@@ -12,11 +12,10 @@
 	import { settings } from '$lib/stores/settings.svelte';
 	import { entityCardUrl } from '$lib/services/share';
 	import { tapBounce } from '$lib/actions/tapBounce';
-	import { shouldRun } from '$lib/actions/inflightGuard';
 	import { toast as globalToast } from '$lib/stores/toast.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
-	import { Heart, ListEnd, ListStart, CircleAlert } from '@lucide/svelte';
+	import { ListEnd, CircleAlert } from '@lucide/svelte';
 	import { t } from '$lib/i18n';
 	import { goto } from '$app/navigation';
 	import { resolveStub } from '$lib/services/discovery';
@@ -38,6 +37,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import DownloadRing from '$lib/components/DownloadRing.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
+	import SwipeReveal from '$lib/components/SwipeReveal.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import PageOg from '$lib/components/PageOg.svelte';
 	import type { PageData } from './$types';
@@ -106,11 +106,6 @@
 	// skeleton — it stays false unless the enrich effect actually fires).
 	let enrichLoading = $state(false);
 
-	// Stable in-flight-guard key for a stub row (used by swipeQueue/swipeNext). The `album:`
-	// prefix is disjoint from real source uids so it never collides with a resolved Track uid.
-	function stubUid(stub: AlbumStub): string {
-		return `album:${stub.artist} ${stub.title}`;
-	}
 	// ---- Deezer album info (Phase 17, ENRICH-04 / D-14·D-16) ----
 	// PARALLEL race-guarded effect cloning the enrichedFor idiom with its own `dzFor` guard.
 	// deezerAlbum never throws (own-origin /api/deezer/album proxy) — a miss settles `dz` to
@@ -322,48 +317,7 @@
 		}
 	}
 
-	// UX-04 / D-03/D-04: row swipe-actions. Album rows are {artist,title} STUBS, so — exactly like
-	// tap-to-play and long-press-menu — the stub is resolved to a real Track BEFORE the queue/next
-	// commit. swipe-right = like + Undo (quick-261104-swipe; was player.addToQueue), swipe-left = play next
-	// (player.playNext, splice-after-current — quick-260711-trh, matching search/library/artist/charts).
-	// Both fire the GLOBAL toast (Plan 01) + a commit-tier haptic tick;
-	// a stub that resolves to no CN-source match degrades to the existing unplayable toast (no throw).
-	// D-16 / WR-03: per-row-per-action in-flight guard — a second swipe on the same row while
-	// its resolve is in flight is a no-op (no duplicate addToQueue / racing playNext).
-	let swipeInFlight = $state(new Set<string>());
-
-	async function swipeQueue(stub: AlbumStub) {
-		const key = `q:${stubUid(stub)}`;
-		if (!shouldRun(swipeInFlight, key)) return;
-		swipeInFlight = new Set(swipeInFlight).add(key);
-		try {
-			const tr = await resolveStub(stub.artist, stub.title).catch(() => null);
-			if (!tr) { globalToast.show(t('home.unplayable')); return; }
-			player.addToQueue(tr);
-			globalToast.show(t('toast.addedToQueue'));
-			hapticTick();
-		} finally {
-			const n = new Set(swipeInFlight);
-			n.delete(key);
-			swipeInFlight = n;
-		}
-	}
-	async function swipeNext(stub: AlbumStub) {
-		const key = `n:${stubUid(stub)}`;
-		if (!shouldRun(swipeInFlight, key)) return;
-		swipeInFlight = new Set(swipeInFlight).add(key);
-		try {
-			const tr = await resolveStub(stub.artist, stub.title).catch(() => null);
-			if (!tr) { globalToast.show(t('home.unplayable')); return; }
-			player.playNext(tr);
-			globalToast.show(t('toast.playingNext'));
-			hapticTick();
-		} finally {
-			const n = new Set(swipeInFlight);
-			n.delete(key);
-			swipeInFlight = n;
-		}
-	}
+	// quick-261108-swp: row swipes moved into SongRow (settings.swipeRow via rowSwipe).
 
 	// ---- Album-level actions (between hero + tracklist) ----
 	// The tracklist is {artist,title} STUBS; the whole-album download
@@ -784,8 +738,7 @@
 				<li class="row-line">
 					<div class="swipe-wrap">
 						<!-- UX-04 reveal layers behind the row; the row translateX exposes them. -->
-						<span class="reveal reveal-queue" aria-hidden="true"><Heart size={20} /></span>
-						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+						<SwipeReveal />
 						<!-- The tap path is untouched (quick-260919-alb): playStub installs the optimistic
 						     now-bar and albumQueue(i, real) slot-substitutes in the same tick. `lazy={false}`
 						     because every row on an album legitimately shares the one album cover, so N
@@ -810,7 +763,6 @@
 							resolved={resolvedRows[i] ?? null}
 							onplay={() => playRow(track)}
 							onrequestmenu={() => openMenu(track)}
-							swipe={{ onSwipeRight: () => swipeQueue(track), onSwipeLeft: () => swipeNext(track) }}
 						/>
 					</div>
 				</li>
@@ -871,12 +823,6 @@
 	   (the row carries an opaque background); the row translateX (use:swipeAction) slides to expose
 	   the correct side. overflow:hidden masks the reveal at rest + clips the row travel. */
 	.swipe-wrap { position: relative; overflow: hidden; border-radius: 8px; }
-	.reveal {
-		position: absolute; top: 0; bottom: 0; width: 96px; display: flex; align-items: center;
-		justify-content: center; pointer-events: none;
-	}
-	.reveal-queue { left: 0; color: var(--color-text-muted); }
-	.reveal-next { right: 0; color: var(--color-text-muted); }
 	/* quick-260919-l9e: the real tracklist row is SongRow.svelte now (its styles travelled with
 	   it). `.row` / `.art` / `.meta` are KEPT because the 10-row loading skeleton above still
 	   renders `<span class="row">` with them and the .sk-* bars. The rank number is gone from both

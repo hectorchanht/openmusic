@@ -46,6 +46,7 @@
 	import KeyTip from '$lib/components/KeyTip.svelte';
 	import { marquee } from '$lib/actions/marquee';
 	import { coverSwipe } from '$lib/actions/coverSwipe';
+	import { playerSwipe } from '$lib/components/swipe-act';
 import VideoStage from '$lib/components/VideoStage.svelte';
 import NpAbout from '$lib/components/NpAbout.svelte';
 	import { scrub } from '$lib/actions/scrub';
@@ -395,7 +396,6 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	// there is a current track: player.next() owns end-of-queue growth, so a left swipe should commit
 	// and let the store top up instead of resisting at the visual boundary.
 	const hasPrevNeighbor = $derived(prevCover !== null && ci !== 0);
-	const hasNextNeighbor = $derived(!!player.current);
 
 	// ---- Contextual cover scale (plan 003, Domain 4) ----
 	// Native players shrink the art when paused, expand when playing. A physics Spring drives the
@@ -1140,12 +1140,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		     re-derives the cells. No accent/color/glow on arm (UI-SPEC §3 — positional feedback only). -->
 		<div
 			class="cover-strip"
-			use:coverSwipe={{
-				onprev: () => player.prev(),
-				onnext: () => player.next(),
-				hasPrev: hasPrevNeighbor,
-				hasNext: hasNextNeighbor
-			}}
+			use:coverSwipe={playerSwipe(settings.swipePlayer, player.current, hasPrevNeighbor)}
 		>
 			<!-- quick-260629-nyl Task 1: the prev/next neighbor cells resolve their cover via the SAME
 			     use:lazyCover chain (Deezer→iTunes→CN) the Up-Next rows use, repainting through the shared

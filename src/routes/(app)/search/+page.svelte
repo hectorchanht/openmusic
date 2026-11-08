@@ -33,11 +33,12 @@
 	import { searchHistory } from '$lib/stores/searchHistory.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { t } from '$lib/i18n';
-	import { LoaderCircle, Heart, ListStart, X, Trash2, Search } from '@lucide/svelte';
+	import { LoaderCircle, X, Trash2, Search } from '@lucide/svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { dragScroll } from '$lib/actions/dragScroll';
 	import { toast } from '$lib/stores/toast.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
+	import SwipeReveal from '$lib/components/SwipeReveal.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import SettingsGear from '$lib/components/SettingsGear.svelte';
 	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
@@ -907,8 +908,7 @@
 					     to expose them. Right-drag exposes the left-anchored like affordance (quick-261104-swipe); left-drag
 					     exposes the right-anchored like affordance. aria-hidden — the equivalent actions stay
 					     reachable via the long-press TrackMenu (swipe is an enhancement). -->
-					<span class="reveal reveal-queue" aria-hidden="true"><Heart size={20} /></span>
-					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+					<SwipeReveal />
 					<!-- quick-260919-l9e: the shared row. `swipe` is OMITTED on purpose — this page wanted
 					     exactly the app convention (right = like, left = play next — quick-261104-swipe), which now lives in
 					     the component, so the page's own swipeQueue/swipeNext are gone. Ordering is
@@ -1075,14 +1075,8 @@
 	   expose the correct side. overflow:hidden clips the row's off-screen travel + keeps the
 	   reveal masked at rest. */
 	.swipe-wrap { position: relative; overflow: hidden; border-radius: 10px; flex: 1; min-width: 0; }
-	.reveal {
-		position: absolute; top: 0; bottom: 0; width: 96px; display: flex; align-items: center;
-		justify-content: center; color: #fff; pointer-events: none;
-	}
 	/* Right-drag (queue, --color-primary) reveals from the LEFT edge; left-drag (play-next,
 	   --src-netease field) reveals from the RIGHT edge — matching the drag direction. */
-	.reveal-queue { left: 0; color: var(--color-text-muted); }
-	.reveal-next { right: 0; color: var(--color-text-muted); }
 	/* quick-260919-l9e: the RESULT row is SongRow.svelte now (its styles travelled with it).
 	   `.row` / `.art` / `.meta` and the :hover are KEPT — the 6-row loading skeleton and BOTH
 	   typeahead dropdowns (.row.suggest-row: recent searches + live suggestions) still use them.

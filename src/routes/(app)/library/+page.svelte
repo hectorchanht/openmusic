@@ -22,6 +22,7 @@
 	import { healDownloads } from '$lib/stores/heal.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import SongRow from '$lib/components/SongRow.svelte';
+	import SwipeReveal from '$lib/components/SwipeReveal.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import RadioList from '$lib/components/RadioList.svelte';
 	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
@@ -491,8 +492,7 @@
 			{#each likedList.slice(0, rowCap) as track (track.uid)}
 				<li class="row-line">
 					<div class="swipe-wrap">
-						<span class="reveal reveal-queue" aria-hidden="true"><Heart size={20} /></span>
-						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+						<SwipeReveal />
 						<!-- quick-260919-l9e: the shared row. `swipe` is omitted — the app convention
 						     (right = like, left = play next — quick-261104-swipe) now lives in the component. `onplay` still
 						     routes through rowAction, so in bulk-edit mode a row tap REMOVES; `danger`
@@ -537,8 +537,7 @@
 						{#each plList.slice(0, rowCap) as track (track.uid)}
 							<li class="row-line">
 								<div class="swipe-wrap">
-									<span class="reveal reveal-queue" aria-hidden="true"><Heart size={20} /></span>
-									<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+									<SwipeReveal />
 									<!-- The shared row (see the liked list above). rowAction carries pl.id so
 									     a bulk-edit tap removes from THIS playlist. -->
 									<!-- quick-261010-sar: the artist-name rule, app-wide — SMART-resolved artist name. -->
@@ -573,8 +572,7 @@
 			{#each downloadsList.slice(0, rowCap) as track (track.uid)}
 				<li class="row-line">
 					<div class="swipe-wrap">
-						<span class="reveal reveal-queue" aria-hidden="true"><Heart size={20} /></span>
-						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+						<SwipeReveal />
 						<!-- The shared row (see the liked list above). On THIS tab the inline Download
 						     button renders its greyed "downloaded" state, which is what the sibling
 						     control used to show. -->
@@ -616,8 +614,7 @@
 			{#each historyList as track (track.uid)}
 				<li class="row-line">
 					<div class="swipe-wrap">
-						<span class="reveal reveal-queue" aria-hidden="true"><Heart size={20} /></span>
-						<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
+						<SwipeReveal />
 						<!-- The shared row (see the liked list above). History is deliberately NOT
 						     bulk-editable (it has its own Clear all), so no `danger` here. -->
 						<!-- quick-261010-sar: the artist-name rule, app-wide — SMART-resolved artist name. -->
@@ -705,12 +702,6 @@
 	   (the row carries an opaque background); the row's translateX (use:swipeAction) slides to
 	   expose the correct side. overflow:hidden masks the reveal at rest + clips the row travel. */
 	.swipe-wrap { position: relative; overflow: hidden; border-radius: 10px; }
-	.reveal {
-		position: absolute; top: 0; bottom: 0; width: 96px; display: flex; align-items: center;
-		justify-content: center; color: #fff; pointer-events: none;
-	}
-	.reveal-queue { left: 0; color: var(--color-text-muted); }
-	.reveal-next { right: 0; color: var(--color-text-muted); }
 	/* quick-260919-l9e: every track row on this page is SongRow.svelte now (its styles travelled
 	   with it — Svelte scopes per component), and unlike the artist / album / charts / search pages
 	   this one renders NO row skeleton, so the whole `.row` / `.art` / `.meta` / `.r-*` block went

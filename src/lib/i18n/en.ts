@@ -383,6 +383,11 @@ const en = {
 	"settings.tapPreserve": "Keep Up Next",
 	"settings.tapGenerate": "Generate from song",
 	"settings.tapUpnextDesc": "Keep Up Next plays the tapped song and leaves your queue — played songs included — untouched. Generate from song rebuilds what plays next from that song, like Autoplay in the track menu; your played songs are still kept. Applies to tapping a song anywhere; a list's own Play and Shuffle buttons are not affected.",
+	"settings.swipePlayer": "Swipe on the playing song",
+	"settings.swipeRow": "Swipe on song rows",
+	"settings.swipeLeft": "Swipe left",
+	"settings.swipeRight": "Swipe right",
+	"settings.swipeDesc": "Choose what a sideways swipe does. The playing song is the Now Playing bar and the cover; song rows are lists like Search, Library, charts and Related. Up Next rows keep their own swipes.",
 	// Per-context labels — only the contexts without a reusable existing key. liked/playlists/
 	// downloads reuse library.*; history reuses history.heading.
 	"settings.ctxSearch": "Search",

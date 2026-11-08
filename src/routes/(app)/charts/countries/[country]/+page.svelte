@@ -1,17 +1,13 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { Heart, ListStart } from '@lucide/svelte';
 	import { getGeoTopTracks, type DiscoveryTrack } from '$lib/services/lastfm';
 	import { resolveStub } from '$lib/services/discovery';
-	import { tapBounce } from '$lib/actions/tapBounce';
-	import { shouldRun } from '$lib/actions/inflightGuard';
 	import { player } from '$lib/stores/player.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
-	import * as haptics from '$lib/util/haptics';
-	import { likeWithUndo } from '$lib/components/like-with-undo';
 	import { t } from '$lib/i18n';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
+	import SwipeReveal from '$lib/components/SwipeReveal.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import type { Track } from '$lib/sources/types';
 
@@ -77,45 +73,7 @@
 		}
 	}
 
-	// D-16 / WR-03: per-row-per-action in-flight guard — a second swipe on the same row while
-	// its resolve is in flight is a no-op (no duplicate addToQueue / racing playNext).
-	let swipeInFlight = $state(new Set<string>());
-
-	async function swipeLike(it: DiscoveryTrack) {
-		const key = `like:${rowKey(it)}`;
-		if (!shouldRun(swipeInFlight, key)) return;
-		swipeInFlight = new Set(swipeInFlight).add(key);
-		try {
-			const tr = await resolveStub(it.artist, it.title);
-			if (!tr) { toast.show(t('home.unplayable')); return; }
-			haptics.tick();
-			likeWithUndo(tr); // quick-261104-swipe: right-swipe = 收藏 (like + Undo); was append-to-queue
-		} finally {
-			const n = new Set(swipeInFlight);
-			n.delete(key);
-			swipeInFlight = n;
-		}
-	}
-
-	// quick-260711-t51: swipe-left = play next (player.playNext, splice-after-current) —
-	// matches search/library/artist/NowPlaying. Resolves the discovery stub first, since a
-	// DiscoveryTrack has no uid/audioUrl until resolved.
-	async function swipeNext(it: DiscoveryTrack) {
-		const key = `n:${rowKey(it)}`;
-		if (!shouldRun(swipeInFlight, key)) return;
-		swipeInFlight = new Set(swipeInFlight).add(key);
-		try {
-			const tr = await resolveStub(it.artist, it.title);
-			if (!tr) { toast.show(t('home.unplayable')); return; }
-			player.playNext(tr);
-			haptics.tick();
-			toast.show(t('toast.playingNext'));
-		} finally {
-			const n = new Set(swipeInFlight);
-			n.delete(key);
-			swipeInFlight = n;
-		}
-	}
+	// quick-261108-swp: row swipes moved into SongRow (settings.swipeRow via rowSwipe).
 
 	let fetchGen = 0;
 	$effect(() => {
@@ -174,14 +132,12 @@
 			     of the {#each}. -->
 			{@const stub = stubTrack(it)}
 			<li class="row-wrap">
-				<span class="reveal reveal-right" aria-hidden="true"><Heart size={20} /></span>
-				<span class="reveal reveal-left" aria-hidden="true"><ListStart size={20} /></span>
+				<SwipeReveal />
 				<SongRow
 					track={stub}
 					resolve={() => resolveStub(it.artist, it.title).catch(() => null)}
 					onplay={() => play(it)}
 					onrequestmenu={() => openMenu(it)}
-					swipe={{ onSwipeRight: () => swipeLike(it), onSwipeLeft: () => swipeNext(it) }}
 				/>
 			</li>
 		{/each}
@@ -193,12 +149,6 @@
 <style>
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 	.row-wrap { position: relative; overflow: hidden; border-radius: var(--radius-md); }
-	.reveal {
-		position: absolute; top: 0; bottom: 0; width: 72px; display: flex; align-items: center;
-		justify-content: center; color: #fff; pointer-events: none;
-	}
-	.reveal-right { left: 0; color: var(--color-text-muted); }
-	.reveal-left { right: 0; color: var(--color-text-muted); }
 	/* quick-260919-l9e: the real row is SongRow.svelte now (its styles travelled with it — Svelte
 	   scopes per component). `.row` / `.art` / `.meta` are KEPT because the 12-row skeleton above
 	   still renders `<span class="row skel">` with them, and it is the whole first paint of a cold

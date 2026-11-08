@@ -5,7 +5,8 @@
 	import { settings } from '$lib/stores/settings.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
-	import { likeWithUndo } from '$lib/components/like-with-undo';
+	import { rowSwipe } from '$lib/components/swipe-act';
+	import SwipeReveal from '$lib/components/SwipeReveal.svelte';
 	import { t } from '$lib/i18n';
 	import { searchAll } from '$lib/services/catalog';
 	import { dedupeBest, sameSongKey } from '$lib/services/dedupe';
@@ -130,20 +131,7 @@
 		});
 		return () => ac.abort();
 	});
-
-	// quick-260625-pzs-02: swipe-to-queue on the Related list, mirroring search/+page.svelte:41-50.
-	// swipe-right = 收藏 like + Undo (quick-261104-swipe, was add-to-queue D-03), swipe-left = play next (D-04). Reuses the shared swipeAction
-	// (tap-preserving + vertical-yielding) so tap-to-play and long-press menu keep working.
-	// quick-261104-swipe: right-swipe = 收藏 (like + Undo, shared likeWithUndo); was append-to-queue.
-	function relatedSwipeLike(track: Track) {
-		hapticTick();
-		likeWithUndo(track);
-	}
-	function relatedSwipeNext(track: Track) {
-		player.playNext(track);
-		toast.show(t('toast.playingNext'));
-		hapticTick();
-	}
+	// quick-261108-swp: row swipes follow settings.swipeRow through the shared rowSwipe.
 
 	// quick-260910-qjv → player.spliceAndPlay (38-D-07). The full decision record (why fresh:true
 	// nuked the queue, why pin:false, the D-03 already-current no-op guard and the double-play guard)
@@ -176,9 +164,8 @@
 				     (use:swipeAction) slides to expose them. Right-drag → like (quick-261104-swipe), left-drag → play
 				     next. aria-hidden (the same actions stay reachable via the long-press menu). -->
 				<li class="swipe-wrap related-swipe">
-					<span class="reveal reveal-queue" aria-hidden="true"><Heart size={20} /></span>
-					<span class="reveal reveal-next" aria-hidden="true"><ListStart size={20} /></span>
-					<button class="row rel-row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); onMenu(track); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); onMenu(track); }} onclick={() => relatedTapPlay(track)} use:swipeAction={{ onSwipeRight: () => relatedSwipeLike(track), onSwipeLeft: () => relatedSwipeNext(track) }}><span class="q-art" style:background-image={rArt ? `url(${rArt})` : coverGradient(track.uid)}></span><span class="r-meta"><span class="r-title">{names.dnTitle(track.title, track.artist)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></span><RowBadges uid={track.uid} {track} /></button>
+					<SwipeReveal />
+					<button class="row rel-row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); onMenu(track); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); onMenu(track); }} onclick={() => relatedTapPlay(track)} use:swipeAction={rowSwipe(settings.swipeRow, () => track, track.uid)}><span class="q-art" style:background-image={rArt ? `url(${rArt})` : coverGradient(track.uid)}></span><span class="r-meta"><span class="r-title">{names.dnTitle(track.title, track.artist)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></span><RowBadges uid={track.uid} {track} /></button>
 				</li>
 			{/each}
 		</ul>
@@ -212,12 +199,6 @@
 	   showed through the transparent row at rest. `background: var(--color-bg)` matches `.np`, so the
 	   now-opaque row looks unchanged over the sheet. */
 	.related-swipe { position: relative; overflow: hidden; border-radius: 10px; }
-	.related-swipe .reveal {
-		position: absolute; top: 0; bottom: 0; width: 96px; display: flex; align-items: center;
-		justify-content: center; color: #fff; pointer-events: none;
-	}
-	.related-swipe .reveal-queue { left: 0; color: var(--color-text-muted); }
-	.related-swipe .reveal-next { right: 0; color: var(--color-text-muted); }
 	.related-swipe .row { background: var(--color-bg); position: relative; z-index: 1; }
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
 	   background on a related row under a held finger while the track menu opens. */

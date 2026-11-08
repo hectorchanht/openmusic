@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { Music, Radio, Maximize2, Download, Sliders, ListMusic, SquareActivity, RotateCcw, Clapperboard, MonitorPlay, History } from '@lucide/svelte';
+	import { Music, Radio, Maximize2, Download, Sliders, ListMusic, SquareActivity, RotateCcw, Clapperboard, MonitorPlay, History, ArrowLeftRight, SkipForward, SkipBack, Heart, ListStart, ListEnd, Ban } from '@lucide/svelte';
 	import { settings, type DefaultQuality, type DefaultSource } from '$lib/stores/settings.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingPicker from '$lib/components/SettingPicker.svelte';
 	import SettingHint from '$lib/components/SettingHint.svelte';
-	import { PACK_CONTEXTS, VIDEO_QUALITIES } from '$lib/config/defaults';
-	import type { UpnextMode, TapUpnextMode, UpnextSettingKey, VideoQuality } from '$lib/config/defaults';
+	import { PACK_CONTEXTS, VIDEO_QUALITIES, SWIPE_ACTS } from '$lib/config/defaults';
+	import type { UpnextMode, TapUpnextMode, UpnextSettingKey, VideoQuality, SwipeAct } from '$lib/config/defaults';
 	import { SOURCES } from '$lib/sources/registry';
 	import type { SourceId } from '$lib/sources/types';
 	import { names } from '$lib/stores/names.svelte';
@@ -120,6 +120,31 @@
 	]);
 	function setTapUpnext(v: TapUpnextMode) {
 		settings.tapUpnext = v;
+		settings.save();
+	}
+	// quick-261108-swp: the swipe pickers. Labels reuse the existing transport / menu keys.
+	const swipeOpt = $derived({
+		next: { v: 'next' as SwipeAct, label: t('nowplaying.next'), icon: SkipForward },
+		prev: { v: 'prev' as SwipeAct, label: t('nowplaying.previous'), icon: SkipBack },
+		like: { v: 'like' as SwipeAct, label: t('menu.like'), icon: Heart },
+		playNext: { v: 'playNext' as SwipeAct, label: t('menu.playNext'), icon: ListStart },
+		queue: { v: 'queue' as SwipeAct, label: t('menu.addToQueue'), icon: ListEnd },
+		off: { v: 'off' as SwipeAct, label: t('settings.optOff'), icon: Ban }
+	});
+	const swipeGroups = $derived([
+		{
+			key: 'swipePlayer' as const,
+			title: 'settings.swipePlayer' as TranslationKey,
+			options: [swipeOpt.next, swipeOpt.prev, swipeOpt.like, swipeOpt.off]
+		},
+		{
+			key: 'swipeRow' as const,
+			title: 'settings.swipeRow' as TranslationKey,
+			options: SWIPE_ACTS.map((a) => swipeOpt[a])
+		}
+	]);
+	function setSwipe(key: 'swipePlayer' | 'swipeRow', dir: 'left' | 'right', v: SwipeAct) {
+		settings[key] = { ...settings[key], [dir]: v };
 		settings.save();
 	}
 	// quick-260919-ebi: Off/On captions for the three preview pickers below.
@@ -294,6 +319,29 @@
 		</div>
 	{/each}
 </section>
+
+<!-- quick-261108-swp (Hector): what a sideways swipe does, per direction. Defaults live in
+     config/defaults.ts PLAYBACK_DEFAULTS (swipePlayer / swipeRow); the shared executor is
+     components/swipe-act.ts. Player surfaces offer only acts that make sense for the song already
+     playing (no play-next / queue of itself). -->
+{#each swipeGroups as g (g.key)}
+	<section>
+		<h2><ArrowLeftRight size={15} /> {t(g.title)}</h2>
+		{#each (['left', 'right'] as const) as dir (dir)}
+			<div class="upnext-row">
+				<span class="ctx-label">{t(dir === 'left' ? 'settings.swipeLeft' : 'settings.swipeRight')}</span>
+				<SettingPicker
+					label={`${t(g.title)} — ${t(dir === 'left' ? 'settings.swipeLeft' : 'settings.swipeRight')}`}
+					options={g.options}
+					value={settings[g.key][dir]}
+					onpick={(v) => setSwipe(g.key, dir, v)}
+					iconOnly
+				/>
+			</div>
+		{/each}
+		{#if g.key === 'swipeRow'}<p class="upnext-desc">{t('settings.swipeDesc')}</p>{/if}
+	</section>
+{/each}
 
 <section>
 	<h2><Clapperboard size={15} /> {t('settings.musicVideos')}<SettingHint label={t('settings.musicVideos')} text={t('settings.musicVideosDesc')} /></h2>

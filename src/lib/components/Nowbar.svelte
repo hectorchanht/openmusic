@@ -24,6 +24,7 @@
     import { settings } from "$lib/stores/settings.svelte";
     import { sleepTimer } from "$lib/stores/sleepTimer.svelte";
     import { coverSwipe } from "$lib/actions/coverSwipe";
+    import { playerSwipe } from "$lib/components/swipe-act";
     import { tapBounce } from "$lib/actions/tapBounce";
     import KeyTip from "$lib/components/KeyTip.svelte";
     import { t, tMaybeKey } from "$lib/i18n";
@@ -168,7 +169,6 @@
         player.queue.findIndex((t) => t.uid === player.current?.uid),
     );
     const hasPrevNeighbor = $derived(npIndex !== 0);
-    const hasNextNeighbor = $derived(!!player.current);
 
     // quick-260919-et3: the desktop player-bar gate. et3 already made this bar span rail-edge to
     // window-edge at >=1024px; this fills it in with the YouTube-Music transport (prev/play/next +
@@ -292,10 +292,8 @@
             disabled={resolving}
             onclick={handleOpen}
             use:coverSwipe={{
-                onprev: () => player.prev(),
-                onnext: () => player.next(),
-                hasPrev: hasPrevNeighbor,
-                hasNext: hasNextNeighbor,
+                // quick-261108-swp: each direction follows settings.swipePlayer.
+                ...playerSwipe(settings.swipePlayer, player.current, hasPrevNeighbor),
                 enabled: !resolving,
             }}
         >
