@@ -32,3 +32,20 @@ export function shouldCommitSwipe(dx: number, velocity: number, commitDist: numb
 		Math.abs(dx) > SWIPE_SLOP && Math.abs(velocity) > SWIPE_FLICK_V && Math.sign(velocity) === Math.sign(dx);
 	return far || flick;
 }
+
+/** quick-261114-su7: how a swipe that has ENDED decides. The rule is "out = done": once the
+ *  surface is dragged past `commitDist` the action is armed, and only bringing it back inside
+ *  before letting go cancels it. `released` = a real pointerup → the full rule (far or flick).
+ *  An abandoned end (pointercancel when the browser takes the touch for a scroll, a lost
+ *  capture, a window blur) commits on distance alone — a fast flick on Android often ends in
+ *  pointercancel, and treating that as "cancel" was why quick swipes were dropped (Hector,
+ *  2026-11-14). SUPERSEDES DECISIONS.md §12 "cancel / lost capture never commit" for
+ *  swipeAction + coverSwipe. */
+export function shouldCommitOnEnd(
+	dx: number,
+	velocity: number,
+	commitDist: number,
+	released: boolean
+): boolean {
+	return released ? shouldCommitSwipe(dx, velocity, commitDist) : Math.abs(dx) >= commitDist;
+}

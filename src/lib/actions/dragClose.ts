@@ -1,6 +1,7 @@
 import type { Action } from 'svelte/action';
 import { createVelocityTracker } from '$lib/gestures/velocity';
 import { createSpringSnap } from '$lib/gestures/springSnap';
+import { shouldCommitOnEnd } from '$lib/gestures/swipeCommit';
 
 // use:dragClose — finger-drag-DOWN to dismiss any sheet/modal element.
 // Mirrors NowPlaying's coverDown/coverMove/coverUp live-drag idiom.
@@ -45,7 +46,6 @@ export const dragClose: Action<HTMLElement, DragCloseOpts> = (node, opts) => {
 	let dy = 0;
 	const DRAG_START = 8; // px before a press becomes a drag (and we capture the pointer)
 	const vel = createVelocityTracker();
-	const FLICK_V = 0.5; // px/ms — a fast downward flick dismisses even when not dragged far
 
 	// `pan-y` (not `none`) so the browser can natively scroll a full-height sheet; the close-drag
 	// is gated on scrollTop<=0 in move() so it never competes with that scroll. overscroll-behavior
@@ -106,7 +106,12 @@ export const dragClose: Action<HTMLElement, DragCloseOpts> = (node, opts) => {
 		// the click to the child (tap-preserving contract).
 		if (!captured) {
 			if (rawDy > DRAG_START && node.scrollTop <= 0) {
-				node.setPointerCapture(e.pointerId);
+				// quick-261114-su7: capture can throw for an already-inactive pointer — don't abort.
+				try {
+					node.setPointerCapture(e.pointerId);
+				} catch {
+					/* non-fatal */
+				}
 				captured = true;
 			} else {
 				return;
@@ -115,14 +120,16 @@ export const dragClose: Action<HTMLElement, DragCloseOpts> = (node, opts) => {
 		dy = Math.max(0, rawDy);
 		node.style.transform = `translateY(${dy}px)`;
 	}
-	function up(commit = true) {
+	function up(released = true) {
 		if (!dragging) return;
 		dragging = false;
 		captured = false;
-		// Dismiss on a far drag OR a fast downward flick (v > 0 = moving DOWN). The dy > 8
-		// guard keeps the tap contract intact: a tap (dy < 8, low velocity) never dismisses.
+		// Dismiss on a far drag OR a fast downward flick (v > 0 = moving DOWN). The slop guard
+		// keeps the tap contract intact: a tap (dy < 8, low velocity) never dismisses.
+		// quick-261114-su7 "out = done": dragged past the threshold dismisses on ANY end —
+		// pointercancel / lost capture included; only a release back above it cancels.
 		const v = vel.velocity();
-		if (commit && (dy > threshold || (v > FLICK_V && dy > 8))) {
+		if (shouldCommitOnEnd(dy, v, threshold, released)) {
 			// Hand off to the host's transition:fly — reset our inline transform first
 			// so the fly-out animates from the resting position, not the dragged one.
 			resetTransform();
@@ -141,7 +148,7 @@ export const dragClose: Action<HTMLElement, DragCloseOpts> = (node, opts) => {
 	function release() {
 		up(true);
 	}
-	// quick-261102-u05 (DECISIONS.md §12): an abandoned drag never dismisses the sheet
+	// An abandoned end dismisses only if still dragged past the threshold (quick-261114-su7).
 	function cancel() {
 		up(false);
 	}

@@ -1,7 +1,7 @@
 import type { Action } from 'svelte/action';
 import { createVelocityTracker } from '$lib/gestures/velocity';
 import { createSpringSnap } from '$lib/gestures/springSnap';
-import { swipeCommitDistance, shouldCommitSwipe, SWIPE_SLOP } from '$lib/gestures/swipeCommit';
+import { swipeCommitDistance, shouldCommitOnEnd, SWIPE_SLOP } from '$lib/gestures/swipeCommit';
 
 // use:coverSwipe — finger-drag-SIDEWAYS to change track (Phase 20, NP-01 cover carousel / NP-05
 // nowbar slide). A structural X-axis MIRROR of swipeRemove.ts: same arm-on-down /
@@ -120,6 +120,7 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 		releaseCapture();
 		dragging = false;
 		resisting = false;
+		disarmWindow();
 		snap.cancel(); // quick-261022-spring: stop the settle pump too
 		resetTransform();
 	}
@@ -188,9 +189,17 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 			}
 			// Horizontal commit: capture HERE (not on down) so the gesture keeps flowing past the
 			// node edge while a tap (never reaching slop) leaves the click to the host.
-			node.setPointerCapture(e.pointerId);
+			// quick-261114-su7: capture can THROW (NotFoundError for an already-inactive pointer) — the
+			// bare call aborted this handler every frame, so the cover never followed the finger and
+			// the swipe silently failed. Non-fatal: the window net (armed below) still sees the end.
+			try {
+				node.setPointerCapture(e.pointerId);
+			} catch {
+				/* window listeners keep tracking */
+			}
 			pointerId = e.pointerId; // remember so up()/destroy() can release it (WR-04)
 			captured = true;
+			armWindow();
 		}
 		dx = e.clientX - startX;
 		vel.sample(e.clientX, e.timeStamp);
@@ -209,9 +218,10 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 		ondrag?.(applied);
 	}
 
-	function up(commit = true) {
+	function up(released = true) {
 		if (!dragging) return;
 		dragging = false;
+		disarmWindow();
 		// A gesture that committed (captured) must NOT let its trailing click reach the host's
 		// onclick — neither after a track change nor after a spring-back (the user clearly dragged,
 		// not tapped). Capture-phase, one-shot; self-expires after 350ms when a touch commit produces
@@ -225,18 +235,17 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 		// At a TRUE BOUNDARY: ignore flick entirely and ALWAYS spring back — a hard flick into a
 		// wall must never commit (UI-SPEC §2). quick-261022-spring: real spring physics replace
 		// the old fixed 0.32s ease-out; re-seeds from the rubber-banded applied value.
-		if (resisting || !commit) {
-			// quick-261102-u05 (DECISIONS.md §12): a cancel / lost capture also springs back and NEVER commits a prev/next.
-			const from = resisting ? lastApplied : dx;
+		if (resisting) {
 			resisting = false;
-			snap.snap(from, 0);
+			snap.snap(lastApplied, 0);
 			dx = 0;
 			return;
 		}
-		// Commit on a far drag (≥ capped proportional commit) OR a fast horizontal flick in the drag
-		// direction — the shared rule (quick-261104-swipe); a sub-slop tap never commits.
+		// quick-261114-su7 "out = done": dragged past the commit distance commits on ANY end —
+		// release, pointercancel (Android taking a fast flick for a scroll), lost capture, blur.
+		// Only a release back inside cancels. A real release also keeps the flick rule.
 		const v = vel.velocity();
-		if (shouldCommitSwipe(dx, v, commitDist)) {
+		if (shouldCommitOnEnd(dx, v, commitDist, released)) {
 			// Direction → action (D-03): drag RIGHT = onprev, drag LEFT = onnext. No new advance
 			// logic — these are the host's player.prev()/player.next().
 			if (dx > 0) onprev();
@@ -261,11 +270,46 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 	function release() {
 		up(true);
 	}
-	// quick-261102-u05 (DECISIONS.md §12): an abandoned gesture never changes the track
+	// An abandoned end: changes the track only if the cover is still past the commit distance
+	// (quick-261114-su7; superseded quick-261102-u05's "never").
 	function cancel() {
 		up(false);
 	}
 	node.addEventListener('pointercancel', cancel);
+
+	// quick-261114-su7: window safety net while a drag is captured (swipeAction's quick-261102-settle
+	// precedent). If capture is refused or lost, the pointerup lands off the cover and never reaches
+	// the node — the strip latched mid-drag and the swipe "failed". pointerId-filtered; the node's own
+	// event reaches window too, but up() no-ops once dragging is false.
+	const winUp = (e: PointerEvent) => {
+		if (e.pointerId === pointerId) release();
+	};
+	const winCancel = (e: PointerEvent) => {
+		if (e.pointerId === pointerId) cancel();
+	};
+	const winMove = (e: PointerEvent) => {
+		if (e.pointerId === pointerId && e.target !== node && !node.contains(e.target as Node)) move(e);
+	};
+	function armWindow() {
+		if (typeof window === 'undefined') return;
+		window.addEventListener('pointerup', winUp);
+		window.addEventListener('pointercancel', winCancel);
+		window.addEventListener('pointermove', winMove);
+		window.addEventListener('blur', cancel);
+	}
+	function disarmWindow() {
+		if (typeof window === 'undefined') return;
+		window.removeEventListener('pointerup', winUp);
+		window.removeEventListener('pointercancel', winCancel);
+		window.removeEventListener('pointermove', winMove);
+		window.removeEventListener('blur', cancel);
+	}
+	// quick-261114-su7: once captured, stop the browser converting a diagonal flick into a scroll
+	// (that takeover fires pointercancel mid-swipe). Non-passive; only while captured.
+	function blockScroll(e: TouchEvent) {
+		if (captured && e.cancelable) e.preventDefault();
+	}
+	node.addEventListener('touchmove', blockScroll, { passive: false });
 	// quick-261108-swp: `lostpointercapture` BUBBLES. On touch the finger's implicit capture sits on
 	// the CHILD under it (a cover <img>, a title span); our setPointerCapture moves it to this node,
 	// so the child fires lostpointercapture, it bubbles here and was read as OUR capture being lost
@@ -295,6 +339,7 @@ export const coverSwipe: Action<HTMLElement, CoverSwipeOpts> = (node, opts) => {
 			node.removeEventListener('pointerup', release);
 			node.removeEventListener('pointercancel', cancel);
 			node.removeEventListener('lostpointercapture', lostCapture);
+			node.removeEventListener('touchmove', blockScroll);
 			disarmSuppressor(); // drop an armed suppressor + its self-expiry timer (WR-05)
 			cancelGesture(); // release a still-held capture + reset state if unmounted mid-drag (WR-03/WR-04)
 			node.style.touchAction = '';

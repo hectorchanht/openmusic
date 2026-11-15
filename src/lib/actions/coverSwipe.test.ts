@@ -135,14 +135,39 @@ describe('coverSwipe — horizontal axis-locked prev/next swipe (Phase 20 NP-01/
 		expect(o.onprev).not.toHaveBeenCalled();
 	});
 
-	// quick-261102-u05 (DECISIONS.md §12): the settle discipline — an abandoned gesture never commits.
-	it.each(['pointercancel', 'lostpointercapture'])('%s past the commit distance springs back — no prev/next', (ev) => {
+	// quick-261114-su7 "out = done" (supersedes quick-261102-u05): an abandoned end PAST the commit
+	// distance still changes the track — Android ends a fast flick in pointercancel.
+	it.each(['pointercancel', 'lostpointercapture'])('%s past the commit distance still commits', (ev) => {
 		const o = opts();
 		const m = mount(o);
 		m.fire('pointerdown', pe(100, 50, 0));
 		m.fire('pointermove', pe(112, 52, 16));
 		m.fire('pointermove', pe(200, 54, 400)); // dx = 100 > commitDist 84
 		m.fire(ev, pe(200, 54, 700));
+		expect(o.onprev).toHaveBeenCalledTimes(1);
+		expect(o.onnext).not.toHaveBeenCalled();
+	});
+
+	it('dragged out then back INSIDE the commit distance, released → cancels (no prev/next)', () => {
+		const o = opts();
+		const m = mount(o);
+		m.fire('pointerdown', pe(100, 50, 0));
+		m.fire('pointermove', pe(112, 52, 16));
+		m.fire('pointermove', pe(200, 54, 400)); // out: dx = 100
+		m.fire('pointermove', pe(140, 54, 900)); // back in: dx = 40 < 84, slow
+		m.fire('pointermove', pe(140, 54, 1000));
+		m.fire('pointerup', pe(140, 54, 1100));
+		expect(o.onprev).not.toHaveBeenCalled();
+		expect(o.onnext).not.toHaveBeenCalled();
+	});
+
+	it.each(['pointercancel', 'lostpointercapture'])('%s INSIDE the commit distance springs back — no prev/next', (ev) => {
+		const o = opts();
+		const m = mount(o);
+		m.fire('pointerdown', pe(100, 50, 0));
+		m.fire('pointermove', pe(112, 52, 16));
+		m.fire('pointermove', pe(150, 54, 400)); // dx = 50 < 84
+		m.fire(ev, pe(150, 54, 700));
 		expect(o.onprev).not.toHaveBeenCalled();
 		expect(o.onnext).not.toHaveBeenCalled();
 	});

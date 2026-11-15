@@ -1,7 +1,7 @@
 import type { Action } from 'svelte/action';
 import { createVelocityTracker } from '$lib/gestures/velocity';
 import { createSpringSnap } from '$lib/gestures/springSnap';
-import { shouldCommitSwipe, SWIPE_SLOP } from '$lib/gestures/swipeCommit';
+import { shouldCommitOnEnd, SWIPE_SLOP } from '$lib/gestures/swipeCommit';
 
 // use:swipeAction — DIRECTIONAL finger-drag-SIDEWAYS that commits a per-direction callback then
 // ALWAYS springs the row back (Phase 23, UX-04 / D-01/D-02). A verbatim generalization of
@@ -75,26 +75,25 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 	// quick-261022-spring: the ALWAYS-spring-back (D-02, iOS-Mail full-commit-then-spring-back)
 	// settles with a real damped spring instead of the old fixed 0.28s ease-out. The pump drives
 	// the inline transform every frame; onSettled clears it so the host CSS resting state returns.
-	// quick-261102-u05 (DECISIONS.md §12): the swipe's data commit waits for the SETTLE frame (the
-	// shared settle discipline — chipReorder/TrackMenu). It used to fire at release, so a host that
-	// removes the row (NpUpNext's swipe-remove) deleted it while it was still springing.
-	let pendingCommit: (() => void) | null = null;
-	const flushCommit = () => {
-		const c = pendingCommit;
-		pendingCommit = null;
-		c?.();
-	};
+	// quick-261114-su7: the action fires AT RELEASE again, not at the spring's settle frame
+	// (quick-261102-u05 deferred it). The underdamped spring takes up to ~1s to settle from a
+	// full swipe, so the haptic/toast/queue change lagged the finger, and a row unmounted (or a
+	// spring cancelled) before settling dropped the action outright — "swipe out and release
+	// fast → nothing; hold a second → works" (Hector, 2026-11-14).
 	const snap = createSpringSnap(
 		(v) => {
 			node.style.transform = v === 0 ? '' : `translateX(${v}px)`;
 		},
-		{
-			onSettled: () => {
-				resetTransform();
-				flushCommit();
-			}
-		}
+		{ onSettled: resetTransform }
 	);
+
+	// quick-261114-su7: once the drag owns the horizontal axis, keep the browser from turning a
+	// slightly diagonal flick into a vertical scroll. That takeover fires pointercancel with the
+	// finger still down (see touch-hold memory) and was the main way a fast swipe got cancelled.
+	// Non-passive so preventDefault is honoured; only while captured, so taps/scroll are untouched.
+	function blockScroll(e: TouchEvent) {
+		if (captured && e.cancelable) e.preventDefault();
+	}
 
 	// WR-01: swallow the trailing click after a COMMITTED horizontal drag. setPointerCapture
 	// retargets the click to this node, and on mouse input a click fires after every
@@ -120,8 +119,8 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 	const winUp = (e: PointerEvent) => {
 		if (e.pointerId === activePointerId) up();
 	};
-	// quick-261102-u05: cancel / blur / lost capture SPRING BACK and never commit (they used to route to
-	// up(), which committed a past-threshold drag the user never released).
+	// cancel / blur / lost capture end the gesture as ABANDONED: past the threshold it still commits
+	// (quick-261114-su7 "out = done"), inside it springs back.
 	const winCancel = (e: PointerEvent) => {
 		if (e.pointerId === activePointerId) cancel();
 	};
@@ -164,7 +163,6 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 		// Capture only once an actual horizontal drag begins (in move()).
 		// quick-261022-spring: interrupt an in-flight spring settle so the pump can't fight the finger.
 		snap.cancel();
-		flushCommit(); // quick-261102-u05: a superseded settle still lands the previous swipe's commit
 		node.style.transition = 'none';
 	}
 
@@ -211,7 +209,7 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 		// NOTE: no opacity fade — these rows are never removed (drop swipeRemove's FADE_DISTANCE).
 	}
 
-	function up(commit = true) {
+	function up(released = true) {
 		if (!dragging) return;
 		dragging = false;
 		disarmWindow();
@@ -224,16 +222,18 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 		// Commit on a far drag OR a fast horizontal flick. The |dx| > SLOP guard keeps the tap
 		// contract intact: a tap (sub-slop, low velocity) never commits.
 		const v = vel.velocity();
-		// quick-261104-swipe: the shared commit rule — far drag OR a flick IN the drag direction.
-		const committed = commit && shouldCommitSwipe(dx, v, threshold);
-		if (committed) {
-			// quick-261102-u05: committed at the settle frame (flushCommit in onSettled), not here.
-			pendingCommit = dx > 0 ? (onSwipeRight ?? null) : (onSwipeLeft ?? null); // queue (D-03) / like (D-04)
-		}
+		// quick-261114-su7: "out = done" — past the threshold commits on ANY end (release, cancel,
+		// lost capture, blur); only a release back inside cancels. `released` keeps the flick rule.
+		const fire = shouldCommitOnEnd(dx, v, threshold, released)
+			? dx > 0
+				? onSwipeRight // queue (D-03)
+				: onSwipeLeft // like (D-04)
+			: undefined;
 		// ALWAYS spring back to rest — the row is NEVER removed (D-02). The shared springSnap
 		// settles with real spring physics (quick-261022-spring) regardless of whether we committed.
 		snap.snap(dx, 0);
 		dx = 0;
+		fire?.(); // quick-261114-su7: at release, not at settle (may unmount this row — snap first)
 	}
 
 	// quick-261102-settle: capture was taken from us mid-gesture (implicit browser release or
@@ -248,7 +248,7 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 	// 2026-11-08, Android Chrome + APK). Only the node's own loss counts.
 	function lostCapture(e: PointerEvent) {
 		if (e.target !== node) return;
-		if (dragging) cancel(); // quick-261102-u05: lost capture is an abandoned gesture — spring back, no commit
+		if (dragging) cancel(); // abandoned end — commits only if still past the threshold (quick-261114-su7)
 	}
 
 	function cancel() {
@@ -264,6 +264,7 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 	node.addEventListener('pointerup', release);
 	node.addEventListener('pointercancel', cancel);
 	node.addEventListener('lostpointercapture', lostCapture);
+	node.addEventListener('touchmove', blockScroll, { passive: false });
 
 	return {
 		update(next: SwipeActionOpts) {
@@ -280,6 +281,7 @@ export const swipeAction: Action<HTMLElement, SwipeActionOpts> = (node, opts) =>
 			node.removeEventListener('pointerup', release);
 			node.removeEventListener('pointercancel', cancel);
 			node.removeEventListener('lostpointercapture', lostCapture);
+			node.removeEventListener('touchmove', blockScroll);
 			node.removeEventListener('click', suppressClick, true); // WR-01: drop an armed suppressor
 			resetTransform();
 			node.style.touchAction = '';

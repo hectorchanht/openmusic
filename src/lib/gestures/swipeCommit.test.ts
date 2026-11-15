@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { swipeCommitDistance, shouldCommitSwipe, SWIPE_COMMIT_MAX_PX } from './swipeCommit';
+import { swipeCommitDistance, shouldCommitSwipe, shouldCommitOnEnd, SWIPE_COMMIT_MAX_PX } from './swipeCommit';
 
 // quick-261104-swipe: the shared horizontal-swipe commit rule. The cap is the desktop fix —
 // an 804px Nowbar used to need a 225px mouse drag; a 1400px one, 400px.
@@ -36,5 +36,17 @@ describe('shouldCommitSwipe', () => {
 	});
 	it('never commits a sub-slop tap, however fast', () => {
 		expect(shouldCommitSwipe(5, 3, 96)).toBe(false);
+	});
+});
+
+describe('shouldCommitOnEnd (quick-261114-su7 "out = done")', () => {
+	it('a release uses the full rule (far or flick)', () => {
+		expect(shouldCommitOnEnd(100, 0, 96, true)).toBe(true);
+		expect(shouldCommitOnEnd(30, 1, 96, true)).toBe(true);
+		expect(shouldCommitOnEnd(30, 0, 96, true)).toBe(false);
+	});
+	it('an abandoned end commits on distance alone — past = commit, inside = cancel', () => {
+		expect(shouldCommitOnEnd(-100, 0, 96, false)).toBe(true);
+		expect(shouldCommitOnEnd(30, 1, 96, false)).toBe(false);
 	});
 });

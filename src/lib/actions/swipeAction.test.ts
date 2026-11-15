@@ -315,15 +315,43 @@ describe('swipeAction — unconditional settle (quick-261102-settle)', () => {
 		expect(m.style.transform).toBe('translateX(120px)'); // still following the finger
 	});
 
-	it.each(['lostpointercapture', 'pointercancel'])('%s PAST the threshold springs back WITHOUT committing', (ev) => {
+	// quick-261114-su7 "out = done" (supersedes quick-261102-u05): past the threshold, an abandoned
+	// end (Android's pointercancel on a fast flick, a lost capture) STILL commits — and springs back.
+	it.each(['lostpointercapture', 'pointercancel'])('%s PAST the threshold commits and springs back', (ev) => {
 		const onSwipeRight = vi.fn();
 		const m = mount({ onSwipeRight, onSwipeLeft: vi.fn(), threshold: 96 });
 		m.fire('pointerdown', peb(100, 50, 0));
 		m.fire('pointermove', peb(112, 52, 16));
 		m.fire('pointermove', peb(220, 54, 200)); // dx = 120 > threshold
 		m.fire(ev, peb(220, 54, 220));
-		expect(onSwipeRight).not.toHaveBeenCalled();
+		expect(onSwipeRight).toHaveBeenCalledTimes(1);
 		expect(['', 'translateX(0)']).toContain(m.style.transform ?? '');
+	});
+
+	it('dragged out then back INSIDE the threshold, released → cancels', () => {
+		const onSwipeRight = vi.fn();
+		const m = mount({ onSwipeRight, onSwipeLeft: vi.fn(), threshold: 96 });
+		m.fire('pointerdown', peb(100, 50, 0));
+		m.fire('pointermove', peb(112, 52, 16));
+		m.fire('pointermove', peb(220, 54, 200)); // out: dx = 120
+		m.fire('pointermove', peb(140, 54, 700)); // back in: dx = 40, slow
+		m.fire('pointermove', peb(140, 54, 800));
+		m.fire('pointerup', peb(140, 54, 900));
+		expect(onSwipeRight).not.toHaveBeenCalled();
+	});
+
+	it('fires the action AT RELEASE, before the spring settles (no settle-frame lag)', () => {
+		const frames: FrameRequestCallback[] = [];
+		vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb));
+		vi.stubGlobal('cancelAnimationFrame', () => {});
+		const onSwipeRight = vi.fn();
+		const m = mount({ onSwipeRight, onSwipeLeft: vi.fn(), threshold: 96 });
+		m.fire('pointerdown', peb(100, 50, 0));
+		m.fire('pointermove', peb(112, 52, 16));
+		m.fire('pointermove', peb(220, 54, 200));
+		m.fire('pointerup', peb(220, 54, 220));
+		expect(frames.length).toBeGreaterThan(0); // spring still running
+		expect(onSwipeRight).toHaveBeenCalledTimes(1);
 	});
 
 	it('a release heard ONLY on window (pointer released off-row, no node pointerup) still settles', () => {
