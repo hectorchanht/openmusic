@@ -777,6 +777,9 @@ class Player {
 					if (this.playGen !== healGen || !this.current || this.current.uid !== healUid) return;
 					if (better && hasHttpsScheme(better) && better !== this.resolvedCover) {
 						this.resolvedCover = better;
+						// quick-261114-fsync: a committed auto-layer cover change syncs into the
+						// downloaded file's tags too (bounded — see syncCoverToDownloadedFile).
+						this.syncCoverToDownloadedFile(healUid, better);
 					}
 				} catch {
 					// Never-throw: a failed heal leaves the existing cover in place.
@@ -1264,13 +1267,13 @@ class Player {
 	}
 
 	/**
-	 * quick-260919-3j1 (F3) — THE ONLY AUTOMATIC FILE WRITER IN THE APP.
+	 * quick-260919-3j1 (F3) — THE AUTOMATIC LYRIC FILE WRITER.
 	 *
 	 * When the network DOES produce lyrics for a song this app holds an offline copy of, put them in
 	 * the FILE, so the NEXT play needs no network for lyrics at all. Without this, a downloaded song
 	 * re-walks up to ~5 sources for its words on every single play, and is silent offline.
 	 *
-	 * WHY THIS CANNOT THRASH, in full — it is the only automatic writer, so the argument has to be
+	 * WHY THIS CANNOT THRASH, in full — it is an automatic writer, so the argument has to be
 	 * complete:
 	 *   1. It can ONLY fire for a file whose own tags carried no usable LRC. `enrichFromLocalFile`
 	 *      gates `backfillLyrics` on exactly that (`local-tags.ts`, 37-D-07).
@@ -1281,9 +1284,11 @@ class Player {
 	 *   4. Serialized app-wide by `syncFileTags`, so it can never run beside an editor save or a pin.
 	 *   5. `tagAudioBlob` refuses anything over TAG_MAX_BYTES (40 MB) with 'skipped-size', leaving
 	 *      the file byte-identical.
-	 * Contrast with the cover side, which has NO automatic writer at all: `healCover` can fire per
-	 * render on a flaky image, and rewriting a 27 MB FLAC's tags there would be catastrophic. A
-	 * cover pin already makes the user's choice permanent in the app without touching the file.
+	 * The cover side has its OWN bounded automatic writer (quick-261114-fsync,
+	 * `syncCoverToDownloadedFile` below): it fires only on a COMMITTED cover change — never per
+	 * render — and is one-shot per (download uid, url) per session, so the per-render `healCover`
+	 * probe path still cannot rewrite a 27 MB FLAC repeatedly. A cover pin remains a gesture write
+	 * (TrackMenu), never this path.
 	 *
 	 * OFF THE CRITICAL PATH, like `backfillLyrics` itself ("the template for every off-critical-path
 	 * patch in this store"): never awaited, never bumps a generation, never touches `audio.src`.
@@ -1294,20 +1299,35 @@ class Player {
 	 * handler rather than adding a timer.
 	 */
 	private embedLyricsIntoFile(uid: string, chainLrc: string): void {
+		// quick-261114-fsync: TWIN-AWARE target. The song may be PLAYING under source B's uid while
+		// its downloaded file sits under source A's — the exact-uid checks below used to miss that
+		// copy entirely, so its file never learned the lyrics. `library.downloadUidFor` resolves the
+		// twin via isSameShelfSong; the exact-uid `isDownloaded` stays as the fallback for a caller
+		// whose uid is not the current track.
+		const cur = this.current;
+		const dlUid =
+			cur && cur.uid === uid
+				? (library.downloadUidFor(cur) ?? (library.isDownloaded(uid) ? uid : null))
+				: library.isDownloaded(uid)
+					? uid
+					: null;
+		if (!dlUid) return; // nothing to write into
 		// quick-261102-tvb (DECISIONS.md §9): THE lyric pick — a user pin outranks the chain result on
 		// the file too (this auto-embed used to write the chain LRC over a pinned song's file).
-		const lrc = getPinnedLyrics(uid) ?? chainLrc;
+		// quick-261114-fsync: the pin is looked up under the DOWNLOAD uid first (that is the record
+		// the file belongs to), then the playing uid.
+		const lrc = getPinnedLyrics(dlUid) ?? getPinnedLyrics(uid) ?? chainLrc;
 		if (!lrc) return;
 		// Belt-and-braces: `retagOne` refuses a `device:` uid as its FIRST statement. An imported file
-		// is the USER'S file — never written, renamed, moved or deleted.
-		if (isDeviceUid(uid)) return;
-		if (!library.isDownloaded(uid)) return; // nothing to write into
-		if (this.lyricEmbedTried.has(uid)) return;
-		this.lyricEmbedTried.add(uid); // BEFORE the await — a failure must not retry on every play
+		// is the USER'S file — never written, renamed, moved or deleted. quick-261114-fsync: the
+		// exclusion is judged on the DOWNLOAD uid — the file that would actually be rewritten.
+		if (isDeviceUid(dlUid)) return;
+		if (this.lyricEmbedTried.has(dlUid)) return;
+		this.lyricEmbedTried.add(dlUid); // BEFORE the await — a failure must not retry on every play
 		// prewarm.ts's MAX_TRACKED_UIDS idiom: clear wholesale on overflow. Forgetting a key costs one
 		// redundant attempt, which is cheaper than an LRU nobody will maintain.
 		if (this.lyricEmbedTried.size > Player.MAX_LYRIC_EMBEDS) this.lyricEmbedTried.clear();
-		const own = library.downloads.find((d) => d.uid === uid);
+		const own = library.downloads.find((d) => d.uid === dlUid);
 		if (!own) return;
 		// D-7: the SAME entry construction the Settings sweep and the track-menu pins use.
 		// `library.applyMetadata` persists an editor edit into library.downloads, so `dnTitle` here
@@ -1315,14 +1335,14 @@ class Player {
 		// lookup — the name layer is matchKey'd on catalog metadata. NO `filename`: the sticky base
 		// recorded in blob-store is what keeps a user-typed name from being reverted.
 		void syncFileTags({
-			uid,
+			uid: dlUid,
 			title: names.dnTitle(own.title, own.artist),
 			artist: names.dnArtist(own.artist),
 			album: names.zhLock(own.album),
-			cover: readCoverByUidOrName(uid, own.artist, own.title),
+			cover: readCoverByUidOrName(dlUid, own.artist, own.title),
 			lyrics: lrc
 		})
-			.then((r) => logAction('lyrics.embed', { uid, result: r }))
+			.then((r) => logAction('lyrics.embed', { uid: dlUid, result: r }))
 			.catch(() => {
 				/* never-throws by contract; the catch is what guarantees it cannot escape into playback */
 			});
@@ -1333,6 +1353,76 @@ class Player {
 	 *  (`consecutiveFailures` / `playGen` are the precedent). */
 	private lyricEmbedTried = new Set<string>();
 	private static MAX_LYRIC_EMBEDS = 200;
+
+	/** quick-261114-fsync: one automatic cover sync attempt per `${dlUid}|${url}` per session.
+	 *  PLAIN field, same house convention as `lyricEmbedTried` above. */
+	private coverFileSyncTried = new Set<string>();
+	private static MAX_COVER_FILE_SYNCS = 200;
+
+	/**
+	 * quick-261114-fsync — THE AUTOMATIC COVER FILE WRITER, the cover counterpart of
+	 * `embedLyricsIntoFile` above.
+	 *
+	 * When an AUTO-layer cover change COMMITS for the now-playing song (a chain resolve, an iTunes
+	 * preference, a verified heal, an adoptCover promotion, the restore-time proactive heal), the
+	 * downloaded file's embedded art should learn it too — otherwise the file keeps stale art in
+	 * every other player forever, and only an explicit pin gesture ever updated it.
+	 *
+	 * WHY THIS CANNOT THRASH — the per-render fear that kept the cover side writer-less:
+	 *   1. Callers fire ONLY at commit points (a new url has just landed in `resolvedCover`), never
+	 *      from a render or a probe.
+	 *   2. ONE attempt per (download uid, url) per session — the key joins the Set BEFORE the write,
+	 *      so a heal/adopt loop re-offering the same url cannot rewrite a 27 MB FLAC twice; a
+	 *      genuinely DIFFERENT new cover is a new key and syncs once more.
+	 *   3. A pin/crowd CHOSEN cover never syncs here: a pin is the user's own gesture and TrackMenu's
+	 *      writeTagsForGesture already writes the file for it; a crowd arrival is not the user's own
+	 *      change at all.
+	 *   4. Twin-aware like the lyric embed: the file may live under another source's uid
+	 *      (`library.downloadUidFor`), and the entry is built from the DOWNLOAD record, so the
+	 *      rewrite carries the record's own display names — never the playing twin's catalog echo.
+	 *   5. `lyrics` passes the record's current read (pin → record lrc) when there is one and is
+	 *      OMITTED otherwise — the retag contract: omission preserves the file's own lyrics.
+	 *   6. Serialized app-wide by `syncFileTags`; device files are never touched (the exclusion is
+	 *      judged on the DOWNLOAD uid, the file that would actually be rewritten).
+	 *
+	 * Fire-and-forget, never throws — it is called from commit sites that include an <img> onload
+	 * handler's call chain (adoptCover).
+	 */
+	private syncCoverToDownloadedFile(uid: string, url: string): void {
+		try {
+			if (!hasHttpsScheme(url)) return; // only a real remote cover is worth embedding
+			const cur = this.current;
+			if (!cur || cur.uid !== uid) return; // the commit was for a superseded track — discard
+			if (isDeviceUid(uid)) return; // an imported file is the USER'S file — never written
+			// A chosen cover (pin ?? crowd) is not an auto-layer change — see point 3 above.
+			if (getPinnedCover(uid) ?? getCrowdCover(uid, cur.artist, cur.title)) return;
+			const dlUid = library.downloadUidFor(cur);
+			if (!dlUid) return; // no downloaded copy — nothing to write into
+			if (isDeviceUid(dlUid)) return; // the DOWNLOAD twin is an import — never written
+			const key = `${dlUid}|${url}`;
+			if (this.coverFileSyncTried.has(key)) return;
+			this.coverFileSyncTried.add(key); // BEFORE the write — see point 2 above
+			// Same wholesale-clear overflow idiom as lyricEmbedTried.
+			if (this.coverFileSyncTried.size > Player.MAX_COVER_FILE_SYNCS) this.coverFileSyncTried.clear();
+			const rec = library.downloads.find((d) => d.uid === dlUid);
+			if (!rec) return;
+			// NO `filename`: the sticky base recorded in blob-store keeps a user-typed name.
+			void syncFileTags({
+				uid: dlUid,
+				title: names.dnTitle(rec.title, rec.artist),
+				artist: names.dnArtist(rec.artist),
+				album: names.zhLock(rec.album),
+				cover: url,
+				lyrics: readLyrics(rec) ?? undefined
+			})
+				.then((r) => logAction('cover.fileSync', { uid: dlUid, result: r }))
+				.catch(() => {
+					/* never-throws by contract; the catch keeps it out of the cover commit paths */
+				});
+		} catch {
+			// Best-effort — a failure leaves the file's existing art standing.
+		}
+	}
 
 	/**
 	 * EMBEDDED-FIRST enrichment for a track served from local bytes (37-D-04). Files this app
@@ -4971,6 +5061,8 @@ class Player {
 		// resolvedCover only, so displayCover (cache-first) kept showing the cached Netease seed on
 		// the hero/Nowbar while the lock screen showed iTunes. writeCoverBoth bumps the version.
 		writeCoverBoth(resolved.uid, resolved.artist, resolved.title, url);
+		// quick-261114-fsync: the committed preference lands in the downloaded file's tags too.
+		this.syncCoverToDownloadedFile(resolved.uid, url);
 		const ms = this.ms;
 		if (ms) {
 			// Same metadata write as resolveCoverAsync — display names + the shared displayCover
@@ -5001,6 +5093,8 @@ class Player {
 		// quick-260615-hep Site C: resolveCoverForTrack already wrote BOTH cache layers internally — do NOT
 		// double-write; only bump the global reactive signal so a late async cover land repaints other tiles.
 		bumpCoverVersion();
+		// quick-261114-fsync: the committed chain cover lands in the downloaded file's tags too.
+		this.syncCoverToDownloadedFile(resolved.uid, url);
 		const ms = this.ms;
 		if (ms) {
 			// A FRESH MediaMetadata so the OS repaints the lock-screen art (never an in-place mutate).
@@ -5093,6 +5187,10 @@ class Player {
 			if (!chosen) {
 				writeCoverBoth(uid, cur.artist, cur.title, url);
 				library.fillEntryCovers(uid, cur.artist, cur.title, url);
+				// quick-261114-fsync: the committed auto-layer cover lands in the downloaded file's
+				// tags too. The CHOSEN path above skips this on purpose — a pin gesture writes the
+				// file itself via TrackMenu, and a crowd arrival is not the user's own change.
+				this.syncCoverToDownloadedFile(uid, url);
 			}
 			const ms = this.ms;
 			if (ms) {
@@ -5234,6 +5332,8 @@ class Player {
 					// their own lazyCover probe repairs them one by one.
 					library.fillEntryCovers(uid, artist, title, fresh);
 					bumpCoverVersion();
+					// quick-261114-fsync: the VERIFIED heal commit lands in the downloaded file too.
+					this.syncCoverToDownloadedFile(uid, fresh);
 					return;
 				}
 				markCoverUrlDead(fresh);
@@ -5260,6 +5360,8 @@ class Player {
 					writeCoverBoth(uid, artist, title, win);
 					library.fillEntryCovers(uid, artist, title, win);
 					bumpCoverVersion();
+					// quick-261114-fsync: the VERIFIED fan-out winner lands in the downloaded file too.
+					this.syncCoverToDownloadedFile(uid, win);
 				}
 			}
 			// Total miss: resolvedCover keeps the dead value and the component paints the
@@ -6115,7 +6217,6 @@ class Player {
 		if (this.current) this.expanded = true;
 	}
 	collapse() {
-		try { logAction('ovl.collapse', { url: location.pathname, len: history.length }); } catch { /* diag */ }
 		this.expanded = false;
 	}
 }

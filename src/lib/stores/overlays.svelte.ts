@@ -40,27 +40,7 @@ interface OverlayEntry {
 	seq: number;
 }
 
-import { logAction } from './actionLog.svelte';
-
 const HAS_WINDOW = typeof window !== 'undefined';
-
-// TEMP diag round 3: module-level popstate sentinel — fires even if init()'s
-// listener was torn down, and stamps a realm counter to detect duplicate modules.
-if (HAS_WINDOW) {
-	try {
-		const w = window as unknown as { __ovlSentinel?: number };
-		w.__ovlSentinel = (w.__ovlSentinel ?? 0) + 1;
-		const tag = w.__ovlSentinel;
-		window.addEventListener('popstate', () => {
-			try { logAction('ovl.sentinel', { tag, url: location.pathname, len: history.length }); } catch { /* diag */ }
-		});
-		window.addEventListener('keydown', (e) => {
-			if (e.key === 'Escape' || e.key === 'BrowserBack' || e.key === 'Backspace') {
-				try { logAction('ovl.key', { key: e.key, url: location.pathname }); } catch { /* diag */ }
-			}
-		});
-	} catch { /* diag */ }
-}
 
 /**
  * quick-261010-npurl: resolve `url` against the current location and return its href ONLY
@@ -149,7 +129,6 @@ class Overlays {
 			pushed = true;
 		}
 		this.stack = [...this.stack, { id, close, pushed, seq }];
-		try { logAction('ovl.open', { id, seq, len: history.length, url: location.pathname }); } catch { /* diag */ }
 	}
 
 	/**
@@ -198,8 +177,27 @@ class Overlays {
 		// Back entry is harmless — backing into it lands on the origin URL (or the song URL, if
 		// the entry carried quick-261010-npurl's display URL) with an empty stack, so the
 		// popstate listener simply no-ops.
-		try { logAction('ovl.dismiss', { id, seq: entry.seq, len: history.length, url: location.pathname, via: (new Error().stack ?? '').split('\n').slice(1, 4).join(' | ').slice(0, 220) }); } catch { /* diag */ }
 		if (entry.pushed && HAS_WINDOW && !this.navigating) {
+			// quick-261115-bak2: only pop when our entry is still AT or BELOW the current
+			// history position. Device trace (2026-11-15, S23): a single Back gesture
+			// traversed to the page entry AND ran this entry's cleanup dismiss WITHOUT
+			// our popstate listener ever seeing that traversal — the unconditional
+			// history.back() here then popped the PAGE entry too (Back closed Now
+			// Playing AND skipped a page; in Chrome it exited past Home entirely).
+			// If the browser already moved below our entry, the entry is already
+			// popped and there is nothing to balance. The current entry's gsdSeq is
+			// the witness: >= entry.seq means ours (or a sibling overlay's, in the
+			// same-tick double-dismiss pick flow, whose backs queue back-to-back) is
+			// still current; below it (a SvelteKit page entry carries no gsdSeq → 0)
+			// means already traversed past.
+			let curSeq = 0;
+			try {
+				const st = history.state as { gsdSeq?: unknown } | null;
+				if (st && typeof st.gsdSeq === 'number') curSeq = st.gsdSeq;
+			} catch {
+				curSeq = 0;
+			}
+			if (curSeq < entry.seq) return;
 			history.back();
 			// quick-261114-bak: no echo bookkeeping here any more. However this back()
 			// lands (its own popstate, or coalesced with a sibling dismiss's back into
@@ -246,24 +244,9 @@ class Overlays {
 	 * run the returned teardown in its cleanup. SSR-safe.
 	 */
 	init(): () => void {
-		try { logAction('ovl.init', { len: history.length, url: location.pathname }); } catch { /* diag */ }
 		if (!HAS_WINDOW || this.listening) return () => {};
 		this.listening = true;
 		const onpop = (e?: PopStateEvent) => {
-			// TEMP quick-261114-bak-diag (revert after device trace): record what the
-			// popstate actually carried vs what history.state claims, plus the stack.
-			try {
-				const ev = (e?.state ?? null) as Record<string, unknown> | null;
-				const hs = history.state as Record<string, unknown> | null;
-				logAction('ovl.pop', {
-					evSeq: typeof ev?.gsdSeq === 'number' ? ev.gsdSeq : -1,
-					hsSeq: typeof hs?.gsdSeq === 'number' ? hs.gsdSeq : -1,
-					evKit: ev ? Object.keys(ev).join('+') : 'null',
-					stack: this.stack.map((x) => `${x.id}:${x.seq}`).join(','),
-					len: history.length,
-					url: location.pathname
-				});
-			} catch { /* diag only */ }
 			// quick-261114-bak: reconcile against the LANDED entry. `history.state` at
 			// popstate time is the state of the entry the traversal landed on: one of
 			// ours (carries gsdSeq), a SvelteKit entry (its own state shape, no gsdSeq
@@ -275,7 +258,10 @@ class Overlays {
 			// with seq 0 pushed nothing, so no traversal can ever close it.
 			let landed = 0;
 			try {
-				const st = history.state as { gsdSeq?: unknown } | null;
+				// quick-261115-bak2: the event's own state is the landed entry's state
+				// (the source SvelteKit's handler trusts); history.state can lag it on
+				// some Android WebViews, so it is only the fallback.
+				const st = (e?.state ?? history.state) as { gsdSeq?: unknown } | null;
 				if (st && typeof st.gsdSeq === 'number') landed = st.gsdSeq;
 			} catch {
 				landed = 0;

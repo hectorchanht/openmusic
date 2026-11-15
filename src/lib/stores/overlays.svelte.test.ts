@@ -38,6 +38,7 @@ describe('overlays: outbound navigation vs history.back()', () => {
 		const close = vi.fn();
 		overlays.open('nowplaying', close);
 		expect(pushState).toHaveBeenCalledTimes(1);
+		(history as { state: unknown }).state = { gsdOverlay: 'nowplaying', gsdSeq: 1 };
 
 		overlays.dismiss('nowplaying');
 		expect(back).toHaveBeenCalledTimes(1);
@@ -92,6 +93,7 @@ describe('overlays: outbound navigation vs history.back()', () => {
 		overlays.open('trackmenu-menu', () => {}); // gsdSeq 2
 		overlays.open('trackmenu-cover', () => {}); // gsdSeq 3
 		expect(overlays.depth).toBe(3);
+		(history as { state: unknown }).state = { gsdSeq: 3 }; // current entry = the picker's
 
 		// TrackMenu.pickCover(): closeCoverPicker() flips coverOpen, then close() flips
 		// menuOpen — both $effect cleanups dismiss in the SAME tick, so two history.back()
@@ -135,6 +137,7 @@ describe('overlays: outbound navigation vs history.back()', () => {
 		overlays.open('nowplaying', closeNp); // 1
 		overlays.open('trackmenu-menu', () => {}); // 2
 		overlays.open('trackmenu-cover', () => {}); // 3
+		(history as { state: unknown }).state = { gsdSeq: 3 };
 		overlays.dismiss('trackmenu-cover');
 		overlays.dismiss('trackmenu-menu');
 
@@ -168,6 +171,21 @@ describe('overlays: outbound navigation vs history.back()', () => {
 		expect(closeNp).not.toHaveBeenCalled();
 		expect(overlays.depth).toBe(1);
 		teardown();
+	});
+});
+
+describe('overlays: dismiss guard (quick-261115-bak2)', () => {
+	it('dismiss() after the browser already traversed past the entry does NOT pop the page underneath', async () => {
+		const { overlays } = await import('./overlays.svelte');
+		const close = vi.fn();
+		overlays.open('nowplaying', close, 'https://openmusic.lol/song/a/b'); // gsdSeq 1
+		// The Back gesture landed on the SvelteKit page entry (no gsdSeq) and the
+		// entry was already removed by the popstate reconcile; a late cleanup
+		// dismiss must not eat the page entry with a second back().
+		(history as { state: unknown }).state = { 'sveltekit:history': 1 };
+		overlays.dismiss('nowplaying');
+		expect(back).not.toHaveBeenCalled();
+		expect(overlays.depth).toBe(0);
 	});
 });
 
@@ -228,6 +246,7 @@ describe('overlays: display URL on the pushed entry (quick-261010-npurl)', () =>
 		const { overlays } = await import('./overlays.svelte');
 		const close = vi.fn();
 		overlays.open('nowplaying', close, SONG);
+		(history as { state: unknown }).state = { gsdOverlay: 'nowplaying', gsdSeq: 1 };
 		overlays.dismiss('nowplaying');
 		expect(back).toHaveBeenCalledTimes(1);
 		expect(close).not.toHaveBeenCalled();
