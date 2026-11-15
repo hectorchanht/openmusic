@@ -123,6 +123,26 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		mq.addEventListener('change', onChange);
 		return () => mq.removeEventListener('change', onChange);
 	});
+	// quick-261115-inj — the two-up rung below `wide`: Up Next | (Lyrics · Comments · Related · About
+	// tabs). 768px = the md rung; the sheet is ~732px there (no rail below 1024), and the 1fr/1.4fr
+	// split lands ~290 / 410 — a 290px track column is the measured floor the 1280 note argues for
+	// (278 read as cramped). At 1024–1279 the rail eats 88px: ~350 / 500. JS for the same reason as
+	// `wide` — the Up-Next column must not mount on a phone.
+	const MID_MQ = '(min-width: 768px)';
+	let mid = $state(
+		typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(MID_MQ).matches : false
+	);
+	$effect(() => {
+		if (typeof window === 'undefined' || !window.matchMedia) return;
+		const mq = window.matchMedia(MID_MQ);
+		const onChange = (e: MediaQueryListEvent) => (mid = e.matches);
+		mid = mq.matches;
+		mq.addEventListener('change', onChange);
+		return () => mq.removeEventListener('change', onChange);
+	});
+	// Columns on screen at rest (the sheet stays 'closed' with them visible), so tab taps switch a
+	// column instead of moving the sheet. `wide` implies `mid`.
+	const split = $derived(wide || mid);
 	// shuffle/repeat moved to the store (gte) so the audio `ended` handler + next() can read
 	// them. The transport buttons below bind to player.shuffle / player.repeatMode directly.
 
@@ -989,7 +1009,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		// quick-260926-nsz: not at >=1280px. There `closed` is the resting state with every column
 		// fully on screen (see upNextPaneOpen), so a tap on the wide Comments | Related toggle must
 		// switch the column, not move the sheet.
-		if (sheetState === 'closed' && !wide) {
+		if (sheetState === 'closed' && !split) {
 			sheetState = 'half';
 		}
 	}
@@ -1388,6 +1408,22 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 					{/if}
 				</span>
 			</div>
+		{:else if mid}
+			<!-- quick-261115-inj: two-up heads — inert Up Next heading over the left column, the
+			     remaining tabs over the right one. `queue` is not a choice here (it is on screen), so
+			     a carried-over `queue` tab reads as Lyrics. -->
+			<div class="subnav heads two" role="group"
+				onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
+				<button aria-hidden="true" tabindex="-1" title={t('nowplaying.upNext')}><ListMusic size={20} /></button>
+				<span class="pair">
+					<button data-tab="lyrics" aria-label={t('nowplaying.lyrics')} title={t('nowplaying.lyrics')} class:active={tab === 'lyrics' || tab === 'queue'} aria-pressed={tab === 'lyrics' || tab === 'queue'} onclick={() => selectTab('lyrics')} use:tapBounce><MicVocal size={20} /></button>
+					<button data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} aria-pressed={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
+					<button data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab === 'related'} aria-pressed={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
+					{#if canAbout}
+						<button data-tab="about" aria-label={t('nowplaying.about')} title={t('nowplaying.about')} class:active={tab === 'about'} aria-pressed={tab === 'about'} onclick={() => selectTab('about')} use:tapBounce><Info size={20} /></button>
+					{/if}
+				</span>
+			</div>
 		{:else}
 			<!-- quick-261102-s5t: tablist/tab + aria-selected — the selected tab used to be conveyed by
 			     the `.active` class alone, so a screen reader heard five identical icon buttons. -->
@@ -1415,7 +1451,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 				rows={upNextList}
 				startIndex={upNextStart}
 				{resolvedCovers}
-				open={upNextPaneOpen(wide, sheetState)}
+				open={upNextPaneOpen(split, sheetState)}
 				onMenu={openMenu}
 				onVersions={openVersionPicker}
 			/>
@@ -1449,6 +1485,16 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 				<!-- quick-260926-nsz: toggling unmounts NpRelated (one searchAll on toggle-back, the
 				     same cost as switching tabs on a phone — accepted). -->
 				<div class="panel">{#if tab === 'comments'}{@render commentsPane()}{:else if tab === 'about' && canAbout}{@render aboutPane()}{:else}{@render relatedPane()}{/if}</div>
+			</div>
+		{:else if mid}
+			<div class="cols two">
+				<div class="panel">{@render upNextPane()}</div>
+				<div class="panel">
+					{#if tab === 'comments'}{@render commentsPane()}
+					{:else if tab === 'related'}{@render relatedPane()}
+					{:else if tab === 'about' && canAbout}{@render aboutPane()}
+					{:else}{@render lyricsPane()}{/if}
+				</div>
 			</div>
 		{:else}
 			<div class="panel" role="tabpanel" aria-labelledby={`np-tab-${tab}`}>
@@ -1820,4 +1866,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	/* quick-260926-nsz: replaces a dead span-selector rule here (the heads were always <button>s).
 	   The pair's buttons inherit `.subnav button` / `.active` like the phone tabs. */
 	.subnav.heads .pair { display: flex; justify-content: center; gap: 2px; }
+	/* quick-261115-inj: the two-up rung (768–1279) — same grid, one fewer column. */
+	.cols.two,
+	.subnav.heads.two { grid-template-columns: 1fr 1.4fr; }
 </style>
