@@ -8,6 +8,7 @@
 	import { player } from "$lib/stores/player.svelte";
 	import { names } from "$lib/stores/names.svelte";
 	import { deepLinkPath } from "$lib/services/share-arrival";
+	import { isResumeUrl } from "$lib/services/native-resume";
 	import { flushLyricOffsetVote } from "$lib/stores/lyric-offset.svelte";
 	// quick-261023-syncmerge-review: the first-sync review modal — mounted ONCE here (root,
 	// ungated) so it opens wherever sign-in completes (/auth/magic, settings, APK handoff).
@@ -15,6 +16,9 @@
 
 	let { children } = $props();
 	let audioEl: HTMLAudioElement;
+	// debug apk-cold-media-play: the boot restore() promise, so a cold "play" from outside the app
+	// (openmusic://play/resume) can wait for the last track to be seated before resuming it.
+	let restoring: Promise<void> = Promise.resolve();
 
 	const SITE = "https://openmusic.lol";
 	const TITLE = "openmusic — music streaming for earth";
@@ -41,7 +45,7 @@
 				player.attach(audioEl);
 				// Restore the last played track + queue + progress + shuffle/repeat from localStorage so a
 				// reload resumes mid-session. Doesn't autoplay (browser policy); user taps play. Fire-and-forget.
-				void player.restore();
+				restoring = player.restore();
 				// quick-260926-wdv: a song that ENDS is the end of its listen even when the uid does not
 				// change (repeat-one, the last track of the queue) — send its lyric-offset vote now.
 				audioEl.addEventListener("ended", () => void flushLyricOffsetVote());
@@ -129,6 +133,19 @@
 			// filter is the OS's gate, not ours); adoptNativeToken is idempotent, so a
 			// duplicate delivery just re-probes. On success the user lands signed-in on
 			// Settings → Account, mirroring the web verify page's goto.
+			// debug apk-cold-media-play: Samsung routine / headset play key with the app closed opens
+			// it on openmusic://play/resume (ColdMediaLaunch.kt) — resume the restored last track.
+			// toggle() routes a seated-but-unarmed track through play() (resolve + fallback).
+			// COLD launch only: once sound actually starts, minimize back to where the user was
+			// (YouTube Music never shows its UI for a routine). If it never plays, the app stays up
+			// so the failure is visible. A warm resume leaves the window alone — the user may be on it.
+			async function handleResume(raw: string | null | undefined, cold: boolean): Promise<boolean> {
+				if (!isResumeUrl(raw)) return false;
+				await restoring.catch(() => {});
+				if (cold) audioEl.addEventListener("playing", () => void App.minimizeApp(), { once: true });
+				if (!player.playing) player.toggle();
+				return true;
+			}
 			async function handleAuthCallback(raw: string | null | undefined): Promise<boolean> {
 				const token = parseAuthCallbackUrl(raw);
 				if (!token) return false;
@@ -137,7 +154,9 @@
 			}
 			// COLD: the launch intent's URL, the only place a cold deep link is visible.
 			const launch = await App.getLaunchUrl();
-			if (!(await handleAuthCallback(launch?.url))) {
+			if (await handleResume(launch?.url, true)) {
+				/* play command, not a navigation */
+			} else if (!(await handleAuthCallback(launch?.url))) {
 				const p = deepLinkPath(launch?.url);
 				if (p) void goto(p);
 			}
@@ -146,6 +165,7 @@
 			// can send ANY VIEW URL, and the manifest's host filter is the OS's gate, not ours.
 			const h = await App.addListener("appUrlOpen", (e) => {
 				void (async () => {
+					if (await handleResume(e.url, false)) return;
 					if (await handleAuthCallback(e.url)) return;
 					const p = deepLinkPath(e.url);
 					if (p) void goto(p);

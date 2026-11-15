@@ -23,7 +23,14 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(MediaStoreSaverPlugin.class);
         registerPlugin(AudioRoutePlugin.class);
         super.onCreate(savedInstanceState);
+        ColdMediaLaunch.INSTANCE.setActivityAlive(true); // debug apk-cold-media-play
         applyStatusBarInset();
+    }
+
+    @Override
+    public void onDestroy() {
+        ColdMediaLaunch.INSTANCE.setActivityAlive(false);
+        super.onDestroy();
     }
 
     /**

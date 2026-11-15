@@ -51,6 +51,66 @@ function result(tracks: Track[]): catalog.SearchResult {
 // re-programs it per case.
 beforeEach(() => {
 	vi.spyOn(nameRescue, 'lookupChineseName').mockResolvedValue(null);
+	// quick-261115-uex: a search-pass miss falls through to the exhaustive per-source walk. Default it
+	// to a miss so the search-pass call-count pins below keep measuring the search pass alone.
+	vi.spyOn(catalog, 'resolveNameStub').mockResolvedValue(null);
+});
+
+describe('resolveStub — errored source retried before the pick (quick-261115-orig)', () => {
+	it('a tier-1 source that threw is re-asked once, so the original beats the live cut on the FIRST tap', async () => {
+		const live = mk('joox', '1', '周杰伦', { title: '晴天 (Live)' });
+		const original = mk('qq', '2', '周杰伦', { title: '晴天' });
+		const spy = vi.spyOn(catalog, 'searchAll').mockImplementation(async (_q, _p, prefs = {}) => {
+			const on = Object.entries(prefs).filter(([, v]) => v).map(([k]) => k);
+			if (on.length === 1 && on[0] === 'qq') {
+				return { perSource: [{ source: 'qq', status: 'ok', tracks: [original] }], interleaved: [original] };
+			}
+			return {
+				perSource: [
+					{ source: 'joox', status: 'ok', tracks: [live] },
+					{ source: 'qq', status: 'error', tracks: [], error: 'boom' }
+				],
+				interleaved: [live]
+			};
+		});
+		expect((await resolveStub('周杰伦', '晴天'))?.uid).toBe(original.uid);
+		// tier-1 + the qq-only retry; the official row it found means no full fan-out.
+		expect(spy).toHaveBeenCalledTimes(2);
+	});
+
+	it('no errored source → no retry search', async () => {
+		const original = mk('qq', '2', '周杰伦', { title: '晴天' });
+		const spy = vi.spyOn(catalog, 'searchAll').mockResolvedValue({
+			perSource: [{ source: 'qq', status: 'ok', tracks: [original] }],
+			interleaved: [original]
+		});
+		expect((await resolveStub('周杰伦', '晴天'))?.uid).toBe(original.uid);
+		expect(spy).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('resolveStub — exhaustive walk before giving up (quick-261115-uex)', () => {
+	it('a search-pass miss walks every credible source before returning null', async () => {
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
+		const walked = mk('kugou', '9', '周杰伦', { title: '晴天', audioUrl: 'https://x/a.mp3' });
+		const walk = vi.spyOn(catalog, 'resolveNameStub').mockResolvedValue(walked);
+		expect(await resolveStub('周杰伦', '晴天')).toBe(walked);
+		expect(walk).toHaveBeenCalledWith('周杰伦', '晴天');
+	});
+
+	it('a search-pass hit never pays the walk', async () => {
+		const hit = mk('joox', '1', '周杰伦', { title: '晴天' });
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([hit]));
+		const walk = vi.spyOn(catalog, 'resolveNameStub');
+		expect((await resolveStub('周杰伦', '晴天'))?.uid).toBe(hit.uid);
+		expect(walk).not.toHaveBeenCalled();
+	});
+
+	it('a throwing walk still resolves to null (never throws)', async () => {
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));
+		vi.spyOn(catalog, 'resolveNameStub').mockRejectedValue(new Error('boom'));
+		expect(await resolveStub('周杰伦', '晴天')).toBeNull();
+	});
 });
 
 afterEach(() => {
