@@ -7,6 +7,7 @@
 	import { goto } from '$app/navigation';
 	import { ChevronDown, MoreVertical, Heart, Clapperboard, Info, SkipBack, SkipForward, Play, Pause, Moon, ListMusic, MicVocal, MessageCircle, Sparkles, VolumeX, Volume1, Volume2 } from '@lucide/svelte';
 	import { player, fmtTime } from '$lib/stores/player.svelte';
+	import { logAction } from '$lib/stores/actionLog.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -559,8 +560,12 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		// it while NowPlaying is open. Read inside untrack: later track changes repoint the
 		// entry via the replaceUrl effect below, never by re-running this open.
 		const url = untrack(() => npShareUrl);
+		try { logAction('ovl.np-fx', { url: location.pathname }); } catch { /* diag */ }
 		untrack(() => overlays.open('nowplaying', () => player.collapse(), url ?? undefined));
-		return () => untrack(() => overlays.dismiss('nowplaying'));
+		return () => {
+			try { logAction('ovl.np-clean', { url: location.pathname }); } catch { /* diag */ }
+			untrack(() => overlays.dismiss('nowplaying'));
+		};
 	});
 
 	// quick-261010-npurl: keep the URL "true" while open — a track advance, a cover resolving

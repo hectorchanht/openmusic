@@ -44,6 +44,24 @@ import { logAction } from './actionLog.svelte';
 
 const HAS_WINDOW = typeof window !== 'undefined';
 
+// TEMP diag round 3: module-level popstate sentinel — fires even if init()'s
+// listener was torn down, and stamps a realm counter to detect duplicate modules.
+if (HAS_WINDOW) {
+	try {
+		const w = window as unknown as { __ovlSentinel?: number };
+		w.__ovlSentinel = (w.__ovlSentinel ?? 0) + 1;
+		const tag = w.__ovlSentinel;
+		window.addEventListener('popstate', () => {
+			try { logAction('ovl.sentinel', { tag, url: location.pathname, len: history.length }); } catch { /* diag */ }
+		});
+		window.addEventListener('keydown', (e) => {
+			if (e.key === 'Escape' || e.key === 'BrowserBack' || e.key === 'Backspace') {
+				try { logAction('ovl.key', { key: e.key, url: location.pathname }); } catch { /* diag */ }
+			}
+		});
+	} catch { /* diag */ }
+}
+
 /**
  * quick-261010-npurl: resolve `url` against the current location and return its href ONLY
  * when it is same-origin — history.pushState/replaceState THROW on cross-origin URLs.
@@ -180,7 +198,7 @@ class Overlays {
 		// Back entry is harmless — backing into it lands on the origin URL (or the song URL, if
 		// the entry carried quick-261010-npurl's display URL) with an empty stack, so the
 		// popstate listener simply no-ops.
-		try { logAction('ovl.dismiss', { id, seq: entry.seq, len: history.length, url: location.pathname }); } catch { /* diag */ }
+		try { logAction('ovl.dismiss', { id, seq: entry.seq, len: history.length, url: location.pathname, via: (new Error().stack ?? '').split('\n').slice(1, 4).join(' | ').slice(0, 220) }); } catch { /* diag */ }
 		if (entry.pushed && HAS_WINDOW && !this.navigating) {
 			history.back();
 			// quick-261114-bak: no echo bookkeeping here any more. However this back()
