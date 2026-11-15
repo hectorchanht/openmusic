@@ -35,6 +35,7 @@
     import { longpress } from "$lib/actions/longpress";
     import { library } from "$lib/stores/library.svelte";
     import { toast } from "$lib/stores/toast.svelte";
+    import { tick as hapticTick } from "$lib/util/haptics";
     import TrackMenu from "$lib/components/TrackMenu.svelte";
     import DownloadControl from "$lib/components/DownloadControl.svelte";
     // quick-260919-1we (F2): the docked mini player's lyric line. parseLRC + the SHARED active-line
@@ -235,14 +236,17 @@
         else player.expand();
     }
 
-    // quick-261115-inj: desktop-only by request ("in desktop") — on a phone the bar's long-press
-    // stays inert so the coverSwipe surface keeps one meaning. Not while resolving: the menu needs a
-    // real Track, and pendingTrack is a stub.
+    // quick-261115-inj: right-click / long-press on the docked bar opens the TrackMenu — desktop
+    // AND phone (follow-up). longpress cancels past 8px of movement, so a coverSwipe drag never
+    // opens it, and it eats the trailing click so the hold does not also expand Now Playing.
+    // Not the embed variant (NowPlaying has its own menu); not while resolving (pendingTrack is a
+    // stub, the menu needs a real Track).
     let menuOpen = $state(false);
     function openBarMenu(e?: Event) {
-        if (!desktopBar || !player.current) return;
+        if (variant !== "docked" || !player.current) return;
         e?.preventDefault();
         (e?.currentTarget as HTMLElement | null)?.blur();
+        if (e?.type === "longpress") hapticTick();
         menuOpen = true;
     }
     const currentLiked = $derived(
@@ -506,7 +510,7 @@
     </div>
 {/if}
 
-{#if desktopBar}
+{#if variant === "docked"}
     <TrackMenu track={player.current} open={menuOpen} onclose={() => (menuOpen = false)} />
 {/if}
 
@@ -612,6 +616,10 @@
     .np-open {
         flex: 1;
         min-width: 0;
+        /* quick-261115-inj: the hold opens the TrackMenu — no iOS callout / text selection over it. */
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
         display: flex;
         align-items: center;
         gap: 10px;
