@@ -10,10 +10,10 @@
 // one searchAll — never eager-resolve a whole shelf or album (Pitfall 11 fan-out).
 // Graceful degrade (D-03): null → caller shows unplayable / skips, never breaks the
 // surface or the player. catalog.ts / dedupe.ts are pure reuse — NOT modified here.
-import { searchAll, resolveNameStub } from '$lib/services/catalog';
+import { searchAll, resolveNameStub, type SearchResult } from '$lib/services/catalog';
 import { dedupeBest, normField, preferenceOrder, cjkTitleOf, trackQualityRank } from '$lib/services/dedupe';
 import { rankPool, partitionOfficial, isAutoAcceptable, isAutoAcceptableArtist } from '$lib/services/song-variant';
-import { tier1Only } from '$lib/sources/registry';
+import { tier1Only, SOURCES } from '$lib/sources/registry';
 import { scoreMatch } from '$lib/services/score-match';
 import { foldScript, isChineseLine, ensureFoldReady, foldScriptReady } from '$lib/services/zh-convert';
 import { detectLang } from '$lib/i18n/detect';
@@ -21,7 +21,7 @@ import { isStrongMatch, lookupChineseName, type ZhName } from '$lib/services/nam
 import { settings } from '$lib/stores/settings.svelte';
 import { logAction } from '$lib/stores/actionLog.svelte';
 import { isAutoResolveEligible } from '$lib/sources/registry';
-import type { Track } from '$lib/sources/types';
+import type { SourceId, Track } from '$lib/sources/types';
 
 /** quick-260926-c69: one attempt's best row per auto-resolve partition (see attempt). */
 export type Bests = { eligible: Track | null; ineligible: Track | null };
@@ -42,6 +42,29 @@ export type Bests = { eligible: Track | null; ineligible: Track | null };
  * quick-260926-c69: ranks auto-resolve ELIGIBLE and INELIGIBLE rows separately (registry flag via
  * isAutoResolveEligible — no source named here) and returns both bests; preferEligible decides.
  */
+/**
+ * quick-261115-orig (user 2026-11-15: "how can we play 原曲 on the first click? sometimes it is not"):
+ * a source whose search THREW left the pool without its rows, and attempt() picked from the rest —
+ * so when the original sat on that source the first tap adopted another acceptable cut (live,
+ * remaster, another recording by the same artist), while the second tap (searchAll never caches a
+ * pool with an errored source) saw the full pool and played the original. Retry ONLY the errored
+ * sources, once, and merge their rows before anything is picked. A health-gated source returns
+ * `ok []` by design and is not retried here (its gate owns the probe window). Cost: zero when every
+ * source answered; one single-source-set search per tap otherwise.
+ */
+async function withErroredRetried(r: SearchResult, keyword: string): Promise<SearchResult> {
+	const failed = new Set<SourceId>(r.perSource.filter((x) => x.status === 'error').map((x) => x.source));
+	if (failed.size === 0) return r;
+	const prefs: Partial<Record<SourceId, boolean>> = {};
+	for (const id of Object.keys(SOURCES) as SourceId[]) prefs[id] = failed.has(id);
+	const again = await searchAll(keyword, 1, prefs);
+	const seen = new Set(r.interleaved.map((t) => t.uid));
+	return {
+		perSource: [...r.perSource.filter((x) => !failed.has(x.source)), ...again.perSource],
+		interleaved: [...r.interleaved, ...again.interleaved.filter((t) => !seen.has(t.uid))]
+	};
+}
+
 async function attempt(
 	artist: string,
 	title: string,
@@ -56,7 +79,8 @@ async function attempt(
 	// first, or a cold dict keys 周傑倫 ≠ 周杰伦 and rejects the official row (the brief's
 	// "cold dictionary got official versions rejected" incident).
 	await foldScriptReady(`${artist} ${title}`);
-	const tier1 = await searchAll(`${artist} ${title}`, 1, tier1Only());
+	const keyword = `${artist} ${title}`;
+	const tier1 = await withErroredRetried(await searchAll(keyword, 1, tier1Only()), keyword);
 	// quick-261102-sy0: only ACCEPTABLE rows can satisfy tier-1 — a plain-titled cover by another
 	// artist used to count as "official", suppress the full fan-out, then get filtered out of the
 	// pick, so kugou/migu were never searched and the song came back null.
@@ -65,7 +89,7 @@ async function attempt(
 		title
 	);
 	const useFull = official.length === 0;
-	const r = useFull ? await searchAll(`${artist} ${title}`, 1) : tier1;
+	const r = useFull ? await withErroredRetried(await searchAll(keyword, 1), keyword) : tier1;
 	const pick = (rows: Track[]): Track | null => {
 		// quick-261102-sy0 (DECISIONS.md §3): THE auto-play acceptance predicate gates the pool
 		// BEFORE ranking — same song (identity or duet credit), same kind of recording, same
