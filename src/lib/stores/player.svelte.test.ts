@@ -9087,6 +9087,10 @@ describe('player — the automatic lyric embed (quick-260919-3j1, F3)', () => {
 
 	it('a uid that is NOT in library.downloads never reaches syncFileTags', async () => {
 		vi.mocked(library.isDownloaded).mockReturnValue(false);
+		// quick-261114-fsync: the embed is twin-aware now, so "no downloaded copy" must ALSO empty
+		// the downloads list — the suite's DL row is the same song (Adele/Hello), and a twin copy
+		// under another uid is exactly what the fsync embed writes into.
+		library.downloads = [];
 		const t = mk('kuwo', 'stream1', 'Adele', 'Hello');
 		mockEnsure.mockResolvedValue({ ...t, lrc: '[00:01]words' });
 		// A streaming play still backfills lyrics on a cache hit; it just has no file to write into.
@@ -9148,6 +9152,191 @@ describe('player — the automatic lyric embed (quick-260919-3j1, F3)', () => {
 		const entry = mockSyncFileTags.mock.calls[0][0];
 		expect(entry.title).toBe('Edited Title');
 		expect(entry.artist).toBe('Edited Artist');
+	});
+
+	// ── quick-261114-fsync: the embed is TWIN-AWARE ────────────────────────────────────────────
+	// The song plays under source B's uid while its file sits under source A's. The old exact-uid
+	// checks wrote nothing; the embed must land on the DOWNLOAD record (uid + names), with the
+	// one-shot budget keyed by the download uid.
+	it('twin: a backfill for a song downloaded under ANOTHER source uid embeds into the TWIN file', async () => {
+		// The suite-wide isDownloaded stub answers true for ANY uid, which short-circuits
+		// downloadUidFor's twin walk at its exact-uid branch — restore the real one so the twin
+		// resolution (and the record lookup under the DOWNLOAD uid) is what runs.
+		vi.mocked(library.isDownloaded).mockRestore();
+		const twin = mk('netease', 'twin1', 'Adele', 'Hello'); // same song, other source
+		mockEnsure.mockResolvedValue({ ...twin, lrc: '[00:02]twin-words' });
+		player.setQueue([twin], 'search');
+		await player.play(twin, { fresh: true });
+		await flush();
+		await flush();
+
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+		const entry = mockSyncFileTags.mock.calls[0][0];
+		expect(entry.uid).toBe(DL.uid); // the DOWNLOAD record's uid, not the playing twin's
+		expect(entry.lyrics).toBe('[00:02]twin-words');
+		expect(entry.filename).toBeUndefined();
+	});
+});
+
+describe('player — the automatic cover file sync (quick-261114-fsync)', () => {
+	let el: ReturnType<typeof makeFakeAudio>;
+	let images: Array<{ src: string; onload: (() => void) | null; onerror: (() => void) | null; decoding: string; referrerPolicy: string }>;
+	// The download record carries EDITED display strings so an entry built from the playing
+	// track's catalog strings (instead of the record) fails the assertions below.
+	const DLREC = { ...mk('kuwo', 'cdl1', 'Adele', 'Hello'), title: 'Edited Title', artist: 'Edited Artist', album: 'Edited Album' };
+	const CUR = mk('kuwo', 'cdl1', 'Adele', 'Hello');
+
+	const clearCoverTried = () =>
+		(player as unknown as { coverFileSyncTried: Set<string> }).coverFileSyncTried.clear();
+	const rc = () => (player as unknown as { resolvedCover: string | null }).resolvedCover;
+	const setCurrent = (t: Track, cover: string | null) => {
+		player.current = t;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = cover;
+	};
+	/** Fire the most-recently-constructed probe Image's onload/onerror (healCover's probe). */
+	const fireProbe = (ok: boolean) => {
+		const img = images[images.length - 1];
+		if (ok) img.onload?.();
+		else img.onerror?.();
+	};
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockResolvedValue(mk('kuwo', 'unused', 'U', 'U'));
+		mockUidCover.mockReset().mockReturnValue(null);
+		mockNameCover.mockReset().mockReturnValue(null);
+		mockResolveCover.mockReset().mockResolvedValue(null);
+		mockCandidates.mockReset().mockResolvedValue([]);
+		mockGetPinned.mockReset().mockReturnValue(null);
+		mockSyncFileTags.mockReset().mockResolvedValue('tagged');
+		__resetDeadCoverUrls();
+		(player as unknown as { healProbed: Set<string> }).healProbed.clear();
+		clearCoverTried();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = null;
+		library.downloads = [DLREC];
+		images = [];
+		const ImageCtor = vi.fn(function (this: Record<string, unknown>) {
+			const img = { src: '', onload: null, onerror: null, decoding: '', referrerPolicy: '' };
+			images.push(img);
+			return img;
+		});
+		vi.stubGlobal('Image', ImageCtor);
+		vi.stubGlobal('navigator', { onLine: true });
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		library.downloads = [];
+		clearCoverTried();
+	});
+
+	it('adoptCover on a DOWNLOADED song syncs the file ONCE with the new cover + download-record metadata', () => {
+		setCurrent(CUR, 'https://cdn/old.jpg');
+
+		player.adoptCover(CUR.uid, 'https://cdn/new.jpg');
+
+		expect(rc()).toBe('https://cdn/new.jpg');
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+		const entry = mockSyncFileTags.mock.calls[0][0];
+		expect(entry.uid).toBe(DLREC.uid);
+		expect(entry.cover).toBe('https://cdn/new.jpg');
+		// Built from the DOWNLOAD record, not the playing track's catalog strings.
+		expect(entry.title).toBe('Edited Title');
+		expect(entry.artist).toBe('Edited Artist');
+		expect(entry.album).toBe('Edited Album');
+		expect(entry.filename).toBeUndefined();
+	});
+
+	it('the SAME cover again does not sync a second time (one-shot per dlUid|url)', () => {
+		setCurrent(CUR, 'https://cdn/old.jpg');
+		player.adoptCover(CUR.uid, 'https://cdn/new.jpg');
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+
+		// A different cover lands in between, then the first url is adopted again — its key is
+		// already spent, so no second rewrite of the file for the same art.
+		player.adoptCover(CUR.uid, 'https://cdn/other.jpg');
+		player.adoptCover(CUR.uid, 'https://cdn/new.jpg');
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(2); // new.jpg once + other.jpg once
+	});
+
+	it('a DIFFERENT new cover syncs again (a new key, a real change)', () => {
+		setCurrent(CUR, 'https://cdn/old.jpg');
+		player.adoptCover(CUR.uid, 'https://cdn/new.jpg');
+		player.adoptCover(CUR.uid, 'https://cdn/newer.jpg');
+
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(2);
+		expect(mockSyncFileTags.mock.calls[1][0].cover).toBe('https://cdn/newer.jpg');
+	});
+
+	it('a PINNED (chosen) cover never auto-syncs — the pin gesture writes the file itself', () => {
+		mockGetPinned.mockReturnValue('https://cdn/pinned.jpg');
+		setCurrent(CUR, 'https://cdn/old.jpg');
+
+		player.adoptCover(CUR.uid, 'https://cdn/pinned.jpg'); // the pin itself, via the seam
+
+		expect(rc()).toBe('https://cdn/pinned.jpg'); // the adoption still happens
+		expect(mockSyncFileTags).not.toHaveBeenCalled(); // the automatic writer stays out of it
+	});
+
+	it('a device: uid never reaches syncFileTags, even when a device record sits in downloads', () => {
+		const dev = { ...mk('kuwo', '77', 'Adele', 'Hello'), uid: deviceUid('77') };
+		library.downloads = [dev];
+		setCurrent(dev, 'https://cdn/old.jpg');
+
+		player.adoptCover(dev.uid, 'https://cdn/new.jpg');
+
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+	});
+
+	it('a song with NO downloaded copy never syncs', () => {
+		library.downloads = [];
+		setCurrent(CUR, 'https://cdn/old.jpg');
+
+		player.adoptCover(CUR.uid, 'https://cdn/new.jpg');
+
+		expect(rc()).toBe('https://cdn/new.jpg'); // the in-app adoption is unaffected
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+	});
+
+	it('twin: the playing uid differs from the download uid — the entry targets the DOWNLOAD record', () => {
+		// Twin identity is name-based (isSameShelfSong), so this record keeps the catalog names —
+		// the distinguishing field is the album, which only the record carries.
+		library.downloads = [{ ...mk('kuwo', 'cdl1', 'Adele', 'Hello'), album: 'Twin Album' }];
+		const twin = mk('netease', 'ctwin1', 'Adele', 'Hello'); // same song, other source
+		setCurrent(twin, 'https://cdn/old.jpg');
+
+		player.adoptCover(twin.uid, 'https://cdn/new.jpg');
+
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+		const entry = mockSyncFileTags.mock.calls[0][0];
+		expect(entry.uid).toBe('kuwo:cdl1'); // the DOWNLOAD uid, not the playing twin's
+		expect(entry.album).toBe('Twin Album'); // built from the download record
+		expect(entry.cover).toBe('https://cdn/new.jpg');
+	});
+
+	it('healCover’s VERIFIED-fresh commit syncs the healed cover into the file', async () => {
+		setCurrent(CUR, 'https://cdn/dead.jpg');
+		mockResolveCover.mockResolvedValue('https://cdn/fresh.jpg');
+
+		const p = player.healCover(CUR.uid);
+		await flush(); // dead-url probe constructed
+		fireProbe(false); // painted cover is dead
+		await flush(); // chain settles → fresh-url verification probe constructed
+		fireProbe(true); // fresh art verified alive → committed
+		await p;
+		await flush();
+
+		expect(rc()).toBe('https://cdn/fresh.jpg');
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+		const entry = mockSyncFileTags.mock.calls[0][0];
+		expect(entry.uid).toBe(DLREC.uid);
+		expect(entry.cover).toBe('https://cdn/fresh.jpg');
 	});
 });
 

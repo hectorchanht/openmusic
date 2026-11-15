@@ -920,15 +920,27 @@
 	//
 	// `lyrics` is the SAME expression the <MetadataEditor> mount at the bottom of this file uses, so
 	// a cover pin can never blank the lyrics the app is currently showing.
-	function fileSyncEntry(overrides: Partial<RetagEntry>): RetagEntry | null {
+	//
+	// quick-261114-fsync: `targetUid` is the DOWNLOAD's uid, which may be a TWIN — the song was
+	// downloaded under another source's uid than the one this menu was opened on. When it is a
+	// twin, the entry's uid AND its name fields come from the DOWNLOAD record (the file being
+	// rewritten is that record's file, and its own strings are the ones an editor edit would have
+	// persisted there), and the default `lyrics` reads the record first so the rewrite preserves
+	// the file's own lyrics before falling back to the menu track's read.
+	function fileSyncEntry(overrides: Partial<RetagEntry>, targetUid: string): RetagEntry | null {
 		if (!track?.uid) return null;
+		const rec = targetUid !== track.uid ? library.downloads.find((d) => d.uid === targetUid) : undefined;
+		const meta = rec ?? track;
 		return {
-			uid: track.uid,
-			title: names.dnTitle(track.title, track.artist),
-			artist: names.dnArtist(track.artist),
-			album: names.zhLock(track.album),
+			uid: targetUid,
+			title: names.dnTitle(meta.title, meta.artist),
+			artist: names.dnArtist(meta.artist),
+			album: names.zhLock(meta.album),
 			cover: activeCover,
-			lyrics: readLyrics(track && player.current?.uid === track.uid ? player.current : track) ?? undefined,
+			lyrics:
+				(rec ? readLyrics(rec) : undefined) ??
+				readLyrics(track && player.current?.uid === track.uid ? player.current : track) ??
+				undefined,
 			...overrides
 		};
 	}
@@ -944,6 +956,12 @@
 	//
 	// Gate on `blobPresent === true`, never `!== false`: it starts `null` and is filled by the menu's
 	// own open-effect, so `!== false` would fire a rewrite for a song this app has no copy of.
+	//
+	// quick-261114-fsync: the gate above decides the EXACT-uid case only. The write TARGET is
+	// `library.downloadUidFor(track)` — a song downloaded under another source's uid has its file
+	// under the TWIN uid, where `blobPresent` (probed for THIS menu's uid) says nothing. A twin
+	// target is therefore verified directly (`blobStore.has(target)`) inside the async body below;
+	// no target at all (not downloaded under any uid) means no write, exactly as before.
 	//
 	// quick-260919-ejm (D-6) — `isDevice` STAYS, and it is now a DELIBERATE BOUNDARY, not an echo of
 	// a `retagOne` guard that has been lifted. Do not "fix" this by symmetry with the Edit-metadata
@@ -962,12 +980,26 @@
 	// the file's existing art survives untouched. The Settings -> Downloads sweep repairs it later,
 	// because that sweep now reads the pin (the other half of this task).
 	function writeTagsForGesture(overrides: Partial<RetagEntry>) {
-		if (blobPresent !== true || isDevice) return;
-		const entry = fileSyncEntry(overrides);
-		if (!entry) return;
-		void syncFileTags(entry).then((r) => {
+		// quick-260919-ejm (D-6): the menu's own track being a device import still ends this here —
+		// and so does a DEVICE target (downloadUidFor never resolves a catalog track to a device
+		// file, but the boundary is stated, not inherited).
+		if (isDevice || !track?.uid) return;
+		const target = library.downloadUidFor(track);
+		if (!target || isDeviceUid(target)) return;
+		const trackUid = track.uid;
+		// Fire-and-forget, as before — the twin branch just needs one awaited probe first, so the
+		// body is an async IIFE rather than a straight-line call.
+		void (async () => {
+			if (target === trackUid) {
+				if (blobPresent !== true) return; // the exact-uid gate, unchanged
+			} else if (!(await blobStore.has(target).catch(() => false))) {
+				return; // the twin record exists but its blob is gone — nothing to write into
+			}
+			const entry = fileSyncEntry(overrides, target);
+			if (!entry) return;
+			const r = await syncFileTags(entry);
 			if (r !== 'tagged' && r !== 'device-skipped') toast.show(t('toast.tagsFailed'));
-		});
+		})();
 	}
 
 	// quick-260919-1we (D-6): opening the sheet IS the reloader. Nothing caches a resolved LRC
@@ -1019,6 +1051,15 @@
 	function resetLyrics() {
 		if (!track?.uid) return;
 		unpinLyrics(track.uid);
+		// quick-261114-fsync: the unpin used to leave the FILE still carrying the pinned LRC — the
+		// app fell back, the file did not. Re-sync the fallback lyrics (the post-unpin read: the
+		// track's own lrc) through the same gesture writer. When the fallback is EMPTY there is no
+		// write at all: the codec has no clear verb (an absent/empty `lyrics` field means "leave the
+		// file's lyrics alone", retag.ts D-4), so an unpin with no fallback lyrics cannot scrub the
+		// file — the Settings -> Downloads sweep cannot either; the file keeps its embedded LRC
+		// until a non-empty lyric set is written over it.
+		const fallback = readLyrics(player.current?.uid === track.uid ? player.current : track);
+		if (fallback) writeTagsForGesture({ lyrics: fallback });
 		toast.show(t('menu.lyricsAuto'));
 		closeLyricsPicker();
 		close();
