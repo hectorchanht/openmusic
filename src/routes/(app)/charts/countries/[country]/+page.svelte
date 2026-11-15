@@ -67,7 +67,8 @@
 			menuTrack = tr;
 			menuLoading = false;
 		} else {
-			menuOpen = false;
+			// quick-261115-uex: a miss keeps the menu OPEN on the stub (uid-less cells disable
+			// themselves) — closing it made the menu of an unplayable song vanish on tap.
 			menuLoading = false;
 			toast.show(t('home.unplayable'));
 		}

@@ -957,7 +957,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	// menu opens INSTANTLY with a display stub + loading skeleton (predictable, never delayed by
 	// the network — so a slow re-search can't eat the long-press), then resolveStub fills in the
 	// real Track + actions in the background. A generation guard discards a stale resolve if the
-	// user closed / reopened the menu meanwhile; a miss closes the menu + toasts.
+	// user closed / reopened the menu meanwhile; a miss toasts but keeps the menu open (quick-261115-uex).
 	let menuLoading = $state(false);
 	let menuGen = 0;
 	function stubTrack(item: DiscoveryTrack): Track {
@@ -978,7 +978,8 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 			menuTrack = tr;
 			menuLoading = false;
 		} else {
-			menuOpen = false;
+			// quick-261115-uex: a miss keeps the menu OPEN on the stub (uid-less cells disable
+			// themselves) — closing it made the menu of an unplayable song vanish on tap.
 			menuLoading = false;
 			toast.show(t('home.unplayable'));
 		}

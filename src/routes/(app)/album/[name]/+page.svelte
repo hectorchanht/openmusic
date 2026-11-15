@@ -374,7 +374,7 @@
 		try {
 			const tr = await resolveStub(stub.artist, stub.title).catch(() => null);
 			if (!menuOpen) return; // user dismissed during resolve — discard
-			if (!tr) { menuOpen = false; globalToast.show(t('home.unplayable')); return; }
+			if (!tr) { globalToast.show(t('home.unplayable')); return; } // quick-261115-uex: keep the menu open on the stub
 			menuTrack = tr;
 		} finally {
 			menuLoading = false;

@@ -1813,8 +1813,11 @@
 		<!-- Play next — non-current tracks only. quick-261006-44s: the gate lives in
 	     canShow now (the old inner {#if} consumed a grid slot while rendering nothing
 	     for the current track — 19 visible cells instead of 20). -->
+		<!-- quick-261115-uex: Play next / Add to queue / Add to playlist disable on a uid-less stub
+		     (still resolving, or a resolve miss that now keeps the menu open) — like Like / Cover /
+		     Lyrics already did — so an unresolved `uid:''` stub never enters the queue or a playlist. -->
 		{#snippet cellPlayNext(tr: Track)}
-			<button class="gi" onclick={playNext} use:tapBounce><ListStart size={22} /><span class="gi-label">{t('menu.playNext')}</span></button>
+			<button class="gi" disabled={!tr.uid} onclick={playNext} use:tapBounce><ListStart size={22} /><span class="gi-label">{t('menu.playNext')}</span></button>
 		{/snippet}
 		<!-- quick-261006-mnu — the download slot is ONE adaptive cell: the Download tri-state,
 		     Remove-download and Don't-import are inverse states of one thing (mutually exclusive
@@ -1904,7 +1907,7 @@
 			</button>
 		{/snippet}
 		{#snippet cellAddQueue(tr: Track)}
-			<button class="gi" onclick={addQueue} use:tapBounce><ListEnd size={22} /><span class="gi-label">{t('menu.addToQueue')}</span></button>
+			<button class="gi" disabled={!tr.uid} onclick={addQueue} use:tapBounce><ListEnd size={22} /><span class="gi-label">{t('menu.addToQueue')}</span></button>
 		{/snippet}
 		{#snippet cellStartRadio(tr: Track)}
 			<button class="gi" onclick={startRadio} use:tapBounce><Radio size={22} /><span class="gi-label">{t('menu.startRadio')}</span></button>
@@ -1953,7 +1956,7 @@
 			<button class="gi" onclick={() => (tagsOpen = true)} use:tapBounce><Tags size={22} /><span class="gi-label">{t('menu.editTags')}</span></button>
 		{/snippet}
 		{#snippet cellAddToPlaylist(tr: Track)}
-			<button class="gi" onclick={() => { pickerOpen = true; }} use:tapBounce><ListPlus size={22} /><span class="gi-label">{t('menu.addToPlaylist')}</span></button>
+			<button class="gi" disabled={!tr.uid} onclick={() => { pickerOpen = true; }} use:tapBounce><ListPlus size={22} /><span class="gi-label">{t('menu.addToPlaylist')}</span></button>
 		{/snippet}
 		<!-- quick-261006-44r: the edit affordance is a GRID CELL now (user 2026-10-06 — it
 		     takes repeat's old slot; repeat moves to the back). The header pencil is retired,

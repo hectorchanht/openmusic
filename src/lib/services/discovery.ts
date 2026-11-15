@@ -10,7 +10,7 @@
 // one searchAll — never eager-resolve a whole shelf or album (Pitfall 11 fan-out).
 // Graceful degrade (D-03): null → caller shows unplayable / skips, never breaks the
 // surface or the player. catalog.ts / dedupe.ts are pure reuse — NOT modified here.
-import { searchAll } from '$lib/services/catalog';
+import { searchAll, resolveNameStub } from '$lib/services/catalog';
 import { dedupeBest, normField, preferenceOrder, cjkTitleOf, trackQualityRank } from '$lib/services/dedupe';
 import { rankPool, partitionOfficial, isAutoAcceptable, isAutoAcceptableArtist } from '$lib/services/song-variant';
 import { tier1Only } from '$lib/sources/registry';
@@ -204,6 +204,25 @@ export async function preferEligible(query: ZhName, bests: Bests): Promise<Track
  * ytmusic strong = +1 lookup (cached) +1 search; a CJK query never looks up.
  */
 export async function resolveStub(artist: string, title: string): Promise<Track | null> {
+	const hit = await resolveStubSearch(artist, title);
+	if (hit) return hit;
+	// quick-261115-uex (user 2026-11-15): "Couldn't find a playable version" showed before every
+	// credible source was tried. The search pass above is ONE fan-out (tier-1, then the full set
+	// only when tier-1 has no official row) over page-1 pools — a source whose search threw, was
+	// health-gated, or buried the original below its first page was never genuinely asked, yet the
+	// miss was final. Spike 004 POLICY: walk the resolution chain until one yields a playable URL.
+	// So a total miss earns the SAME exhaustive per-source walk the Up-Next name stub uses
+	// (catalog.resolveNameStub → fallback.walkSource in PLAYBACK_ORDER, auto-resolve-eligible only,
+	// isAutoAcceptable gate, deeper pools, candidate resolves) before null may reach a caller's
+	// unplayable toast. Cost: zero on every hit; a genuine miss pays the walk.
+	try {
+		return await resolveNameStub(artist, title);
+	} catch {
+		return null;
+	}
+}
+
+async function resolveStubSearch(artist: string, title: string): Promise<Track | null> {
 	try {
 		const bests = await attempt(artist, title);
 		const query = { artist, title };
