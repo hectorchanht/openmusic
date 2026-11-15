@@ -5,6 +5,7 @@
 	import { goto, afterNavigate, preloadCode } from '$app/navigation';
 	import { House, Search, Library, Settings, Heart, ListMusic, Download, Users, Clock, Radio } from '@lucide/svelte';
 	import { player, SKIP_REASON_KEY } from '$lib/stores/player.svelte';
+	import { logAction } from '$lib/stores/actionLog.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { auth } from '$lib/stores/auth.svelte';
@@ -211,7 +212,10 @@
 		}
 	}
 	// Registered during component init (afterNavigate cannot be called from onMount).
-	afterNavigate(() => void lockAddressBar());
+	afterNavigate((nav) => {
+		try { logAction('ovl.nav', { type: nav.type, to: nav.to?.url.pathname ?? 'null', from: nav.from?.url.pathname ?? 'null' }); } catch { /* diag */ }
+		void lockAddressBar();
+	});
 
 	function onRetry() {
 		// Invoke the store-provided recovery (D-05) then clear the local host so the pill leaves.

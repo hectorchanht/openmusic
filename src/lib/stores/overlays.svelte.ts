@@ -228,6 +228,7 @@ class Overlays {
 	 * run the returned teardown in its cleanup. SSR-safe.
 	 */
 	init(): () => void {
+		try { logAction('ovl.init', { len: history.length, url: location.pathname }); } catch { /* diag */ }
 		if (!HAS_WINDOW || this.listening) return () => {};
 		this.listening = true;
 		const onpop = (e?: PopStateEvent) => {
