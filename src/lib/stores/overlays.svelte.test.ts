@@ -23,7 +23,9 @@ beforeEach(() => {
 	vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() });
 	// quick-261010-npurl: sameOriginHref() resolves against location at call time.
 	vi.stubGlobal('location', { href: 'https://openmusic.lol/', origin: 'https://openmusic.lol' });
-	vi.stubGlobal('history', { back, pushState, replaceState });
+	// quick-261114-bak: the popstate handler reconciles against `history.state` (the
+	// landed entry's gsdSeq), so the stub carries a mutable state tests set per landing.
+	vi.stubGlobal('history', { back, pushState, replaceState, state: null as unknown });
 });
 
 afterEach(() => {
@@ -74,17 +76,21 @@ describe('overlays: outbound navigation vs history.back()', () => {
 		expect(back).not.toHaveBeenCalled();
 	});
 
-	it('two synchronous dismisses (picker pick → closePicker() + close menu) swallow both echoes; nowplaying survives (quick-261019-ovl)', async () => {
+	it('two synchronous dismisses (picker pick → closePicker() + close menu) never close nowplaying, however the echoes land (quick-261019-ovl, seq model quick-261114-bak)', async () => {
 		const { overlays } = await import('./overlays.svelte');
 		const closeNp = vi.fn();
 		const teardown = overlays.init();
 		const onpop = vi
 			.mocked(window.addEventListener)
 			.mock.calls.find((c) => (c[0] as string) === 'popstate')![1] as () => void;
+		const land = (seq: number | null) => {
+			(history as { state: unknown }).state = seq === null ? null : { gsdSeq: seq };
+			onpop();
+		};
 
-		overlays.open('nowplaying', closeNp);
-		overlays.open('trackmenu-menu', () => {});
-		overlays.open('trackmenu-cover', () => {});
+		overlays.open('nowplaying', closeNp); // gsdSeq 1
+		overlays.open('trackmenu-menu', () => {}); // gsdSeq 2
+		overlays.open('trackmenu-cover', () => {}); // gsdSeq 3
 		expect(overlays.depth).toBe(3);
 
 		// TrackMenu.pickCover(): closeCoverPicker() flips coverOpen, then close() flips
@@ -95,18 +101,72 @@ describe('overlays: outbound navigation vs history.back()', () => {
 		expect(back).toHaveBeenCalledTimes(2);
 		expect(overlays.depth).toBe(1);
 
-		// Both backs produce exactly one popstate echo each; both must be swallowed 1:1.
-		// The old boolean `popping` swallowed only the first and the stray echo
-		// closeTop()'d 'nowplaying' → the sheet collapsed on every menu-action pick.
-		onpop();
-		onpop();
+		// Android Chrome/WebView case (the 2026-11-14 device repro): the two same-tick
+		// backs COALESCE into one traversal that lands straight on the nowplaying entry
+		// — ONE popstate for two backs. The old pendingPops counter leaked here and
+		// swallowed the next genuine Back, leaving Now Playing stuck open.
+		land(1);
 		expect(closeNp).not.toHaveBeenCalled();
 		expect(overlays.depth).toBe(1);
 
-		// A genuine OS/browser Back afterwards still closes the top overlay.
-		onpop();
+		// A genuine OS/browser Back afterwards still closes Now Playing — exactly once,
+		// and closeTop issues no history.back() of its own (the overshoot direction:
+		// one gesture must never also pop the page underneath).
+		back.mockClear();
+		land(null);
 		expect(closeNp).toHaveBeenCalledTimes(1);
 		expect(overlays.depth).toBe(0);
+		expect(back).not.toHaveBeenCalled();
+		teardown();
+	});
+
+	it('split echoes (one popstate per back) also leave nowplaying standing (quick-261114-bak)', async () => {
+		const { overlays } = await import('./overlays.svelte');
+		const closeNp = vi.fn();
+		const teardown = overlays.init();
+		const onpop = vi
+			.mocked(window.addEventListener)
+			.mock.calls.find((c) => (c[0] as string) === 'popstate')![1] as () => void;
+		const land = (seq: number | null) => {
+			(history as { state: unknown }).state = seq === null ? null : { gsdSeq: seq };
+			onpop();
+		};
+
+		overlays.open('nowplaying', closeNp); // 1
+		overlays.open('trackmenu-menu', () => {}); // 2
+		overlays.open('trackmenu-cover', () => {}); // 3
+		overlays.dismiss('trackmenu-cover');
+		overlays.dismiss('trackmenu-menu');
+
+		land(2); // first echo lands on the (already stack-removed) menu entry
+		expect(closeNp).not.toHaveBeenCalled();
+		land(1); // second echo lands on nowplaying's own entry
+		expect(closeNp).not.toHaveBeenCalled();
+		expect(overlays.depth).toBe(1);
+		land(null); // genuine Back
+		expect(closeNp).toHaveBeenCalledTimes(1);
+		expect(overlays.depth).toBe(0);
+		teardown();
+	});
+
+	it('a stale stack entry above the landed history entry is closed by the same popstate (quick-261114-bak)', async () => {
+		const { overlays } = await import('./overlays.svelte');
+		const closeNp = vi.fn();
+		const closeMenu = vi.fn();
+		const teardown = overlays.init();
+		const onpop = vi
+			.mocked(window.addEventListener)
+			.mock.calls.find((c) => (c[0] as string) === 'popstate')![1] as () => void;
+
+		overlays.open('nowplaying', closeNp); // 1
+		overlays.open('trackmenu-menu', closeMenu); // 2
+		// The menu's history entry gets popped by a traversal whose dismiss never ran
+		// (desync): the landing is nowplaying's entry, so the menu entry is above it.
+		(history as { state: unknown }).state = { gsdSeq: 1 };
+		onpop();
+		expect(closeMenu).toHaveBeenCalledTimes(1);
+		expect(closeNp).not.toHaveBeenCalled();
+		expect(overlays.depth).toBe(1);
 		teardown();
 	});
 });
@@ -119,7 +179,7 @@ describe('overlays: display URL on the pushed entry (quick-261010-npurl)', () =>
 		const { overlays } = await import('./overlays.svelte');
 		overlays.open('nowplaying', () => {}, SONG);
 		expect(pushState).toHaveBeenCalledTimes(1);
-		expect(pushState).toHaveBeenCalledWith({ gsdOverlay: 'nowplaying' }, '', SONG);
+		expect(pushState).toHaveBeenCalledWith({ gsdOverlay: 'nowplaying', gsdSeq: 1 }, '', SONG);
 		expect(overlays.depth).toBe(1);
 	});
 
@@ -127,14 +187,14 @@ describe('overlays: display URL on the pushed entry (quick-261010-npurl)', () =>
 		const { overlays } = await import('./overlays.svelte');
 		overlays.open('nowplaying', () => {}, 'https://evil.example/song/a/b');
 		expect(pushState).toHaveBeenCalledTimes(1);
-		expect(pushState).toHaveBeenCalledWith({ gsdOverlay: 'nowplaying' }, '', undefined);
+		expect(pushState).toHaveBeenCalledWith({ gsdOverlay: 'nowplaying', gsdSeq: 1 }, '', undefined);
 		expect(overlays.depth).toBe(1);
 	});
 
 	it('open() without a URL keeps the old dummy-entry behavior', async () => {
 		const { overlays } = await import('./overlays.svelte');
 		overlays.open('trackmenu-menu', () => {});
-		expect(pushState).toHaveBeenCalledWith({ gsdOverlay: 'trackmenu-menu' }, '', undefined);
+		expect(pushState).toHaveBeenCalledWith({ gsdOverlay: 'trackmenu-menu', gsdSeq: 1 }, '', undefined);
 	});
 
 	it('replaceUrl() repoints the top entry without touching history depth', async () => {
@@ -142,7 +202,7 @@ describe('overlays: display URL on the pushed entry (quick-261010-npurl)', () =>
 		overlays.open('nowplaying', () => {}, SONG);
 		overlays.replaceUrl('nowplaying', SONG2);
 		expect(replaceState).toHaveBeenCalledTimes(1);
-		expect(replaceState).toHaveBeenCalledWith({ gsdOverlay: 'nowplaying' }, '', SONG2);
+		expect(replaceState).toHaveBeenCalledWith({ gsdOverlay: 'nowplaying', gsdSeq: 1 }, '', SONG2);
 		expect(pushState).toHaveBeenCalledTimes(1); // no extra push — depth still 1
 		expect(overlays.depth).toBe(1);
 	});

@@ -5,19 +5,25 @@
 //   - open(id, close)   pushes ONE entry AND ONE history state.
 //   - dismiss(id)        UI close (scrim / X / drag / cover-collapse): removes the
 //                        entry AND calls history.back() ONCE to pop the matching
-//                        history state. A `pendingPops` counter swallows the resulting
-//                        popstate echo(s) 1:1 so we don't double-close — a COUNTER, not
-//                        a flag, because two synchronous dismisses (e.g. TrackMenu's
-//                        pickCover: closeCoverPicker() + close() → two dismisses, two
-//                        backs) must swallow TWO echoes; a boolean swallowed only the
-//                        first and the stray popstate closeTop()'d the underlying
-//                        overlay (quick-261019-ovl: the now-playing sheet collapsing
-//                        when a menu action was picked).
-//   - back gesture       fires popstate with our state non-empty → closeTop() pops the
-//                        top entry and runs its close() handler.
-// Because both UI-close and the back gesture pop exactly one history state and one
-// stack entry, the two depths never desync — this is what keeps Back from getting
-// stuck or double-closing.
+//                        history state.
+//   - back gesture       fires popstate → the handler RECONCILES the stack against
+//                        the history entry the traversal actually landed on.
+// quick-261114-bak: popstate handling used to count dismiss() echoes (`pendingPops`:
+// N backs must produce exactly N popstates, swallowed 1:1 — the quick-261019-ovl fix
+// for a boolean that swallowed only one). On Android Chrome / WebView that premise
+// is false: two history.back() calls issued in the same tick (TrackMenu's pickCover /
+// pickLyrics: closePicker() + close()) can coalesce into ONE traversal — one echo
+// for two backs — so the counter leaked and the NEXT genuine Back was swallowed
+// (Now Playing stuck open over a navigated-away page), or the depths desynced the
+// other way and one Back closed Now Playing AND popped the page underneath (clean
+// out to the browser's new-tab page). Observed on device 2026-11-14 in both
+// directions, only after a cover/lyrics pick; a plain menu open/close never desynced.
+// The counter is gone. Every pushed entry now carries a monotonic `gsdSeq`, and the
+// popstate handler closes exactly the stack entries whose seq is ABOVE the landed
+// entry's seq — the landed history state is the ground truth, so echo count no
+// longer matters: coalesced, split, or stale-entry cases all reconcile in one pass,
+// and closeTop() never issues a history.back() of its own, so one gesture can never
+// pop the page underneath as a side effect.
 //
 // Single dismiss path (host components): UI close handlers only flip their own state
 // (e.g. `menuOpen = false`); a host-side `$effect` cleanup is the ONLY caller of
@@ -29,6 +35,9 @@ interface OverlayEntry {
 	close: () => void;
 	/** Did we push a history state for this entry? (false if opened during SSR / no history) */
 	pushed: boolean;
+	/** quick-261114-bak: the `gsdSeq` written into this entry's history state (0 when
+	 *  nothing was pushed). The popstate handler reconciles against it. */
+	seq: number;
 }
 
 const HAS_WINDOW = typeof window !== 'undefined';
@@ -53,13 +62,10 @@ function sameOriginHref(url: string): string | null {
 class Overlays {
 	/** Stack of open overlays, top = last. $state so a depth readout could react if needed. */
 	private stack = $state<OverlayEntry[]>([]);
-	/** history.back() calls issued by dismiss() whose popstate echo hasn't arrived yet.
-	 *  A counter (not a boolean): N synchronous dismisses issue N backs and each back
-	 *  produces exactly one popstate, so the listener swallows exactly N echoes 1:1.
-	 *  No timeout reset — dismiss() only backs when the entry pushed a state
-	 *  (pushed=true ⇒ the session history grew ⇒ back() WILL fire a popstate), so the
-	 *  counter is self-balancing and can never leak. */
-	private pendingPops = 0;
+	/** quick-261114-bak: monotonic sequence stamped into every pushed history state
+	 *  (`gsdSeq`). The popstate handler closes the stack entries ABOVE the landed
+	 *  entry's seq — see the header note for why echo-counting was replaced. */
+	private nextSeq = 0;
 	/** True during an outbound navigateAway() — suppresses dismiss()'s history.back() so the
 	 *  hosts unmounting under the new route can't pop the just-navigated destination off. */
 	private navigating = false;
@@ -94,7 +100,9 @@ class Overlays {
 		// If it exists deeper in the stack (shouldn't normally happen), drop the stale one.
 		if (this.has(id)) this.stack = this.stack.filter((e) => e.id !== id);
 		let pushed = false;
+		let seq = 0;
 		if (HAS_WINDOW) {
+			seq = ++this.nextSeq;
 			// Raw history.pushState (NOT SvelteKit's shallow-routing pushState from
 			// $app/navigation). This is deliberate: a shallow-routing entry makes goto() a
 			// NO-OP while it's the current entry (SvelteKit refuses to navigate out of a
@@ -113,14 +121,14 @@ class Overlays {
 			// don't move it), so the handler returns early.
 			const target = url ? sameOriginHref(url) : null;
 			try {
-				history.pushState({ gsdOverlay: id }, '', target ?? undefined);
+				history.pushState({ gsdOverlay: id, gsdSeq: seq }, '', target ?? undefined);
 			} catch {
 				// A URL problem must never break overlay open — degrade to the dummy entry.
-				history.pushState({ gsdOverlay: id }, '');
+				history.pushState({ gsdOverlay: id, gsdSeq: seq }, '');
 			}
 			pushed = true;
 		}
-		this.stack = [...this.stack, { id, close, pushed }];
+		this.stack = [...this.stack, { id, close, pushed, seq }];
 	}
 
 	/**
@@ -137,7 +145,8 @@ class Overlays {
 		const target = sameOriginHref(url);
 		if (!target) return;
 		try {
-			history.replaceState({ gsdOverlay: id }, '', target);
+			// quick-261114-bak: keep the entry's gsdSeq — the popstate reconcile keys on it.
+			history.replaceState({ gsdOverlay: id, gsdSeq: top.seq }, '', target);
 		} catch {
 			/* a URL problem must never break the playback UI */
 		}
@@ -154,8 +163,9 @@ class Overlays {
 	/**
 	 * Programmatic close from the UI (scrim / X / drag-close / cover-collapse). Removes
 	 * the entry and, if it pushed a history state, calls history.back() ONCE to keep
-	 * history depth balanced. The `popping` flag swallows the echo popstate so close()
-	 * is not invoked twice. No-op if `id` isn't in the stack (guards rapid/stale calls).
+	 * history depth balanced. The resulting popstate cannot double-close anything:
+	 * the handler reconciles against the landed entry's gsdSeq (quick-261114-bak).
+	 * No-op if `id` isn't in the stack (guards rapid/stale calls).
 	 */
 	dismiss(id: string) {
 		if (!this.has(id)) return;
@@ -169,11 +179,11 @@ class Overlays {
 		// popstate listener simply no-ops.
 		if (entry.pushed && HAS_WINDOW && !this.navigating) {
 			history.back();
-			// 1:1 with the popstate this back() will produce — the listener decrements
-			// and swallows exactly one echo per back, so stacked synchronous dismisses
-			// (picker-pick → closePicker() + close()) can't leak a stray popstate into
-			// closeTop() and collapse the overlay underneath.
-			this.pendingPops++;
+			// quick-261114-bak: no echo bookkeeping here any more. However this back()
+			// lands (its own popstate, or coalesced with a sibling dismiss's back into
+			// one traversal), the popstate handler reconciles the stack against the
+			// landed entry's gsdSeq — and this entry is already out of the stack, so
+			// no landing can re-close it or the overlay underneath.
 		}
 	}
 
@@ -217,14 +227,23 @@ class Overlays {
 		if (!HAS_WINDOW || this.listening) return () => {};
 		this.listening = true;
 		const onpop = () => {
-			if (this.pendingPops > 0) {
-				// This popstate is the echo of our own dismiss() history.back() — ignore,
-				// one echo per back issued.
-				this.pendingPops--;
-				return;
+			// quick-261114-bak: reconcile against the LANDED entry. `history.state` at
+			// popstate time is the state of the entry the traversal landed on: one of
+			// ours (carries gsdSeq), a SvelteKit entry (its own state shape, no gsdSeq
+			// → 0), or null (→ 0). Every stack entry ABOVE that point was popped by
+			// this traversal and closes; everything at or below it stays. A dismiss()
+			// echo lands exactly on the entry below the dismissed one — whose seq is
+			// the new stack top's — so echoes close nothing, however many popstates a
+			// batch of same-tick history.back() calls actually produced. An entry
+			// with seq 0 pushed nothing, so no traversal can ever close it.
+			let landed = 0;
+			try {
+				const st = history.state as { gsdSeq?: unknown } | null;
+				if (st && typeof st.gsdSeq === 'number') landed = st.gsdSeq;
+			} catch {
+				landed = 0;
 			}
-			if (this.stack.length > 0) {
-				// Genuine OS/browser Back with an overlay open → close the topmost.
+			while (this.stack.length > 0 && this.stack[this.stack.length - 1].seq > landed) {
 				this.closeTop();
 			}
 		};
