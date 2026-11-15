@@ -40,6 +40,8 @@ interface OverlayEntry {
 	seq: number;
 }
 
+import { logAction } from './actionLog.svelte';
+
 const HAS_WINDOW = typeof window !== 'undefined';
 
 /**
@@ -129,6 +131,7 @@ class Overlays {
 			pushed = true;
 		}
 		this.stack = [...this.stack, { id, close, pushed, seq }];
+		try { logAction('ovl.open', { id, seq, len: history.length, url: location.pathname }); } catch { /* diag */ }
 	}
 
 	/**
@@ -177,6 +180,7 @@ class Overlays {
 		// Back entry is harmless — backing into it lands on the origin URL (or the song URL, if
 		// the entry carried quick-261010-npurl's display URL) with an empty stack, so the
 		// popstate listener simply no-ops.
+		try { logAction('ovl.dismiss', { id, seq: entry.seq, len: history.length, url: location.pathname }); } catch { /* diag */ }
 		if (entry.pushed && HAS_WINDOW && !this.navigating) {
 			history.back();
 			// quick-261114-bak: no echo bookkeeping here any more. However this back()
@@ -226,7 +230,21 @@ class Overlays {
 	init(): () => void {
 		if (!HAS_WINDOW || this.listening) return () => {};
 		this.listening = true;
-		const onpop = () => {
+		const onpop = (e?: PopStateEvent) => {
+			// TEMP quick-261114-bak-diag (revert after device trace): record what the
+			// popstate actually carried vs what history.state claims, plus the stack.
+			try {
+				const ev = (e?.state ?? null) as Record<string, unknown> | null;
+				const hs = history.state as Record<string, unknown> | null;
+				logAction('ovl.pop', {
+					evSeq: typeof ev?.gsdSeq === 'number' ? ev.gsdSeq : -1,
+					hsSeq: typeof hs?.gsdSeq === 'number' ? hs.gsdSeq : -1,
+					evKit: ev ? Object.keys(ev).join('+') : 'null',
+					stack: this.stack.map((x) => `${x.id}:${x.seq}`).join(','),
+					len: history.length,
+					url: location.pathname
+				});
+			} catch { /* diag only */ }
 			// quick-261114-bak: reconcile against the LANDED entry. `history.state` at
 			// popstate time is the state of the entry the traversal landed on: one of
 			// ours (carries gsdSeq), a SvelteKit entry (its own state shape, no gsdSeq
