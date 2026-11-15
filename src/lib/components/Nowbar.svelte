@@ -17,6 +17,7 @@
         Volume1,
         Volume2,
         VolumeX,
+        Heart,
     } from "@lucide/svelte";
     import { fade } from "$lib/motion"; // quick-261102-u4t: reduce-motion aware
     import { player, fmtTime } from "$lib/stores/player.svelte";
@@ -29,6 +30,13 @@
     import KeyTip from "$lib/components/KeyTip.svelte";
     import { t, tMaybeKey } from "$lib/i18n";
     import { marquee } from "$lib/actions/marquee";
+    // quick-261115-inj: desktop bar — right-click / long-press opens the TrackMenu, plus Like +
+    // Download beside the track info (the same per-song pair NowPlaying's transport carries).
+    import { longpress } from "$lib/actions/longpress";
+    import { library } from "$lib/stores/library.svelte";
+    import { toast } from "$lib/stores/toast.svelte";
+    import TrackMenu from "$lib/components/TrackMenu.svelte";
+    import DownloadControl from "$lib/components/DownloadControl.svelte";
     // quick-260919-1we (F2): the docked mini player's lyric line. parseLRC + the SHARED active-line
     // scan, over the SHARED pin-aware lyrics read — so the line shown here is the same LRC the
     // NowPlaying pane shows, including a user's Fix-lyrics pick (D-4).
@@ -226,6 +234,29 @@
         if (onOpen) onOpen();
         else player.expand();
     }
+
+    // quick-261115-inj: desktop-only by request ("in desktop") — on a phone the bar's long-press
+    // stays inert so the coverSwipe surface keeps one meaning. Not while resolving: the menu needs a
+    // real Track, and pendingTrack is a stub.
+    let menuOpen = $state(false);
+    function openBarMenu(e?: Event) {
+        if (!desktopBar || !player.current) return;
+        e?.preventDefault();
+        (e?.currentTarget as HTMLElement | null)?.blur();
+        menuOpen = true;
+    }
+    const currentLiked = $derived(
+        player.current ? library.isLiked(player.current.uid) : false,
+    );
+    function toggleLike() {
+        if (!player.current) return;
+        library.toggleLike(player.current);
+        toast.show(
+            library.isLiked(player.current.uid)
+                ? t("toast.liked")
+                : t("toast.unliked"),
+        );
+    }
 </script>
 
 <!-- quick-260919-et3: the play/pause control, lifted into a snippet so the desktop transport
@@ -291,6 +322,9 @@
             aria-label={t("nowbar.openNowPlaying")}
             disabled={resolving}
             onclick={handleOpen}
+            oncontextmenu={openBarMenu}
+            use:longpress
+            onlongpress={openBarMenu}
             use:coverSwipe={{
                 // quick-261108-swp: each direction follows settings.swipePlayer.
                 ...playerSwipe(settings.swipePlayer, player.current, hasPrevNeighbor),
@@ -369,6 +403,22 @@
                 </span>
             {/key}
         </button>
+        {#if desktopBar && player.current}
+            <!-- quick-261115-inj: Like + Download sit beside the track info (per-song actions), apart
+                 from the readout/volume/transport cluster (playback controls) on the right. -->
+            <div class="np-acts">
+                <button
+                    class="np-t"
+                    class:on={currentLiked}
+                    aria-pressed={currentLiked}
+                    aria-label={currentLiked ? t("menu.liked") : t("menu.like")}
+                    onclick={toggleLike}
+                    use:tapBounce
+                    ><Heart size={18} fill={currentLiked ? "currentColor" : "none"} /></button
+                >
+                <span class="np-dl"><DownloadControl track={player.current} size={18} /></span>
+            </div>
+        {/if}
         {#if sleepTimer.active}
             <!-- Active sleep-timer indicator: tappable, opens the global sheet (D-08). On the
 			     nowbar D-07 allows icon-only; the mm:ss countdown is shown for minutes mode when
@@ -454,6 +504,10 @@
             {@render playControl()}
         {/if}
     </div>
+{/if}
+
+{#if desktopBar}
+    <TrackMenu track={player.current} open={menuOpen} onclose={() => (menuOpen = false)} />
 {/if}
 
 <style>
@@ -770,6 +824,22 @@
             text-align: center;
         }
 
+        .np-acts {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            flex: none;
+        }
+        .np-t.on {
+            color: var(--color-primary);
+            opacity: 1;
+        }
+        /* DownloadControl ships a 40px list-row box; fit it to the 34px .np-t siblings here
+           rather than changing the shared component (its list call sites depend on it). */
+        .np-dl :global(.dc) {
+            width: 34px;
+            height: 34px;
+        }
         .np-vol {
             display: flex;
             align-items: center;
