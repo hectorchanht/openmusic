@@ -148,12 +148,14 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 
 	// ii6: derived "is current track liked" for the transport heart button (Like replaces
 	// Shuffle in the transport row; Shuffle moved into the TrackMenu kebab menu).
-	const currentLiked = $derived(player.current ? library.isLiked(player.current.uid) : false);
+	// quick-261115-likeid: song-level identity (library.isLikedTrack) — the same song liked
+	// under another resolver must light this heart, and the toast must read the same answer.
+	const currentLiked = $derived(player.current ? library.isLikedTrack(player.current) : false);
 	function toggleCurrentLike() {
 		if (!player.current) return;
 		hapticTick();
 		library.toggleLike(player.current);
-		toast.show(library.isLiked(player.current.uid) ? t('toast.liked') : t('toast.unliked'));
+		toast.show(library.isLikedTrack(player.current) ? t('toast.liked') : t('toast.unliked'));
 	}
 
 

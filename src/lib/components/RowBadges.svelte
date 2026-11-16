@@ -43,7 +43,12 @@
 	// badge the row will never draw must not hold a live library subscription either (D-7: these
 	// rows render 24+ at a time). quick-260919-v71 keeps that gate OUTSIDE the helper call for the
 	// same reason: a suppressed badge must still subscribe to nothing.
-	const liked = $derived(!hideLiked && !!uid && library.isLiked(uid));
+	// quick-261115-likeid: when the row passes its track, "liked" is the library's answer for
+	// THE SONG (library.isLikedTrack — a twin liked under another source's uid counts, exactly
+	// as downloadUidFor counts it for the ✓ below); uid-only rows keep the exact-uid read.
+	const liked = $derived(
+		!hideLiked && (track ? library.isLikedTrack(track) : !!uid && library.isLiked(uid))
+	);
 	// 34-D-06: an imported song whose file the OS no longer has is still a download — it stays
 	// listed and is MARKED, never silently dropped. Same badge slot, so no row reflows.
 	//

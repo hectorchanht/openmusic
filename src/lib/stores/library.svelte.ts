@@ -215,17 +215,43 @@ class Library {
 	isLiked(uid: string): boolean {
 		return !!uid && this.liked.some((t) => t.uid === uid);
 	}
+
+	/** quick-261115-likeid (Hector 2026-11-15: 紅豆 liked under one resolver showed an EMPTY
+	 *  heart while playing through another, and tapping it toasted "Removed from liked" while
+	 *  removing nothing): the liked identifier is the SONG, not the resolver. `uid =
+	 *  ${source}:${id}` changes with every resolver; the song doesn't. likedUidFor is
+	 *  downloadUidFor's twin — exact uid first, then the same song+rendition under another
+	 *  source's uid (isSameShelfSong: sameSongKey folds 繁→简 per char and the artist alias,
+	 *  versionKey keeps a Live cut distinct from the studio take; device imports stay
+	 *  exact-uid only, which isSameShelfSong already enforces). Returns the LIKED entry's
+	 *  uid — every heart, badge and toggle keys on this ONE answer, so they cannot disagree
+	 *  again. foldRev is read so a cold first paint re-keys once the t2s dict lands (the
+	 *  quick-260926-hze idiom, same as the favourites derived). */
+	likedUidFor(track: Track | null | undefined): string | null {
+		if (!track?.uid) return null;
+		void this.foldRev;
+		if (this.isLiked(track.uid)) return track.uid;
+		const rec = this.liked.find((x) => isSameShelfSong(x, track));
+		return rec ? rec.uid : null;
+	}
+	/** Song-level liked read for every heart/badge; uid-exact isLiked stays for uid-keyed callers. */
+	isLikedTrack(track: Track | null | undefined): boolean {
+		return this.likedUidFor(track) !== null;
+	}
 	toggleLike(t: Track) {
 		if (!t.uid) return; // like-state-wrong-track-menu: nothing to key on — refuse, never poison the list
-		const wasLiked = this.isLiked(t.uid);
+		// quick-261115-likeid: toggle on the SONG identity (likedUidFor), not the resolver uid.
+		// The quick-261031-dedup branch this replaces made a same-song tap a silent no-op, and
+		// the callers then read the state back by uid and toasted "Removed from liked" — a
+		// heart that could never turn on and a toast that lied. The twin entry IS the like:
+		// tapping unlikes the song (the LIKED entry goes, tombstoned under ITS uid), and a
+		// song already liked never gains a second row.
+		const likedUid = this.likedUidFor(t);
+		const wasLiked = likedUid !== null;
 		if (wasLiked) {
-			this.liked = this.liked.filter((x) => x.uid !== t.uid);
+			this.liked = this.liked.filter((x) => x.uid !== likedUid);
 			// quick-261023-syncmerge: the unlike must survive the next cross-device merge.
-			this.tombstone([tombTrack(t.uid)]);
-		} else if (this.liked.some((x) => isSameShelfSong(x, t))) {
-			// quick-261031-dedup: the same song+rendition is already liked under another
-			// source's uid — it IS liked; a second row is the duplicate Hector reported.
-			// Deliberately NOT an unlike (the uid heart was off, the song heart is on).
+			this.tombstone([tombTrack(likedUid)]);
 		} else {
 			this.liked = [t, ...this.liked];
 			this.untombstone([tombTrack(t.uid)]);

@@ -566,6 +566,64 @@ describe('like-state-wrong-track-menu: uid-less tracks cannot be liked or read a
 	});
 });
 
+// quick-261115-likeid (Hector 2026-11-15): the liked identifier is the SONG, not the resolver.
+// 紅豆 liked under one resolver showed an empty heart while playing through another, and the
+// tap toasted "Removed from liked" while removing nothing (the old same-song branch in
+// toggleLike was a silent no-op and every caller read the state back by uid).
+describe('quick-261115-likeid: liked identity is the song, not the resolver', () => {
+	beforeEach(() => {
+		library.liked = [];
+		tombs().deleted = [];
+		memStore.clear();
+		trackLikeMock.mockClear();
+	});
+
+	it('isLikedTrack lights for the same song under another resolver uid', () => {
+		library.liked = [mk({ uid: 'netease:1' })];
+		expect(library.isLikedTrack(mk({ uid: 'kuwo:9', source: 'kuwo' }))).toBe(true);
+		expect(library.likedUidFor(mk({ uid: 'kuwo:9', source: 'kuwo' }))).toBe('netease:1');
+		// The uid-exact read stays exact — it answers a different question.
+		expect(library.isLiked('kuwo:9')).toBe(false);
+	});
+
+	it('a 繁/简 twin is the same liked song', async () => {
+		await warmScript('zh-Hans');
+		library.liked = [mk({ uid: 'netease:1', artist: '王菲', title: '紅豆' })];
+		expect(library.isLikedTrack(mk({ uid: 'qq:2', source: 'qq', artist: '王菲', title: '红豆' }))).toBe(true);
+		expect(library.likedUidFor(mk({ uid: 'qq:2', source: 'qq', artist: '王菲', title: '红豆' }))).toBe('netease:1');
+	});
+
+	it('version markers stay distinct — a Live cut is not the studio like', () => {
+		library.liked = [mk({ uid: 'netease:1' })];
+		expect(library.isLikedTrack(mk({ uid: 'kuwo:9', source: 'kuwo', title: '多远都要在一起 (Live)' }))).toBe(false);
+	});
+
+	it('toggleLike on a cross-resolver twin UNLIKES the song — removes the liked entry, tombstones ITS uid, pings unlike', () => {
+		library.liked = [mk({ uid: 'netease:1' })];
+		library.toggleLike(mk({ uid: 'kuwo:9', source: 'kuwo' }));
+		expect(library.liked).toHaveLength(0);
+		expect(tombs().deleted.some((k) => k.includes('netease:1'))).toBe(true);
+		const calls = trackLikeMock.mock.calls;
+		expect(calls[calls.length - 1][1]).toBe('unlike');
+	});
+
+	it('like via one resolver, tap via another: never a duplicate row', () => {
+		library.toggleLike(mk({ uid: 'netease:1' }));
+		expect(library.liked).toHaveLength(1);
+		library.toggleLike(mk({ uid: 'kuwo:9', source: 'kuwo' })); // same song — an unlike, not a second row
+		expect(library.liked).toHaveLength(0);
+		library.toggleLike(mk({ uid: 'kuwo:9', source: 'kuwo' }));
+		expect(library.liked.map((t) => t.uid)).toEqual(['kuwo:9']);
+	});
+
+	it('isLikedTrack is false for null / uid-less / a different song', () => {
+		library.liked = [mk({ uid: 'netease:1' })];
+		expect(library.isLikedTrack(null)).toBe(false);
+		expect(library.isLikedTrack(mk({ uid: '' }))).toBe(false);
+		expect(library.isLikedTrack(mk({ uid: 'kuwo:9', source: 'kuwo', title: '光年之外' }))).toBe(false);
+	});
+});
+
 // quick-260919-1eh — library.applyMetadata: the metadata editor's list-row repaint seam.
 // Same in-place discipline as adoptCover (home shelves hold snapshot references), but matched on
 // uid ONLY: adoptCover's matchKey widening exists to FILL an empty cover across duplicate

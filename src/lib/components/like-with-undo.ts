@@ -11,18 +11,24 @@ import { t } from '$lib/i18n';
 // cannot drift. Uses the existing toast action slot (quick-260910-omt) and the existing
 // toast.liked / toast.unliked / toast.undo keys: no new i18n.
 //
-// An already-liked song (by uid, or by the quick-261031-dedup same-song rule inside toggleLike)
-// just confirms "Liked" — a right-swipe is a SAVE gesture, never a toggle, so it can never
-// un-like by accident. Undo only ever removes what THIS swipe added.
+// An already-liked song (quick-261115-likeid: by SONG identity — this uid, or the same song
+// liked under another resolver's uid) just confirms "Liked" — a right-swipe is a SAVE gesture,
+// never a toggle, so it can never un-like by accident. Undo only ever removes what THIS swipe
+// added, so the already-liked path offers no Undo.
 export function likeWithUndo(track: Track): void {
 	if (!track.uid) {
 		// like-state-wrong-track-menu: nothing to key on — tell the truth, never claim a like.
 		toast.show(t('home.unplayable'));
 		return;
 	}
-	if (!library.isLiked(track.uid)) library.toggleLike(track);
-	if (!library.isLiked(track.uid)) {
-		// toggleLike refused (no uid) or folded it into an existing same-song like — nothing to undo.
+	if (library.isLikedTrack(track)) {
+		// Already liked (this uid or a cross-resolver twin) — confirm only, nothing to undo.
+		toast.show(t('toast.liked'));
+		return;
+	}
+	library.toggleLike(track);
+	if (!library.isLikedTrack(track)) {
+		// toggleLike refused — nothing was added, so nothing to undo.
 		toast.show(t('toast.liked'));
 		return;
 	}
@@ -30,7 +36,7 @@ export function likeWithUndo(track: Track): void {
 		action: {
 			label: t('toast.undo'),
 			run: () => {
-				if (library.isLiked(track.uid)) library.toggleLike(track);
+				if (library.isLikedTrack(track)) library.toggleLike(track);
 				toast.show(t('toast.unliked'));
 			}
 		}

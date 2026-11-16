@@ -119,7 +119,8 @@
 	// quick-260919-1eh: the metadata editor sheet's open flag. No lazy fan-out to guard — the sheet
 	// seeds itself from the track already in hand and saves offline, so there is no gen/abort pair.
 	let tagsOpen = $state(false);
-	const liked = $derived(track ? library.isLiked(track.uid) : false);
+	// quick-261115-likeid: song-level identity — a twin liked under another resolver lights up.
+	const liked = $derived(track ? library.isLikedTrack(track) : false);
 	const isDevice = $derived(!!track && isDeviceUid(track.uid));
 	// quick-260919-dlring: is there an artist worth navigating TO? A name-stub and a `device:` import
 	// with no artist tag both arrive with an empty (or whitespace-only) `artist`, and `/artist/` with
@@ -1137,9 +1138,9 @@
 		if (!track) return;
 		hapticTick();
 		library.toggleLike(track);
-		// Post-toggle: isLiked == true means we just LIKED it; false means we just UNLIKED.
+		// Post-toggle: isLikedTrack == true means we just LIKED it; false means we just UNLIKED.
 		// Use past-tense toast keys (ii6 — previously read 'menu.like' which is the action verb).
-		toast.show(library.isLiked(track.uid) ? t('toast.liked') : t('toast.unliked'));
+		toast.show(library.isLikedTrack(track) ? t('toast.liked') : t('toast.unliked'));
 	}
 	// goto* navigate away (TrackMenu unmounts) so a local toast can't render — the page change
 	// IS the feedback. like()/detail keep their on-page feedback (toast / heart toggle / sheet).

@@ -249,14 +249,15 @@
         if (e?.type === "longpress") hapticTick();
         menuOpen = true;
     }
+    // quick-261115-likeid: song-level identity (library.isLikedTrack), same as NowPlaying.
     const currentLiked = $derived(
-        player.current ? library.isLiked(player.current.uid) : false,
+        player.current ? library.isLikedTrack(player.current) : false,
     );
     function toggleLike() {
         if (!player.current) return;
         library.toggleLike(player.current);
         toast.show(
-            library.isLiked(player.current.uid)
+            library.isLikedTrack(player.current)
                 ? t("toast.liked")
                 : t("toast.unliked"),
         );

@@ -249,7 +249,10 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 		resolvedTrack ?? resolved ?? (resolve ? library.stubTrack(track.artist, track.title) : null)
 	);
 	const actUid = $derived(real?.uid ?? track.uid);
-	const liked = $derived(library.isLiked(actUid));
+	// quick-261115-likeid: the heart reads the SONG identity of the acting track (the resolved
+	// twin when there is one, else the row's own) — a song liked under another resolver lights
+	// up here too, not just on its own source's rows.
+	const liked = $derived(library.isLikedTrack(real ?? track));
 	/** In-flight guard, THIS row THIS action (Download's lives in DownloadControl's localBusy). */
 	let likeBusy = $state(false);
 
@@ -403,7 +406,7 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 			return;
 		}
 		library.toggleLike(target);
-		toast.show(library.isLiked(target.uid) ? t('toast.liked') : t('toast.unliked'));
+		toast.show(library.isLikedTrack(target) ? t('toast.liked') : t('toast.unliked'));
 	}
 </script>
 
