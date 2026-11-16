@@ -362,16 +362,14 @@ async function perLine(lines: string[], appTo: string, env: Env | undefined): Pr
 }
 
 // quick-261116-perf: dedicated Workers-AI BATCH attempt — the chunk's lines joined by
-// PLAIN newlines (m2m100's natural input shape), ONE ai.run for the whole chunk, split
-// back on newlines. Live evidence after the sentinel fix alone: cold 20-line Korean
-// batches still took 8-16s, i.e. the sentinel-joined call's reply still didn't align
-// (the model merges/drops lines around the ‹i› tokens) and chunks degraded to per-line
-// waves. Plain-newline batches are what the model was trained on. Returns null on any
-// misalignment / echo / missing binding / budget cap, leaving the caller's existing
-// sentinel cascade + per-line fallbacks fully intact. Only attempted when NO keyed
-// tier (Azure/DeepL) is configured, so the D-05 provider priority is unchanged in
-// keyed deployments — in the production (keyless) deployment Workers AI already
-// outranks keyless Google in the cascade.
+// PLAIN newlines (m2m100's natural input shape) in small parallel groups, split back
+// on newlines. Live evidence after the sentinel fix alone: cold 20-line Korean batches
+// still took 8-19s, i.e. long-batch replies misalign (the model merges short lines)
+// and chunks degraded to per-line waves. Returns null on total misalignment / echo /
+// missing binding / budget cap, leaving the caller's existing sentinel cascade +
+// per-line fallbacks fully intact. Only attempted when NO keyed tier (Azure/DeepL) is
+// configured, so the D-05 provider priority is unchanged in keyed deployments — in
+// the production (keyless) deployment Workers AI already outranks keyless Google.
 async function workersAiBatch(
 	lines: string[],
 	appTo: string,
@@ -384,34 +382,72 @@ async function workersAiBatch(
 	if (!ai || !aiBudgetOk()) return null;
 	const target = AI_LANG_NAMES[appTo];
 	if (!target) return null;
-	const joined = lines.join('\n');
 	// Same minimal script-based source guess as workersAiTranslate.
 	let source = 'english';
-	if (/[぀-ゟ゠-ヿ]/.test(joined)) source = 'japanese';
-	else if (/[가-힣]/.test(joined)) source = 'korean';
-	else if (/[一-鿿]/.test(joined)) source = 'chinese';
+	const probe = lines.join('\n');
+	if (/[぀-ゟ゠-ヿ]/.test(probe)) source = 'japanese';
+	else if (/[가-힣]/.test(probe)) source = 'korean';
+	else if (/[一-鿿]/.test(probe)) source = 'chinese';
 	if (source === target) return null;
-	try {
-		const out = (await ai.run(AI_MODEL, {
-			text: joined,
-			source_lang: source,
-			target_lang: target
-		})) as { translated_text?: string; usage?: { neurons?: number } };
-		if (typeof out?.usage?.neurons === 'number') aiNeuronsUsed += out.usage.neurons;
-		if (typeof out?.translated_text !== 'string' || !out.translated_text) return null;
-		const parts = out.translated_text
-			.split('\n')
-			.map((l) => l.trim())
-			.filter(Boolean);
-		if (parts.length !== lines.length) return null; // misaligned → caller's fallbacks
-		if (parts.every((p, i) => p === lines[i])) return null; // pure echo → not a translation
-		return parts.map((text, i) => ({
-			text,
-			translated: Boolean(lines[i]) && text !== lines[i]
-		}));
-	} catch {
-		return null;
+
+	// One ai.run for a small group of lines, newline-joined. Aligned parts or null.
+	const runGroup = async (group: string[]): Promise<string[] | null> => {
+		try {
+			const out = (await ai.run(AI_MODEL, {
+				text: group.join('\n'),
+				source_lang: source,
+				target_lang: target
+			})) as { translated_text?: string; usage?: { neurons?: number } };
+			if (typeof out?.usage?.neurons === 'number') aiNeuronsUsed += out.usage.neurons;
+			if (typeof out?.translated_text !== 'string' || !out.translated_text) return null;
+			const parts = out.translated_text
+				.split('\n')
+				.map((l) => l.trim())
+				.filter(Boolean);
+			if (parts.length !== group.length) return null; // misaligned
+			if (parts.every((p, i) => p === group[i])) return null; // pure echo
+			return parts;
+		} catch {
+			return null;
+		}
+	};
+
+	// GROUPED, not one 20-line call (live evidence, quick-261116-perf): m2m100 merges
+	// short lyric lines in a long batch, so a whole-chunk reply misaligns and the chunk
+	// degrades to slow per-line waves. 5-line groups align reliably; the groups run in
+	// PARALLEL (independent ai.run calls, ~1.5s each), and only a misaligned group pays
+	// the per-line fallback — for its own lines only.
+	const GROUP_SIZE = 5;
+	const groups: string[][] = [];
+	for (let i = 0; i < lines.length; i += GROUP_SIZE) groups.push(lines.slice(i, i + GROUP_SIZE));
+	const settled = await Promise.all(groups.map((g) => runGroup(g)));
+	if (settled.every((p) => p !== null))
+		return (settled as string[][]).flatMap((parts, gi) =>
+			parts.map((text, j) => {
+				const src = groups[gi][j];
+				return { text, translated: Boolean(src) && text !== src };
+			})
+		);
+	// Partial success: keep the aligned groups, per-line ONLY the failed groups' lines.
+	if (settled.some((p) => p !== null)) {
+		const out = new Array<LineResult>(lines.length);
+		let base = 0;
+		for (let gi = 0; gi < groups.length; gi++) {
+			const parts = settled[gi];
+			if (parts) {
+				parts.forEach((text, j) => {
+					const src = groups[gi][j];
+					out[base + j] = { text, translated: Boolean(src) && text !== src };
+				});
+			} else {
+				const sub = await perLine(groups[gi], appTo, env);
+				sub.forEach((r, j) => (out[base + j] = r));
+			}
+			base += groups[gi].length;
+		}
+		return out;
 	}
+	return null; // every group misaligned → caller's sentinel cascade + per-line
 }
 
 // Translate one chunk (<= CHUNK_SIZE lines) and return positionally-aligned per-line results.
