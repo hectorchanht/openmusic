@@ -89,10 +89,11 @@ const TRANSLATE_CACHE_TTL = 604800;
 const CHUNK_SIZE = 20;
 // Max simultaneous per-line fallback requests, so a recovering chunk doesn't burst N GETs
 // and trip Google's rate limiter (which itself manifests as echo-mode / failures).
-// quick-261116-perf: raised 6 → 12 — with the Workers-AI batch path fixed (below) this
-// fallback is rare, but when it does fire on a full song (60+ short lyric lines) 6-wide
-// waves at ~2s/call were the difference between ~10s and ~30s of dead waiting.
-const PERLINE_CONCURRENCY = 12;
+// quick-261116-perf: raised 6 → 20 (= CHUNK_SIZE, one wave per chunk) — with the
+// Workers-AI batch paths fixed (below) this fallback is rare, but when it does fire on
+// a full song (60+ short lyric lines) narrow waves at ~2s/call were the difference
+// between ~5s and ~30s of dead waiting.
+const PERLINE_CONCURRENCY = 20;
 
 // A per-line outcome: the (possibly original) text + whether it was GENUINELY translated.
 interface LineResult {
@@ -360,6 +361,59 @@ async function perLine(lines: string[], appTo: string, env: Env | undefined): Pr
 	return out;
 }
 
+// quick-261116-perf: dedicated Workers-AI BATCH attempt — the chunk's lines joined by
+// PLAIN newlines (m2m100's natural input shape), ONE ai.run for the whole chunk, split
+// back on newlines. Live evidence after the sentinel fix alone: cold 20-line Korean
+// batches still took 8-16s, i.e. the sentinel-joined call's reply still didn't align
+// (the model merges/drops lines around the ‹i› tokens) and chunks degraded to per-line
+// waves. Plain-newline batches are what the model was trained on. Returns null on any
+// misalignment / echo / missing binding / budget cap, leaving the caller's existing
+// sentinel cascade + per-line fallbacks fully intact. Only attempted when NO keyed
+// tier (Azure/DeepL) is configured, so the D-05 provider priority is unchanged in
+// keyed deployments — in the production (keyless) deployment Workers AI already
+// outranks keyless Google in the cascade.
+async function workersAiBatch(
+	lines: string[],
+	appTo: string,
+	env: Env | undefined
+): Promise<LineResult[] | null> {
+	if (env?.AZURE_TRANSLATOR_KEY || env?.DEEPL_KEY) return null; // keyed tiers keep D-05 order
+	const ai = (env as Record<string, unknown> | undefined)?.AI as
+		| { run: (model: string, input: Record<string, string>) => Promise<unknown> }
+		| undefined;
+	if (!ai || !aiBudgetOk()) return null;
+	const target = AI_LANG_NAMES[appTo];
+	if (!target) return null;
+	const joined = lines.join('\n');
+	// Same minimal script-based source guess as workersAiTranslate.
+	let source = 'english';
+	if (/[぀-ゟ゠-ヿ]/.test(joined)) source = 'japanese';
+	else if (/[가-힣]/.test(joined)) source = 'korean';
+	else if (/[一-鿿]/.test(joined)) source = 'chinese';
+	if (source === target) return null;
+	try {
+		const out = (await ai.run(AI_MODEL, {
+			text: joined,
+			source_lang: source,
+			target_lang: target
+		})) as { translated_text?: string; usage?: { neurons?: number } };
+		if (typeof out?.usage?.neurons === 'number') aiNeuronsUsed += out.usage.neurons;
+		if (typeof out?.translated_text !== 'string' || !out.translated_text) return null;
+		const parts = out.translated_text
+			.split('\n')
+			.map((l) => l.trim())
+			.filter(Boolean);
+		if (parts.length !== lines.length) return null; // misaligned → caller's fallbacks
+		if (parts.every((p, i) => p === lines[i])) return null; // pure echo → not a translation
+		return parts.map((text, i) => ({
+			text,
+			translated: Boolean(lines[i]) && text !== lines[i]
+		}));
+	} catch {
+		return null;
+	}
+}
+
 // Translate one chunk (<= CHUNK_SIZE lines) and return positionally-aligned per-line results.
 async function translateChunk(lines: string[], appTo: string, env: Env | undefined): Promise<LineResult[]> {
 	if (lines.length === 1) {
@@ -367,6 +421,11 @@ async function translateChunk(lines: string[], appTo: string, env: Env | undefin
 		if (t == null) return [{ text: lines[0], translated: false }];
 		return [{ text: t.text, translated: t.text !== lines[0] }];
 	}
+
+	// quick-261116-perf: plain-newline Workers-AI batch first (keyless deployments) —
+	// one AI call per chunk instead of a per-line wave. Null → the sentinel cascade.
+	const batch = await workersAiBatch(lines, appTo, env);
+	if (batch) return batch;
 
 	// Batched path: join with unique sentinels, split the reply back on them.
 	const joined = lines.map((l, i) => (i === 0 ? l : sentinel(i) + l)).join('');

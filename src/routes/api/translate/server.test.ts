@@ -220,8 +220,10 @@ describe('/api/translate provider cascade', () => {
 		const ai = {
 			run: async (_model: string, input: { text: string }) => {
 				aiCalls++;
+				// Handles both batch shapes: the plain-newline join (workersAiBatch) and
+				// the sentinel join (cascade) — either must resolve in this ONE call.
 				const parts = input.text
-					.split(/‹\d+›/)
+					.split(/‹\d+›|\n/)
 					.map((s) => s.trim())
 					.filter(Boolean);
 				return {
