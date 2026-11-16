@@ -95,25 +95,25 @@ export const APPEARANCE_DEFAULTS = {
 		'playNext',
 		'changeCover',
 		'changeLyrics',
-		'shuffleQueue',
 		'goToArtist',
-		'goToAlbum',
 		// Group 3
-		'customize',
-		'downloadSource',
 		'repeat',
-		'addToPlaylist',
-		// Group 4
-		'detail',
-		'sleepTimer',
-		'editTags',
-		// The remainder of the catalog, in a stable order.
+		'shuffleQueue',
+		'clearQueue',
 		'addQueue',
-		'startRadio',
+		// Group 4
+		'downloadSource',
+		'editTags',
+		'addToPlaylist',
+		'detail',
+		// Group 5
+		'sleepTimer',
 		'versions',
+		'customize',
+		'goToAlbum',
+		'startRadio',	// startRadio is similar to remix, can comment out
 		'viewComments',
 		'viewRelated',
-		'clearQueue'
 	] as readonly MenuActionId[]
 } as const;
 
