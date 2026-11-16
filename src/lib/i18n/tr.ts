@@ -143,6 +143,7 @@ const tr: Dict = {
 	"settings.showSourceTagDesc": "Geçerli parçanın hangi kaynaktan çalındığını gösterir.",
 	"settings.nowbarLyrics": "Şarkı sözlerini mini oynatıcıda göster",
 	"settings.reduceMotion": "Hareketi azalt",
+	"settings.haptics": "Titreşim",
 	"settings.shareIncludeTitle": "Paylaşırken başlığı ekle",
 	"settings.data": "Veri",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
@@ -734,6 +735,7 @@ const tr: Dict = {
 	"settings.appLanguageDesc": "Uygulamanın düğmelerinin, menülerinin ve etiketlerinin dilini belirler; şarkı ve sanatçı adları bunu değil, Çeviri ayarlarınızı izler.",
 	"settings.accentColorDesc": "Etkin denetimlerde, anahtarlarda ve çalan parçada kullanılan vurgu rengi; zevkinize uyanı seçin.",
 	"settings.reduceMotionDesc": "Uygulama genelinde gereksiz animasyonları ve geçişleri kapatır; hareket sizi rahatsız ediyorsa veya pil tasarrufu için açın.",
+	"settings.hapticsDesc": "Uzun basma menüsünü açma, bir satırı kaydırma veya şarkıda ilerleme gibi işlemlerde hafif titreşim; tüm titreşimi kapatmak için devre dışı bırakın.",
 	"settings.shareIncludeTitleDesc": "Paylaşırken bağlantının üstüne bir başlık satırı (şarkı • sanatçı) ekler. Kapalıyken yalnızca bağlantı gönderilir — bağlantı önizlemesi başlığı zaten gösterir.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Listelerde ve arama sonuçlarında görünen şarkı başlığı metnini ölçekler; 100% varsayılandır. Okunabilirlik için artırın, ekrana daha çok sığdırmak için azaltın.",

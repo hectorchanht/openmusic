@@ -37,6 +37,10 @@ export const GENERAL_DEFAULTS = {
 	 *  duplicating the OG card, which already shows `Song • Artist` under the link
 	 *  (quick-260808-vzu). Opt in to get the context inline. */
 	shareIncludeTitle: false,
+	/** quick-261116-perf: commit-tier haptic ticks (long-press menu, swipe/seek/track
+	 *  commits — never per-tap). Default ON, intensity is locked light in util/haptics;
+	 *  OFF silences every tick (the util's setHapticsEnabled seam). */
+	haptics: true,
 	/** Light/dark theme — default 'dark' (today's design). 'light' flips data-theme on <html>
 	 *  to surface the `[data-theme='light']` token overrides in app.css. */
 	theme: 'dark' as Theme

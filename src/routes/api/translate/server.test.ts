@@ -209,4 +209,33 @@ describe('/api/translate provider cascade', () => {
 		expect(body.translated[0]).toBe('Hello world' + TAG.google); // AI echoed → google
 		expect(body.flags).toEqual([true]);
 	});
+
+	// quick-261116-perf (Korean-lyrics latency): m2m100 drops the `‹i›` sentinels but
+	// preserves newlines. The batch must be accepted from the newline structure in ONE
+	// AI call — before the fix it failed the segment guard and fanned out per-line
+	// (~1.5-3.5s per line), so a full song took minutes.
+	it('accepts a newline-aligned Workers AI batch (sentinels dropped) in ONE AI call', async () => {
+		wire({ google: 'translate' }); // google must never be needed
+		let aiCalls = 0;
+		const ai = {
+			run: async (_model: string, input: { text: string }) => {
+				aiCalls++;
+				const parts = input.text
+					.split(/‹\d+›/)
+					.map((s) => s.trim())
+					.filter(Boolean);
+				return {
+					translated_text: parts.map((l) => l + TAG.ai).join('\n'),
+					usage: { neurons: 1 }
+				};
+			}
+		};
+		const lines = ['사랑해', '너를 원해', '오늘 밤'];
+		const res = await callPost(lines, 'zh-Hant', { AI: ai });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated).toEqual(lines.map((l) => l + TAG.ai));
+		expect(body.flags).toEqual([true, true, true]);
+		expect(aiCalls).toBe(1); // batched — NOT per-line fan-out
+		expect(fetchedProviders()).toEqual([]); // Google never fetched
+	});
 });

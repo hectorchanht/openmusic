@@ -143,6 +143,7 @@ const ar: Dict = {
 	"settings.showSourceTagDesc": "يُظهر المصدر الذي يُشغَّل منه المسار الحالي.",
 	"settings.nowbarLyrics": "إظهار الكلمات في المشغّل المصغّر",
 	"settings.reduceMotion": "تقليل الحركة",
+	"settings.haptics": "الاهتزاز",
 	"settings.shareIncludeTitle": "تضمين العنوان عند المشاركة",
 	"settings.data": "البيانات",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
@@ -734,6 +735,7 @@ const ar: Dict = {
 	"settings.appLanguageDesc": "يحدّد لغة أزرار التطبيق وقوائمه وتسمياته؛ أما أسماء الأغاني والفنانين فتتبع إعدادات الترجمة لديك وليس هذا الخيار.",
 	"settings.accentColorDesc": "لون التمييز المستخدَم لعناصر التحكم النشطة والمفاتيح والمقطع قيد التشغيل؛ اختر ما يناسب ذوقك.",
 	"settings.reduceMotionDesc": "يوقف الرسوم المتحركة والانتقالات غير الضرورية في التطبيق كله؛ فعّله إذا كانت الحركة تزعجك أو للمساعدة في توفير البطارية.",
+	"settings.hapticsDesc": "اهتزاز خفيف عند إجراءات مثل فتح قائمة الضغط المطول أو تمرير صف أو التقديم؛ أوقفه لإسكات كل الاهتزازات.",
 	"settings.shareIncludeTitleDesc": "يضيف سطر عنوان (الأغنية • الفنان) فوق الرابط عند المشاركة. عند الإيقاف يُرسل الرابط فقط — فمعاينة الرابط تعرض العنوان بالفعل.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "يضبط حجم نص عنوان الأغنية في القوائم ونتائج البحث، حيث 100% هي القيمة الافتراضية؛ زِدها لتحسين الوضوح أو أنقصها لإظهار المزيد على الشاشة.",

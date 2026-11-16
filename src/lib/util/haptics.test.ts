@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { tick } from './haptics';
+import { tick, setHapticsEnabled } from './haptics';
 
 // haptics.tick fires a ~15ms commit-tier vibrate where supported and no-ops safely where it is
 // not (iOS Safari has no navigator.vibrate). The util must NEVER throw. These node tests stub /
@@ -33,5 +33,17 @@ describe('haptics.tick — commit-tier vibrate (D-17)', () => {
 			throw new Error('blocked');
 		};
 		expect(() => tick()).not.toThrow();
+	});
+
+	// quick-261116-perf: the settings toggle seam — disabled silences the tick entirely.
+	it('setHapticsEnabled(false) suppresses the vibrate; re-enabling restores it', () => {
+		const vibrate = vi.fn();
+		navigator.vibrate = vibrate;
+		setHapticsEnabled(false);
+		tick();
+		expect(vibrate).not.toHaveBeenCalled();
+		setHapticsEnabled(true);
+		tick();
+		expect(vibrate).toHaveBeenCalledTimes(1);
 	});
 });

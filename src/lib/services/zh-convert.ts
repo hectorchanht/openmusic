@@ -1,389 +1,34 @@
-// Lazy client-side Simplified→Traditional (zh-Hans → zh-Hant) converter + CJK-source
-// predicate. This is the OFFLINE PRIMARY path for the translate choke point (Plan 03
-// wires it into `translateLinesEx`): zh-Hans→zh-Hant is a deterministic char/phrase
-// conversion, so it needs no API, never rate-limits, and works offline / on lockscreen.
+// quick-261116-perf: this module is now a thin SHIM over @dawn-studio/zh-convert
+// (v0.5.0) — the Dawn Studio shared package that grew out of this very file (same
+// tongwen engine, same lazy separate s2t/t2s dict loads, same idempotent s2t merge,
+// same sync no-flash handles, same never-throw boundaries). Every existing importer
+// keeps importing from '$lib/services/zh-convert'; the conversion behaviour lives in
+// ONE place for all Dawn apps. The package additionally applies PROTECTED_WORDS
+// (占 protection + 佔卜 normalization) — a superset of the old local behaviour.
 //
-// Decision refs:
-//   D-01  Use TongWenTang (`tongwen-core` + `tongwen-dict`), s2t char + phrase dicts ONLY.
-//         Phrase-level quality disambiguates 头发→頭髮 and 里→裡/裏 (char-only libs can't).
-//   D-03  Run client-side; pull the ~72 KB dict via a DYNAMIC import() so it stays out of
-//         the initial bundle and is fetched at most once (memoized).
-//   D-04  Offline-eligibility rides the kana/hangul-FIRST classifier in `$lib/i18n/detect`
-//         so Japanese-kanji lines (kana present) are NOT s2t-converted — they fall through
-//         to the API cascade instead of being wrongly Traditionalized.
+// foldScript / ensureFoldReady / foldScriptReady have no package equivalent (they are
+// OpenMusic's identity fold, quick-261102-sdm), so they stay here, implemented on the
+// package's t2s primitives with their original logic unchanged.
 //
-// PURE .ts (NOT .svelte.ts): no runes, no browser globals — node-testable under the single
-// Vitest server project (the dict loads via dynamic import, which Vitest resolves natively).
+// tongwen-core / tongwen-dict remain in devDependencies ONLY: two cold/broken-dict
+// tests mock the dict chunk by its package specifier ('tongwen-dict/dist/…'), which
+// must resolve at the top level for vi.doMock to intercept the package's own load.
+// No app code imports them — at runtime they arrive solely as the package's deps.
 
-import { detectLang } from '$lib/i18n/detect';
+export {
+	warmS2T,
+	s2tConvertLineSync,
+	isChineseLine,
+	s2tConvertLines,
+	t2sConvertLines,
+	warmT2S,
+	t2sConvertLineSync,
+	lockScriptSync,
+	warmScript
+} from '@dawn-studio/zh-convert';
+export type { ZhScript } from '@dawn-studio/zh-convert';
 
-// A ready-to-use single-line converter. We memoize THIS (not the raw tongwen Converter) so
-// `LangType` stays captured inside the closure and callers never touch tongwen types.
-type ConvertLine = (line: string) => string;
-
-// Module-scoped memo: a single dynamic-import + build reused across every call, so the
-// ~72 KB s2t dict (D-01/D-03) is fetched at most once for the app's lifetime.
-let convertLinePromise: Promise<ConvertLine> | null = null;
-
-// quick-260712-et3: a SYNCHRONOUS handle to the built converter, published once the lazy
-// build above resolves. Latency-sensitive callers (the display-name resolver) read this to
-// convert zh-Hans→zh-Hant on the FIRST render with zero flash — instead of returning
-// Simplified and flipping to Traditional after the async debounce+queue. Null until warm.
-let convertLineSync: ConvertLine | null = null;
-
-// Lazily import ONLY the s2t (Simplified→Traditional) char + phrase dictionaries plus the
-// tongwen engine, then build the phrase-level converter. The tongwen import lives ONLY inside
-// these import() calls — a static/top-level import would pull the dict into the initial chunk
-// and defeat D-03. The `t2s: []` below is NOT a stub — it keeps this map s2t-ONLY so an s2t
-// caller never pays for the t2s tables (see buildT2sConvertLine for the mirror-image build).
-//
-// quick-250711-zh: import the `converter` + `dictionary` SUBMODULES, NOT the top-level
-// `tongwen-core` index. The index does `export * from './walker'`, and the walker eval-time
-// references `NodeFilter` (a DOM global) for DOM-tree conversion we never use. In the node
-// Vitest project (no jsdom) `NodeFilter` is undefined, so importing the index THROWS and the
-// never-throw fallback below silently returns identity (unconverted). Deep-importing the
-// walker-free submodules also trims the walker out of the browser chunk.
-async function buildConvertLine(): Promise<ConvertLine> {
-	const [converterMod, dictMod, charMod, phraseMod] = await Promise.all([
-		import('tongwen-core/esm/converter'),
-		import('tongwen-core/esm/dictionary'),
-		import('tongwen-dict/dist/s2t-char.min.json'),
-		import('tongwen-dict/dist/s2t-phrase.min.json')
-	]);
-	const { createConverterMap } = converterMod;
-	const { LangType } = dictMod;
-	// createConverterMap merges the array into length-grouped single/multi maps, so char (len 1)
-	// and phrase (len ≥ 2) entries never collide — order is irrelevant.
-	const converter = createConverterMap({
-		s2t: [charMod.default, phraseMod.default],
-		t2s: []
-	});
-	// `.phrase()` applies the multi-char phrase map AND the single-char map, so it converts both
-	// 头发→頭髮 (phrase) and 简体→簡體 (per-char) in one pass (per convertPhrase in tongwen-core).
-	return (line: string) => converter.phrase(LangType.s2t, line);
-}
-
-function loadConvertLine(): Promise<ConvertLine> {
-	if (!convertLinePromise) {
-		convertLinePromise = buildConvertLine()
-			.then((fn) => {
-				// Publish the sync handle so s2tConvertLineSync can convert without awaiting.
-				convertLineSync = fn;
-				return fn;
-			})
-			.catch((err) => {
-				// Do NOT cache a rejected build — null it so a later call can retry the lazy import
-				// (a transient chunk-load failure should not permanently disable offline conversion).
-				convertLinePromise = null;
-				throw err;
-			});
-	}
-	return convertLinePromise;
-}
-
-/**
- * quick-260712-et3: fire-and-forget trigger of the lazy s2t dict load. Call early (e.g. at
- * app boot when the Chinese content target is Traditional) so the converter is WARM before
- * names render — then s2tConvertLineSync succeeds on the first render and there is no flash.
- * Never throws (a failed load leaves convertLineSync null; callers just fall back to async).
- *
- * quick-260926-kvz: warms BOTH dicts (s2t + t2s) via warmScript('zh-Hant'), so the names no-flash
- * fast path gets the idempotent merge at boot, not just raw s2t. warmScript never rejects.
- */
-export function warmS2T(): void {
-	void warmScript('zh-Hant');
-}
-
-/**
- * quick-260712-et3: SYNCHRONOUS Simplified→Traditional for ONE line. Returns the converted
- * (Traditional) string if the s2t dict is already loaded, else `null` — signalling "not warm
- * yet" so the caller can warmS2T() and fall back to the async path for this render. Never
- * throws: an empty input or a converter fault returns null (treated as not-ready). Callers
- * MUST gate on isChineseLine() first (this does not re-check language). s2t leaves 台灣 as
- * 台灣, so the returned string may equal the input.
- *
- * quick-260926-bxg: raw s2t holds that for 台灣 but NOT for every already-Traditional string —
- * tongwen's s2t phrase table is keyed on Simplified, so 周杰倫 misses the phrase 周杰伦 → 周杰倫,
- * falls to per-char mapping, and comes out 周傑倫 (杰 → 傑).
- *
- * quick-260926-kvz: this IS the idempotent merge (`s2tMerge`) now, so already-Traditional input
- * keeps its source spelling (周杰倫 stays 周杰倫, 周傑倫 stays 周傑倫). null still means "s2t cold";
- * t2s cold degrades to direct s2t — the pre-kvz behaviour, never worse.
- */
-export function s2tConvertLineSync(text: string): string | null {
-	return s2tMerge(text);
-}
-
-/**
- * D-04 offline-eligibility predicate: is this line safe to convert offline (i.e. Chinese)?
- *
- * Delegates to `detectLang`, which classifies kana→'ja' and hangul→'ko' BEFORE Han — so any
- * line containing kana/hangul returns false and is left for the API cascade (the Japanese-kanji
- * guard). Returns true ONLY for detected Chinese ('zh-Hant' | 'zh-Hans'); empty / whitespace /
- * pure-Latin lines detect as 'en' and return false. Pure — reuses the shared Unicode ranges in
- * `$lib/i18n/detect`; does NOT redefine kana/hangul/Han regexes.
- */
-export function isChineseLine(text: string): boolean {
-	const lang = detectLang(text);
-	return lang === 'zh-Hant' || lang === 'zh-Hans';
-}
-
-/**
- * Positionally-aligned batch Simplified→Traditional convert (out.length === lines.length).
- *
- * On the first call the s2t dict is dynamically imported + built once, then memoized. Each line
- * is converted with the phrase-level converter (D-01); blank lines pass through untouched so
- * alignment and empty slots are preserved (['', '中国'] → ['', '中國']).
- *
- * quick-260926-kvz: idempotent on already-Traditional input (周杰倫 stays 周杰倫, 台灣 stays 台灣)
- * because every line goes through the same `s2tMerge` as the lock. That means it loads BOTH dicts
- * (s2t + the ~22 KB gzip t2s); a t2s failure still converts with direct s2t.
- *
- * Never-throw boundary: any import/build/convert failure degrades to IDENTITY (the input lines
- * returned unchanged) rather than throwing into the caller — a converter fault becomes "not
- * converted", never a broken render or a rejected promise up the translate choke point.
- */
-export async function s2tConvertLines(lines: string[]): Promise<string[]> {
-	if (lines.length === 0) return [];
-	try {
-		// allSettled, not Promise.all — same reason as warmScript: all would resolve early on a fast
-		// t2s failure while s2t is still in flight, and every line would come back unconverted.
-		await Promise.allSettled([loadConvertLine(), loadT2sConvertLine()]);
-		// s2t failed to load → per-line identity (the never-throw contract above).
-		return lines.map((line) => (line ? (s2tConvertLineSync(line) ?? line) : line));
-	} catch {
-		return lines.slice();
-	}
-}
-
-// ---------------------------------------------------------------------------------------------
-// quick-260807-vl1 — the OPPOSITE direction: t2s (Traditional→Simplified), for the /api/og
-// cover search ONLY.
-//
-// WHY: a Traditional-script query poisons every cover upstream, because the CN catalogs index
-// the SIMPLIFIED name. Production-probed: `artist=周傑倫&title=止戰之殤` misses every tier 3/3
-// attempts, while the t2s output `周杰伦 / 止战之殇` hits 4/4. og-cover.ts converts FIRST and
-// searches with the Simplified terms, so the corrected query costs zero extra latency.
-//
-// THIS DOES NOT REVERSE OG-ZH-01. That decision removed Simplified→Traditional at SHARE time
-// because converting the shared link's path corrupted its own resolution key. This is the other
-// direction (t2s), server-side only, and never touches a URL the user sees — the /api/og cache
-// key still hashes the INPUT artist/title.
-//
-// COST (measured on the installed tongwen-dict, `wc -c` + `gzip -9`):
-//   t2s-char.min.json    34,273 raw / 14,728 gzip
-//   t2s-phrase.min.json  16,394 raw /  7,560 gzip   → ~50 KB raw / ~22 KB gzip total
-// t2s is largely MANY-TO-ONE, so its phrase table is ~9× smaller than s2t-phrase (148,406 raw).
-// 30-RESEARCH.md §E's "~357 KB raw / 8.90 ms createConverterMap" cost objection was measured for
-// BOTH directions merged and does NOT transfer to a t2s-only map.
-//
-// quick-260926-bxg: a zh-Hant script-LOCK user now also downloads this ~22 KB gzip t2s dict,
-// because warmScript('zh-Hant') builds both directions for the merge in lockScriptSync.
-// quick-260926-kvz: so does a zh-Hant TRANSLATION user (lock off), because s2tConvertLines and
-// warmS2T now build both directions for the same merge (`s2tMerge`).
-//
-// SEPARATE memoized build, deliberately NOT merged into buildConvertLine's one
-// createConverterMap call: a merged map would drag s2t's 148 KB phrase dict into the edge bundle
-// for a t2s-only caller (and vice versa).
-let t2sPromise: Promise<ConvertLine> | null = null;
-
-// quick-250711-zh idiom, verbatim: deep-import the walker-free `converter` + `dictionary`
-// SUBMODULES. The top-level `tongwen-core` index does `export * from './walker'`, whose eval
-// references the DOM global `NodeFilter`; in the node Vitest project that THROWS. Do not change
-// this to a top-level import.
-async function buildT2sConvertLine(): Promise<ConvertLine> {
-	const [converterMod, dictMod, charMod, phraseMod] = await Promise.all([
-		import('tongwen-core/esm/converter'),
-		import('tongwen-core/esm/dictionary'),
-		import('tongwen-dict/dist/t2s-char.min.json'),
-		import('tongwen-dict/dist/t2s-phrase.min.json')
-	]);
-	const { createConverterMap } = converterMod;
-	const { LangType } = dictMod;
-	const converter = createConverterMap({
-		s2t: [],
-		t2s: [charMod.default, phraseMod.default]
-	});
-	return (line: string) => converter.phrase(LangType.t2s, line);
-}
-
-// quick-260919-2jo: the t2s twin of `convertLineSync` — a SYNCHRONOUS handle published once the
-// lazy t2s build resolves, so the script lock can convert Traditional→Simplified on the FIRST
-// render with no flash. Null until warm. Named `t2sLineSync` (not `t2sConvertLineSync`) because
-// the exported accessor below owns that name, mirroring convertLineSync / s2tConvertLineSync.
-let t2sLineSync: ConvertLine | null = null;
-
-function loadT2sConvertLine(): Promise<ConvertLine> {
-	if (!t2sPromise) {
-		t2sPromise = buildT2sConvertLine()
-			.then((fn) => {
-				// quick-260919-2jo: publish the sync handle so t2sConvertLineSync can convert
-				// without awaiting (verbatim the loadConvertLine discipline).
-				t2sLineSync = fn;
-				return fn;
-			})
-			.catch((err) => {
-				// Never cache a rejected build (the s2t discipline) — a transient chunk/import failure
-				// must not permanently disable conversion for the Worker's lifetime.
-				t2sPromise = null;
-				throw err;
-			});
-	}
-	return t2sPromise;
-}
-
-/**
- * quick-260807-vl1: positionally-aligned batch Traditional→Simplified convert
- * (out.length === lines.length), mirroring s2tConvertLines exactly.
- *
- * On the first call the t2s char + phrase dicts are dynamically imported + built once, then
- * memoized (~22 KB gzip, ms-scale build). Blank lines pass through untouched so alignment and
- * empty slots survive (['', '中國'] → ['', '中国']). Already-Simplified input is a NO-OP, which
- * is what lets the caller detect "nothing changed" and skip its extra query entirely.
- *
- * Never-throw boundary: any import/build/convert failure degrades to IDENTITY (the input lines
- * returned unchanged) rather than throwing into the caller — at the edge that means the cover
- * search simply runs on the original terms, never a 500.
- *
- * quick-260919-2jo: the latency-sensitive UI caller this file's header used to say did not exist
- * now does — the Chinese script lock (Settings → Translation) needs t2s on the render path, so
- * `warmT2S` / `t2sConvertLineSync` are defined below as exact mirrors of the s2t pair.
- */
-export async function t2sConvertLines(lines: string[]): Promise<string[]> {
-	if (lines.length === 0) return [];
-	try {
-		const convert = await loadT2sConvertLine();
-		return lines.map((line) => (line ? convert(line) : line));
-	} catch {
-		return lines.slice();
-	}
-}
-
-
-/**
- * quick-260919-2jo: fire-and-forget trigger of the lazy t2s dict load — the exact mirror of
- * `warmS2T`. Never throws (a failed load leaves `t2sLineSync` null and `t2sConvertLineSync`
- * keeps returning null, which every caller treats as "not warm yet").
- */
-export function warmT2S(): void {
-	void loadT2sConvertLine().catch(() => {});
-}
-
-/**
- * quick-260919-2jo: SYNCHRONOUS Traditional→Simplified for ONE line — the exact mirror of
- * `s2tConvertLineSync`, same contract. Returns the converted string once the t2s dict is warm,
- * else `null` ("not warm yet" — the caller should warm and fall back to the input for this
- * render). Never throws. Callers MUST gate on isChineseLine() first (this does not re-check
- * language). Already-Simplified input passes through unchanged, so the returned string may equal
- * the input — that is a genuine, stable Simplified result.
- */
-export function t2sConvertLineSync(text: string): string | null {
-	if (!t2sLineSync || !text) return null;
-	try {
-		return t2sLineSync(text);
-	} catch {
-		return null;
-	}
-}
-
-/** quick-260919-2jo: the two scripts the lock can force. Deliberately NOT `LyricsLang` — the
- *  lock is a SCRIPT control, not a translation target, and it must never accept 'en'/'ja'/'ko'. */
-export type ZhScript = 'zh-Hant' | 'zh-Hans';
-
-/**
- * quick-260926-bxg: the zh-Hant lock, idempotent on already-Traditional input. Returns null only
- * when s2t is cold or `text` is empty (lockScriptSync's `?? text` keeps the identity contract).
- *
- * quick-260926-kvz: this is now the ONE Simplified→Traditional used by every exported entry point
- * (s2tConvertLineSync, s2tConvertLines, lockScriptSync zh-Hant). It is built on the RAW module
- * handles `convertLineSync` / `t2sLineSync`, never on the exported accessors — those route through
- * here, so calling them would recurse.
- *
- * WHY a merge: tongwen's s2t phrase table is keyed on Simplified, so direct s2t of 周杰倫 misses
- * the phrase 周杰伦 → 周杰倫 and per-char maps 杰 → 傑 (周傑倫). Folding to Simplified first and
- * s2t-ing the fold finds the phrase — but a PURE t2s→s2t round trip is lossy on many-to-one chars
- * and corrupts real Traditional names (鍾鎮濤 → 鐘鎮濤, 髮如雪 → 發如雪, 臺灣 → 台灣, lone
- * 髮/乾/麵/隻/鬆 → 發/干/面/只/松). So per code point: a char t2s CHANGED is already a Traditional
- * form and keeps the source's spelling; every other char takes the phrase-aware s2t-of-the-fold.
- *
- * Probed: 周杰倫 stays, 周杰伦 → 周杰倫, 頭发 → 頭髮 (direct s2t gave 頭發), 周傑倫 stays (source
- * spelling kept — the lock is a script control, not a spelling normaliser). On every probed input
- * the merge equals direct s2t or strictly improves it. t2s cold, or a length mismatch after
- * conversion, returns direct s2t — exactly the old behaviour, never worse.
- */
-function s2tMerge(text: string): string | null {
-	if (!convertLineSync || !text) return null;
-	let direct: string;
-	try {
-		direct = convertLineSync(text);
-	} catch {
-		return null; // never-throw: a converter fault reads as "not ready"
-	}
-	if (!t2sLineSync) return direct;
-	try {
-		const folded = t2sLineSync(text);
-		const round = convertLineSync(folded);
-		// Code points, not UTF-16 units: string indexing / split('') would tear astral chars (𠮷).
-		const a = Array.from(text);
-		const f = Array.from(folded);
-		const r = Array.from(round);
-		// tongwen phrase maps are length-preserving in practice; this is the never-worse guard.
-		if (f.length !== a.length || r.length !== a.length) return direct;
-		return a.map((c, i) => (c !== f[i] ? c : r[i])).join('');
-	} catch {
-		return direct;
-	}
-}
-
-/**
- * quick-260919-2jo — THE script lock. Force one line into `target`'s script, whatever script the
- * upstream catalog returned. The single entry point the app uses; nothing else should reach for a
- * direction-specific sync converter.
- *
- * Order is load-bearing:
- *   1. empty → the input (nothing to convert, and detectLang would answer 'en' anyway);
- *   2. `!isChineseLine(text)` → the input. THIS is the entire "Chinese only, every other language
- *      passes through untouched" guarantee, and it is deliberately the ONLY language test here —
- *      one classifier, not two. `isChineseLine` delegates to `detectLang`, which classifies
- *      kana→'ja' and hangul→'ko' BEFORE Han, so Japanese and Korean lines are safe by that
- *      ordering (D-04). KNOWN, ACCEPTED CEILING (also D-04): a Japanese line with ZERO kana (pure
- *      kanji) detects as Chinese and WILL be converted. Pre-existing across every caller of this
- *      predicate; do not widen the gate here to paper over it.
- *   3. dispatch and degrade to the INPUT when it answers null: zh-Hant goes through the
- *      `s2tMerge` merge (quick-260926-bxg — idempotent on already-Traditional input; kvz made it
- *      the shared s2t for every entry point), zh-Hans through t2s.
- *
- * Never throws and never returns null: a cold (not yet warm) or faulted converter degrades to
- * IDENTITY, so a first render shows the original text rather than a blank. Callers that care
- * about the cold case should `warmScript(target)` and re-render.
- */
-export function lockScriptSync(text: string, target: ZhScript): string {
-	if (!text) return text;
-	if (!isChineseLine(text)) return text;
-	const converted = target === 'zh-Hant' ? s2tMerge(text) : t2sConvertLineSync(text);
-	return converted ?? text;
-}
-
-/**
- * quick-260919-2jo: await the lazy dict build(s) a lock target needs, swallowing failure. Unlike
- * the fire-and-forget `warmS2T`/`warmT2S`, this hands back a promise so a reactive caller can bump
- * its own revision counter once the dicts land and repaint (see `names.warmLock`). Resolves void on
- * success AND on failure — never rejects.
- *
- * quick-260926-bxg: zh-Hant awaits BOTH builds (the merge in `s2tMerge` needs t2s too); zh-Hans
- * still awaits t2s only. allSettled, NOT Promise.all: all rejects on the FIRST failure while the
- * other build is still in flight, so a fast t2s chunk failure would resolve this early, warmLock
- * would bump rev before s2t landed, and the lock would stay cold until some unrelated re-render.
- * allSettled waits for both, so the rev bump fires only once the merge is as warm as it will get.
- */
-export async function warmScript(target: ZhScript): Promise<void> {
-	try {
-		if (target === 'zh-Hant') await Promise.allSettled([loadConvertLine(), loadT2sConvertLine()]);
-		else await loadT2sConvertLine();
-	} catch {
-		/* a failed dict build leaves the sync handle null; lockScriptSync degrades to identity */
-	}
-}
+import { isChineseLine, t2sConvertLineSync, warmT2S, warmScript } from '@dawn-studio/zh-convert';
 
 const HAN_CHAR = /\p{Script=Han}/u;
 
@@ -424,7 +69,9 @@ export function foldScript(s: string): string {
 /** quick-261102-sdm: true once foldScript is warm. Awaitable, never rejects. */
 export async function ensureFoldReady(): Promise<boolean> {
 	await warmScript('zh-Hans');
-	return t2sLineSync !== null;
+	// Probe with a char that only converts when the t2s dict is actually loaded:
+	// cold → null (not ready), warm → the Simplified form (ready).
+	return t2sConvertLineSync('測') !== null;
 }
 
 /** quick-261102-sdm: foldScript after the dict is guaranteed warm (or failed to load). */

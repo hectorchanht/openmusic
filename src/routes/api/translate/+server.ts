@@ -42,8 +42,18 @@
 // GENUINELY translated, false when it fell back to the original. Clients persist only
 // genuinely-translated lines (fallbacks stay eligible for a later retry instead of poisoning
 // the cache). `flags` is additive; the `translated`/length contract is unchanged.
+//
+// LATENCY (quick-261116-perf / Korean-lyrics report): correctness was fine but a batched
+// Workers-AI reply failed the sentinel segment guard (m2m100 drops/merges `‹i›` markers
+// while preserving newlines), so EVERY chunk degraded to per-line fan-out — a 20-line
+// Korean lyric batch took ~15-30s and a full song minutes, which reads as "translation
+// not working" (NpLyrics waits for the whole batch). Fix: the Workers-AI tier counts
+// segments by newline as well as sentinels, translateChunk accepts an exactly-aligned
+// newline split, and fully-genuine results are edge-cached provider-side (see POST) so
+// repeat plays are instant and spend no AI neurons.
 import type { RequestHandler } from './$types';
 import type { Env } from '$lib/proxy/proxy-types';
+import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
 
 const LANG_MAP: Record<string, string> = {
 	'zh-Hant': 'zh-TW',
@@ -67,13 +77,22 @@ const LANG_MAP: Record<string, string> = {
 
 const TIMEOUT_MS = 8000;
 
+// quick-261116-perf: provider-side translation cache (see POST). VER is the impl/prompt
+// version segment of the cache key; TTL is a week — lyric/name translations are stable
+// and the client already persists complete batches indefinitely.
+const TRANSLATE_CACHE_VER = 'v1';
+const TRANSLATE_CACHE_TTL = 604800;
+
 // Lines per Google request. Empirically the free endpoint flips to echo-mode (returns the
 // input untranslated) somewhere past ~45 sentinel-separated short lines; 20 keeps every
 // chunk comfortably inside the reliable zone with margin for longer (lyric) lines.
 const CHUNK_SIZE = 20;
 // Max simultaneous per-line fallback requests, so a recovering chunk doesn't burst N GETs
 // and trip Google's rate limiter (which itself manifests as echo-mode / failures).
-const PERLINE_CONCURRENCY = 6;
+// quick-261116-perf: raised 6 → 12 — with the Workers-AI batch path fixed (below) this
+// fallback is rare, but when it does fire on a full song (60+ short lyric lines) 6-wide
+// waves at ~2s/call were the difference between ~10s and ~30s of dead waiting.
+const PERLINE_CONCURRENCY = 12;
 
 // A per-line outcome: the (possibly original) text + whether it was GENUINELY translated.
 interface LineResult {
@@ -279,7 +298,17 @@ const workersAiTranslate: Provider = async (text, appTo, env) => {
 		if (typeof out?.usage?.neurons === 'number') aiNeuronsUsed += out.usage.neurons;
 		const translated = out?.translated_text;
 		if (typeof translated !== 'string' || !translated) return null;
-		return { text: translated, segments: translated.split(SENTINEL_RE).length };
+		// quick-261116-perf (Korean-lyrics latency root cause): m2m100 routinely DROPS or
+		// merges the `‹i›` sentinel lines while faithfully preserving the newline between
+		// real lines, so the sentinel-only segment count read 1 for a perfectly good
+		// 20-line batch → the cascade's echo guard rejected it → every chunk degraded to
+		// per-line fan-out (~1.5-3.5s × lines / concurrency ≈ 15-30s per song, which users
+		// experience as "translation not working"). Count segments by BOTH delimiters and
+		// take the max: sentinel parts when they survive, non-empty newline parts when
+		// only the line structure survived. A genuine single-segment echo still counts 1.
+		const bySentinel = translated.split(SENTINEL_RE).length;
+		const byLine = translated.split('\n').filter((l) => l.trim()).length;
+		return { text: translated, segments: Math.max(bySentinel, byLine) };
 	} catch {
 		return null;
 	}
@@ -354,6 +383,18 @@ async function translateChunk(lines: string[], appTo: string, env: Env | undefin
 					// Genuinely translated when the batched output differs from the source line.
 					return { text, translated: Boolean(lines[i]) && text !== lines[i] };
 				});
+			// quick-261116-perf: sentinel-mangled but newline-faithful reply (the m2m100
+			// batch shape — see workersAiTranslate). Accept the non-empty lines positionally
+			// when their count aligns exactly; any other count still falls to per-line.
+			const byLine = res.text
+				.split('\n')
+				.map((l) => l.trim())
+				.filter(Boolean);
+			if (byLine.length === lines.length)
+				return byLine.map((text, i) => ({
+					text,
+					translated: Boolean(lines[i]) && text !== lines[i]
+				}));
 		}
 	}
 
@@ -380,11 +421,63 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	const appTo = typeof body.to === 'string' && body.to in LANG_MAP ? body.to : undefined;
 	if (!lines.length || !appTo) return reply(lines, lines.map(() => false));
 
+	// quick-261116-perf — PROVIDER-SIDE CACHE (standing KV-cache rule; the repo's edge
+	// pattern is caches.default via edgeCache(), keyed by an own-origin synthetic GET
+	// whose query carries the impl version + target + SHA-256 of the canonical input —
+	// the dawn-ai-cache key shape: version + input hash). A hit returns BEFORE the
+	// cascade runs, so repeat plays of a song cost zero provider calls and zero Workers
+	// AI neurons (the $5/mo budget guard below only ever sees misses). Only FULLY
+	// genuine results are stored (every non-blank line flagged) — an echo/fallback
+	// batch is never cached, mirroring the client's persist rule. Bump
+	// TRANSLATE_CACHE_VER whenever the cascade's output behaviour changes.
+	const cache = edgeCache();
+	let cacheReq: Request | null = null;
+	if (cache) {
+		try {
+			const digest = await crypto.subtle.digest(
+				'SHA-256',
+				new TextEncoder().encode(JSON.stringify([appTo, lines]))
+			);
+			const hash = Array.from(new Uint8Array(digest))
+				.map((b) => b.toString(16).padStart(2, '0'))
+				.join('');
+			cacheReq = ownOriginCacheKey(
+				`https://openmusic.lol/api/translate/cache?v=${TRANSLATE_CACHE_VER}&to=${appTo}&h=${hash}`
+			);
+			const hit = await cache.match(cacheReq);
+			if (hit) {
+				const [hitTranslated, hitFlags] = JSON.parse(await hit.text()) as [string[], boolean[]];
+				if (Array.isArray(hitTranslated) && hitTranslated.length === lines.length)
+					return reply(hitTranslated, hitFlags);
+			}
+		} catch {
+			cacheReq = null; // cache is an optimization — a fault must never fail the request
+		}
+	}
+	const finish = async (translated: string[], flags: boolean[]): Promise<Response> => {
+		if (cache && cacheReq && lines.every((l, i) => !l || flags[i])) {
+			try {
+				await cache.put(
+					cacheReq,
+					new Response(JSON.stringify([translated, flags]), {
+						headers: {
+							'content-type': 'application/json',
+							'cache-control': `public, max-age=${TRANSLATE_CACHE_TTL}`
+						}
+					})
+				);
+			} catch {
+				/* cache write is best-effort */
+			}
+		}
+		return reply(translated, flags);
+	};
+
 	// Single line: no batching needed, no alignment risk.
 	if (lines.length === 1) {
 		const t = await cascade(lines[0], appTo, env);
 		if (t == null) return reply([lines[0]], [false]);
-		return reply([t.text], [t.text !== lines[0]]);
+		return finish([t.text], [t.text !== lines[0]]);
 	}
 
 	// Chunk so each provider request stays under the echo-mode threshold. Chunks run in
@@ -394,7 +487,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	try {
 		const results = (await Promise.all(chunks.map((c) => translateChunk(c, appTo, env)))).flat();
 		if (results.length !== lines.length) return reply(lines, lines.map(() => false));
-		return reply(
+		return finish(
 			results.map((r) => r.text),
 			results.map((r) => r.translated)
 		);

@@ -46,6 +46,10 @@ export async function initPosthog(): Promise<void> {
 		ph.init(import.meta.env.VITE_POSTHOG_KEY || FALLBACK_KEY, {
 			api_host: import.meta.env.VITE_POSTHOG_HOST || FALLBACK_HOST,
 			autocapture: false,
+			// quick-261116-perf: session replay was only OFF by comment/default — posthog-js
+			// starts its DOM-recording observers whenever the project enables replay, which
+			// is pure CPU/battery drain inside the Android WebView. Disable it EXPLICITLY.
+			disable_session_recording: true,
 			capture_pageview: true,
 			capture_pageleave: true
 		});

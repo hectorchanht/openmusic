@@ -4,6 +4,16 @@
 // (D-01/D-02) and any surface rendered server-side must ASSUME online rather than flash
 // an offline state. Online-only surfaces (Plan 05) read `online.isOnline` to short-circuit
 // to an inline offline state instead of hanging on a fetch (D-09/D-10).
+//
+// quick-261116-perf: on native (Capacitor APK) the store ALSO takes @capacitor/network
+// as the source of truth — Android WebView `online`/`offline` events are unreliable
+// (they lag or never fire on radio handoffs), which made cached-only/offline playback
+// switching sluggish in the APK. The plugin is loaded via DYNAMIC import behind an
+// isNativePlatform() check, so the web build and the Vitest node project never execute
+// native code paths at module scope; the window listeners stay attached everywhere as
+// the web path AND the native fallback (if the plugin import ever fails, behaviour is
+// exactly the pre-plugin store). Public API is unchanged: `online.isOnline` + `init()`
+// returning a teardown that removes BOTH the window listeners and the plugin listener.
 import { browser } from '$app/environment';
 
 class Online {
@@ -21,9 +31,37 @@ class Online {
 		addEventListener('online', on);
 		addEventListener('offline', off);
 		this.isOnline = navigator.onLine;
+
+		// Native source of truth (quick-261116-perf, see header). Fire-and-forget: the
+		// async plugin load must never block or break the synchronous web path above.
+		let disposed = false;
+		let removeNative: (() => void) | null = null;
+		void (async () => {
+			try {
+				const { Capacitor } = await import('@capacitor/core');
+				if (disposed || !Capacitor.isNativePlatform()) return;
+				const { Network } = await import('@capacitor/network');
+				const status = await Network.getStatus();
+				if (disposed) return;
+				this.isOnline = status.connected;
+				const handle = await Network.addListener('networkStatusChange', (s) => {
+					this.isOnline = s.connected;
+				});
+				if (disposed) {
+					void handle.remove();
+					return;
+				}
+				removeNative = () => void handle.remove();
+			} catch {
+				/* plugin unavailable — the window listeners above remain the signal */
+			}
+		})();
+
 		return () => {
+			disposed = true;
 			removeEventListener('online', on);
 			removeEventListener('offline', off);
+			removeNative?.();
 		};
 	}
 }

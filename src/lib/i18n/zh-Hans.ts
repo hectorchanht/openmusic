@@ -152,6 +152,7 @@ const zhHans: Dict = {
 	"settings.showSourceTagDesc": "显示当前歌曲实际播放的来源。",
 	"settings.nowbarLyrics": "在迷你播放器中显示歌词",
 	"settings.reduceMotion": "减少动效",
+	"settings.haptics": "振动反馈",
 	"settings.shareIncludeTitle": "分享时附上标题",
 	"settings.data": "数据",
 	"settings.dataCounts": "{liked} 个收藏 · {playlists} 个播放列表 · {downloads} 个下载",
@@ -766,6 +767,7 @@ const zhHans: Dict = {
 	"settings.appLanguageDesc": "设置应用按钮、菜单和标签的显示语言；歌曲和歌手名称由“翻译”设置决定，而非此项。",
 	"settings.accentColorDesc": "用于已激活的控件、开关以及正在播放歌曲的强调色；挑一个你喜欢的颜色。",
 	"settings.reduceMotionDesc": "关闭应用中非必要的动画与过渡效果；若动态效果让你不适或想省电，请开启此项。",
+	"settings.hapticsDesc": "在打开长按菜单、滑动列表行或拖动进度等操作时轻微振动；关闭后将静默所有振动反馈。",
 	"settings.shareIncludeTitleDesc": "分享时在链接上方加上一行标题（歌曲 • 歌手）。关闭时只发送链接——链接预览本身已会显示标题。",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "缩放列表与搜索结果中显示的歌曲标题文字，100% 为默认值；放大便于阅读，缩小则可在屏幕上显示更多内容。",

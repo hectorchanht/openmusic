@@ -143,6 +143,7 @@ const fr: Dict = {
 	"settings.showSourceTagDesc": "Indique la source depuis laquelle le titre actuel est lu.",
 	"settings.nowbarLyrics": "Afficher les paroles dans le mini-lecteur",
 	"settings.reduceMotion": "Réduire les mouvements",
+	"settings.haptics": "Vibrations",
 	"settings.shareIncludeTitle": "Inclure le titre lors du partage",
 	"settings.data": "Données",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
@@ -734,6 +735,7 @@ const fr: Dict = {
 	"settings.appLanguageDesc": "Définit la langue des boutons, menus et libellés de l'application ; les noms de chansons et d'artistes suivent vos réglages de Traduction, pas celui-ci.",
 	"settings.accentColorDesc": "La couleur de surbrillance des commandes actives, des interrupteurs et du morceau en cours de lecture ; choisissez celle qui vous plaît.",
 	"settings.reduceMotionDesc": "Désactive les animations et transitions non essentielles dans toute l'application ; activez-le si le mouvement vous gêne ou pour aider à économiser la batterie.",
+	"settings.hapticsDesc": "Légère vibration lors d'actions comme l'ouverture du menu d'appui long, le balayage d'une ligne ou la recherche dans le titre ; désactivez-la pour couper tout retour haptique.",
 	"settings.shareIncludeTitleDesc": "Ajoute une ligne de titre (chanson • artiste) au-dessus du lien lors du partage. Désactivé, seul le lien est envoyé — l'aperçu du lien affiche déjà le titre.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Met à l'échelle le titre des chansons dans les listes et les résultats de recherche, 100% étant la valeur par défaut ; augmentez-le pour la lisibilité ou réduisez-le pour afficher plus à l'écran.",

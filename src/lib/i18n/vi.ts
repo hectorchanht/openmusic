@@ -143,6 +143,7 @@ const vi: Dict = {
 	"settings.showSourceTagDesc": "Hiển thị nguồn mà bài hát hiện tại đang phát từ đó.",
 	"settings.nowbarLyrics": "Hiển thị lời trong trình phát thu nhỏ",
 	"settings.reduceMotion": "Giảm chuyển động",
+	"settings.haptics": "Rung",
 	"settings.shareIncludeTitle": "Kèm tiêu đề khi chia sẻ",
 	"settings.data": "dữ liệu",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
@@ -734,6 +735,7 @@ const vi: Dict = {
 	"settings.appLanguageDesc": "Đặt ngôn ngữ cho nút, menu và nhãn của ứng dụng; tên bài hát và nghệ sĩ tuân theo cài đặt Dịch của bạn, không phải tùy chọn này.",
 	"settings.accentColorDesc": "Màu nhấn dùng cho các điều khiển đang hoạt động, công tắc và bài hát đang phát; chọn màu hợp với sở thích của bạn.",
 	"settings.reduceMotionDesc": "Tắt các hoạt ảnh và chuyển cảnh không thiết yếu trên toàn ứng dụng; bật nếu chuyển động làm bạn khó chịu hoặc để tiết kiệm pin.",
+	"settings.hapticsDesc": "Rung nhẹ khi thực hiện các thao tác như mở menu nhấn giữ, vuốt một hàng hoặc tua bài hát; tắt để tắt mọi rung.",
 	"settings.shareIncludeTitleDesc": "Thêm một dòng tiêu đề (bài hát • nghệ sĩ) phía trên liên kết khi chia sẻ. Tắt thì chỉ gửi liên kết — bản xem trước liên kết đã hiển thị tiêu đề.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Chỉnh cỡ chữ tên bài hát trong danh sách và kết quả tìm kiếm, với 100% là mặc định; tăng để dễ đọc hoặc giảm để hiển thị được nhiều hơn trên màn hình.",

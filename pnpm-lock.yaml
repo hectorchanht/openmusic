@@ -19,6 +19,12 @@ dependencies:
   '@capacitor/filesystem':
     specifier: 8.1.4
     version: 8.1.4(@capacitor/core@8.5.2)
+  '@capacitor/haptics':
+    specifier: ^8.0.2
+    version: 8.0.2(@capacitor/core@8.5.2)
+  '@capacitor/network':
+    specifier: ^8.0.1
+    version: 8.0.1(@capacitor/core@8.5.2)
   '@capacitor/share':
     specifier: ^8.0.3
     version: 8.0.3(@capacitor/core@8.5.2)
@@ -31,6 +37,9 @@ dependencies:
   '@codetrix-studio/capacitor-google-auth':
     specifier: 3.3.6
     version: 3.3.6(@capacitor/core@8.5.2)
+  '@dawn-studio/zh-convert':
+    specifier: 0.5.0
+    version: 0.5.0
   '@jofr/capacitor-media-session':
     specifier: 4.0.0
     version: 4.0.0(@capacitor/core@8.5.2)
@@ -46,12 +55,6 @@ dependencies:
   taglib-wasm:
     specifier: 2.3.0
     version: 2.3.0(typescript@5.9.3)
-  tongwen-core:
-    specifier: 4.1.1
-    version: 4.1.1
-  tongwen-dict:
-    specifier: 1.0.2
-    version: 1.0.2
 
 devDependencies:
   '@capacitor/android':
@@ -81,6 +84,12 @@ devDependencies:
   svelte-check:
     specifier: ^4.7.6
     version: 4.7.6(svelte@5.57.1)(typescript@5.9.3)
+  tongwen-core:
+    specifier: 4.1.1
+    version: 4.1.1
+  tongwen-dict:
+    specifier: 1.0.2
+    version: 1.0.2
   typescript:
     specifier: ~5.9
     version: 5.9.3
@@ -151,6 +160,22 @@ packages:
     dependencies:
       '@capacitor/core': 8.5.2
       '@capacitor/synapse': 1.0.4
+    dev: false
+
+  /@capacitor/haptics@8.0.2(@capacitor/core@8.5.2):
+    resolution: {integrity: sha512-c2hZzRR5Fk1tbTvhG1jhh2XBAf3EhnIerMIb2sl7Mt41Gxx1fhBJFDa0/BI1IbY4loVepyyuqNC9820/GZuoWQ==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
+    dependencies:
+      '@capacitor/core': 8.5.2
+    dev: false
+
+  /@capacitor/network@8.0.1(@capacitor/core@8.5.2):
+    resolution: {integrity: sha512-9xK/FHFmzKGanB6BdoSZOzXk8vF0OFVQSQ4PAsIrzAzLuXHryO317qy8dcHVpgxYeuZq2noI0My9z1DvVDi/9w==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
+    dependencies:
+      '@capacitor/core': 8.5.2
     dev: false
 
   /@capacitor/share@8.0.3(@capacitor/core@8.5.2):
@@ -243,12 +268,28 @@ packages:
     resolution: {integrity: sha512-9YJaGPQwuQYFHoElVhJP40ZmUO/Z2OiBon58sKpHjgwq5btC/B2BZLC45AQ14k+1I+hjcY2z2t2R6uUxU9AqwQ==}
     dev: true
 
+  /@codetrix-studio/capacitor-google-auth@3.3.6(@capacitor/core@8.5.2):
+    resolution: {integrity: sha512-SiMjYq5O2rWzEdKrmu3VZQ2nmFdq6LUXPzsNbjs4Ri6WTJVCtzp1HI12t4Dcwi5YoSw8g94Iyi3Can8msj57QA==}
+    peerDependencies:
+      '@capacitor/core': ^5.0.0
+    dependencies:
+      '@capacitor/core': 8.5.2
+    dev: false
+
   /@cspotcode/source-map-support@0.8.1:
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
     engines: {node: '>=12'}
     dependencies:
       '@jridgewell/trace-mapping': 0.3.9
     dev: true
+
+  /@dawn-studio/zh-convert@0.5.0:
+    resolution: {integrity: sha512-pCjoq2mAWG8bws85u1yPFF2cIv9R2SnPuBBT1TZHplfGnU8Z4BTOR1NwB65eOyzx7qTmbyBwLysjvA+WPg9MlA==}
+    dependencies:
+      opencc-js: 1.4.2
+      tongwen-core: 4.1.1
+      tongwen-dict: 1.0.2
+    dev: false
 
   /@emnapi/runtime@1.10.0:
     resolution: {integrity: sha512-ewvYlk86xUoGI0zQRNq/mC+16R1QeDlKQy21Ki3oSYXNgLb45GV1P6A0M+/s6nyCuNDqe5VpaY84BzXGwVbwFA==}
@@ -772,14 +813,6 @@ packages:
     transitivePeerDependencies:
       - supports-color
     dev: true
-
-  /@codetrix-studio/capacitor-google-auth@3.3.6(@capacitor/core@8.5.2):
-    resolution: {integrity: sha512-SiMjYq5O2rWzEdKrmu3VZQ2nmFdq6LUXPzsNbjs4Ri6WTJVCtzp1HI12t4Dcwi5YoSw8g94Iyi3Can8msj57QA==}
-    peerDependencies:
-      '@capacitor/core': ^5.0.0
-    dependencies:
-      '@capacitor/core': 8.5.2
-    dev: false
 
   /@isaacs/fs-minipass@4.0.1:
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}
@@ -1841,6 +1874,10 @@ packages:
       is-wsl: 2.2.0
     dev: true
 
+  /opencc-js@1.4.2:
+    resolution: {integrity: sha512-EdcspgdROiCCZDM+jZR6Pa670xW+EW2QhctPBQ8gRjg6lrx4IHEl+2s+kt5izk/TkxVRgdWuFgaGkaEdIUfdaw==}
+    dev: false
+
   /package-json-from-dist@1.0.1:
     resolution: {integrity: sha512-UEZIS3/by4OC8vL3P2dTXRETpebLI2NiI5vIrjaD/5UtrkFX/tNbwjTSRAGC/+7CAo2pIcBaRgWmcBBHcsaCIw==}
     dev: true
@@ -2262,12 +2299,10 @@ packages:
 
   /tongwen-core@4.1.1:
     resolution: {integrity: sha512-Ce1BuzYtjEEp9AEgWxAZQVnJTTxjlyqqhGaYfyVglcz923Tm288ZNk9ImEmAn8s3B/gk/rM0S5x18b9Vwi9vSg==}
-    dev: false
 
   /tongwen-dict@1.0.2:
     resolution: {integrity: sha512-FV+I6vcsBxDe/luUMu81UQF8jva6oa1sszLrm7DcOawjsRmWXJgdFh30ru3qkY1nSr6FPoKvH8tk7wQcaK/jew==}
     engines: {node: '>=16.0.0'}
-    dev: false
 
   /totalist@3.0.1:
     resolution: {integrity: sha512-sf4i37nQ2LBx4m3wB74y+ubopq6W/dIzXg0FDGjsYnZHVa1Da8FH853wlL2gtUhg+xJXjfk3kUZS3BRoQeoQBQ==}

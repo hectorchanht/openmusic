@@ -36,6 +36,9 @@ import { CHART_REGIONS, HOME_LAYOUT_VERSION, clampShelfSize, migrateDensity, mig
 // quick-261006-mnu: pure catalog + order normalizer for the customizable TrackMenu grid.
 // PURE (imports nothing from stores) — the LEAF invariant holds, same as home-layout above.
 import { MENU_ACTIONS, normalizeMenuOrder, type MenuActionId } from '$lib/services/track-menu-order';
+// quick-261116-perf: the haptics leaf util's enable seam — the store pushes the toggle
+// into the util (load/apply/reset), never the reverse, so both stay leaf-shaped.
+import { setHapticsEnabled } from '$lib/util/haptics';
 
 export type LyricsLang =
 	| 'off'
@@ -267,6 +270,8 @@ class Settings {
 	reduceMotion = $state<boolean>(GENERAL_DEFAULTS.reduceMotion);
 	/** Include the `Song • Artist` title line in the Web Share payload (quick-260808-vzu). */
 	shareIncludeTitle = $state<boolean>(GENERAL_DEFAULTS.shareIncludeTitle);
+	/** quick-261116-perf: commit-tier haptic ticks on/off (default ON, light only). */
+	haptics = $state<boolean>(GENERAL_DEFAULTS.haptics);
 	/** Light/dark theme. Default 'dark' (today's design). applyTheme() flips
 	 *  the `data-theme` attribute on <html>. */
 	theme = $state<Theme>(GENERAL_DEFAULTS.theme);
@@ -470,6 +475,9 @@ class Settings {
 				// string like 'yes' must NOT flip the share payload shape (quick-260808-vzu).
 				this.shareIncludeTitle =
 					typeof v.shareIncludeTitle === 'boolean' ? v.shareIncludeTitle : GENERAL_DEFAULTS.shareIncludeTitle;
+				// quick-261116-perf: same explicit-boolean guard as shareIncludeTitle.
+				this.haptics = typeof v.haptics === 'boolean' ? v.haptics : GENERAL_DEFAULTS.haptics;
+				setHapticsEnabled(this.haptics);
 				// Theme is validated against the 4-value union; anything else → the default.
 				// quick-261023-perks: a stored supporter theme without supporter status
 				// demotes to dark (status is per-device localStorage — never trust it blind).
@@ -614,6 +622,9 @@ class Settings {
 
 	save() {
 		if (!browser) return;
+		// quick-261116-perf: every save re-syncs the haptics leaf — the settings page
+		// toggle (and any programmatic flip) takes effect on the very next tick.
+		setHapticsEnabled(this.haptics);
 		try {
 			localStorage.setItem(
 				KEY,
@@ -658,6 +669,7 @@ class Settings {
 					accent: this.accent,
 					reduceMotion: this.reduceMotion,
 					shareIncludeTitle: this.shareIncludeTitle,
+					haptics: this.haptics,
 					theme: this.theme,
 					autoExpandOnPlay: this.autoExpandOnPlay,
 					showQualityTag: this.showQualityTag,
@@ -781,6 +793,9 @@ class Settings {
 		const d = DEFAULTS.general;
 		this.appLang = d.appLang;
 		this.shareIncludeTitle = d.shareIncludeTitle;
+		// quick-261116-perf: haptics rides the General reset like shareIncludeTitle.
+		this.haptics = d.haptics;
+		setHapticsEnabled(this.haptics);
 		this.resetLook();
 	}
 

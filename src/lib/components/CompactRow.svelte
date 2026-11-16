@@ -203,6 +203,12 @@ import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 		align-items: center;
 		gap: 8px;
 		min-height: 44px;
+		/* quick-261116-perf: same rendering virtualization as SongRow — off-screen rows
+		   skip layout+paint in long lists (home shelves mount ~700 of these). 44px is
+		   the row's real height (min-height pins it; the 40px cover fits inside), and
+		   `auto` lets the browser substitute the measured height after first render. */
+		content-visibility: auto;
+		contain-intrinsic-size: auto 44px;
 	}
 	.crow {
 		flex: 1;

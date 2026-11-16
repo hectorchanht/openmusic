@@ -175,6 +175,7 @@ const en = {
 	"settings.showSourceTagDesc": "Shows which source the current track is playing from.",
 	"settings.nowbarLyrics": "Show lyrics in the mini player",
 	"settings.reduceMotion": "Reduce motion",
+	"settings.haptics": "Haptics",
 	"settings.shareIncludeTitle": "Include title when sharing",
 	"settings.data": "Data",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
@@ -794,6 +795,7 @@ const en = {
 	"settings.appLanguageDesc": "Sets the language of the app's buttons, menus and labels; song and artist names follow your Translation settings, not this.",
 	"settings.accentColorDesc": "The highlight colour used for active controls, toggles and the track that's playing; choose one that matches your taste.",
 	"settings.reduceMotionDesc": "Turns off non-essential animations and transitions across the app; enable it if motion bothers you or to help save battery.",
+	"settings.hapticsDesc": "Light vibration on actions like opening the long-press menu, swiping a row, or seeking; turn it off to silence all haptic feedback.",
 	"settings.shareIncludeTitleDesc": "Adds a title line (song • artist) above the link when you share. Off sends the link only — the link preview already shows the title.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Scales the song-title text shown in lists and search results, where 100% is the default; raise it for readability or lower it to fit more on screen.",

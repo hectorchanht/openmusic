@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	// quick-260919-ebi: ChevronRight + tapBounce now live inside SettingRow; Radio stays only for
 	// the commented-out Last.fm row below.
-	import { Globe, Type, LayoutGrid, Languages, Music, Radio, HardDriveDownload, Database, ScrollText, Info, Heart, ChevronRight, CircleUserRound, Share2, RotateCcw, Sun, Palette, Zap, Paintbrush } from '@lucide/svelte';
+	import { Globe, Type, LayoutGrid, Languages, Music, Radio, HardDriveDownload, Database, ScrollText, Info, Heart, ChevronRight, CircleUserRound, Share2, RotateCcw, Sun, Palette, Zap, Paintbrush, Smartphone } from '@lucide/svelte';
 	import { settings, ACCENT_PRESETS, SUPPORTER_THEMES, FONT_SCALE_MIN, FONT_SCALE_MAX, type Theme } from '$lib/stores/settings.svelte';
 	import { support } from '$lib/stores/support.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
@@ -105,6 +105,8 @@
 	}
 	function setAccent(hex: string) { settings.accent = hex; settings.save(); }
 	function toggleMotion() { settings.reduceMotion = !settings.reduceMotion; settings.save(); }
+	// quick-261116-perf: haptics toggle — save() re-syncs the util/haptics enable seam.
+	function toggleHaptics() { settings.haptics = !settings.haptics; settings.save(); }
 	// Commits LIVE (quick-261024-sets): save() → applyTheme() re-renders this page at the size
 	// being dragged, so the page is the preview.
 	function setAppTextSize(e: Event) { settings.fontScaleApp = Number((e.currentTarget as HTMLInputElement).value); settings.save(); }
@@ -210,6 +212,7 @@
 		<!-- quick-260919-ebi (F2): the shared boolean row — inset + switch + accent edge. -->
 		<SettingToggle icon={Zap} label={t('settings.reduceMotion')} checked={settings.reduceMotion} onchange={toggleMotion} hint={t('settings.reduceMotionDesc')} />
 		<SettingToggle icon={Share2} label={t('settings.shareIncludeTitle')} checked={settings.shareIncludeTitle} onchange={toggleShareTitle} hint={t('settings.shareIncludeTitleDesc')} />
+		<SettingToggle icon={Smartphone} label={t('settings.haptics')} checked={settings.haptics} onchange={toggleHaptics} hint={t('settings.hapticsDesc')} />
 	</div>
 </section>
 

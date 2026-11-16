@@ -500,6 +500,15 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 		gap: 12px;
 		min-height: 44px;
 		padding: 6px;
+		/* quick-261116-perf: rendering virtualization for long document-scroll lists
+		   (Library / Search / Charts / Album / Artist all render this row). Off-screen
+		   rows skip layout+paint; `auto` makes the browser remember each row's real
+		   height after first render, and 56px is the true default height (44px cover +
+		   2×6px padding) so first-pass scroll geometry does not shift. The row stays in
+		   the DOM, so lazyCover's IntersectionObserver, longpress and find-in-page are
+		   unaffected — near-viewport rows render ahead of visibility. */
+		content-visibility: auto;
+		contain-intrinsic-size: auto 56px;
 		border-radius: 8px;
 		transition: background 0.12s ease;
 		/* quick-260910-k45, generalised: OPAQUE, not transparent. Every migrated surface wraps this

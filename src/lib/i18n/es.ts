@@ -143,6 +143,7 @@ const es: Dict = {
 	"settings.showSourceTagDesc": "Muestra la fuente desde la que se reproduce la pista actual.",
 	"settings.nowbarLyrics": "Mostrar la letra en el minirreproductor",
 	"settings.reduceMotion": "Reducir el movimiento",
+	"settings.haptics": "Vibración",
 	"settings.shareIncludeTitle": "Incluir el título al compartir",
 	"settings.data": "Datos",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
@@ -734,6 +735,7 @@ const es: Dict = {
 	"settings.appLanguageDesc": "Establece el idioma de los botones, menús y etiquetas de la app; los nombres de canciones y artistas siguen tus ajustes de Traducción, no este.",
 	"settings.accentColorDesc": "El color de resalte usado en los controles activos, los interruptores y la canción en reproducción; elige el que más te guste.",
 	"settings.reduceMotionDesc": "Desactiva las animaciones y transiciones no esenciales en toda la app; actívalo si el movimiento te molesta o para ayudar a ahorrar batería.",
+	"settings.hapticsDesc": "Vibración ligera en acciones como abrir el menú de pulsación larga, deslizar una fila o buscar en la pista; desactívala para silenciar toda la vibración.",
 	"settings.shareIncludeTitleDesc": "Añade una línea de título (canción • artista) encima del enlace al compartir. Desactivado envía solo el enlace: la vista previa ya muestra el título.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Escala el texto del título de la canción en listas y resultados de búsqueda, donde 100% es el valor predeterminado; súbelo para leer mejor o bájalo para que quepa más en pantalla.",

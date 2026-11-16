@@ -143,6 +143,7 @@ const id: Dict = {
 	"settings.showSourceTagDesc": "Menampilkan sumber asal lagu yang sedang diputar.",
 	"settings.nowbarLyrics": "Tampilkan lirik di pemutar mini",
 	"settings.reduceMotion": "Kurangi gerakan",
+	"settings.haptics": "Getaran",
 	"settings.shareIncludeTitle": "Sertakan judul saat berbagi",
 	"settings.data": "Data",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
@@ -734,6 +735,7 @@ const id: Dict = {
 	"settings.appLanguageDesc": "Mengatur bahasa tombol, menu, dan label aplikasi; nama lagu dan artis mengikuti pengaturan Terjemahan Anda, bukan opsi ini.",
 	"settings.accentColorDesc": "Warna sorot yang dipakai untuk kontrol aktif, sakelar, dan lagu yang sedang diputar; pilih yang sesuai selera Anda.",
 	"settings.reduceMotionDesc": "Mematikan animasi dan transisi yang tidak penting di seluruh aplikasi; aktifkan jika gerakan mengganggu Anda atau untuk menghemat baterai.",
+	"settings.hapticsDesc": "Getaran ringan pada tindakan seperti membuka menu tekan lama, menggeser baris, atau mencari posisi lagu; matikan untuk membisukan semua getaran.",
 	"settings.shareIncludeTitleDesc": "Menambahkan baris judul (lagu • artis) di atas tautan saat berbagi. Jika nonaktif, hanya tautan yang dikirim — pratinjau tautan sudah menampilkan judulnya.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Mengubah ukuran teks judul lagu di daftar dan hasil pencarian, dengan 100% sebagai bawaan; perbesar agar lebih terbaca atau perkecil agar muat lebih banyak di layar.",

@@ -143,6 +143,7 @@ const de: Dict = {
 	"settings.showSourceTagDesc": "Zeigt, von welcher Quelle der aktuelle Titel abgespielt wird.",
 	"settings.nowbarLyrics": "Songtext im Mini-Player anzeigen",
 	"settings.reduceMotion": "Bewegung reduzieren",
+	"settings.haptics": "Haptik",
 	"settings.shareIncludeTitle": "Titel beim Teilen einfügen",
 	"settings.data": "Daten",
 	"settings.dataCounts": "{liked} mochte · {playlists} Playlists · {downloads} Downloads",
@@ -734,6 +735,7 @@ const de: Dict = {
 	"settings.appLanguageDesc": "Legt die Sprache der Schaltflächen, Menüs und Beschriftungen der App fest; Lied- und Künstlernamen richten sich nach deinen Übersetzungseinstellungen, nicht hiernach.",
 	"settings.accentColorDesc": "Die Akzentfarbe für aktive Bedienelemente, Schalter und den gerade gespielten Titel; wähle die, die dir am besten gefällt.",
 	"settings.reduceMotionDesc": "Deaktiviert nicht wesentliche Animationen und Übergänge in der gesamten App; aktiviere es, wenn dich Bewegung stört oder um Akku zu sparen.",
+	"settings.hapticsDesc": "Leichte Vibration bei Aktionen wie dem Öffnen des Langdruck-Menüs, dem Wischen einer Zeile oder dem Spulen; deaktivieren, um jede Haptik stumm zu schalten.",
 	"settings.shareIncludeTitleDesc": "Fügt beim Teilen eine Titelzeile (Song • Künstler) über dem Link hinzu. Deaktiviert wird nur der Link gesendet — die Linkvorschau zeigt den Titel bereits.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Skaliert den Songtitel-Text in Listen und Suchergebnissen, wobei 100% der Standard ist; erhöhe ihn für die Lesbarkeit oder verringere ihn, um mehr auf dem Bildschirm zu zeigen.",

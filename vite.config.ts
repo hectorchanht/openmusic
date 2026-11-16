@@ -62,6 +62,12 @@ export default defineConfig({
 				test: {
 					name: 'server',
 					environment: 'node',
+					// quick-261116-perf: @dawn-studio/zh-convert holds module-scoped warm/cold
+					// converter state that zh-convert.test.ts exercises via vi.resetModules();
+					// externalized node_modules deps are loaded by Node directly and ignore
+					// resetModules, so the package must be inlined into Vite's module graph
+					// for the cold-state tests to observe a genuinely cold converter.
+					server: { deps: { inline: [/@dawn-studio\/zh-convert/] } },
 					// Includes `*.svelte.test.ts` too: the sveltekit Vite plugin transforms `$state`
 					// runes for node, and the player store's runes-backed logic (playStub dedupe +
 					// generation guard, FIX-A) is pure enough to unit-test headless here. No jsdom
