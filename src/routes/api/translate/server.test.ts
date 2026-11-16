@@ -210,6 +210,72 @@ describe('/api/translate provider cascade', () => {
 		expect(body.flags).toEqual([true]);
 	});
 
+	// quick-261116-kvprog: KV L2 cache — global layer behind the per-PoP edge L1.
+	// In the node test env `caches` is undefined, so L1 is absent and these tests
+	// exercise the KV path in isolation (the production lookup order is L1 → KV).
+	function mockKv(opts: { hit?: [string[], boolean[]] | null; getThrows?: boolean; putThrows?: boolean } = {}) {
+		const puts: Array<{ key: string; value: string; ttl?: number }> = [];
+		return {
+			puts,
+			kv: {
+				get: async (_key: string): Promise<string | null> => {
+					if (opts.getThrows) throw new Error('KV down');
+					return opts.hit ? JSON.stringify(opts.hit) : null;
+				},
+				put: async (key: string, value: string, o?: { expirationTtl?: number }): Promise<void> => {
+					if (opts.putThrows) throw new Error('KV down');
+					puts.push({ key, value, ttl: o?.expirationTtl });
+				}
+			}
+		};
+	}
+
+	it('KV hit short-circuits the whole cascade (no AI call, no fetch)', async () => {
+		wire({ google: 'translate' });
+		const ai = mockAi('translate');
+		const aiSpy = vi.spyOn(ai, 'run');
+		const { kv } = mockKv({ hit: [['你好·kv'], [true]] });
+		const res = await callPost(['Hello world'], 'zh-Hant', { AI: ai, TRANSLATE_CACHE: kv });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated).toEqual(['你好·kv']); // served from KV verbatim
+		expect(body.flags).toEqual([true]);
+		expect(aiSpy).not.toHaveBeenCalled(); // zero neurons
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('KV miss + genuine result writes KV with the v2 key + 90-day TTL', async () => {
+		wire({ google: 'translate' });
+		const { kv, puts } = mockKv();
+		const res = await callPost(['Hello world'], 'zh-Hant', { AI: mockAi('translate'), TRANSLATE_CACHE: kv });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.flags).toEqual([true]);
+		expect(puts).toHaveLength(1);
+		expect(puts[0].key).toMatch(/^translate:v2:zh-Hant:[0-9a-f]{64}$/);
+		expect(puts[0].ttl).toBe(7776000);
+		expect(JSON.parse(puts[0].value)).toEqual([['Hello world' + TAG.ai], [true]]);
+	});
+
+	it('a throwing KV never breaks the translation (get AND put faults degrade)', async () => {
+		wire({ google: 'translate' });
+		const { kv } = mockKv({ getThrows: true, putThrows: true });
+		const res = await callPost(['Hello world'], 'zh-Hant', { AI: mockAi('translate'), TRANSLATE_CACHE: kv });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated).toEqual(['Hello world' + TAG.ai]); // cascade still answered
+		expect(body.flags).toEqual([true]);
+	});
+
+	it('ignores a KV entry whose length does not match the request', async () => {
+		wire({ google: 'translate' });
+		const { kv } = mockKv({ hit: [['只有一行'], [true]] }); // 1 entry, request has 2 lines
+		const res = await callPost(['Hello world', 'Good night'], 'zh-Hant', {
+			AI: mockAi('translate'),
+			TRANSLATE_CACHE: kv
+		});
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated).not.toEqual(['只有一行']); // stale entry NOT served
+		expect(body.translated.length).toBe(2);
+	});
+
 	// quick-261116-perf (Korean-lyrics latency): m2m100 drops the `‹i›` sentinels but
 	// preserves newlines. The batch must be accepted from the newline structure in ONE
 	// AI call — before the fix it failed the segment guard and fanned out per-line

@@ -41,6 +41,12 @@ declare global {
 				// ANALYTICS_DB (anonymous). Absent ⇒ verify still works, the wall
 				// reads empty. Mirror of `Env` in $lib/proxy/proxy-types.ts.
 				SUPPORTERS_DB?: D1Database;
+				// TRANSLATE CACHE (quick-261116-kvprog): KV namespace
+				// `openmusic-translate-cache`, wired in wrangler.jsonc kv_namespaces —
+				// the global L2 for /api/translate (edge Cache API is the per-PoP L1).
+				// Absent ⇒ the route degrades to L1 + cascade. Mirror of `Env` in
+				// $lib/proxy/proxy-types.ts.
+				TRANSLATE_CACHE?: KVNamespace;
 				// Resend API key for the magic-link email. Server-side only —
 				// `wrangler pages secret put RESEND_API_KEY`, never on the client
 				// bundle (threat parity with JOOX_TOKEN / T-01-04). Absent ⇒ the

@@ -47,6 +47,12 @@ export interface Env {
 	 * ABSENT under `vite dev` and in unit tests is a SUPPORTED state: the diagnostic routes 503
 	 * rather than throwing, the same posture as an absent LASTFM_KEY. */
 	DIAG?: R2Bucket;
+	// quick-261116-kvprog: OPTIONAL KV namespace `openmusic-translate-cache` — the GLOBAL
+	// L2 for /api/translate (the edge Cache API is only a per-PoP L1). `KVNamespace` is a
+	// GLOBAL type from the Cloudflare Workers types, same posture as R2Bucket above.
+	// ABSENT under `vite dev` and in unit tests is a SUPPORTED state: the route degrades
+	// to L1 + the provider cascade, and every KV fault is swallowed (never-throw).
+	TRANSLATE_CACHE?: KVNamespace;
 	// OPTIONAL bearer token required to WRITE a log (D-01/D-03). Lives on the maintainer's device
 	// only; set via `wrangler pages secret put`, NEVER as a `var` and NEVER `VITE_`-prefixed, so it
 	// cannot reach the client bundle (T-33-03). Absent ⇒ uploads DISABLED — `bearerMatches` fails

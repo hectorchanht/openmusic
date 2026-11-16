@@ -19,6 +19,8 @@
 	import { player } from '$lib/stores/player.svelte';
 	import { t } from '$lib/i18n';
 	import { translateLinesEx } from '$lib/services/translate';
+	// quick-261116-kvprog: pure chunk arithmetic for the progressive translation below.
+	import { chunkRanges, applyChunkResult, LYRICS_CHUNK_SIZE, LYRICS_CHUNK_CONCURRENCY } from '$lib/services/lyric-chunks';
 	import { shouldTranslate } from '$lib/i18n/detect';
 	import { reorderPairs, splitParenLines, lineSeekFraction, activeLineAt, lyricAnchorMetrics, formatLyricOffset, LYRIC_OFFSET_MAX, type LyricLine } from '$lib/services/lrc';
 	// quick-260919-2jo: the Chinese script lock for lyric text. `parseLyrics` replaces `parseLRC`
@@ -423,16 +425,6 @@
 			return;
 		}
 		trKey = key;
-		// WR-09: invalidate the PREVIOUS track's output immediately. The render gate is a pure
-		// length comparison (translated.length === lines.length) — when the new track happens to
-		// have the same line count, the old song's translations would otherwise render under the
-		// new lyrics for the whole translate round-trip (and fully REPLACE them in replace mode).
-		// quick-260618-fiz Fix 1: this synchronous clear ALSO makes a lyricsSkip/lyricsLang toggle
-		// re-derive the CURRENT song's lyrics immediately — the key includes skip+lang, so flipping
-		// either changes the key, drops the now-stale output here, and re-translates without a song
-		// change (the "only applies to the next song" symptom was render staleness, not a dead effect).
-		translated = [];
-		translating = true;
 		const sendIdx: number[] = [];
 		const sendText: string[] = [];
 		for (let i = 0; i < lines.length; i++) {
@@ -459,20 +451,68 @@
 			translating = false;
 			return;
 		}
-		// quick-260625-pzs-03: translateLinesEx exposes `complete` so we only FREEZE a fully-translated
-		// batch. A transient soft-fail echoes the originals with complete:false — it is rendered (so the
-		// user sees the originals meanwhile) but NOT cached, so switching language/back re-attempts it.
-		translateLinesEx(sendText, lang)
-			.then((res) => {
-				if (trKey !== key) return;
-				const stitched = stitch(res.out);
-				translated = stitched;
-				// Cache ONLY a complete render whose length matches (same gate the render uses). This is
-				// the T-pzs-01 mitigation: an incomplete/echoed result is never frozen as final.
-				if (res.complete && stitched.length === lines.length) trCache.set(key, stitched);
-			})
-			.catch(() => { if (trKey === key) translated = []; })
-			.finally(() => { if (trKey === key) translating = false; });
+		// WR-09: invalidate the PREVIOUS track's output immediately. The render gate is a pure
+		// length comparison (translated.length === lines.length) — when the new track happens to
+		// have the same line count, the old song's translations would otherwise render under the
+		// new lyrics for the whole translate round-trip (and fully REPLACE them in replace mode).
+		// quick-260618-fiz Fix 1: this synchronous reset ALSO makes a lyricsSkip/lyricsLang toggle
+		// re-derive the CURRENT song's lyrics immediately — the key includes skip+lang, so flipping
+		// either changes the key, drops the now-stale output here, and re-translates without a song
+		// change (the "only applies to the next song" symptom was render staleness, not a dead effect).
+		//
+		// quick-261116-kvprog — PROGRESSIVE rendering ("show the early lines first"): instead of
+		// clearing to [] and waiting for ONE whole-song batch, `translated` is initialized
+		// SYNCHRONOUSLY to the CURRENT song's aligned originals (stitch([]) — built only from
+		// this run's `lines`, so WR-09's protection is identical: a previous song's text can
+		// never appear). The gate passes at once, the user reads lyrics instantly, and each
+		// chunk's translations swap in place as they land. Pending slots show the original —
+		// the same thing whitelisted/already-target slots have always shown.
+		translated = stitch([]);
+		translating = true;
+		// Split the send-list into ORDERED chunks and fire them with bounded concurrency,
+		// chunk 0 first (the lines at the top of the song — what the user reads first).
+		// Each chunk is its OWN translateLinesEx call, so translateLinesEx's mem/localStorage
+		// cache absorbs it individually: a revisit replays finished chunks instantly even
+		// when the song as a whole never completed.
+		const ranges = chunkRanges(sendText.length, LYRICS_CHUNK_SIZE);
+		let nextRange = 0;
+		let settledRanges = 0;
+		let allComplete = true;
+		const worker = async () => {
+			while (nextRange < ranges.length) {
+				const range = ranges[nextRange++];
+				let stale = false;
+				try {
+					const res = await translateLinesEx(sendText.slice(range.start, range.end), lang);
+					if (trKey !== key) stale = true; // a newer song/lang/skip owns the pane now
+					else {
+						// An incomplete chunk still renders its genuinely-translated lines
+						// (its echoes ARE the originals, already in place) — it just keeps
+						// the song out of trCache below.
+						if (!res.complete) allComplete = false;
+						translated = applyChunkResult(translated, sendIdx, range.start, res.out);
+					}
+				} catch {
+					// Deliberate change from the old whole-batch .catch (which blanked the
+					// pane to []): a hard-failed chunk leaves its slots at the originals
+					// and marks the song incomplete — strictly more useful, never frozen.
+					if (trKey !== key) stale = true;
+					else allComplete = false;
+				}
+				if (stale) return;
+				settledRanges++;
+				if (settledRanges === ranges.length) {
+					translating = false;
+					// quick-260625-pzs-03 / T-pzs-01, unchanged rule at song level: FREEZE
+					// only a fully-translated render — EVERY chunk must have completed,
+					// so an echoed chunk is never frozen as final.
+					if (allComplete && translated.length === lines.length) trCache.set(key, translated);
+				}
+			}
+		};
+		void Promise.all(
+			Array.from({ length: Math.min(LYRICS_CHUNK_CONCURRENCY, ranges.length) }, () => worker())
+		);
 	});
 	const showTr = $derived(settings.lyricsLang !== 'off' && translated.length === lines.length);
 	// quick-260919-2jo: the rendered translation column, script-locked. Kept SEPARATE from

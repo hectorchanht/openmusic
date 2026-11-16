@@ -80,8 +80,13 @@ const TIMEOUT_MS = 8000;
 // quick-261116-perf: provider-side translation cache (see POST). VER is the impl/prompt
 // version segment of the cache key; TTL is a week — lyric/name translations are stable
 // and the client already persists complete batches indefinitely.
-const TRANSLATE_CACHE_VER = 'v1';
+// quick-261116-kvprog: VER bumped v1 → v2 for the KV L2 layer — the key semantics changed
+// (a v2 entry may now be served from global KV, not only this PoP's edge cache), so v1
+// edge entries are orphaned rather than shadow the new layer. KV TTL is 90 days: KV is
+// the durable layer, and a genuine lyric translation does not go stale.
+const TRANSLATE_CACHE_VER = 'v2';
 const TRANSLATE_CACHE_TTL = 604800;
+const TRANSLATE_KV_TTL = 7776000;
 
 // Lines per Google request. Empirically the free endpoint flips to echo-mode (returns the
 // input untranslated) somewhere past ~45 sentinel-separated short lines; 20 keeps every
@@ -525,20 +530,53 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	// genuine results are stored (every non-blank line flagged) — an echo/fallback
 	// batch is never cached, mirroring the client's persist rule. Bump
 	// TRANSLATE_CACHE_VER whenever the cascade's output behaviour changes.
+	//
+	// quick-261116-kvprog — TWO LAYERS. L1 = the edge cache above (fast, but per-PoP and
+	// evictable: a song paid for in Calgary was a cold miss in Toronto). L2 = KV
+	// (`TRANSLATE_CACHE`, namespace openmusic-translate-cache): global + durable, so a
+	// genuine translation is paid for ONCE worldwide. Lookup order L1 → L2 → cascade;
+	// a genuine result writes BOTH layers (KV at the 90-day TTL). A KV hit backfills L1
+	// so this PoP serves the next hit at edge speed. Every KV operation is wrapped —
+	// a KV fault degrades to L1/cascade and NEVER fails or blocks the response.
 	const cache = edgeCache();
+	const kv = env?.TRANSLATE_CACHE;
 	let cacheReq: Request | null = null;
-	if (cache) {
-		try {
-			const digest = await crypto.subtle.digest(
-				'SHA-256',
-				new TextEncoder().encode(JSON.stringify([appTo, lines]))
-			);
-			const hash = Array.from(new Uint8Array(digest))
-				.map((b) => b.toString(16).padStart(2, '0'))
-				.join('');
+	let kvKey: string | null = null;
+	try {
+		const digest = await crypto.subtle.digest(
+			'SHA-256',
+			new TextEncoder().encode(JSON.stringify([appTo, lines]))
+		);
+		const hash = Array.from(new Uint8Array(digest))
+			.map((b) => b.toString(16).padStart(2, '0'))
+			.join('');
+		kvKey = `translate:${TRANSLATE_CACHE_VER}:${appTo}:${hash}`;
+		if (cache)
 			cacheReq = ownOriginCacheKey(
 				`https://openmusic.lol/api/translate/cache?v=${TRANSLATE_CACHE_VER}&to=${appTo}&h=${hash}`
 			);
+	} catch {
+		kvKey = null; // cache is an optimization — a fault must never fail the request
+	}
+	const storeL1 = async (translated: string[], flags: boolean[]): Promise<void> => {
+		if (!cache || !cacheReq) return;
+		try {
+			await cache.put(
+				cacheReq,
+				new Response(JSON.stringify([translated, flags]), {
+					headers: {
+						'content-type': 'application/json',
+						'cache-control': `public, max-age=${TRANSLATE_CACHE_TTL}`
+					}
+				})
+			);
+		} catch {
+			/* cache write is best-effort */
+		}
+	};
+	// L1 read.
+	if (cache && cacheReq) {
+		try {
 			const hit = await cache.match(cacheReq);
 			if (hit) {
 				const [hitTranslated, hitFlags] = JSON.parse(await hit.text()) as [string[], boolean[]];
@@ -546,23 +584,35 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 					return reply(hitTranslated, hitFlags);
 			}
 		} catch {
-			cacheReq = null; // cache is an optimization — a fault must never fail the request
+			cacheReq = null; // a broken L1 key must not receive the finish() write either
+		}
+	}
+	// L2 read (KV) — only on an L1 miss.
+	if (kv && kvKey) {
+		try {
+			const raw = await kv.get(kvKey);
+			if (raw) {
+				const [kvTranslated, kvFlags] = JSON.parse(raw) as [string[], boolean[]];
+				if (Array.isArray(kvTranslated) && kvTranslated.length === lines.length) {
+					await storeL1(kvTranslated, kvFlags); // backfill this PoP's L1
+					return reply(kvTranslated, kvFlags);
+				}
+			}
+		} catch {
+			/* KV fault — degrade to the cascade */
 		}
 	}
 	const finish = async (translated: string[], flags: boolean[]): Promise<Response> => {
-		if (cache && cacheReq && lines.every((l, i) => !l || flags[i])) {
-			try {
-				await cache.put(
-					cacheReq,
-					new Response(JSON.stringify([translated, flags]), {
-						headers: {
-							'content-type': 'application/json',
-							'cache-control': `public, max-age=${TRANSLATE_CACHE_TTL}`
-						}
-					})
-				);
-			} catch {
-				/* cache write is best-effort */
+		if (lines.every((l, i) => !l || flags[i])) {
+			await storeL1(translated, flags);
+			if (kv && kvKey) {
+				try {
+					await kv.put(kvKey, JSON.stringify([translated, flags]), {
+						expirationTtl: TRANSLATE_KV_TTL
+					});
+				} catch {
+					/* KV write is best-effort */
+				}
 			}
 		}
 		return reply(translated, flags);

@@ -32,6 +32,18 @@
 			"bucket_name": "openmusic-diag"
 		}
 	],
+	// TRANSLATE CACHE (quick-261116-kvprog): global L2 cache for /api/translate —
+	// namespace `openmusic-translate-cache`. The edge Cache API (L1, caches.default) is
+	// per-PoP and evictable, so a song translated in one region re-paid the AI cost in
+	// every other region; KV is global + durable (90-day TTL in code), so a genuine
+	// translation is paid for ONCE, worldwide. Bound as `TRANSLATE_CACHE`; ABSENT is a
+	// SUPPORTED state (local dev / tests): the route degrades to L1 + the provider cascade.
+	"kv_namespaces": [
+		{
+			"binding": "TRANSLATE_CACHE",
+			"id": "5d1bc5eab71f4fa7973286cd9a2970c8"
+		}
+	],
 	// ANALYTICS (2026-10-10): anonymous play-count store. Holds ONLY play events
 	// (anon random id + song id/title/artist/source + device/OS/platform/version/
 	// locale/country + server timestamp); no IPs, no accounts. Written by
