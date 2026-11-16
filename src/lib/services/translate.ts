@@ -36,6 +36,51 @@ const RETRY_BASE_MS = 350;
 
 const mem = new Map<string, string[]>();
 
+// quick-261116-lyrux (Task 4) — LINE-LEVEL CACHE. Every layer above this one keyed on
+// the exact lines ARRAY (NpLyrics' trCache includes the skip set; the batch key below
+// hashes the joined lines; the server's KV key hashes the received array), so ANY
+// change to a batch's composition — e.g. Hector un-skipping English after the Korean
+// lines already translated — invalidated EVERYTHING and re-translated lines that were
+// already paid for. This layer keys PER LINE (`openmusic:line-tr:<VER>:<to>:<hash>`),
+// so a re-composed batch resolves its known lines here and only the genuinely-new
+// lines reach the pipeline. Same poison rule as the batch cache: only GENUINELY
+// translated lines (flag true) are ever stored — an echo can never enter. The key's
+// hash is the same `hash()` the batch key uses (house consistency; the SERVER's line
+// keys use SHA-256 because its batch keys already do). mem + localStorage, never-throw.
+const lineMem = new Map<string, string>();
+const lineKey = (line: string, to: string) => `openmusic:line-tr:${CACHE_VER}:${to}:${hash(line)}`;
+
+function lineCacheGet(line: string, to: string): string | null {
+	const k = lineKey(line, to);
+	const m = lineMem.get(k);
+	if (m) return m;
+	if (browser) {
+		try {
+			const v = localStorage.getItem(k);
+			if (v) {
+				lineMem.set(k, v);
+				return v;
+			}
+		} catch {
+			/* ignore */
+		}
+	}
+	return null;
+}
+
+function lineCacheSet(line: string, to: string, translated: string): void {
+	if (!translated) return; // a genuine translation of a non-blank line is never empty
+	const k = lineKey(line, to);
+	lineMem.set(k, translated);
+	if (browser) {
+		try {
+			localStorage.setItem(k, translated);
+		} catch {
+			/* quota */
+		}
+	}
+}
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function hash(s: string): string {
@@ -64,8 +109,13 @@ function purgeStaleLyricsCache() {
 		for (let i = 0; i < localStorage.length; i++) {
 			const k = localStorage.key(i);
 			// old (unversioned) keys look like `openmusic:lyrics-tr:<to>:<hash>`; current keys
-			// carry the version: `openmusic:lyrics-tr:<VER>:<to>:<hash>`.
-			if (k && k.startsWith('openmusic:lyrics-tr:') && !k.startsWith(`openmusic:lyrics-tr:${CACHE_VER}:`))
+			// carry the version: `openmusic:lyrics-tr:<VER>:<to>:<hash>`. The line-level
+			// keys (quick-261116-lyrux) follow the same versioning and purge the same way.
+			if (
+				k &&
+				((k.startsWith('openmusic:lyrics-tr:') && !k.startsWith(`openmusic:lyrics-tr:${CACHE_VER}:`)) ||
+					(k.startsWith('openmusic:line-tr:') && !k.startsWith(`openmusic:line-tr:${CACHE_VER}:`)))
+			)
 				keys.push(k);
 		}
 		for (const k of keys) localStorage.removeItem(k);
@@ -209,9 +259,71 @@ async function resolveZhHant(lines: string[]): Promise<TranslateResult> {
 }
 
 /**
+ * quick-261116-lyrux (Task 4): resolve `lines` through the LINE-LEVEL cache first and
+ * run the EXISTING pipeline (resolveZhHant / runApiLoop) over ONLY the misses, then
+ * scatter positionally. This is what makes a lyricsSkip toggle cheap: the previously
+ * translated lines are line-hits (flag true — only genuine translations are stored),
+ * and the API sees just the newly-included lines.
+ *
+ * zh-Hant caution (deliberate): CHINESE lines are never line-cache-served and never
+ * line-cache-stored. They resolve offline inside resolveZhHant, and serving a stored
+ * Chinese conversion would bypass the kvz heal semantics (healZhHantBatch re-derives
+ * Chinese positions of persisted output because the converter's answers improved
+ * under the same CACHE_VER) — the offline path stays untouched, exactly as before.
+ * If the converter can't even load, resolveZhHant degrades to the full-API path, so
+ * every line is API-bound and the line cache applies to all of them — the
+ * classification below mirrors that fallback.
+ */
+async function resolveWithLineCache(lines: string[], to: string): Promise<TranslateResult> {
+	let isChinese: ((line: string) => boolean) | null = null;
+	if (to === 'zh-Hant') {
+		try {
+			const mod = await import('./zh-convert');
+			isChinese = mod.isChineseLine;
+		} catch {
+			isChinese = null; // converter unavailable → full-API degradation → all API-bound
+		}
+	}
+	const apiBound = (line: string) => !isChinese || !isChinese(line);
+
+	const out = lines.slice();
+	const flags = lines.map(() => false);
+	const missIdx: number[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		if (!line) continue; // blank: trivially complete, never sent, never cached
+		if (apiBound(line)) {
+			const hit = lineCacheGet(line, to);
+			if (hit !== null) {
+				out[i] = hit;
+				flags[i] = true;
+				continue;
+			}
+		}
+		missIdx.push(i);
+	}
+	if (missIdx.length) {
+		const subLines = missIdx.map((i) => lines[i]);
+		const sub = to === 'zh-Hant' ? await resolveZhHant(subLines) : await runApiLoop(subLines, to);
+		missIdx.forEach((orig, j) => {
+			out[orig] = sub.out[j];
+			flags[orig] = sub.flags[j];
+			// Persist ONLY genuinely-translated API-bound lines (see the zh-Hant caution
+			// above) — an echo never enters the line cache.
+			if (sub.flags[j] && apiBound(lines[orig])) lineCacheSet(lines[orig], to, sub.out[j]);
+		});
+	}
+	// Completeness is layer-agnostic: every non-blank line genuine, from ANY layer.
+	const complete = lines.every((line, i) => !line || flags[i]);
+	return { out, flags, complete };
+}
+
+/**
  * Translate `lines` to `to`, returning aligned output + per-line genuine-translation flags.
  * Caches (mem + localStorage) only fully-translated batches so an echo/fallback never poisons
- * the cache. `to === 'off'` or empty input is an identity pass-through (all flags false).
+ * the cache — plus, since quick-261116-lyrux, a per-LINE cache underneath (see
+ * resolveWithLineCache) so a re-composed batch only pays for its new lines.
+ * `to === 'off'` or empty input is an identity pass-through (all flags false).
  *
  * D-02: `to === 'zh-Hant'` routes through `resolveZhHant` — Chinese lines convert offline (zero
  * network) and only the non-Chinese remainder hits the API. Every other target is byte-identical
@@ -240,7 +352,9 @@ export async function translateLinesEx(lines: string[], to: string): Promise<Tra
 	}
 
 	// D-02 choke-point interception: offline-first for zh-Hant, unchanged API path otherwise.
-	const best = to === 'zh-Hant' ? await resolveZhHant(lines) : await runApiLoop(lines, to);
+	// quick-261116-lyrux (Task 4): the pipeline now runs behind the LINE-LEVEL cache —
+	// known lines resolve per-line, only misses reach resolveZhHant / runApiLoop.
+	const best = await resolveWithLineCache(lines, to);
 
 	if (best.complete) {
 		mem.set(key, best.out);

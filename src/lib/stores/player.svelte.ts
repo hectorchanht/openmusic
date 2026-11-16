@@ -1354,6 +1354,79 @@ class Player {
 	private lyricEmbedTried = new Set<string>();
 	private static MAX_LYRIC_EMBEDS = 200;
 
+	/** quick-261116-lyrux: one automatic translated-lyric sync attempt per `${dlUid}|${lang}`
+	 *  per session. PLAIN field, same house convention as `lyricEmbedTried` above. */
+	private translatedSyncTried = new Set<string>();
+	private static MAX_TRANSLATED_SYNCS = 200;
+
+	/**
+	 * quick-261116-lyrux (Fix 3) — THE AUTOMATIC TRANSLATED-LYRIC FILE WRITER.
+	 *
+	 * When a lyrics translation COMPLETES for the now-playing song (NpLyrics calls this at
+	 * the exact moment its trCache freezes — every chunk genuine, never a partial), a
+	 * downloaded copy's embedded lyrics should learn the translation, the way the chain
+	 * LRC does via `embedLyricsIntoFile` above. Hector's expectation, stated plainly: the
+	 * translated lyrics ARE the song's lyrics now, so the file carries them.
+	 *
+	 * WHY THIS CANNOT THRASH:
+	 *   1. ONE attempt per (download uid, target lang) per session — the key joins the Set
+	 *      BEFORE the write, so a pane remount / cache-hit replay cannot rewrite the file
+	 *      twice; a DIFFERENT target language is a new key and syncs once more.
+	 *   2. A lyric PIN outranks a translation on the file too (DECISIONS.md §9, the same
+	 *      precedence embedLyricsIntoFile applies): a pinned song's file keeps its pin.
+	 *   3. Twin-aware like the embed: the file may live under another source's uid
+	 *      (`library.downloadUidFor`); the entry is built from the DOWNLOAD record.
+	 *   4. Device files are never touched (judged on the DOWNLOAD uid).
+	 *   5. `retagOne`'s already-tagged comparison makes a write whose LRC already matches
+	 *      the file's a no-op, so even a fresh session's replay costs no codec pass.
+	 *   6. Serialized app-wide by `syncFileTags`; fire-and-forget, never throws — a tag
+	 *      failure leaves the file's existing lyrics standing and playback untouched.
+	 *
+	 * The LRC arrives REBUILT by the caller (original timestamps + translated texts, via
+	 * `serializeLRC`) — the RetagEntry.lyrics contract is raw LRC, and this writer does
+	 * no lyric arithmetic of its own. The texts are the pane's RAW translation column
+	 * (the target-language output), NOT the display script-locked render: the lock is a
+	 * display preference re-applied at parse time on every read.
+	 */
+	syncTranslatedLyricsToFile(uid: string, lang: string, lrc: string): void {
+		try {
+			if (!lrc) return;
+			const cur = this.current;
+			const dlUid =
+				cur && cur.uid === uid
+					? (library.downloadUidFor(cur) ?? (library.isDownloaded(uid) ? uid : null))
+					: library.isDownloaded(uid)
+						? uid
+						: null;
+			if (!dlUid) return; // nothing to write into
+			if (isDeviceUid(dlUid)) return; // an imported file is the USER'S file — never written
+			// A user pin is an explicit lyric choice; a translation never overwrites it.
+			if (getPinnedLyrics(dlUid) ?? getPinnedLyrics(uid)) return;
+			const key = `${dlUid}|${lang}`;
+			if (this.translatedSyncTried.has(key)) return;
+			this.translatedSyncTried.add(key); // BEFORE the write — see point 1 above
+			// prewarm.ts's MAX_TRACKED_UIDS idiom, same as lyricEmbedTried.
+			if (this.translatedSyncTried.size > Player.MAX_TRANSLATED_SYNCS) this.translatedSyncTried.clear();
+			const own = library.downloads.find((d) => d.uid === dlUid);
+			if (!own) return;
+			// D-7 entry construction, identical to embedLyricsIntoFile's (see its comment).
+			void syncFileTags({
+				uid: dlUid,
+				title: names.dnTitle(own.title, own.artist),
+				artist: names.dnArtist(own.artist),
+				album: names.zhLock(own.album),
+				cover: readCoverByUidOrName(dlUid, own.artist, own.title),
+				lyrics: lrc
+			})
+				.then((r) => logAction('lyrics.translatedSync', { uid: dlUid, lang, result: r }))
+				.catch(() => {
+					/* never-throws by contract; the catch keeps it out of playback */
+				});
+		} catch {
+			// Best-effort — a failure leaves the file's existing lyrics standing.
+		}
+	}
+
 	/** quick-261114-fsync: one automatic cover sync attempt per `${dlUid}|${url}` per session.
 	 *  PLAIN field, same house convention as `lyricEmbedTried` above. */
 	private coverFileSyncTried = new Set<string>();

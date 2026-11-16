@@ -1,7 +1,7 @@
 // file-tag-sync.ts — the ONE serializer in front of every single-file tag rewrite (quick-260919-3j1).
 //
 // WHY IT EXISTS. One tag pass opens the audio file, copies it into the Emscripten heap and peaks at
-// roughly 6x the file size (see `audio-tags.ts`'s TAG_MAX_BYTES comment). There are now SIX
+// roughly 6x the file size (see `audio-tags.ts`'s TAG_MAX_BYTES comment). There are now SEVEN
 // triggers that can each start one:
 //   1. the metadata editor's Save          (an explicit gesture)
 //   2. a cover pin in the track menu       (an explicit gesture)
@@ -12,6 +12,9 @@
 //      never for a pin/crowd-chosen cover)
 //   6. a lyric unpin in the track menu     (quick-261114-fsync — an explicit gesture: the fallback
 //      lyrics are re-synced so the file stops carrying the unpinned LRC)
+//   7. the player's automatic translated-lyric sync (quick-261116-lyrux — automatic, capped per
+//      (download uid, target lang) per session, fired only when a lyrics translation COMPLETES
+//      for a downloaded song; a lyric pin outranks it and is never overwritten)
 // Any two of them can fire close together — pin a cover, then tap an LRC, while a song that just
 // got its lyrics over the network is embedding them. Two concurrent passes over a 27 MB FLAC on a
 // phone is an OOM, not a slowdown.
@@ -21,7 +24,7 @@
 // one-off callers, which the batch loop's own `for` cannot cover.
 //
 // QUEUE, NEVER REJECT. A second call waits; it is not refused. A dropped write is a lost user edit,
-// and four of the six triggers are a finger on the screen.
+// and four of the seven triggers are a finger on the screen.
 //
 // NO CAP, NO TIMEOUT, NO MEMO HERE. The attempt caps for the automatic callers belong to those
 // callers (the player's per-session Sets), because an explicit user gesture must never be refused by

@@ -185,6 +185,9 @@ import {
 } from '$lib/stores/cover-version.svelte';
 import { logAction } from '$lib/stores/actionLog.svelte';
 import { syncFileTags } from '$lib/services/file-tag-sync';
+// quick-261116-lyrux: the REAL pin service (unmocked in this suite — pins read as
+// null by default) so the translated-sync pin-precedence case can set one.
+import { setPinnedLyrics, removePinnedLyrics } from '$lib/services/lyric-pins';
 import {
 	registerServedResolve,
 	__resetResolveCacheClient
@@ -9175,6 +9178,88 @@ describe('player — the automatic lyric embed (quick-260919-3j1, F3)', () => {
 		expect(entry.uid).toBe(DL.uid); // the DOWNLOAD record's uid, not the playing twin's
 		expect(entry.lyrics).toBe('[00:02]twin-words');
 		expect(entry.filename).toBeUndefined();
+	});
+});
+
+// ── quick-261116-lyrux (Fix 3) — a COMPLETED translation updates the downloaded file ──────────
+//
+// NpLyrics calls player.syncTranslatedLyricsToFile(uid, lang, lrc) at the moment a
+// translation completes (all chunks genuine — the same moment its trCache freezes).
+// These cases pin the writer's gates directly: downloaded → written once per
+// (uid, lang); not downloaded / device / pinned → never written. (The "incomplete
+// translation never calls it" half lives on the NpLyrics side of the seam.)
+describe('player — the automatic translated-lyric file sync (quick-261116-lyrux)', () => {
+	let el: ReturnType<typeof makeFakeAudio>;
+	const DL = mk('kuwo', 'dl1', 'Adele', 'Hello');
+	const TR_LRC = '[00:01.00]你好\n[00:02.00]今晚';
+
+	/** Reach into the private per-session attempt Set so each case starts clean. */
+	const clearTried = () =>
+		(player as unknown as { translatedSyncTried: Set<string> }).translatedSyncTried.clear();
+
+	beforeEach(() => {
+		mockSyncFileTags.mockReset().mockResolvedValue('tagged');
+		clearTried();
+		player.current = DL;
+		player.queue = [DL];
+		player.error = null;
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(true);
+		library.downloads = [DL];
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+	});
+
+	afterEach(() => {
+		library.downloads = [];
+		player.current = null;
+		clearTried();
+		removePinnedLyrics(DL.uid);
+	});
+
+	it('downloaded + complete: syncFileTags fires ONCE with the translated LRC', () => {
+		player.syncTranslatedLyricsToFile(DL.uid, 'zh-Hant', TR_LRC);
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+		const entry = mockSyncFileTags.mock.calls[0][0];
+		expect(entry.uid).toBe(DL.uid);
+		expect(entry.lyrics).toBe(TR_LRC);
+		expect(entry.filename).toBeUndefined();
+	});
+
+	it('the same (uid, lang) never syncs twice in a session; a new lang syncs once more', () => {
+		player.syncTranslatedLyricsToFile(DL.uid, 'zh-Hant', TR_LRC);
+		player.syncTranslatedLyricsToFile(DL.uid, 'zh-Hant', TR_LRC);
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+		player.syncTranslatedLyricsToFile(DL.uid, 'en', '[00:01.00]Hello');
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(2);
+	});
+
+	it('not downloaded: never written', () => {
+		vi.mocked(library.isDownloaded).mockReturnValue(false);
+		library.downloads = [];
+		player.syncTranslatedLyricsToFile(DL.uid, 'zh-Hant', TR_LRC);
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+	});
+
+	it('a device: download twin is never written', () => {
+		const dev = { ...mk('kuwo', 'dev', 'Adele', 'Hello'), uid: deviceUid('77') };
+		player.current = dev;
+		library.downloads = [dev];
+		player.syncTranslatedLyricsToFile(dev.uid, 'zh-Hant', TR_LRC);
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+	});
+
+	it('a lyric PIN outranks the translation — the file keeps its pin', () => {
+		setPinnedLyrics(DL.uid, '[00:09.00]pinned');
+		player.syncTranslatedLyricsToFile(DL.uid, 'zh-Hant', TR_LRC);
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+	});
+
+	it('an empty LRC is a no-op, and a rejecting sync cannot escape', async () => {
+		player.syncTranslatedLyricsToFile(DL.uid, 'zh-Hant', '');
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+		mockSyncFileTags.mockRejectedValue(new Error('wasm exploded'));
+		expect(() => player.syncTranslatedLyricsToFile(DL.uid, 'zh-Hant', TR_LRC)).not.toThrow();
+		await flush();
 	});
 });
 

@@ -309,3 +309,72 @@ describe('translateLinesEx — zh-Hant lyrics cache heals pre-merge batches offl
 		vi.doUnmock('tongwen-dict/dist/s2t-char.min.json');
 	});
 });
+
+// quick-261116-lyrux (Task 4) — LINE-LEVEL cache. Hector's toggle scenario: the Korean
+// lines are translated with English skipped; he then un-skips English, which changes
+// the batch composition (and every batch-level key) — the already-translated lines
+// must resolve from the per-line cache so the API only ever sees the NEW line.
+describe('translateLinesEx — line-level cache (quick-261116-lyrux)', () => {
+	const sentLines = (call: number): string[] =>
+		JSON.parse((fetchMock.mock.calls[call][1] as { body: string }).body).lines;
+	const lineKeys = () => lsKeys().filter((k) => k.startsWith('openmusic:line-tr:v3:'));
+
+	/** The API stub translates whatever it is sent, prefixing each line. */
+	function wirePrefixApi() {
+		fetchMock.mockImplementation(async (_url: unknown, init: { body: string }) => {
+			const body = JSON.parse(init.body) as { lines: string[] };
+			return jsonRes({
+				translated: body.lines.map((l) => '譯:' + l),
+				flags: body.lines.map(() => true)
+			});
+		});
+	}
+
+	it('toggling the send set only fetches the NEW lines (KR lines served per-line)', async () => {
+		const { translateLinesEx } = await import('./translate');
+		wirePrefixApi();
+		// Round 1: the KR-only send set (English skipped upstream in NpLyrics).
+		const r1 = await translateLinesEx(['사랑해', '너를 원해'], 'zh-Hant');
+		expect(r1.complete).toBe(true);
+		expect(r1.out).toEqual(['譯:사랑해', '譯:너를 원해']);
+		expect(lineKeys().length).toBe(2); // both KR lines persisted per-line
+		fetchMock.mockClear();
+		// Round 2: English un-skipped — a NEW composition (batch keys all miss), with
+		// the KR lines interleaved around a brand-new English line.
+		const r2 = await translateLinesEx(['사랑해', 'Hello tonight', '너를 원해'], 'zh-Hant');
+		expect(fetchMock.mock.calls.length).toBe(1);
+		expect(sentLines(0)).toEqual(['Hello tonight']); // ONLY the new line hit the API
+		expect(r2.out).toEqual(['譯:사랑해', '譯:Hello tonight', '譯:너를 원해']);
+		expect(r2.flags).toEqual([true, true, true]);
+		expect(r2.complete).toBe(true);
+	});
+
+	it('line entries survive a module reset via localStorage (new session, same device)', async () => {
+		const { translateLinesEx } = await import('./translate');
+		wirePrefixApi();
+		await translateLinesEx(['사랑해'], 'zh-Hant');
+		vi.resetModules(); // drop the in-memory line cache; localStorage persists
+		fetchMock.mockClear();
+		const { translateLinesEx: fresh } = await import('./translate');
+		const r = await fresh(['사랑해', '새로운 줄'], 'zh-Hant');
+		expect(sentLines(0)).toEqual(['새로운 줄']); // the known line came from storage
+		expect(r.out).toEqual(['譯:사랑해', '譯:새로운 줄']);
+		expect(r.complete).toBe(true);
+	});
+
+	it('echoed lines never enter the line cache (per-line poison rule)', async () => {
+		const { translateLinesEx } = await import('./translate');
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['さくら'], flags: [false] }));
+		const r = await translateLinesEx(['さくら'], 'zh-Hant');
+		expect(r.complete).toBe(false);
+		expect(lineKeys().length).toBe(0);
+	});
+
+	it('Chinese lines under zh-Hant stay OFF the line cache (offline path untouched)', async () => {
+		const { translateLinesEx } = await import('./translate');
+		const r = await translateLinesEx(['简体中文'], 'zh-Hant');
+		expect(fetchMock).not.toHaveBeenCalled(); // converted offline as always
+		expect(r.out).toEqual(['簡體中文']);
+		expect(lineKeys().length).toBe(0); // not line-cached — kvz heal semantics preserved
+	});
+});

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { chunkRanges, applyChunkResult, LYRICS_CHUNK_SIZE } from './lyric-chunks';
+import {
+	chunkRanges,
+	applyChunkResult,
+	initialPending,
+	clearChunkPending,
+	skeletonWidthPct,
+	LYRICS_CHUNK_SIZE
+} from './lyric-chunks';
 
 // quick-261116-kvprog: the pure arithmetic behind NpLyrics' progressive rendering.
 
@@ -45,5 +52,55 @@ describe('applyChunkResult', () => {
 	it('stops at the end of the positions map instead of throwing', () => {
 		const next = applyChunkResult(base, positions, 0, ['T1', 'T3', 'EXTRA']);
 		expect(next).toEqual(['l0', 'T1', 'l2', 'T3']);
+	});
+});
+
+// quick-261116-lyrux (Fix 1): the pending flags behind the show-below skeleton.
+describe('initialPending / clearChunkPending', () => {
+	it('marks exactly the sent positions pending', () => {
+		expect(initialPending(4, [1, 3])).toEqual([false, true, false, true]);
+	});
+	it('marks nothing pending when nothing was sent', () => {
+		expect(initialPending(3, [])).toEqual([false, false, false]);
+	});
+	it('ignores out-of-range positions instead of throwing', () => {
+		expect(initialPending(2, [1, 9])).toEqual([false, true]);
+	});
+	it('a settled chunk clears ONLY its own positions (out-of-order safe)', () => {
+		// Two chunks in flight: positions [0,1] (chunk A) and [2,3] (chunk B).
+		// B settles first — A's lines must stay pending.
+		const pending = initialPending(4, [0, 1, 2, 3]);
+		const afterB = clearChunkPending(pending, [0, 1, 2, 3], 2, 4);
+		expect(afterB).toEqual([true, true, false, false]);
+		const afterA = clearChunkPending(afterB, [0, 1, 2, 3], 0, 2);
+		expect(afterA).toEqual([false, false, false, false]);
+	});
+	it('clears through the positions map, not raw line indices', () => {
+		// Sent positions are lines 1 and 3; the (only) chunk covers send range [0,2).
+		const pending = initialPending(4, [1, 3]);
+		expect(clearChunkPending(pending, [1, 3], 0, 2)).toEqual([false, false, false, false]);
+	});
+	it('never mutates the input array', () => {
+		const pending = initialPending(3, [0, 1, 2]);
+		const next = clearChunkPending(pending, [0, 1, 2], 0, 1);
+		expect(next).not.toBe(pending);
+		expect(pending).toEqual([true, true, true]);
+	});
+});
+
+describe('skeletonWidthPct', () => {
+	it('is deterministic for the same text', () => {
+		expect(skeletonWidthPct('사랑해요 오늘 밤')).toBe(skeletonWidthPct('사랑해요 오늘 밤'));
+	});
+	it('stays inside a plausible line-width band', () => {
+		for (const s of ['', 'a', 'Hello world', '사랑해', '今晚我要握住你的手', 'x'.repeat(200)]) {
+			const pct = skeletonWidthPct(s);
+			expect(pct).toBeGreaterThanOrEqual(40);
+			expect(pct).toBeLessThanOrEqual(90);
+		}
+	});
+	it('varies across different lines (not a uniform grid)', () => {
+		const pcts = new Set(['line one', 'line two', 'line three', 'line four', 'line five'].map(skeletonWidthPct));
+		expect(pcts.size).toBeGreaterThan(1);
 	});
 });

@@ -22,7 +22,10 @@
     import { fade } from "$lib/motion"; // quick-261102-u4t: reduce-motion aware
     import { player, fmtTime } from "$lib/stores/player.svelte";
     import { names } from "$lib/stores/names.svelte";
-    import { settings } from "$lib/stores/settings.svelte";
+    import { settings, effectiveTarget } from "$lib/stores/settings.svelte";
+    // quick-261116-lyrux (Fix 2): the generated-translation publication (NpLyrics
+    // publishes; this bar reads) — see stores/lyrics-translation.svelte.ts.
+    import { lyricsTranslation, publishedLineFor } from "$lib/stores/lyrics-translation.svelte";
     import { sleepTimer } from "$lib/stores/sleepTimer.svelte";
     import { coverSwipe } from "$lib/actions/coverSwipe";
     import { playerSwipe } from "$lib/components/swipe-act";
@@ -43,7 +46,7 @@
     // NowPlaying pane shows, including a user's Fix-lyrics pick (D-4).
     // quick-260919-2jo: `parseLyrics`, NOT the raw `parseLRC` — the one lyric seam that applies the
     // Chinese script lock (and repaints live when it is flipped). Same signature, same output shape.
-    import { activeLineAt } from "$lib/services/lrc";
+    import { activeLineAt, type LyricLine } from "$lib/services/lrc";
     import { parseLyrics } from "$lib/stores/lyric-script.svelte";
     import { readLyrics } from "$lib/stores/lyric-pins.svelte";
     import { splitParenLines, reorderPairs } from "$lib/services/lrc";
@@ -96,9 +99,13 @@
     // quick-261020-lyr1: SAME pipeline as NpLyrics — splitParenLines(reorderPairs(parseLyrics))
     // so the Nowbar's line obeys the same translation settings (Hide parenthesised
     // translations/lines). The visible-lines filter mirrors NpLyrics's render guard.
-    const lyricLines = $derived.by(() => {
+    // quick-261116-lyrux (Fix 2): the filter now runs over rows that REMEMBER each
+    // line's index in the FULL (unfiltered) array — the generated-translation
+    // publication is aligned to that full array, so the active row's fullIdx is the
+    // lookup key. `lyricLines` below keeps its exact old shape for activeLineAt.
+    const lyricRows = $derived.by(() => {
         const src = readLyrics(player.current);
-        if (!src) return [];
+        if (!src) return [] as { line: LyricLine; fullIdx: number }[];
         const all = splitParenLines(reorderPairs(parseLyrics(src)));
         // Filter hidden lines (same as NpLyrics's {#if} guards):
         // - lyricsHideParenLines ON → hide the entire paren/translation line
@@ -106,17 +113,20 @@
         // - translateMode === 'replace' → hide original when translation sibling exists
         // quick-261020-lyr2: also catches isTranslation (separate-line translations).
         // quick-261020-lyr4: Replace mode for embedded translations.
-        return all.filter((l, i) => {
+        const rows: { line: LyricLine; fullIdx: number }[] = [];
+        all.forEach((l, i) => {
             const isTr = l.fromParen || l.isTranslation;
-            if (isTr && settings.lyricsHideParenLines) return false;
-            if (isTr && settings.lyricsHideParenTranslation) return false;
+            if (isTr && settings.lyricsHideParenLines) return;
+            if (isTr && settings.lyricsHideParenTranslation) return;
             if (settings.translateMode === 'replace' && !isTr) {
                 const hasTrSibling = all.some((o, j) => j !== i && o.time === l.time && (o.fromParen || o.isTranslation));
-                if (hasTrSibling) return false;
+                if (hasTrSibling) return;
             }
-            return true;
+            rows.push({ line: l, fullIdx: i });
         });
+        return rows;
     });
+    const lyricLines = $derived(lyricRows.map((r) => r.line));
     // quick-260926-mis: same offset as the pane, same function, so the two surfaces cannot drift.
     const lyricOffset = $derived(getEffectiveLyricOffset(player.current?.uid));
     // 2. The early return gates the whole scan: with the setting off this costs one boolean read per
@@ -168,7 +178,32 @@
         // not the surface to show the song's poetry on, so the artist+error branch takes the row back.
         if (player.error) return "";
         const { idx } = activeLineAt(lyricLines, player.currentTime, lyricOffset);
-        return idx >= 0 ? lyricLines[idx].text : "";
+        if (idx < 0) return "";
+        const original = lyricLines[idx].text;
+        // quick-261116-lyrux (Fix 2): REPLACE mode means the generated translation
+        // REPLACES the original — "since we want it replaced", the bar follows the
+        // pane. Precedence, explicitly: a SETTLED generated translation for the
+        // active line (published by NpLyrics, keyed by the row's FULL-array index)
+        // wins over the original text; everything else is unchanged — a pending
+        // line, an unpublished track, a different target, or below mode all keep
+        // the original, and the embedded-LRC sibling handling in lyricRows above
+        // is untouched (when the active row IS an embedded translation line, its
+        // published slot holds that same embedded text, so the two agree).
+        if (settings.translateMode === "replace" && settings.lyricsLang !== "off") {
+            const gen = publishedLineFor(
+                {
+                    uid: lyricsTranslation.uid,
+                    lang: lyricsTranslation.lang,
+                    lines: lyricsTranslation.lines,
+                    pending: lyricsTranslation.pending,
+                },
+                player.current?.uid ?? "",
+                effectiveTarget(settings.lyricsLang),
+                lyricRows[idx]?.fullIdx ?? -1,
+            );
+            if (gen !== null) return gen;
+        }
+        return original;
     });
 
     // NP-05 boundaries (D-02): rubber-band a prev swipe on the first track, but always allow a

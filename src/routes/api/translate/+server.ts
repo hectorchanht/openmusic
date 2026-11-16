@@ -51,6 +51,14 @@
 // segments by newline as well as sentinels, translateChunk accepts an exactly-aligned
 // newline split, and fully-genuine results are edge-cached provider-side (see POST) so
 // repeat plays are instant and spend no AI neurons.
+//
+// LINE-LEVEL KV (quick-261116-lyrux): every cache layer keyed on the exact lines ARRAY,
+// so a client re-composing a batch (e.g. a lyricsSkip toggle un-skipping English after
+// the Korean lines already translated) missed globally and re-paid for known lines.
+// POST now also keeps PER-LINE KV entries (`translate-line:v3:<to>:<sha256(line)>`,
+// permanent like the batch entries): a batch resolves its known lines from line-KV and
+// only the missing lines enter the cascade. The batch edge+KV entries stay as L1 for
+// identical-batch repeats; only genuinely-translated lines are ever written per-line.
 import type { RequestHandler } from './$types';
 import type { Env } from '$lib/proxy/proxy-types';
 import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
@@ -507,6 +515,44 @@ async function translateChunk(lines: string[], appTo: string, env: Env | undefin
 	return perLine(lines, appTo, env);
 }
 
+// quick-261116-lyrux (Task 4): the per-line KV layer's key material. SHA-256 hex of the
+// raw line (the batch key hashes the whole array the same way); entries are PERMANENT
+// (no expirationTtl — same kvttl rationale: lyric text is immutable, TRANSLATE_CACHE_VER
+// is the invalidation lever, and it is shared with the batch keys so one bump retires both).
+const LINE_KV_MAX_LINES = 200; // sane cap: lyric chunks are ≤20; beyond this the batch layers suffice
+async function sha256Hex(s: string): Promise<string> {
+	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+	return Array.from(new Uint8Array(digest))
+		.map((b) => b.toString(16).padStart(2, '0'))
+		.join('');
+}
+const lineKvKey = (appTo: string, hash: string) =>
+	`translate-line:${TRANSLATE_CACHE_VER}:${appTo}:${hash}`;
+
+// Translate a lines array end-to-end (single-line cascade, or chunked batch) into
+// aligned LineResults. Extracted verbatim from POST (quick-261116-lyrux) so the
+// line-KV layer can run the SAME machinery over just the missing subset; every
+// failure mode collapses to per-line originals exactly as the inline code did.
+async function computeAll(ls: string[], appTo: string, env: Env | undefined): Promise<LineResult[]> {
+	// Single line: no batching needed, no alignment risk.
+	if (ls.length === 1) {
+		const t = await cascade(ls[0], appTo, env);
+		if (t == null) return [{ text: ls[0], translated: false }];
+		return [{ text: t.text, translated: t.text !== ls[0] }];
+	}
+	// Chunk so each provider request stays under the echo-mode threshold. Chunks run
+	// in parallel; results are concatenated positionally → out.length === ls.length.
+	const chunks: string[][] = [];
+	for (let i = 0; i < ls.length; i += CHUNK_SIZE) chunks.push(ls.slice(i, i + CHUNK_SIZE));
+	try {
+		const results = (await Promise.all(chunks.map((c) => translateChunk(c, appTo, env)))).flat();
+		if (results.length !== ls.length) return ls.map((l) => ({ text: l, translated: false }));
+		return results;
+	} catch {
+		return ls.map((l) => ({ text: l, translated: false }));
+	}
+}
+
 export const POST: RequestHandler = async ({ request, platform }) => {
 	// platform?.env is the verified Cloudflare-adapter binding path (parity with /api/similar).
 	// Provider keys are read edge-side only and NEVER echoed to the client (D-06 / T-25c-01);
@@ -623,25 +669,59 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 		return reply(translated, flags);
 	};
 
-	// Single line: no batching needed, no alignment risk.
-	if (lines.length === 1) {
-		const t = await cascade(lines[0], appTo, env);
-		if (t == null) return reply([lines[0]], [false]);
-		return finish([t.text], [t.text !== lines[0]]);
+	// quick-261116-lyrux (Task 4) — LINE-LEVEL KV RESOLUTION. On a batch L1/L2 miss,
+	// resolve each line from line-KV first (individual gets via Promise.all — the
+	// binding's array-get form isn't relied on — capped at LINE_KV_MAX_LINES), run the
+	// existing cascade machinery (computeAll) over ONLY the missing lines, scatter
+	// positionally, and write each genuinely-translated missing line back per-line.
+	// A stored value equal to its source line can't be genuine (every producer in
+	// this file sets translated only when the text changed), so it reads as a miss.
+	// The whole layer is wrapped: any fault degrades to the whole-batch compute.
+	let results: LineResult[] | null = null;
+	if (kv && lines.length <= LINE_KV_MAX_LINES) {
+		try {
+			const hashes = await Promise.all(lines.map((l) => sha256Hex(l)));
+			const keys = hashes.map((h) => lineKvKey(appTo, h));
+			const stored = await Promise.all(
+				lines.map((l, i) => (l ? kv.get(keys[i]) : Promise.resolve(null)))
+			);
+			const missIdx: number[] = [];
+			const merged: LineResult[] = lines.map((l, i) => {
+				const hit = stored[i];
+				if (l && typeof hit === 'string' && hit && hit !== l)
+					return { text: hit, translated: true };
+				if (l) missIdx.push(i);
+				return { text: l, translated: false };
+			});
+			if (missIdx.length) {
+				const sub = await computeAll(
+					missIdx.map((i) => lines[i]),
+					appTo,
+					env
+				);
+				const writes: Promise<void>[] = [];
+				missIdx.forEach((orig, j) => {
+					merged[orig] = sub[j];
+					// Only GENUINE lines are written (never an echo) — permanent, no TTL.
+					if (sub[j].translated && sub[j].text) writes.push(kv.put(keys[orig], sub[j].text));
+				});
+				if (writes.length) {
+					const done = Promise.allSettled(writes).then(() => undefined);
+					// Non-blocking when the runtime offers waitUntil (production);
+					// awaited otherwise (unit tests / dev) so the writes are observable.
+					// Either way never-throw — a line-write fault must not fail the reply.
+					if (platform?.ctx?.waitUntil) platform.ctx.waitUntil(done);
+					else await done;
+				}
+			}
+			results = merged;
+		} catch {
+			results = null; // line layer fault — fall through to the whole-batch compute
+		}
 	}
-
-	// Chunk so each provider request stays under the echo-mode threshold. Chunks run in
-	// parallel; results are concatenated positionally → out.length === lines.length.
-	const chunks: string[][] = [];
-	for (let i = 0; i < lines.length; i += CHUNK_SIZE) chunks.push(lines.slice(i, i + CHUNK_SIZE));
-	try {
-		const results = (await Promise.all(chunks.map((c) => translateChunk(c, appTo, env)))).flat();
-		if (results.length !== lines.length) return reply(lines, lines.map(() => false));
-		return finish(
-			results.map((r) => r.text),
-			results.map((r) => r.translated)
-		);
-	} catch {
-		return reply(lines, lines.map(() => false));
-	}
+	if (!results) results = await computeAll(lines, appTo, env);
+	return finish(
+		results.map((r) => r.text),
+		results.map((r) => r.translated)
+	);
 };

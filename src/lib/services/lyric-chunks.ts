@@ -51,3 +51,55 @@ export function applyChunkResult(
 	}
 	return next;
 }
+
+// quick-261116-lyrux (Fix 1): per-line PENDING state, aligned to the FULL lines array.
+// A position is pending from the moment its chunk is fired until that chunk SETTLES
+// (genuine result, soft-fail echo, or hard failure — all three end the wait; only a
+// STALE chunk, superseded by a newer song/lang/skip run, leaves the set untouched
+// because the newer run rebuilds it from scratch). The pane renders a skeleton in
+// the translation slot of a pending line (show-below mode) instead of the duplicate
+// original the progressive placeholder array would otherwise show twice.
+
+/** Pending flags for a fresh run: exactly the sent positions start pending. */
+export function initialPending(lineCount: number, positions: readonly number[]): boolean[] {
+	const pending = new Array<boolean>(lineCount).fill(false);
+	for (const pos of positions) {
+		if (pos >= 0 && pos < lineCount) pending[pos] = true;
+	}
+	return pending;
+}
+
+/**
+ * Return a NEW pending array with one settled chunk's positions cleared:
+ * `positions[chunkStart .. chunkEnd)` mapped through the send-position → line-index
+ * map. Positions outside the chunk stay as they were, so concurrent chunks settling
+ * out of order can never clear each other's lines. `pending` is never mutated.
+ */
+export function clearChunkPending(
+	pending: readonly boolean[],
+	positions: readonly number[],
+	chunkStart: number,
+	chunkEnd: number
+): boolean[] {
+	const next = pending.slice();
+	for (let j = chunkStart; j < chunkEnd; j++) {
+		const pos = positions[j];
+		if (pos === undefined) break;
+		if (pos >= 0 && pos < next.length) next[pos] = false;
+	}
+	return next;
+}
+
+// Deterministic skeleton widths for a pending translation slot (the LoadingState
+// WIDTHS idiom: no Math.random in render, the pane must not reshuffle between
+// paints). Scaled below LoadingState's line widths — a translation line is a
+// secondary, shorter row. Picked by a char-code hash of the ORIGINAL line's text,
+// so the same line always gets the same bar and neighbouring lines differ.
+const SKELETON_PCTS = [62, 74, 55, 81, 68, 48, 77, 58];
+
+/** Width (%) of the pending-skeleton bar standing in for `text`'s translation. */
+export function skeletonWidthPct(text: string): number {
+	let h = 0;
+	for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) >>> 0;
+	return SKELETON_PCTS[h % SKELETON_PCTS.length];
+}

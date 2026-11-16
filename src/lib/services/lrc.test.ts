@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
 	parseLRC,
+	serializeLRC,
 	inferQualityFromUrl,
 	splitParenLines,
 	dominantScript,
@@ -32,6 +33,48 @@ describe('parseLRC', () => {
 
 	it('drops lines whose text is blank after stripping the timestamp', () => {
 		expect(parseLRC('[00:00.00]\n[00:02.00]kept')).toEqual([{ time: 2, text: 'kept' }]);
+	});
+});
+
+// quick-261116-lyrux: serializeLRC is parseLRC's inverse (translated-lyrics file embed).
+describe('serializeLRC', () => {
+	it('formats [mm:ss.xx] stamps with centiseconds', () => {
+		expect(
+			serializeLRC([
+				{ time: 1, text: 'world' },
+				{ time: 65.5, text: 'line' },
+				{ time: 600.25, text: 'late' }
+			])
+		).toBe('[00:01.00]world\n[01:05.50]line\n[10:00.25]late');
+	});
+	it('substitutes per-index texts (the translation column) when given', () => {
+		const lines = [
+			{ time: 1, text: '사랑해' },
+			{ time: 2, text: '오늘 밤' }
+		];
+		expect(serializeLRC(lines, ['愛你', '今晚'])).toBe('[00:01.00]愛你\n[00:02.00]今晚');
+	});
+	it('drops blank final texts, mirroring parseLRC', () => {
+		expect(
+			serializeLRC(
+				[
+					{ time: 1, text: 'kept' },
+					{ time: 2, text: 'gone' }
+				],
+				['kept', '  ']
+			)
+		).toBe('[00:01.00]kept');
+	});
+	it('round-trips through parseLRC (times to the centisecond, texts intact)', () => {
+		const lines = [
+			{ time: 3.21, text: 'alpha' },
+			{ time: 42, text: 'beta' },
+			{ time: 125.75, text: 'gamma' }
+		];
+		expect(parseLRC(serializeLRC(lines))).toEqual(lines);
+	});
+	it('returns an empty string for no lines', () => {
+		expect(serializeLRC([])).toBe('');
 	});
 });
 

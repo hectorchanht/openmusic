@@ -20,9 +20,12 @@
 	import { t } from '$lib/i18n';
 	import { translateLinesEx } from '$lib/services/translate';
 	// quick-261116-kvprog: pure chunk arithmetic for the progressive translation below.
-	import { chunkRanges, applyChunkResult, LYRICS_CHUNK_SIZE, LYRICS_CHUNK_CONCURRENCY } from '$lib/services/lyric-chunks';
+	// quick-261116-lyrux: + the per-line pending arithmetic (Fix 1) and skeleton widths.
+	import { chunkRanges, applyChunkResult, initialPending, clearChunkPending, skeletonWidthPct, LYRICS_CHUNK_SIZE, LYRICS_CHUNK_CONCURRENCY } from '$lib/services/lyric-chunks';
 	import { shouldTranslate } from '$lib/i18n/detect';
-	import { reorderPairs, splitParenLines, lineSeekFraction, activeLineAt, lyricAnchorMetrics, formatLyricOffset, LYRIC_OFFSET_MAX, type LyricLine } from '$lib/services/lrc';
+	import { reorderPairs, splitParenLines, serializeLRC, lineSeekFraction, activeLineAt, lyricAnchorMetrics, formatLyricOffset, LYRIC_OFFSET_MAX, type LyricLine } from '$lib/services/lrc';
+	// quick-261116-lyrux (Fix 2): the publication seam the Nowbar reads for replace mode.
+	import { lyricsTranslation } from '$lib/stores/lyrics-translation.svelte';
 	// quick-260919-2jo: the Chinese script lock for lyric text. `parseLyrics` replaces `parseLRC`
 	// (the ORIGINAL lines); `lockLyricLines` covers the translation column, which is a SECOND source
 	// of source-derived text produced after parse time.
@@ -384,15 +387,30 @@
 	// ---- lyrics translation ----
 	let translated = $state<string[]>([]);
 	let translating = $state(false);
+	// quick-261116-lyrux (Fix 1): per-line PENDING flags aligned to `lines` — a sent
+	// line whose chunk has not settled yet. Drives the show-below skeleton and the
+	// replace-mode inline spinner in the template, and is published with the
+	// translation (Fix 2) so the Nowbar never serves a placeholder as a translation.
+	let trPending = $state<boolean[]>([]);
+	// The effective target of the CURRENT run, for the Fix 2 publish + Fix 3 file
+	// sync. PLAIN let (not $state): written only by the translate effect below, read
+	// by the publish effect after `translated` changes — a lang change always comes
+	// with a fresh run, so the value is never stale at publish time.
+	let trLang = '';
 	let trKey = '';
 	$effect(() => {
 		// ju0: lyricsLang now allows 'auto' (→ appLang). Resolve once here so both the
 		// rerun key, shouldTranslate(), and translateLines() all see the SAME final token.
 		const rawLang = settings.lyricsLang;
 		const lang = effectiveTarget(rawLang);
+		trLang = lang;
 		const skip = settings.lyricsSkip;
 		const t = player.current;
 		const n = lines.length;
+		// quick-261116-lyrux: the exact lines array THIS run translates (the derived's
+		// snapshot at effect time) — the Fix 3 LRC rebuild must use these, not whatever
+		// the derived holds when the last chunk lands.
+		const srcLines = lines;
 		// quick-260919-np3: `tab !== 'lyrics'` dropped — the mount is that gate now (see above).
 		if (rawLang === 'off' || !n || !t) {
 			// quick-260618-fiz Fix 1: flipping INTO a no-translate state (lyricsLang → 'off', leaving
@@ -401,6 +419,7 @@
 			// Reset trKey too so re-entering the active state re-runs the translation from scratch.
 			if (translated.length) translated = [];
 			if (translating) translating = false;
+			if (trPending.length) trPending = [];
 			trKey = '';
 			return;
 		}
@@ -422,6 +441,11 @@
 			trKey = key;
 			translated = cached;
 			translating = false;
+			trPending = [];
+			// quick-261116-lyrux (Fix 3): a cache hit is still a COMPLETED translation —
+			// offer it to the downloaded file too (the player's per-(uid, lang) session
+			// cap + already-tagged check make the replay a no-op when it already landed).
+			player.syncTranslatedLyricsToFile(t.uid, lang, serializeLRC(srcLines, cached));
 			return;
 		}
 		trKey = key;
@@ -445,10 +469,13 @@
 		if (!sendText.length) {
 			// All-whitelisted / already-target: the stitched output is the aligned originals — trivially
 			// COMPLETE (every line is its own text), so it is safe to cache (quick-260625-pzs-03 step 4).
+			// quick-261116-lyrux: NOT offered to the Fix 3 file sync — nothing was translated,
+			// so there is no translated LRC to embed (the file keeps whatever lyrics it has).
 			const stitched = stitch([]);
 			if (stitched.length === lines.length) trCache.set(key, stitched);
 			translated = stitched;
 			translating = false;
+			trPending = [];
 			return;
 		}
 		// WR-09: invalidate the PREVIOUS track's output immediately. The render gate is a pure
@@ -467,8 +494,17 @@
 		// never appear). The gate passes at once, the user reads lyrics instantly, and each
 		// chunk's translations swap in place as they land. Pending slots show the original —
 		// the same thing whitelisted/already-target slots have always shown.
+		//
+		// quick-261116-lyrux (Fix 1): …in REPLACE mode. In SHOW-BELOW mode that placeholder
+		// made every in-flight line render TWICE (original + its own copy in the translation
+		// slot) until its chunk landed — Hector's repro after un-skipping English. So the
+		// sent positions are now tracked in `trPending` until their chunk settles, and the
+		// template renders a SKELETON in a pending line's translation slot (below) or a
+		// small inline spinner after its text (replace). Settled slots — genuine, echoed
+		// or failed — render exactly as before.
 		translated = stitch([]);
 		translating = true;
+		trPending = initialPending(n, sendIdx);
 		// Split the send-list into ORDERED chunks and fire them with bounded concurrency,
 		// chunk 0 first (the lines at the top of the song — what the user reads first).
 		// Each chunk is its OWN translateLinesEx call, so translateLinesEx's mem/localStorage
@@ -491,13 +527,20 @@
 						// the song out of trCache below.
 						if (!res.complete) allComplete = false;
 						translated = applyChunkResult(translated, sendIdx, range.start, res.out);
+						// quick-261116-lyrux (Fix 1): this chunk has SETTLED — its lines
+						// leave the pending set (skeleton/spinner off) whatever it returned.
+						trPending = clearChunkPending(trPending, sendIdx, range.start, range.end);
 					}
 				} catch {
 					// Deliberate change from the old whole-batch .catch (which blanked the
 					// pane to []): a hard-failed chunk leaves its slots at the originals
 					// and marks the song incomplete — strictly more useful, never frozen.
+					// quick-261116-lyrux: a hard failure is still a settle — clear pending.
 					if (trKey !== key) stale = true;
-					else allComplete = false;
+					else {
+						allComplete = false;
+						trPending = clearChunkPending(trPending, sendIdx, range.start, range.end);
+					}
 				}
 				if (stale) return;
 				settledRanges++;
@@ -506,7 +549,14 @@
 					// quick-260625-pzs-03 / T-pzs-01, unchanged rule at song level: FREEZE
 					// only a fully-translated render — EVERY chunk must have completed,
 					// so an echoed chunk is never frozen as final.
-					if (allComplete && translated.length === lines.length) trCache.set(key, translated);
+					if (allComplete && translated.length === lines.length) {
+						trCache.set(key, translated);
+						// quick-261116-lyrux (Fix 3): the SAME completion moment — the
+						// downloaded file learns the translated lyrics (rebuilt LRC:
+						// this run's timestamps + the raw translation column). Partial
+						// or echoed renders never reach this call.
+						player.syncTranslatedLyricsToFile(t.uid, lang, serializeLRC(srcLines, translated));
+					}
 				}
 			}
 		};
@@ -522,6 +572,21 @@
 	// repaints in place. Positionally aligned, so `showTr`'s length gate and the `[i]` indexing in
 	// the template are unchanged.
 	const trLines = $derived(lockLyricLines(translated));
+	// quick-261116-lyrux (Fix 2): PUBLISH the progressive state for the Nowbar's
+	// replace-mode read (stores/lyrics-translation.svelte.ts). Post-lock lines
+	// (trLines) so the bar renders exactly what this pane renders, plus the pending
+	// flags so the bar never mistakes a placeholder original for a translation.
+	// Re-runs on every chunk landing / pending change / lock flip / track change;
+	// the store snapshot is replaced wholesale each time. A length mismatch (a
+	// mid-run line change) skips the publish, and the reader additionally gates on
+	// uid + lang, so a stale snapshot can never surface under another track/target.
+	$effect(() => {
+		const uid = player.current?.uid ?? '';
+		const ls = trLines;
+		const pend = trPending;
+		if (!uid || !ls.length || ls.length !== lines.length) return;
+		lyricsTranslation.publish(uid, trLang, ls, pend);
+	});
 	// quick-261102-t5k: every line was its own tab stop, so Tab had to cross the whole lyric to leave
 	// the pane. Roving tabindex: only the active line (or the first, before the song starts) is
 	// tabbable; Up/Down in seekToLineKey reach the rest. A line hidden by lyricsHideParenLines has no
@@ -572,10 +637,16 @@
 				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 				<p data-i={i} class:active={l.time === activeTime && activeTime >= 0} class:paren={l.fromParen} onclick={() => seekToLine(l)} onkeydown={(e) => seekToLineKey(e, l)} role="button" tabindex={i === focusIdx ? 0 : -1}>
 					{#if showTr && settings.translateMode === 'replace' && !hideTrForLine}
-						{trLines[i]}
+						{trLines[i]}{#if trPending[i]}<span class="tr-spin motion-always" aria-hidden="true"></span>{/if}
 					{:else}
 						{l.text}
-						{#if showTr && !hideTrForLine}<span class="tr" class:active={l.time === activeTime && activeTime >= 0}>{trLines[i]}</span>{/if}
+						{#if showTr && !hideTrForLine}
+							{#if trPending[i]}
+								<span class="tr tr-pending" aria-hidden="true"><span class="sk tr-skbar" style="--skw:{skeletonWidthPct(l.text)}%"></span></span>
+							{:else}
+								<span class="tr" class:active={l.time === activeTime && activeTime >= 0}>{trLines[i]}</span>
+							{/if}
+						{/if}
 					{/if}
 				</p>
 			{/if}
@@ -605,6 +676,22 @@
 	   highlight (faux-bold text-shadow, not font-weight 700) so the active moment's translation
 	   reads as highlighted in lockstep with the original — still with zero layout shift. */
 	.lyrics .tr.active { color: var(--color-text); text-shadow: 0 0 0.5px currentColor, 0 0 0.5px currentColor; }
+	/* quick-261116-lyrux (Fix 1): a PENDING line's translation slot in show-below mode —
+	   a skeleton bar (the global .sk shimmer) standing where the translation will land,
+	   in place of the duplicate original the placeholder array used to show. Sized off
+	   the .tr row (bar 12px ≈ the 0.82em line box) so the pair's geometry barely moves
+	   when the real text swaps in; width varies per line via skeletonWidthPct.
+	   Skeleton ONLY in this mode — the standing XOR rule: replace mode's affordance is
+	   the inline spinner below, never both in one area. */
+	.lyrics .tr-skbar { display: block; height: 12px; width: var(--skw, 65%); margin: 2px auto 1px; }
+	/* quick-261116-lyrux (Fix 1 amendment): REPLACE mode has no second slot to skeleton,
+	   so a pending line keeps its (original) text plus ONE small inline spinner after
+	   it — small element = spinner territory under the XOR rule. Border recipe mirrors
+	   LoadingState's .ring at inline size; `.motion-always` is the app's spinner
+	   pattern under reduce-motion (the "still working" signal keeps turning — a frozen
+	   spinner reads as a hung app, quick-260809-mvz). */
+	.lyrics .tr-spin { display: inline-block; width: 0.72em; height: 0.72em; margin-inline-start: 0.45em; vertical-align: -0.06em; border: 2px solid var(--color-text-muted); border-top-color: transparent; border-radius: 50%; animation: tr-spin-rot 0.7s linear infinite; }
+	@keyframes tr-spin-rot { to { transform: rotate(360deg); } }
 	/* quick-261102-s5t: muted, not the accent — a status line is not "live/on/go", and Tiffany
 	   small text on the light floor was ~2:1. */
 	.tr-hint { text-align: center; font-size: 0.6875rem; color: var(--color-text-muted); margin: 0 0 6px; }

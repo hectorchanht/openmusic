@@ -48,6 +48,29 @@ export function parseLRC(txt: string): LyricLine[] {
 }
 
 /**
+ * quick-261116-lyrux: the inverse of parseLRC — rebuild RAW LRC text (`[mm:ss.xx]`
+ * per line) from parsed lines, optionally substituting per-index texts (the
+ * translation column aligned to `lines`). Lines whose final text is blank are
+ * dropped, mirroring parseLRC's own blank-drop, so a serialize→parse round-trip
+ * is stable. Used to embed a COMPLETED lyric translation into a downloaded
+ * file's tags (the RetagEntry.lyrics contract is exactly this raw-LRC shape).
+ */
+export function serializeLRC(lines: readonly LyricLine[], texts?: readonly string[]): string {
+	const out: string[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		const text = (texts?.[i] ?? lines[i].text).trim();
+		if (!text) continue;
+		const t = Math.max(0, lines[i].time);
+		const min = Math.floor(t / 60);
+		const sec = Math.floor(t % 60);
+		const cs = Math.floor((t * 100) % 100);
+		const stamp = `[${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}.${String(cs).padStart(2, '0')}]`;
+		out.push(`${stamp}${text}`);
+	}
+	return out.join('\n');
+}
+
+/**
  * A coarse Unicode-script classification of a line body, used to tell an original
  * lyric line apart from its embedded translation. `'other'` covers digit/punctuation-
  * only or empty lines (no countable letter present).

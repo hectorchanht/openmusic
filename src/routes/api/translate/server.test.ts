@@ -218,8 +218,12 @@ describe('/api/translate provider cascade', () => {
 		return {
 			puts,
 			kv: {
-				get: async (_key: string): Promise<string | null> => {
+				get: async (key: string): Promise<string | null> => {
 					if (opts.getThrows) throw new Error('KV down');
+					// quick-261116-lyrux: the scripted hit answers BATCH keys only — a real
+					// KV never returns a batch entry for a `translate-line:` key (the line
+					// layer reads those too, and must see a miss here).
+					if (!key.startsWith('translate:')) return null;
 					return opts.hit ? JSON.stringify(opts.hit) : null;
 				},
 				put: async (key: string, value: string, o?: { expirationTtl?: number }): Promise<void> => {
@@ -249,11 +253,18 @@ describe('/api/translate provider cascade', () => {
 		const res = await callPost(['Hello world'], 'zh-Hant', { AI: mockAi('translate'), TRANSLATE_CACHE: kv });
 		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
 		expect(body.flags).toEqual([true]);
-		expect(puts).toHaveLength(1);
-		expect(puts[0].key).toMatch(/^translate:v3:zh-Hant:[0-9a-f]{64}$/);
+		// quick-261116-lyrux: TWO puts now — the batch entry AND the per-line entry.
+		expect(puts).toHaveLength(2);
+		const batchPut = puts.find((p) => p.key.startsWith('translate:v3:'));
+		expect(batchPut).toBeDefined();
+		expect(batchPut?.key).toMatch(/^translate:v3:zh-Hant:[0-9a-f]{64}$/);
 		// quick-261116-kvttl: put called WITHOUT expirationTtl → the entry never expires.
-		expect(puts[0].ttl).toBeUndefined();
-		expect(JSON.parse(puts[0].value)).toEqual([['Hello world' + TAG.ai], [true]]);
+		expect(batchPut?.ttl).toBeUndefined();
+		expect(JSON.parse(batchPut?.value ?? 'null')).toEqual([['Hello world' + TAG.ai], [true]]);
+		const linePut = puts.find((p) => p.key.startsWith('translate-line:v3:'));
+		expect(linePut?.key).toMatch(/^translate-line:v3:zh-Hant:[0-9a-f]{64}$/);
+		expect(linePut?.value).toBe('Hello world' + TAG.ai); // raw translated string
+		expect(linePut?.ttl).toBeUndefined(); // permanent, same rationale
 	});
 
 	it('a throwing KV never breaks the translation (get AND put faults degrade)', async () => {
@@ -306,5 +317,77 @@ describe('/api/translate provider cascade', () => {
 		expect(body.flags).toEqual([true, true, true]);
 		expect(aiCalls).toBe(1); // batched — NOT per-line fan-out
 		expect(fetchedProviders()).toEqual([]); // Google never fetched
+	});
+
+	// quick-261116-lyrux (Task 4): LINE-LEVEL KV — a re-composed batch (the client's
+	// lyricsSkip toggle changes which lines are sent together) reuses the per-line
+	// entries and only computes the genuinely-new lines. Stateful KV mock.
+	function statefulKv() {
+		const store = new Map<string, string>();
+		return {
+			store,
+			kv: {
+				get: async (k: string): Promise<string | null> => store.get(k) ?? null,
+				put: async (k: string, v: string): Promise<void> => {
+					store.set(k, v);
+				}
+			}
+		};
+	}
+	const lineKeysOf = (store: Map<string, string>) =>
+		Array.from(store.keys()).filter((k) => k.startsWith('translate-line:v3:'));
+	const googleQs = () =>
+		fetchMock.mock.calls
+			.map((c) => String(c[0]))
+			.filter((u) => u.includes('translate.googleapis.com'))
+			.map((u) => new URL(u).searchParams.get('q') ?? '');
+
+	it('line-KV: a SUPERSET batch only computes the new lines (toggle scenario)', async () => {
+		wire({ google: 'translate' }); // keyless deployment shape: Google is the cascade tail
+		const { kv, store } = statefulKv();
+		// Round 1: the KR-only batch (English still skipped client-side).
+		const r1 = await callPost(['사랑해', '너를 원해'], 'zh-Hant', { TRANSLATE_CACHE: kv });
+		const b1 = (await r1.json()) as { translated: string[]; flags: boolean[] };
+		expect(b1.flags).toEqual([true, true]);
+		expect(lineKeysOf(store)).toHaveLength(2); // both KR lines now have line entries
+		const fetchesAfterRound1 = fetchMock.mock.calls.length;
+		// Round 2: English un-skipped — a NEW composition (batch keys miss), KR lines
+		// interleaved around a brand-new English line.
+		const r2 = await callPost(['사랑해', 'Hello tonight', '너를 원해'], 'zh-Hant', {
+			TRANSLATE_CACHE: kv
+		});
+		const b2 = (await r2.json()) as { translated: string[]; flags: boolean[] };
+		expect(b2.flags).toEqual([true, true, true]);
+		expect(b2.translated[0]).toBe('사랑해' + TAG.google); // the line-KV value
+		expect(b2.translated[2]).toBe('너를 원해' + TAG.google);
+		// The providers only ever saw the ONE new line in round 2.
+		const qs = googleQs();
+		expect(fetchMock.mock.calls.length - fetchesAfterRound1).toBe(1);
+		expect(qs[qs.length - 1]).toBe('Hello tonight');
+		expect(lineKeysOf(store)).toHaveLength(3); // the new line joined the line cache
+	});
+
+	it('line-KV: echoed lines are never written per-line (nor as a batch)', async () => {
+		wire({ google: 'echo' });
+		const { kv, store } = statefulKv();
+		const res = await callPost(['简体一', '简体二'], 'zh-Hant', { TRANSLATE_CACHE: kv });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.flags).toEqual([false, false]);
+		expect(lineKeysOf(store)).toHaveLength(0);
+		expect(Array.from(store.keys()).filter((k) => k.startsWith('translate:v3:'))).toHaveLength(0);
+	});
+
+	it('line-KV: a fully line-cached batch makes ZERO provider calls', async () => {
+		wire({ google: 'translate' });
+		const { kv, store } = statefulKv();
+		await callPost(['사랑해', '너를 원해'], 'zh-Hant', { TRANSLATE_CACHE: kv });
+		fetchMock.mockClear();
+		// A DIFFERENT composition of the same two lines (order swapped — batch key differs).
+		const res = await callPost(['너를 원해', '사랑해'], 'zh-Hant', { TRANSLATE_CACHE: kv });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated).toEqual(['너를 원해' + TAG.google, '사랑해' + TAG.google]);
+		expect(body.flags).toEqual([true, true]);
+		expect(fetchMock).not.toHaveBeenCalled(); // served entirely from line-KV
+		expect(store.size).toBeGreaterThan(0);
 	});
 });
