@@ -243,15 +243,16 @@ describe('/api/translate provider cascade', () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
-	it('KV miss + genuine result writes KV with the v2 key + 90-day TTL', async () => {
+	it('KV miss + genuine result writes KV with the v3 key and NO expiration (permanent)', async () => {
 		wire({ google: 'translate' });
 		const { kv, puts } = mockKv();
 		const res = await callPost(['Hello world'], 'zh-Hant', { AI: mockAi('translate'), TRANSLATE_CACHE: kv });
 		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
 		expect(body.flags).toEqual([true]);
 		expect(puts).toHaveLength(1);
-		expect(puts[0].key).toMatch(/^translate:v2:zh-Hant:[0-9a-f]{64}$/);
-		expect(puts[0].ttl).toBe(7776000);
+		expect(puts[0].key).toMatch(/^translate:v3:zh-Hant:[0-9a-f]{64}$/);
+		// quick-261116-kvttl: put called WITHOUT expirationTtl → the entry never expires.
+		expect(puts[0].ttl).toBeUndefined();
 		expect(JSON.parse(puts[0].value)).toEqual([['Hello world' + TAG.ai], [true]]);
 	});
 

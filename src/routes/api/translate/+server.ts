@@ -78,15 +78,20 @@ const LANG_MAP: Record<string, string> = {
 const TIMEOUT_MS = 8000;
 
 // quick-261116-perf: provider-side translation cache (see POST). VER is the impl/prompt
-// version segment of the cache key; TTL is a week — lyric/name translations are stable
-// and the client already persists complete batches indefinitely.
+// version segment of the cache key; the L1 edge TTL is only an upper bound (PoPs evict
+// at will) — lyric/name translations are stable and the client already persists
+// complete batches indefinitely.
 // quick-261116-kvprog: VER bumped v1 → v2 for the KV L2 layer — the key semantics changed
 // (a v2 entry may now be served from global KV, not only this PoP's edge cache), so v1
-// edge entries are orphaned rather than shadow the new layer. KV TTL is 90 days: KV is
-// the durable layer, and a genuine lyric translation does not go stale.
-const TRANSLATE_CACHE_VER = 'v2';
-const TRANSLATE_CACHE_TTL = 604800;
-const TRANSLATE_KV_TTL = 7776000;
+// edge entries are orphaned rather than shadow the new layer.
+// quick-261116-kvttl: VER bumped v2 → v3 and KV writes are now PERMANENT (no
+// expirationTtl — a KV put without one never expires). Lyric text is immutable, so a
+// genuine translation never goes stale: the invalidation lever is this cache-key impl
+// version, not time. v2 KV entries (written with the old 90-day TTL) are simply
+// orphaned by the version bump and age out on their own — no migration. The L1 edge
+// TTL rises to a year as a pure upper bound; KV is the durable layer.
+const TRANSLATE_CACHE_VER = 'v3';
+const TRANSLATE_CACHE_TTL = 31536000;
 
 // Lines per Google request. Empirically the free endpoint flips to echo-mode (returns the
 // input untranslated) somewhere past ~45 sentinel-separated short lines; 20 keeps every
@@ -535,7 +540,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	// evictable: a song paid for in Calgary was a cold miss in Toronto). L2 = KV
 	// (`TRANSLATE_CACHE`, namespace openmusic-translate-cache): global + durable, so a
 	// genuine translation is paid for ONCE worldwide. Lookup order L1 → L2 → cascade;
-	// a genuine result writes BOTH layers (KV at the 90-day TTL). A KV hit backfills L1
+	// a genuine result writes BOTH layers (KV permanently — quick-261116-kvttl). A KV hit backfills L1
 	// so this PoP serves the next hit at edge speed. Every KV operation is wrapped —
 	// a KV fault degrades to L1/cascade and NEVER fails or blocks the response.
 	const cache = edgeCache();
@@ -607,9 +612,9 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 			await storeL1(translated, flags);
 			if (kv && kvKey) {
 				try {
-					await kv.put(kvKey, JSON.stringify([translated, flags]), {
-						expirationTtl: TRANSLATE_KV_TTL
-					});
+					// quick-261116-kvttl: NO expirationTtl — the entry never expires
+					// (lyric text is immutable; TRANSLATE_CACHE_VER is the invalidation lever).
+					await kv.put(kvKey, JSON.stringify([translated, flags]));
 				} catch {
 					/* KV write is best-effort */
 				}
