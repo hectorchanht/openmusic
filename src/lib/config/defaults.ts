@@ -112,8 +112,8 @@ export const APPEARANCE_DEFAULTS = {
 		'customize',
 		'goToAlbum',
 		'startRadio',	// startRadio is similar to remix, can comment out
-		'viewComments',
-		'viewRelated',
+		// 'viewComments',
+		// 'viewRelated',
 	] as readonly MenuActionId[]
 } as const;
 
