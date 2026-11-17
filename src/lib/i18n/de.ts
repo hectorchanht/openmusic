@@ -584,6 +584,8 @@ const de: Dict = {
 	"skip.timeout": "Zeitüberschreitung",
 	"skip.loadError": "Audio konnte nicht geladen werden",
 	"toast.playbackStopped": "Wiedergabe gestoppt — Titel konnten nicht geladen werden",
+	"toast.playbackRecovered": "Titel laden wieder — {count} heruntergeladene Titel wurden in der Zwischenzeit gespielt",
+	"toast.playbackRetrying": "Titel konnten nicht geladen werden — automatischer neuer Versuch",
 	"toast.retry": "Wiederholen",
 	"toast.offlineNoDownloads": "Du bist offline — keine heruntergeladenen Titel zum Abspielen",
 	"toast.downloaded": "Heruntergeladen · {label}",

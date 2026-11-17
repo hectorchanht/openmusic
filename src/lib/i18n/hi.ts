@@ -584,6 +584,8 @@ const hi: Dict = {
 	"skip.timeout": "समय समाप्त",
 	"skip.loadError": "ऑडियो लोड नहीं हो सका",
 	"toast.playbackStopped": "प्लेबैक रुक गया — गाने लोड नहीं हो सके",
+	"toast.playbackRecovered": "गाने फिर से लोड हो रहे हैं — इस बीच {count} डाउनलोड किए गाने बजे",
+	"toast.playbackRetrying": "गाने लोड नहीं हो सके — स्वचालित रूप से पुनः प्रयास हो रहा है",
 	"toast.retry": "पुनः प्रयास करें",
 	"toast.offlineNoDownloads": "आप ऑफ़लाइन हैं — चलाने के लिए कोई डाउनलोड किया गाना नहीं है",
 	"toast.downloaded": "डाउनलोड किया गया · {label}",

@@ -584,6 +584,8 @@ const ar: Dict = {
 	"skip.timeout": "انتهت المهلة",
 	"skip.loadError": "تعذّر تحميل الصوت",
 	"toast.playbackStopped": "توقف التشغيل — تعذّر تحميل الأغاني",
+	"toast.playbackRecovered": "عادت الأغاني للتحميل — تم تشغيل {count} من الأغاني المنزّلة في هذه الأثناء",
+	"toast.playbackRetrying": "تعذّر تحميل الأغاني — إعادة المحاولة تلقائيًا",
 	"toast.retry": "إعادة المحاولة",
 	"toast.offlineNoDownloads": "أنت غير متصل — لا توجد أغانٍ مُنزّلة للتشغيل",
 	"toast.downloaded": "تم التنزيل · {label}",

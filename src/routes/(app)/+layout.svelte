@@ -126,6 +126,18 @@
 					host = null;
 					skipTimer = null;
 				}, SKIP_DISMISS_MS);
+			} else if (n.kind === 'never-stop') {
+				// quick-261116-nstop: the Never-Stop Engine entered a fallback interlude with an
+				// empty local pool (retrying) or recovered from one (summary). Playback did NOT
+				// stop, so the auto-dismissing 'skip' shape — no sticky pill, no Retry button.
+				// The store emits the real key on `msg` (retrying vs recovered) + the interlude
+				// play count for the recovered wording.
+				host = { kind: 'skip', text: t(n.msg, { count: n.count ?? 0 }) };
+				clearSkipTimer();
+				skipTimer = setTimeout(() => {
+					host = null;
+					skipTimer = null;
+				}, SKIP_DISMISS_MS);
 			} else {
 				// kind 'stopped' — PERSISTENT (no auto-dismiss timer). offline vs loop-guard wording.
 				clearSkipTimer();

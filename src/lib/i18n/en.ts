@@ -679,6 +679,8 @@ const en = {
 	"skip.timeout": "timed out",
 	"skip.loadError": "audio failed to load",
 	"toast.playbackStopped": "Playback stopped — couldn't load songs",
+	"toast.playbackRecovered": "Songs are loading again — {count} downloaded songs played meanwhile",
+	"toast.playbackRetrying": "Couldn't load songs — retrying automatically",
 	"toast.retry": "Retry",
 	"toast.offlineNoDownloads": "You're offline — no downloaded songs to play",
 	"toast.downloaded": "Downloaded · {label}",

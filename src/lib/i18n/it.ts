@@ -584,6 +584,8 @@ const it: Dict = {
 	"skip.timeout": "tempo scaduto",
 	"skip.loadError": "caricamento audio fallito",
 	"toast.playbackStopped": "Riproduzione interrotta — impossibile caricare i brani",
+	"toast.playbackRecovered": "I brani si caricano di nuovo — {count} brani scaricati riprodotti nel frattempo",
+	"toast.playbackRetrying": "Impossibile caricare i brani — nuovo tentativo automatico",
 	"toast.retry": "Riprova",
 	"toast.offlineNoDownloads": "Sei offline — nessun brano scaricato da riprodurre",
 	"toast.downloaded": "Scaricato · {label}",

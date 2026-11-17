@@ -584,6 +584,8 @@ const tr: Dict = {
 	"skip.timeout": "zaman aşımı",
 	"skip.loadError": "ses yüklenemedi",
 	"toast.playbackStopped": "Oynatma durduruldu — şarkılar yüklenemedi",
+	"toast.playbackRecovered": "Şarkılar tekrar yükleniyor — bu arada {count} indirilen şarkı çalındı",
+	"toast.playbackRetrying": "Şarkılar yüklenemedi — otomatik olarak yeniden deneniyor",
 	"toast.retry": "Yeniden dene",
 	"toast.offlineNoDownloads": "Çevrimdışısın — çalınacak indirilmiş şarkı yok",
 	"toast.downloaded": "İndirildi · {label}",

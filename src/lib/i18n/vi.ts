@@ -584,6 +584,8 @@ const vi: Dict = {
 	"skip.timeout": "hết thời gian chờ",
 	"skip.loadError": "không tải được âm thanh",
 	"toast.playbackStopped": "Đã dừng phát — không thể tải bài hát",
+	"toast.playbackRecovered": "Bài hát đã tải lại được — đã phát {count} bài đã tải trong lúc chờ",
+	"toast.playbackRetrying": "Không tải được bài hát — đang tự động thử lại",
 	"toast.retry": "Thử lại",
 	"toast.offlineNoDownloads": "Bạn đang ngoại tuyến — không có bài hát đã tải để phát",
 	"toast.downloaded": "Đã tải xuống · {label}",

@@ -584,6 +584,8 @@ const pt: Dict = {
 	"skip.timeout": "tempo esgotado",
 	"skip.loadError": "falha ao carregar o áudio",
 	"toast.playbackStopped": "Reprodução interrompida — não foi possível carregar as músicas",
+	"toast.playbackRecovered": "As músicas voltaram a carregar — {count} músicas baixadas tocadas enquanto isso",
+	"toast.playbackRetrying": "Não foi possível carregar as músicas — tentando novamente automaticamente",
 	"toast.retry": "Tentar novamente",
 	"toast.offlineNoDownloads": "Você está offline — nenhuma música baixada para reproduzir",
 	"toast.downloaded": "Baixado · {label}",

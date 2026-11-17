@@ -584,6 +584,8 @@ const ru: Dict = {
 	"skip.timeout": "время ожидания истекло",
 	"skip.loadError": "не удалось загрузить аудио",
 	"toast.playbackStopped": "Воспроизведение остановлено — не удалось загрузить треки",
+	"toast.playbackRecovered": "Песни снова загружаются — за это время сыграно загруженных песен: {count}",
+	"toast.playbackRetrying": "Не удалось загрузить песни — автоматический повтор",
 	"toast.retry": "Повторить",
 	"toast.offlineNoDownloads": "Вы офлайн — нет загруженных треков для воспроизведения",
 	"toast.downloaded": "Скачано · {label}",

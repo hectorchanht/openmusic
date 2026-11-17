@@ -584,6 +584,8 @@ const fr: Dict = {
 	"skip.timeout": "délai dépassé",
 	"skip.loadError": "échec du chargement audio",
 	"toast.playbackStopped": "Lecture arrêtée — impossible de charger les titres",
+	"toast.playbackRecovered": "Les titres se chargent à nouveau — {count} titres téléchargés joués en attendant",
+	"toast.playbackRetrying": "Impossible de charger les titres — nouvelle tentative automatique",
 	"toast.retry": "Réessayer",
 	"toast.offlineNoDownloads": "Vous êtes hors ligne — aucun titre téléchargé à lire",
 	"toast.downloaded": "Téléchargé · {label}",

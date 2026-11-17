@@ -610,6 +610,8 @@ const zhHant: Dict = {
 	"skip.timeout": "連線逾時",
 	"skip.loadError": "音訊載入失敗",
 	"toast.playbackStopped": "播放已停止 — 無法載入歌曲",
+	"toast.playbackRecovered": "歌曲已恢復載入 — 期間播放咗 {count} 首下載歌曲",
+	"toast.playbackRetrying": "載入唔到歌曲 — 自動重試緊",
 	"toast.retry": "重試",
 	"toast.offlineNoDownloads": "你目前離線 — 沒有已下載的歌曲可播放",
 	"toast.downloaded": "已下載 · {label}",

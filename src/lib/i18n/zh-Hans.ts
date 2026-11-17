@@ -610,6 +610,8 @@ const zhHans: Dict = {
 	"skip.timeout": "连接超时",
 	"skip.loadError": "音频加载失败",
 	"toast.playbackStopped": "播放已停止 — 无法加载歌曲",
+	"toast.playbackRecovered": "歌曲已恢复加载 — 期间播放了 {count} 首下载歌曲",
+	"toast.playbackRetrying": "无法加载歌曲 — 正在自动重试",
 	"toast.retry": "重试",
 	"toast.offlineNoDownloads": "你当前离线 — 没有已下载的歌曲可播放",
 	"toast.downloaded": "已下载 · {label}",

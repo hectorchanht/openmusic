@@ -584,6 +584,8 @@ const th: Dict = {
 	"skip.timeout": "หมดเวลา",
 	"skip.loadError": "โหลดเสียงไม่สำเร็จ",
 	"toast.playbackStopped": "หยุดเล่นแล้ว — โหลดเพลงไม่ได้",
+	"toast.playbackRecovered": "เพลงกลับมาโหลดได้อีกครั้ง — เล่นเพลงที่ดาวน์โหลด {count} เพลงในระหว่างนั้น",
+	"toast.playbackRetrying": "โหลดเพลงไม่ได้ — กำลังลองใหม่อัตโนมัติ",
 	"toast.retry": "ลองอีกครั้ง",
 	"toast.offlineNoDownloads": "คุณออฟไลน์อยู่ — ไม่มีเพลงที่ดาวน์โหลดไว้ให้เล่น",
 	"toast.downloaded": "ดาวน์โหลดแล้ว · {label}",

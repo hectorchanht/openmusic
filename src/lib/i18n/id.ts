@@ -584,6 +584,8 @@ const id: Dict = {
 	"skip.timeout": "waktu habis",
 	"skip.loadError": "audio gagal dimuat",
 	"toast.playbackStopped": "Pemutaran dihentikan — tidak dapat memuat lagu",
+	"toast.playbackRecovered": "Lagu dimuat lagi — {count} lagu unduhan diputar sementara itu",
+	"toast.playbackRetrying": "Tidak dapat memuat lagu — mencoba lagi secara otomatis",
 	"toast.retry": "Coba lagi",
 	"toast.offlineNoDownloads": "Anda offline — tidak ada lagu yang diunduh untuk diputar",
 	"toast.downloaded": "Diunduh · {label}",

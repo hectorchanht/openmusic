@@ -35,6 +35,14 @@ import { reportDeadDirectUrl } from '$lib/services/direct-url-cache';
 import { buildDiversePicks } from '$lib/services/picks';
 import { buildSimilarQueue } from '$lib/services/similar';
 import { buildOfflineQueue } from '$lib/services/downloads-queue';
+// quick-261116-nstop: the Never-Stop Engine's pure decision core (pool ordering, probe
+// budget, source cooldowns) — this store thin-calls it and owns all the I/O.
+import {
+	orderFallbackPool,
+	SourceCooldowns,
+	ProbeBudget,
+	NS_RETRY_PROBE_MS
+} from '$lib/services/never-stop';
 import { shouldAdoptDownloaded } from '$lib/services/download-upgrade';
 import { dedupeBest, sameSongKey, matchKey, songKey } from '$lib/services/dedupe';
 import { overPrebufferCeiling } from '$lib/services/prebuffer-ceiling';
@@ -176,8 +184,13 @@ export interface PlayerNotice {
 	 *  43-D-08 adds 'version': an auto-picked cross-source substitute whose title/duration notably
 	 *  differ from the request (`Track.versionMismatch`, stamped by walkSource). Informational,
 	 *  auto-dismissing, playback continues. `msg` is the may-not-be-original toast key; `title`/`artist` are
-	 *  the NOW-PLAYING track's, rendered by the host through names.dnTitle. */
-	kind: 'skip' | 'stopped' | 'corrupt-download' | 'version';
+	 *  the NOW-PLAYING track's, rendered by the host through names.dnTitle.
+	 *  quick-261116-nstop adds 'never-stop': the Never-Stop Engine's two quiet signals — the
+	 *  zero-asset RETRYING state (`msg` = toast.playbackRetrying, no count) and the one-time
+	 *  post-recovery SUMMARY (`msg` = toast.playbackRecovered, `count` = interlude tracks
+	 *  played). Both informational + auto-dismissing: playback never stopped, so never sticky
+	 *  and never a Retry action. */
+	kind: 'skip' | 'stopped' | 'corrupt-download' | 'version' | 'never-stop';
 	/** A REAL TranslationKey the UI may render directly via t() (WR-03) — the structured fields
 	 *  below remain the preferred mapping input for hosts that want richer wording. Previously a
 	 *  free `string` carrying phantom `player.notice.*` tokens that existed in no dictionary. */
@@ -185,7 +198,8 @@ export interface PlayerNotice {
 	/** Why a 'stopped' notice fired — distinguishes the loop-guard from the offline pause and from
 	 *  an up-next that genuinely ran dry (every generator returned nothing, repeatedly). */
 	reason?: 'loop-guard' | 'offline' | 'up-next-dry';
-	/** 'skip' only: number of consecutive skips collapsed into this one message (D-02). */
+	/** 'skip' only: number of consecutive skips collapsed into this one message (D-02).
+	 *  'never-stop' summary only: how many local interlude tracks played before recovery. */
 	count?: number;
 	/** 'skip' only: the RAW catalog title + artist of the most recently skipped track. The host
 	 *  renders it through names.dnTitle — the store never converts display text (quick-261102-tlo). */
@@ -289,8 +303,9 @@ class Player {
 	 * /api/* requests; with no ceiling they pile up until the browser connection pool saturates and the
 	 * app freezes — the TRUE driver of this bug (the api-base governor only caps the blast radius). Once
 	 * this many DISTINCT tracks fail back-to-back with zero successful playback, the situation is
-	 * systemic and churning only spams, so haltRunawayRecovery() STOPS (pause + sticky Retry) instead of
-	 * advancing again.
+	 * systemic and churning only spams, so the ceiling trips: it used to STOP via haltRunawayRecovery
+	 * (pause + sticky Retry); since quick-261116-nstop it enters the Fallback Interlude instead
+	 * (see below) — the churn cuts are identical, only the pause is gone.
 	 *
 	 * This is NOT the false-positive STOP that debug-nowbar-freeze-reresolve-loop disabled: THAT tripped
 	 * on a SYNCHRONOUS rapid-error storm on a SINGLE track (a transient CDN blip re-erroring in a tight
@@ -298,9 +313,47 @@ class Player {
 	 * systemic signal a transient blip cannot reach, because a single real `playing` resets the counter.
 	 * Recovery is the existing recoverFromStop (Retry): skip ahead, drop the dead sets, re-arm.
 	 * Plain field (not $state) — internal loop-guard budget, never read reactively by the UI.
+	 *
+	 * quick-261116-nstop (Never-Stop Engine, grill Q8–Q10): the cap no longer STOPS playback.
+	 * Tripping it now enters the Fallback Interlude (enterFallbackInterlude): every network-churn
+	 * cut haltRunawayRecovery made (abort prefetch, cancel re-resolves, stop queue auto-grow) is
+	 * KEPT — that churn is what this ceiling really guards — but instead of pausing, the player
+	 * plays the user's LOCAL tracks (Downloads/Cached, least-recently-played first) while a
+	 * budgeted revival probe (one per interlude track, source cooldowns doubling to ~15 min)
+	 * tests the saved queue. haltRunawayRecovery itself survives for the same-uid re-drive
+	 * storm guard, where the loop is synchronous and local playback cannot break it.
 	 */
 	private failoverSkips = 0;
 	private static SYSTEMIC_SKIP_CAP = 5;
+	/**
+	 * NEVER-STOP ENGINE state (quick-261116-nstop). All PLAIN fields — internal budgets and
+	 * bookkeeping, never read reactively by the UI (the UI reads `notice` only).
+	 *
+	 * `nsInterlude` is non-null while a Fallback Interlude is active: the streaming queue is
+	 * saved in `nsSavedQueue` and the queue holds the local pool (`nsPoolTracks`, ordered by
+	 * orderFallbackPool). `nsPlayedCycle` is the pool's played-this-cycle set (Q13: no repeat
+	 * until the pool is exhausted). Revival probing is budgeted by `nsProbeBudget` (one probe
+	 * per interlude track) and scheduled by `nsCooldowns` (per-source exponential cooldown);
+	 * `nsProbeUid` marks the one streaming track currently being probe-played — its real
+	 * `playing` exits the interlude (queue already restored), its total failure routes back
+	 * to the pool via handleProbeFailure instead of burning the skip counters.
+	 * `nsRetrying` is the zero-asset state (Q14): no local track exists to play, so a 60s
+	 * timer re-probes the saved queue with no user action needed.
+	 */
+	private nsCooldowns = new SourceCooldowns();
+	private nsProbeBudget = new ProbeBudget();
+	private nsInterlude: { startedAt: number; plays: number; markedSources: SourceId[] } | null = null;
+	private nsSavedQueue: {
+		queue: Track[];
+		anchorUid: string | null;
+		context: QueueContext;
+		resumeIndex: number;
+	} | null = null;
+	private nsPoolTracks: Track[] = [];
+	private nsPlayedCycle = new Set<string>();
+	private nsProbeUid: string | null = null;
+	private nsRetrying = false;
+	private nsRetryTimer: ReturnType<typeof setTimeout> | null = null;
 	/** RAPID-FIRE BRAKE window (debug-nowbar-freeze-reresolve-loop). Two consecutive audio `error`
 	 *  events closer together than this — with NO intervening real `playing` — cannot be two distinct
 	 *  network failures: a fresh detail re-resolve + a full `<audio>` load simply cannot complete this
@@ -2859,6 +2912,9 @@ class Player {
 			this.fallbackEpisodeKey = null;
 			this.fallbackAttempted = new Set<SourceId>();
 			if (this.notice?.kind === 'stopped') this.notice = null;
+			// quick-261116-nstop: if this real audio is the REVIVAL PROBE track, the interlude
+			// is over — the saved queue (already restored by attemptRevivalProbe) owns playback.
+			this.exitInterludeRecovered();
 		});
 		el.addEventListener('pause', () => {
 			logAction('pause', { deliberate: this.deliberatePause });
@@ -3072,13 +3128,20 @@ class Player {
 					this.recordSkip(this.current.uid, 'load-error'); // quick-260926-l69: tagged even if the STOP below trips
 					this.strikeUnplayable(this.current.uid, 'load-error');
 				}
+				// quick-261116-nstop: a failed REVIVAL PROBE lands here too — it is budgeted
+				// separately (one per interlude track) and must not burn the skip ceiling.
+				if (this.nsProbeUid !== null && this.current?.uid === this.nsProbeUid) {
+					this.handleProbeFailure();
+					return;
+				}
 				// SYSTEMIC-FAILURE CEILING (debug-nowbar-frozen-audius-spam): this ceiling just fired for
 				// yet another track with no real `playing` since the last one. Count it; once
-				// SYSTEMIC_SKIP_CAP distinct tracks fail back-to-back the outage is systemic, so STOP
-				// (pause + Retry) rather than skipping into another resolve/regenerate/prefetch burst that
-				// only spams /api/*. A real `playing` resets failoverSkips, so this can't trip on a blip.
+				// SYSTEMIC_SKIP_CAP distinct tracks fail back-to-back the outage is systemic, so enter
+				// the Fallback Interlude (quick-261116-nstop: it used to STOP via haltRunawayRecovery)
+				// rather than skipping into another resolve/regenerate/prefetch burst that only spams
+				// /api/*. A real `playing` resets failoverSkips, so this can't trip on a blip.
 				if (++this.failoverSkips >= Player.SYSTEMIC_SKIP_CAP) {
-					this.haltRunawayRecovery();
+					this.enterFallbackInterlude();
 					return;
 				}
 				// 31-D-18: this is a skip the user is watching happen, and until now it happened in total
@@ -4387,6 +4450,18 @@ class Player {
 		opts?: { fresh?: boolean; fromFallback?: boolean; context?: QueueContext; sameList?: boolean; forceGenerated?: boolean }
 	) {
 		logAction('play', { uid: track.uid, source: track.source, fresh: !!opts?.fresh });
+		// quick-261116-nstop: a play of a NON-pool streaming track while a Fallback Interlude
+		// is active supersedes the interlude (the user took over) — exit it silently, no
+		// summary. Pool plays and the revival probe (nsProbeUid, set before its play) are the
+		// only plays that keep the interlude alive.
+		if (
+			this.nsInterlude &&
+			this.nsProbeUid !== track.uid &&
+			!this.nsPoolTracks.some((t) => t.uid === track.uid)
+		) {
+			logAction('neverstop.interlude.exit', { reason: 'manual-play', uid: track.uid });
+			this.clearInterludeState();
+		}
 		// quick-261008-audit: a user play is a NEW intent — a pending dry-grow retry belongs to the
 		// old queue tail's episode. Clear it now (not just on `playing`): a slow-resolving tap would
 		// otherwise be skipped past when the 5s timer fires mid-resolve.
@@ -5779,6 +5854,42 @@ class Player {
 		// handleDryGrow's own timer calls next() too (after nulling the timer, so this is a no-op
 		// there), and resetting it would break the bounded-retry budget.
 		this.clearDryGrowTimer();
+		// NEVER-STOP INTERLUDE routing (quick-261116-nstop). While an interlude is active the
+		// queue holds the local pool, and advancing must (a) spend a due revival probe FIRST
+		// (one per interlude track, only once a marked source has cooled down), (b) otherwise
+		// stay inside the pool — never the ensureAhead grow below, which is exactly the /api
+		// churn the interlude exists to stop — and (c) wrap the pool when it is exhausted.
+		// In the zero-asset retrying state a manual next just probes immediately.
+		if (this.nsRetrying) {
+			this.attemptRevivalProbe();
+			return;
+		}
+		if (this.nsInterlude) {
+			if (
+				this.nsProbeBudget.pending &&
+				this.nsCooldowns.anyEligible(this.nsInterlude.markedSources, Date.now()) &&
+				this.nsProbeBudget.tryConsume()
+			) {
+				this.attemptRevivalProbe();
+				return;
+			}
+			const pi = this.indexOf(this.current);
+			const pj = this.nextAdvanceIndex(pi);
+			if (pj >= 0 && this.nsPoolTracks.some((t) => t.uid === this.queue[pj].uid)) {
+				const target = this.queue[pj];
+				this.advanceTo(pj);
+				// Register the pool play (count + cycle + next probe token) — advanceTo has
+				// already started it through play().
+				if (this.nsInterlude) {
+					this.nsInterlude.plays++;
+					this.nsPlayedCycle.add(target.uid);
+					this.nsProbeBudget.onInterludeTrackStart();
+				}
+				return;
+			}
+			this.wrapInterludePool();
+			return;
+		}
 		const i = this.indexOf(this.current);
 		const j = this.nextAdvanceIndex(i);
 		if (j >= 0) {
@@ -6031,9 +6142,10 @@ class Player {
 	 *
 	 *  - D-12: a failing repeat-one loop breaks repeat first (never-stop wins over explicit repeat),
 	 *    so we don't loop a dead track forever.
-	 *  - The failure is counted. At/over the cap (D-04) we STOP: pause, set a sticky loop-guard
-	 *    notice carrying a Retry action (recoverFromStop), keep `error` for the inline now-bar, and
-	 *    do NOT advance. Below the cap (D-02) we emit a batched skip notice and auto-skip via next().
+	 *  - The failure is counted. At/over the systemic cap we enter the Fallback Interlude
+	 *    (quick-261116-nstop — D-04's STOP is retired: enterFallbackInterlude keeps the churn
+	 *    cuts but plays the local pool instead of pausing). Below the cap (D-02) we emit a
+	 *    batched skip notice and auto-skip via next().
 	 *
 	 * The skip path goes through the existing next() → play() which bumps playGen, so a user manual
 	 * skip mid-failover supersedes correctly (Pitfall 2) — there is NO parallel fast-skip path.
@@ -6053,14 +6165,22 @@ class Player {
 		// it and the user saw a "stopped" message while the player was merely skipping. The batched
 		// skip notice below is the correct, self-dismissing signal for a skip. `this.error` is reserved
 		// for a genuine give-up (offline with no downloads / a resolve throw), not the never-stop skip.
+		// quick-261116-nstop: a failed REVIVAL PROBE is budgeted separately — route back to the
+		// interlude pool instead of counting it toward the ceiling or advancing the saved queue.
+		if (this.nsProbeUid !== null && failed.uid === this.nsProbeUid) {
+			this.recordSkip(failed.uid, reason);
+			this.handleProbeFailure();
+			return;
+		}
 		// SYSTEMIC-FAILURE CEILING (debug-nowbar-frozen-audius-spam): a total failover (EVERY source
 		// exhausted for this song) is another distinct failed track. Once SYSTEMIC_SKIP_CAP tracks fail
-		// back-to-back with no playback, STOP rather than skipping into yet another regenerate/resolve
-		// burst that spams /api/*. A real `playing` resets failoverSkips so this can't trip on a blip.
+		// back-to-back with no playback, enter the Fallback Interlude (quick-261116-nstop: it used to
+		// STOP via haltRunawayRecovery) rather than skipping into yet another regenerate/resolve burst
+		// that spams /api/*. A real `playing` resets failoverSkips so this can't trip on a blip.
 		// quick-260926-l69: tag the row BEFORE the ceiling check so a halted run still explains itself.
 		this.recordSkip(failed.uid, reason);
 		if (++this.failoverSkips >= Player.SYSTEMIC_SKIP_CAP) {
-			this.haltRunawayRecovery();
+			this.enterFallbackInterlude();
 			return;
 		}
 		// D-02: emit a batched skip notice and auto-skip to the next track.
@@ -6110,6 +6230,283 @@ class Player {
 	}
 
 	/**
+	 * NEVER-STOP INTERLUDE ENTRY (quick-261116-nstop; grill Q8–Q10). Called from BOTH
+	 * SYSTEMIC_SKIP_CAP trip sites instead of haltRunawayRecovery. The network-churn cuts are
+	 * halt's own, kept verbatim — abort the prefetch walk, cancel pending re-resolves, kill the
+	 * dry-grow timer, disarm the stall watchdog — because the /api burst is what the ceiling
+	 * exists to bound. What changes is only the ending: no pause, no sticky Retry. The current
+	 * queue + Up Next anchor + context are saved, the attempted/failed sources are marked into
+	 * the probe cooldown tracker, and playback continues on the local pool (beginInterludePlayback).
+	 * A re-trip while an interlude is already active keeps the saved queue and pool; it only
+	 * merges the newly marked sources and advances the pool.
+	 */
+	private enterFallbackInterlude() {
+		logAction('neverstop.interlude.start', {
+			skips: this.failoverSkips,
+			already: !!this.nsInterlude
+		});
+		this.failoverSkips = 0;
+		this.errorBurst = 0;
+		this.rapidErrorBurst = 0;
+		this.reresolveBurst = 0;
+		this.loadRetryBurst = 0;
+		// Cut every out-of-band /api/* fetch source dead (halt's churn cuts, minus the pause).
+		this.prefetchController?.abort();
+		this.cancelAllRetryResolves();
+		this.clearDryGrowTimer(); // a queued dry-grow retry would re-arm the churn just cut
+		this.disarmStall();
+		this.loading = false;
+		// Mark the sources this systemic episode burned: the failed track's own source plus
+		// every source genuinely tried this fallback episode. The marks gate ONLY the revival
+		// probe schedule (SourceCooldowns) — normal playback and the per-source health gates
+		// are untouched, so an over-mark costs a later probe, never a blocked song.
+		const now = Date.now();
+		const marked = new Set<SourceId>();
+		if (this.current?.source) marked.add(this.current.source);
+		for (const s of this.fallbackAttempted) marked.add(s);
+		for (const s of marked) this.nsCooldowns.markFailed(s, now);
+		if (!this.nsInterlude) {
+			this.nsSavedQueue = {
+				queue: [...this.queue],
+				anchorUid: this.upNextAnchorUid,
+				context: this.queueContext,
+				resumeIndex: this.indexOf(this.current)
+			};
+			this.nsInterlude = { startedAt: now, plays: 0, markedSources: [...marked] };
+			this.nsPlayedCycle.clear();
+		} else {
+			for (const s of marked)
+				if (!this.nsInterlude.markedSources.includes(s)) this.nsInterlude.markedSources.push(s);
+		}
+		logAction('neverstop.interlude.sources', { sources: [...marked] });
+		void this.beginInterludePlayback(this.playGen);
+	}
+
+	/**
+	 * Build the interlude pool (Q1/Q13): ALL Downloads (user-endorsed) + Cached filler —
+	 * history tracks whose bytes still sit in blobStore but that are not downloads — ordered
+	 * least-recently-played first by the pure orderFallbackPool. Zero-asset tail (Q14): if
+	 * neither exists, the last byte-buffered track (the prefetch prebuffer) is the pool of
+	 * one; if there is not even that, the pool is empty and the caller enters the retrying
+	 * state. Never throws: a blobStore probe failure reads as "no cached filler".
+	 */
+	private async buildInterludePool(): Promise<Track[]> {
+		const downloads = [...library.downloads];
+		const downloadUids = new Set(downloads.map((t) => t.uid));
+		const known = new Map<string, Track>();
+		for (const t of this.nsSavedQueue?.queue ?? []) if (t?.uid) known.set(t.uid, t);
+		if (this.current) known.set(this.current.uid, this.current);
+		const historyUids = history.entries.map((e) => e.uid);
+		const cached: Track[] = [];
+		for (const uid of historyUids.slice(0, 20)) {
+			if (cached.length >= 10) break;
+			if (downloadUids.has(uid)) continue;
+			const track = known.get(uid);
+			if (!track) continue;
+			try {
+				if (await blobStore.has(uid)) cached.push(track);
+			} catch {
+				/* probe unavailable — no cached filler, Downloads still carry the interlude */
+			}
+		}
+		let pool = orderFallbackPool(downloads, cached, historyUids, this.nsPlayedCycle);
+		if (pool.length === 0 && this.prebufferedUid) {
+			const buffered = known.get(this.prebufferedUid);
+			if (buffered) pool = [buffered];
+		}
+		return pool;
+	}
+
+	/**
+	 * Start (or continue) interlude playback. Generation-guarded like every async play path:
+	 * a user play() landing while the pool was being built supersedes the interlude entry.
+	 * On a re-trip the existing pool is kept — only the next unplayed pool track is started.
+	 */
+	private async beginInterludePlayback(gen: number) {
+		if (this.nsPoolTracks.length > 0) {
+			const nxt = this.nsPoolTracks.find(
+				(t) => !this.nsPlayedCycle.has(t.uid) && t.uid !== this.current?.uid
+			);
+			if (nxt) this.playPoolTrack(nxt);
+			else this.wrapInterludePool();
+			return;
+		}
+		const pool = await this.buildInterludePool();
+		if (gen !== this.playGen) return; // superseded — the newer play owns playback now
+		if (!this.nsInterlude) return;
+		if (pool.length === 0) {
+			this.enterRetryingState();
+			return;
+		}
+		this.nsPoolTracks = pool;
+		// Mirror handleOffline's queue shape: the failed current stays at the head so
+		// indexOf(current) keeps working for next()/the Up Next slice while the pool plays.
+		this.queue = dedupeBest(
+			[...(this.current ? [this.current] : []), ...pool],
+			settings.preferredSource
+		);
+		this.playPoolTrack(pool[0]);
+	}
+
+	/** Play one local pool track and register it: play count, cycle set, and the one probe
+	 *  token this track earns for the NEXT boundary (Q10). */
+	private playPoolTrack(track: Track) {
+		if (this.nsInterlude) {
+			this.nsInterlude.plays++;
+			this.nsPlayedCycle.add(track.uid);
+			this.nsProbeBudget.onInterludeTrackStart();
+		}
+		logAction('neverstop.interlude.play', { uid: track.uid });
+		void this.play(track, { fresh: false });
+	}
+
+	/** Pool exhausted this cycle (Q13): repeats are now allowed — clear the cycle and start
+	 *  over from the pool's head (skipping the just-finished track when the pool has more). */
+	private wrapInterludePool() {
+		this.nsPlayedCycle.clear();
+		const pool = this.nsPoolTracks;
+		if (pool.length === 0) {
+			this.enterRetryingState();
+			return;
+		}
+		const nextTrack = pool.find((t) => t.uid !== this.current?.uid) ?? pool[0];
+		// The queue may currently be the restored streaming queue (a probe just failed and
+		// handleProbeFailure already rebuilt it) or the interlude queue; play() does not care,
+		// but next() needs the pool back inside the queue, so rebuild the interlude shape.
+		this.queue = dedupeBest(
+			[...(this.current ? [this.current] : []), ...pool],
+			settings.preferredSource
+		);
+		this.playPoolTrack(nextTrack);
+	}
+
+	/**
+	 * Spend the outstanding probe token: restore the saved queue and play ONE streaming
+	 * track (the first advanceable entry at/after the saved resume point) as the revival
+	 * probe. Its real `playing` exits the interlude (exitInterludeRecovered); its total
+	 * failure is intercepted by handleProbeFailure and routes back to the pool. Also the
+	 * zero-asset retry timer's probe (Q14).
+	 */
+	private attemptRevivalProbe() {
+		const saved = this.nsSavedQueue;
+		if (!saved || !this.nsInterlude) return;
+		this.clearNsRetry();
+		this.nsRetrying = false;
+		this.queue = [...saved.queue];
+		this.upNextAnchorUid = saved.anchorUid;
+		this.queueContext = saved.context;
+		const j = this.nextAdvanceIndex(saved.resumeIndex);
+		if (j < 0) {
+			// Nothing left to resume — the saved queue is exhausted. Exit the interlude and
+			// let the normal chain grow a fresh tail from here.
+			logAction('neverstop.interlude.exit', { reason: 'queue-exhausted' });
+			this.clearInterludeState();
+			this.next();
+			return;
+		}
+		this.nsProbeUid = this.queue[j].uid;
+		logAction('neverstop.probe.start', { uid: this.nsProbeUid });
+		this.advanceTo(j);
+	}
+
+	/**
+	 * The revival probe track failed totally. Extend every marked source's cooldown
+	 * (exponential, in SourceCooldowns), reset the skip ceiling (the probe is budgeted
+	 * separately and must not burn it), and return to the local pool — or, with no pool,
+	 * back to the zero-asset retrying state.
+	 */
+	private handleProbeFailure() {
+		logAction('neverstop.probe.failed', { uid: this.nsProbeUid });
+		this.nsProbeUid = null;
+		const now = Date.now();
+		if (this.nsInterlude)
+			for (const s of this.nsInterlude.markedSources) this.nsCooldowns.markFailed(s, now);
+		this.failoverSkips = 0;
+		if (this.nsPoolTracks.length === 0) {
+			this.enterRetryingState();
+			return;
+		}
+		const nextTrack =
+			this.nsPoolTracks.find((t) => !this.nsPlayedCycle.has(t.uid) && t.uid !== this.current?.uid) ??
+			this.nsPoolTracks.find((t) => !this.nsPlayedCycle.has(t.uid));
+		if (nextTrack) {
+			this.queue = dedupeBest(
+				[...(this.current ? [this.current] : []), ...this.nsPoolTracks],
+				settings.preferredSource
+			);
+			this.playPoolTrack(nextTrack);
+			return;
+		}
+		this.wrapInterludePool();
+	}
+
+	/**
+	 * Zero-asset state (Q14): no Downloads, no Cached, no byte-buffered track — nothing
+	 * local exists to play. Surface ONE quiet, auto-dismissing notice and arm the 60s
+	 * re-probe timer; recovery needs no tap. The notice field is cleared on the WR-04
+	 * window discipline so a stale retrying toast cannot resurrect on a language switch.
+	 */
+	private enterRetryingState() {
+		this.nsRetrying = true;
+		logAction('neverstop.retrying.start', {});
+		this.notice = { kind: 'never-stop', msg: 'toast.playbackRetrying' };
+		setTimeout(() => {
+			if (this.notice?.kind === 'never-stop' && this.notice.msg === 'toast.playbackRetrying')
+				this.notice = null;
+		}, Player.SKIP_BURST_WINDOW_MS);
+		this.scheduleNsRetry();
+	}
+
+	private scheduleNsRetry() {
+		this.clearNsRetry();
+		this.nsRetryTimer = setTimeout(() => {
+			this.nsRetryTimer = null;
+			if (!this.nsRetrying) return;
+			this.attemptRevivalProbe();
+		}, NS_RETRY_PROBE_MS);
+	}
+
+	private clearNsRetry() {
+		if (this.nsRetryTimer) {
+			clearTimeout(this.nsRetryTimer);
+			this.nsRetryTimer = null;
+		}
+	}
+
+	/**
+	 * Revival confirmed: the probe track produced real audio (called from the `playing`
+	 * listener's success reset). The saved queue is already restored (attemptRevivalProbe
+	 * installed it), so exiting is pure bookkeeping + the one-time post-session summary
+	 * (Q11) — shown only when local tracks actually carried the session; a pure
+	 * retry-state recovery (0 interlude plays) just clears the retrying notice silently.
+	 */
+	private exitInterludeRecovered() {
+		if (!this.nsInterlude || !this.current || this.nsProbeUid !== this.current.uid) return;
+		const { startedAt, plays } = this.nsInterlude;
+		logAction('neverstop.interlude.recovered', { durationMs: Date.now() - startedAt, plays });
+		for (const s of this.nsInterlude.markedSources) this.nsCooldowns.markOk(s);
+		this.clearInterludeState();
+		if (plays > 0) {
+			this.notice = { kind: 'never-stop', msg: 'toast.playbackRecovered', count: plays };
+		} else if (this.notice?.kind === 'never-stop') {
+			this.notice = null;
+		}
+	}
+
+	/** Drop every interlude field back to the idle state (recovery, manual supersede, or a
+	 *  full recoverFromStop-style reset). */
+	private clearInterludeState() {
+		this.nsInterlude = null;
+		this.nsSavedQueue = null;
+		this.nsPoolTracks = [];
+		this.nsPlayedCycle.clear();
+		this.nsProbeUid = null;
+		this.nsRetrying = false;
+		this.clearNsRetry();
+		this.nsProbeBudget.__reset();
+	}
+
+	/**
 	 * Recovery from the loop-guard stopped state (D-05). Bound to the sticky notice's Retry action
 	 * and reused by a user "tap play" recovery: skip AHEAD to the next track (NOT retry-current, NOT
 	 * regenerate), reset the consecutive-failure counter, and re-arm the never-stop chain. next()
@@ -6118,6 +6515,7 @@ class Player {
 	private recoverFromStop() {
 		this.consecutiveFailures = 0;
 		this.failoverSkips = 0; // SYSTEMIC-FAILURE CEILING (debug-nowbar-frozen-audius-spam): a manual retry re-arms it.
+		this.clearInterludeState(); // quick-261116-nstop: a full recovery drops any interlude too
 		this.dryGrowRetries = 0; // DRY-GROW: a manual retry re-arms the grow budget too.
 		this.clearDryGrowTimer();
 		this.driveBurst = 0; // SINGLE AUTHORITY (debug-song-click-lrc-flood-noplay): a manual retry re-arms the src brake.

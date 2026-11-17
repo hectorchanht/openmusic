@@ -310,8 +310,9 @@ function installAssetPreloadMocks() {
 
 /** Mirror of Player.FAILURE_CAP (private static = 5) for the loop-guard tests. */
 const Player_FAILURE_CAP = 5;
-/** Mirror of Player.SYSTEMIC_SKIP_CAP (private static = 5) — the systemic-failure STOP ceiling
- *  (debug-nowbar-frozen-audius-spam). */
+/** Mirror of Player.SYSTEMIC_SKIP_CAP (private static = 5) — the systemic-failure ceiling
+ *  (debug-nowbar-frozen-audius-spam); since quick-261116-nstop it triggers the Fallback
+ *  Interlude instead of the old STOP. */
 const Player_SYSTEMIC_SKIP_CAP = 5;
 /** Mirror of Player.STALL_TIMEOUT_MS (private static = 15000) for the stall-watchdog tests. */
 const Player_STALL_TIMEOUT_MS = 15000;
@@ -430,6 +431,16 @@ beforeEach(() => {
 	// so a leaked count from a prior storm/ceiling test can't falsely trip the SYSTEMIC STOP.
 	burst.failoverSkips = 0;
 	burst.consecutiveFailures = 0;
+	// quick-261116-nstop: the Never-Stop interlude state is session-scoped on the singleton too —
+	// a cap trip in one suite must not leave an active interlude / retry timer / probe mark that
+	// reroutes next() in the next suite. clearInterludeState drops all of it; the cooldown
+	// tracker is a long-lived object, so it is reset in place.
+	const ns = player as unknown as {
+		clearInterludeState(): void;
+		nsCooldowns: { __reset(): void };
+	};
+	ns.clearInterludeState();
+	ns.nsCooldowns.__reset();
 	// bg-lockscreen-stall-noskip: the bounded prebuffer + one-shot stall-retry flag are session-scoped
 	// on the singleton — reset so a prebuffered blob / retried flag from a prior test can't leak.
 	const bg = player as unknown as { prebufferedUid: string | null; prebufferedBlobUrl: string | null; stallRetried: boolean; audibleThisHide: boolean; stallRecheckOnVisible: boolean };
@@ -3108,18 +3119,21 @@ describe('player resilience — loop-guard + skip-on-failure (PLAY-07/08)', () =
 		expect(player.notice?.count).toBe(2); // collapsed, not two separate notices
 	});
 
-	it('SYSTEMIC STOP: at the skip cap it halts (pause + sticky Retry notice), does NOT advance, and aborts prefetch', async () => {
+	it('NEVER-STOP (quick-261116-nstop): at the skip cap with no local pool it enters the zero-asset retrying state — no pause, no sticky Retry, no advance into the streaming queue, prefetch still aborted', async () => {
 		// debug-nowbar-frozen-audius-spam: N distinct tracks failing back-to-back is a systemic outage —
 		// keep skipping and the never-stop chain spams /api/* (resolve + 8× similar-search per cycle) until
-		// the pool saturates and the app freezes. The failoverSkips ceiling STOPS instead of advancing.
+		// the pool saturates and the app freezes. The failoverSkips ceiling still cuts the churn, but
+		// since quick-261116-nstop it enters the Fallback Interlude instead of halting; with no
+		// Downloads/Cached/prebuffered track to play, that is the Q14 retrying state.
 		const a = mk('netease', 'a', 'A', 'Dead');
 		const b = mk('qq', 'b', 'B', 'Next');
 		player.queue = [a, b];
 		player.current = a;
+		library.downloads = [];
 		setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1); // one more failover trips the ceiling
 		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
 		playSpy.mockClear();
-		// A live prefetch controller must be aborted by the halt so no further resolves fire.
+		// A live prefetch controller must be aborted by the interlude entry so no further resolves fire.
 		const aborted = { value: false };
 		(player as unknown as { prefetchController: AbortController | null }).prefetchController = {
 			abort: () => {
@@ -3130,32 +3144,168 @@ describe('player resilience — loop-guard + skip-on-failure (PLAY-07/08)', () =
 		await runFallback(a);
 		await flush();
 
-		expect(player.notice?.kind).toBe('stopped');
-		expect(player.notice?.reason).toBe('loop-guard');
-		expect(typeof player.notice?.action).toBe('function');
-		expect(player.error).toBeTruthy(); // inline now-bar error still set
-		expect(playSpy).not.toHaveBeenCalled(); // STOP — no advance into another resolve burst
+		expect(player.notice?.kind).toBe('never-stop'); // quiet auto-dismissing indicator, NOT the sticky stop
+		expect(player.notice?.msg).toBe('toast.playbackRetrying');
+		expect(player.notice?.action).toBeUndefined(); // recovery needs no tap — no Retry action
+		expect(player.error).not.toBe('toast.playbackStopped');
+		expect(playSpy).not.toHaveBeenCalled(); // no advance into another streaming resolve burst
 		expect(aborted.value).toBe(true); // in-flight prefetch cut off — no more /api/* fetches
+		const ns = player as unknown as { nsRetrying: boolean; nsInterlude: unknown };
+		expect(ns.nsRetrying).toBe(true);
+		expect(ns.nsInterlude).not.toBeNull(); // the saved queue waits for the 60s probe
 	});
 
-	it('SYSTEMIC STOP Retry: resets the ceiling, clears the notice, and skips AHEAD (D-05)', async () => {
+	it('NEVER-STOP recovery (quick-261116-nstop): the retrying state auto-probes the saved queue with no tap; a real `playing` on the probe track exits the interlude and resets the counters', async () => {
 		const a = mk('netease', 'a', 'A', 'Dead');
 		const b = mk('qq', 'b', 'B', 'Next');
 		player.queue = [a, b];
 		player.current = a;
+		library.downloads = [];
 		setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1);
 		await runFallback(a);
 		await flush();
-		expect(player.notice?.kind).toBe('stopped');
+		expect(player.notice?.msg).toBe('toast.playbackRetrying');
 
 		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
 		playSpy.mockClear();
-		player.notice?.action?.(); // user taps Retry
+		// The 60s retry timer calls exactly this — drive it directly (no user tap exists).
+		(player as unknown as { attemptRevivalProbe(): void }).attemptRevivalProbe();
 		await flush();
 
-		expect(failures()).toBe(0); // consecutive-failure budget reset
-		expect(player.notice).toBeNull(); // sticky notice cleared
 		expect(playSpy).toHaveBeenCalledWith(b); // skipped AHEAD to the next track, not retry-current
+
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		el.fire('playing');
+
+		expect(failures()).toBe(0); // consecutive-failure budget reset by real audio
+		expect(player.notice).toBeNull(); // retrying indicator cleared on recovery
+		const ns = player as unknown as { nsInterlude: unknown; nsRetrying: boolean };
+		expect(ns.nsInterlude).toBeNull();
+		expect(ns.nsRetrying).toBe(false);
+	});
+
+	it('NEVER-STOP interlude (quick-261116-nstop): at the cap with Downloads present it plays the local pool (least-recently-played order) instead of stopping', async () => {
+		const a = mk('netease', 'a', 'A', 'Dead');
+		const b = mk('qq', 'b', 'B', 'Next');
+		const d1 = mk('kuwo', 'dl1', 'DL', 'Downloaded One');
+		const d2 = mk('kuwo', 'dl2', 'DL', 'Downloaded Two');
+		player.queue = [a, b];
+		player.current = a;
+		library.downloads = [d1, d2];
+		setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1);
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+
+		await runFallback(a);
+		await flush();
+
+		expect(playSpy).toHaveBeenCalledWith(d1, { fresh: false }); // pool head plays — playback never stopped
+		expect(player.current?.uid).toBe(d1.uid);
+		expect(player.notice?.kind).not.toBe('stopped');
+		expect(player.error).not.toBe('toast.playbackStopped');
+		const ns = player as unknown as { nsInterlude: { plays: number } | null; nsPoolTracks: Track[] };
+		expect(ns.nsInterlude?.plays).toBe(1);
+		expect(ns.nsPoolTracks.map((t) => t.uid)).toEqual([d1.uid, d2.uid]);
+		library.downloads = [];
+	});
+
+	it('NEVER-STOP probe budget (quick-261116-nstop): one probe per interlude track — a failed probe returns to the pool, extends the source cooldown, and does NOT re-probe at the next boundary while cooling', async () => {
+		const a = mk('netease', 'a', 'A', 'Dead');
+		const b = mk('qq', 'b', 'B', 'Next');
+		const d1 = mk('kuwo', 'dl1', 'DL', 'Downloaded One');
+		const d2 = mk('kuwo', 'dl2', 'DL', 'Downloaded Two');
+		player.queue = [a, b];
+		player.current = a;
+		library.downloads = [d1, d2];
+		setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1);
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		await runFallback(a);
+		await flush();
+		expect(player.current?.uid).toBe(d1.uid); // interlude playing the pool
+
+		// Force the marked source's cooldown to have elapsed, then hit a track boundary:
+		// the ONE probe earned by d1 is spent on the saved queue's resume track.
+		const ns = player as unknown as {
+			nsCooldowns: { markOk(s: string): void; isCooling(s: string, n: number): boolean };
+			nsProbeUid: string | null;
+		};
+		ns.nsCooldowns.markOk('netease');
+		playSpy.mockClear();
+		player.next();
+		await flush();
+		expect(playSpy).toHaveBeenCalledWith(b); // probe = resume track of the saved queue
+		expect(ns.nsProbeUid).toBe(b.uid);
+
+		// The probe track fails totally → back to the pool's next unplayed track, the marked
+		// source is cooling again (extended), and the probe uid is cleared.
+		playSpy.mockClear();
+		await runFallback(b);
+		await flush();
+		expect(playSpy).toHaveBeenCalledWith(d2, { fresh: false });
+		expect(ns.nsProbeUid).toBeNull();
+		expect(ns.nsCooldowns.isCooling('netease', Date.now())).toBe(true);
+
+		// Next boundary while the source still cools: NO second probe — the pool wraps instead.
+		playSpy.mockClear();
+		player.next();
+		await flush();
+		expect(playSpy).not.toHaveBeenCalledWith(b);
+		expect(playSpy).toHaveBeenCalledWith(d1, { fresh: false }); // wrapped to the pool head
+		library.downloads = [];
+	});
+
+	it('NEVER-STOP queue restore (quick-261116-nstop): a successful probe restores the saved queue at the boundary and exits with the one-time recovered summary', async () => {
+		const a = mk('netease', 'a', 'A', 'Dead');
+		const b = mk('qq', 'b', 'B', 'Next');
+		const d1 = mk('kuwo', 'dl1', 'DL', 'Downloaded One');
+		player.queue = [a, b];
+		player.current = a;
+		library.downloads = [d1];
+		setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1);
+		await runFallback(a);
+		await flush();
+		expect(player.current?.uid).toBe(d1.uid);
+
+		const ns = player as unknown as { nsCooldowns: { markOk(s: string): void }; nsInterlude: unknown };
+		ns.nsCooldowns.markOk('netease');
+		player.next(); // boundary → probe spends on b, restoring the saved queue
+		await flush();
+		expect(player.current?.uid).toBe(b.uid);
+		expect(player.queue.map((t) => t.uid)).toEqual([a.uid, b.uid]); // saved queue restored verbatim
+
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		el.fire('playing'); // probe track produced real audio → interlude over
+
+		expect(ns.nsInterlude).toBeNull();
+		expect(player.notice?.kind).toBe('never-stop');
+		expect(player.notice?.msg).toBe('toast.playbackRecovered');
+		expect(player.notice?.count).toBe(1); // one local track carried the session
+		library.downloads = [];
+	});
+
+	it('NEVER-STOP zero-asset timer (quick-261116-nstop): the 60s retry timer probes the saved queue with no tap', async () => {
+		vi.useFakeTimers();
+		try {
+			const a = mk('netease', 'a', 'A', 'Dead');
+			const b = mk('qq', 'b', 'B', 'Next');
+			player.queue = [a, b];
+			player.current = a;
+			library.downloads = [];
+			setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1);
+			const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+			playSpy.mockClear();
+
+			await runFallback(a);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(playSpy).not.toHaveBeenCalled(); // retrying — nothing local to play
+
+			await vi.advanceTimersByTimeAsync(60_000); // NS_RETRY_PROBE_MS elapses
+			expect(playSpy).toHaveBeenCalledWith(b); // auto-probe, no user action
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it('a real `playing` event resets the counter and clears a stopped notice (D-06)', () => {
@@ -7872,8 +8022,9 @@ describe('player resolve-phase watchdog — stalled/null initial resolve fails f
 // runFallback's swap track itself failed its own resolve inside play(fromFallback), the branch
 // set error='toast.playbackStopped' + clearMedia and returned, hard-stopping the session for
 // ONE bad song while loadable songs remained in the queue. These tests pin the new contract:
-// that failure routes into handleTotalFailure (skip + batched skip toast + advance), and the
-// ONLY remaining stop is the systemic terminal guard (an unbroken run of total failures).
+// that failure routes into handleTotalFailure (skip + batched skip toast + advance), and an
+// unbroken run of total failures enters the never-stop interlude / retrying state at the
+// systemic cap (quick-261116-nstop — the terminal STOP is retired).
 describe('player — a fallback swap that fails to resolve SKIPS with a toast instead of stopping (user report 2026-11-02)', () => {
 	let el: ReturnType<typeof makeFakeAudio>;
 	let playSpy: ReturnType<typeof vi.spyOn>;
@@ -7949,11 +8100,12 @@ describe('player — a fallback swap that fails to resolve SKIPS with a toast in
 		}
 	});
 
-	it('an unbroken run of unresolvable songs still hits the guarded terminal stop (no infinite skip loop)', async () => {
+	it('an unbroken run of unresolvable songs enters the never-stop retrying state at the cap (no infinite skip loop, no hard stop)', async () => {
 		vi.useFakeTimers();
 		try {
 			const bad = [1, 2, 3, 4, 5, 6].map((n) => stub('qq', `sa${n}`, 'A', `Bad ${n}`));
 			player.queue = [...bad];
+			library.downloads = []; // zero local assets → the Q14 retrying state is the floor
 			mockEnsure.mockImplementation((t: Track) =>
 				Promise.resolve({ ...t, detailsLoaded: true, audioUrl: null })
 			);
@@ -7962,14 +8114,16 @@ describe('player — a fallback swap that fails to resolve SKIPS with a toast in
 			const p = player.play(bad[0]);
 			p.catch(() => {});
 			// Let the skip chain walk: each total failure advances to the next track until the
-			// systemic ceiling (SYSTEMIC_SKIP_CAP back-to-back failures) halts it.
+			// systemic ceiling (SYSTEMIC_SKIP_CAP back-to-back failures) trips the interlude.
 			for (let i = 0; i < 40; i++) await vi.advanceTimersByTimeAsync(0);
 
-			expect(player.notice?.kind).toBe('stopped');
-			expect(player.notice?.reason).toBe('loop-guard');
-			expect(player.error).toBe('toast.playbackStopped');
+			// quick-261116-nstop: the cap no longer hard-stops — with no local pool it lands in
+			// the quiet retrying state (60s auto-probe), NOT the sticky stopped notice.
+			expect(player.notice?.kind).toBe('never-stop');
+			expect(player.notice?.msg).toBe('toast.playbackRetrying');
+			expect(player.error).not.toBe('toast.playbackStopped');
 			// Exactly CAP plays were attempted — the 6th song was never reached, and further
-			// flushing changes nothing (the chain is halted, not looping).
+			// flushing changes nothing (the chain is parked in the retry state, not looping).
 			const playsAtHalt = playSpy.mock.calls.length;
 			expect(playsAtHalt).toBe(Player_SYSTEMIC_SKIP_CAP);
 			for (let i = 0; i < 10; i++) await vi.advanceTimersByTimeAsync(0);
