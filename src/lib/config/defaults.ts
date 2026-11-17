@@ -41,6 +41,12 @@ export const GENERAL_DEFAULTS = {
 	 *  commits — never per-tap). Default ON, intensity is locked light in util/haptics;
 	 *  OFF silences every tick (the util's setHapticsEnabled seam). */
 	haptics: true,
+	/** quick-261116-carmode: show the Car Mode entry button on the home page (left of the
+	 *  Randomize/refresh button). Default OFF (Q5) — Car Mode is a driving surface, and a
+	 *  button most users never need stays hidden until they opt in from Settings. The
+	 *  toggle lives in General because it gates a home-shell affordance, like haptics
+	 *  gates a shell-wide behaviour. */
+	showCarModeButton: false,
 	/** Light/dark theme — default 'dark' (today's design). 'light' flips data-theme on <html>
 	 *  to surface the `[data-theme='light']` token overrides in app.css. */
 	theme: 'dark' as Theme

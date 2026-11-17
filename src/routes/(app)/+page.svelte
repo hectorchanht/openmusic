@@ -3,7 +3,7 @@
 	import { SvelteSet } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
 	import { navigating } from '$app/state';
-	import { Search, Settings, RotateCw, ChevronRight, MoreVertical } from '@lucide/svelte';
+	import { Search, Settings, RotateCw, ChevronRight, MoreVertical, Car } from '@lucide/svelte';
 	import Logo from '$lib/components/Logo.svelte';
 	import ShelfChevrons from '$lib/components/ShelfChevrons.svelte';
 	import SponsoredStrip from '$lib/components/SponsoredStrip.svelte';
@@ -67,6 +67,8 @@
 	// resizeMzstatic alone — the resolver stores 400px/500px masters and tiles paint ≤ ~140px.
 	import { sizedCover, TILE_COVER_PX } from '$lib/services/cover-size';
 	import { settings } from '$lib/stores/settings.svelte';
+	// quick-261116-carmode: the Car Mode entry button (below) flips this store.
+	import { carMode } from '$lib/stores/car-mode.svelte';
 	import { deezerChart } from '$lib/services/deezer';
 	import { backfillCovers, backfillArtistCovers } from '$lib/services/cover-backfill';
 	import { lazyCover } from '$lib/actions/lazyCover';
@@ -1229,6 +1231,15 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 <section class="section" class:compact={settings.homeDensity === 'list'}>
 	<div class="head">
 		<h2>{t('home.topPicks')}</h2>
+		{#if settings.showCarModeButton}
+			<!-- quick-261116-carmode (Q5): the Car Mode entry — immediately LEFT of the
+			     Randomize/refresh button, rendered ONLY when the user opted in via
+			     Settings → Car Mode button (default hidden). Entering arms the
+			     adaptive pre-buffer via the carMode store; the panel itself is
+			     mounted by the (app) layout. Same .more box as Randomize so the
+			     pair reads as one control cluster. -->
+			<button class="more" use:tapBounce onclick={() => carMode.enter()} aria-label={t('home.carMode')} title={t('home.carMode')}><Car size={16} /></button>
+		{/if}
 		{#if settings.homeShowRandomize}
 			<!-- UI-SPEC §1.7: the chart shelves re-sample locally, so the disabled "Loading…" state is
 			     confined to a visible classic section (the only case that still fetches).

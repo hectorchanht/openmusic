@@ -24,6 +24,7 @@ const pt: Dict = {
 	"home.topPicks": "Principais escolhas",
 	"home.loadingPicks": "Carregando…",
 	"home.randomize": "Randomizar",
+	"home.carMode": "Modo de condução",
 	"home.noResults": "sem resultados – as fontes podem estar indisponíveis",
 	"home.topHits": "Principais sucessos",
 	"home.songsOfYear": "Songs of the year",
@@ -144,6 +145,7 @@ const pt: Dict = {
 	"settings.nowbarLyrics": "Mostrar a letra no mini player",
 	"settings.reduceMotion": "Reduzir o movimento",
 	"settings.haptics": "Vibração",
+	"settings.carModeButton": "Botão do modo de condução",
 	"settings.shareIncludeTitle": "Incluir o título ao compartilhar",
 	"settings.data": "Dados",
 	"settings.dataCounts": "{liked} gostou · {playlists} playlists · {downloads} downloads",
@@ -741,6 +743,7 @@ const pt: Dict = {
 	"settings.accentColorDesc": "A cor de destaque usada em controles ativos, interruptores e na faixa em reprodução; escolha a que combinar com o seu gosto.",
 	"settings.reduceMotionDesc": "Desativa animações e transições não essenciais em todo o app; ative se o movimento te incomoda ou para ajudar a poupar bateria.",
 	"settings.hapticsDesc": "Vibração leve em ações como abrir o menu de toque longo, deslizar uma linha ou procurar na faixa; desative para silenciar toda a vibração.",
+	"settings.carModeButtonDesc": "Mostrar um botão do modo de condução ao lado de Aleatório na página inicial. O modo de condução é um painel de reprodução com botões grandes para conduzir, com buffer offline para a música nunca parar.",
 	"settings.shareIncludeTitleDesc": "Adiciona uma linha de título (música • artista) acima do link ao compartilhar. Desativado envia apenas o link — a prévia do link já mostra o título.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Ajusta o tamanho do título da música em listas e resultados de busca, sendo 100% o padrão; aumente para ler melhor ou diminua para caber mais na tela.",

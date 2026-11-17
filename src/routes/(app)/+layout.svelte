@@ -38,6 +38,10 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 	} from '$lib/services/transport-keys';
 	import NowPlaying from '$lib/components/NowPlaying.svelte';
 	import Nowbar from '$lib/components/Nowbar.svelte';
+	// quick-261116-carmode: the Car Mode takeover — the store's `active` flag swaps the
+	// whole shell (page / nav / Nowbar) for the CarMode panel below.
+	import { carMode } from '$lib/stores/car-mode.svelte';
+	import CarMode from '$lib/components/CarMode.svelte';
 	import SleepTimerSheet from '$lib/components/SleepTimerSheet.svelte';
 	import SupporterSheet from '$lib/components/SupporterSheet.svelte';
 	import ToastHost from '$lib/components/ToastHost.svelte';
@@ -515,7 +519,12 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 
 	<!-- quick-261022-spring: rubber-band overscroll lives on the content (not .app) so the
 	     fixed nowbar/tabbar never shift — only the scrolled page stretches. -->
-	<main class="content" use:rubberOverscroll>
+	<!-- quick-261116-carmode: while Car Mode owns the viewport the page is ABSENT via
+	     display:none — the same "absence, not paint order" mechanism as the nav's
+	     np-open gate below, but WITHOUT unmounting: the page component (and its scroll
+	     position / shelf state) survives the mode, so exiting Car Mode lands exactly
+	     where the user left the app. -->
+	<main class="content" class:car-off={carMode.active} use:rubberOverscroll>
 		{@render children()}
 	</main>
 
@@ -535,12 +544,19 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 		</div>
 	{/if}
 
-	{#if !player.expanded}
+	{#if !player.expanded && !carMode.active}
 		<Nowbar />
 	{/if}
 
-	{#if player.expanded}
+	{#if player.expanded && !carMode.active}
 		<NowPlaying />
+	{/if}
+
+	<!-- quick-261116-carmode: the Car Mode panel — a fixed full-viewport takeover
+	     (z 60, above the shell; the toast host at z 90 still renders above it so the
+	     double-tap dive's genre toast stays visible). Mounted only while active. -->
+	{#if carMode.active}
+		<CarMode />
 	{/if}
 
 	<!-- Sleep-timer sheet: mounted ONCE, UNGATED — reachable from the nowbar (collapsed) AND the
@@ -595,7 +611,7 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 	     (nowplaying's close handler is player.collapse()). See the note on that function for why
 	     the ordering is not negotiable. The sheet's focusTrap still keeps keyboard focus inside
 	     `.np`, so the rail remains pointer-reachable only. -->
-	<nav class="tabbar" class:np-open={player.expanded}>
+	<nav class="tabbar" class:np-open={player.expanded} class:car-off={carMode.active}>
 		{#each tabs as tab (tab.href)}
 			{@const Icon = tab.icon}
 			<!-- Exact match, plus a subpath match so the rail's Settings tab stays lit on
@@ -653,6 +669,14 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 		width: 100%;
 		margin: 0 auto;
 		padding: 0 16px;
+	}
+	/* quick-261116-carmode: Car Mode absence for the page + the nav (both layouts —
+	   the desktop rail is the same <nav> and Car Mode is a no-chrome surface). */
+	.content.car-off {
+		display: none;
+	}
+	.tabbar.car-off {
+		display: none;
 	}
 	.tabbar {
 		position: fixed;

@@ -24,6 +24,7 @@ const hi: Dict = {
 	"home.topPicks": "शीर्ष चयन",
 	"home.loadingPicks": "लोड हो रहा है...",
 	"home.randomize": "यादृच्छिक करें",
+	"home.carMode": "ड्राइविंग मोड",
 	"home.noResults": "कोई परिणाम नहीं - स्रोत अनुपलब्ध हो सकते हैं",
 	"home.topHits": "शीर्ष हिट",
 	"home.songsOfYear": "Songs of the year",
@@ -144,6 +145,7 @@ const hi: Dict = {
 	"settings.nowbarLyrics": "मिनी प्लेयर में बोल दिखाएँ",
 	"settings.reduceMotion": "गति कम करें",
 	"settings.haptics": "कंपन",
+	"settings.carModeButton": "ड्राइविंग मोड बटन",
 	"settings.shareIncludeTitle": "साझा करते समय शीर्षक शामिल करें",
 	"settings.data": "डेटा",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
@@ -741,6 +743,7 @@ const hi: Dict = {
 	"settings.accentColorDesc": "सक्रिय कंट्रोल, टॉगल और चल रहे ट्रैक के लिए उपयोग किया जाने वाला हाइलाइट रंग; अपनी पसंद के अनुसार कोई एक चुनें।",
 	"settings.reduceMotionDesc": "ऐप भर में गैर-ज़रूरी एनिमेशन और ट्रांज़िशन बंद कर देता है; अगर गति आपको परेशान करती है या बैटरी बचाने के लिए इसे चालू करें।",
 	"settings.hapticsDesc": "लंबे दबाव वाले मेनू को खोलने, किसी पंक्ति को स्वाइप करने या खोजने जैसे कार्यों पर हल्का कंपन; सभी कंपन बंद करने के लिए इसे बंद करें।",
+	"settings.carModeButtonDesc": "होम पेज पर रैंडमाइज़ के बगल में ड्राइविंग मोड बटन दिखाएँ। ड्राइविंग मोड ड्राइविंग के लिए बड़े बटनों वाला प्लेयर पैनल है, जिसमें ऑफ़लाइन बफ़रिंग है ताकि संगीत कभी न रुके।",
 	"settings.shareIncludeTitleDesc": "साझा करते समय लिंक के ऊपर एक शीर्षक पंक्ति (गाना • कलाकार) जोड़ता है। बंद होने पर केवल लिंक भेजा जाता है — लिंक प्रीव्यू में शीर्षक पहले से दिखता है।",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "सूचियों और खोज परिणामों में दिखने वाले गाने के शीर्षक के टेक्स्ट का आकार बदलता है, जहाँ 100% डिफ़ॉल्ट है; पढ़ने में आसानी के लिए बढ़ाएँ या स्क्रीन पर ज़्यादा दिखाने के लिए घटाएँ।",

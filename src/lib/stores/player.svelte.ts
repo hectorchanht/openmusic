@@ -459,6 +459,17 @@ class Player {
 	 * evicting a download record for a prebuffer blob would silently delete a song the user never
 	 * downloaded. Plain field — internal, never read reactively (mirrors driveBurst above). */
 	private lastSrcKind: SrcKind = 'url';
+	/** quick-261116-carmode: the REACTIVE mirror of lastSrcKind for the UI — true while the
+	 *  attached src's bytes are LOCAL (a library download or a prebuffer/car-buffer blob),
+	 *  false for any streamed URL. lastSrcKind itself stays a plain field (the error handler
+	 *  reads it imperatively); this $state twin exists so the Car Mode reliability dot can
+	 *  read provenance reactively without widening lastSrcKind's contract. Written ONLY by
+	 *  setSrcKind(), which every lastSrcKind assignment site now routes through. */
+	currentLocal = $state<boolean>(false);
+	private setSrcKind(kind: SrcKind): void {
+		this.lastSrcKind = kind;
+		this.currentLocal = kind === 'download-blob' || kind === 'prebuffer-blob';
+	}
 	/** debug-share-card-play-dead-replay: the uid the element is ARMED for — written at every
 	 *  `audio.src` assignment (restore / armTrack / driveSrc / the offline-blob play branch), next to
 	 *  lastSrcKind. `current` being seated says nothing about whether a src was ever attached for it:
@@ -963,7 +974,7 @@ class Player {
 			// 31-D-12: record provenance for the audio.error handler. restore() deliberately keeps its
 			// DIRECT assign (it is not routed through driveSrc) — routing it would newly subject a boot
 			// restore to the re-drive brake, a behaviour change in the freeze-sensitive core.
-			this.lastSrcKind = offlineBlob ? 'download-blob' : this.srcKindFor(resolved);
+			this.setSrcKind(offlineBlob ? 'download-blob' : this.srcKindFor(resolved));
 			// debug-share-card-play-dead-replay: the RESOLVED uid, not target's — a name stub (share
 			// carrier, Radio/Up-Next tile) resolves to a different uid, and recording the stub's would make
 			// the first resume re-drive the src through play() instead of simply resuming.
@@ -1095,7 +1106,7 @@ class Player {
 			// assign, deliberately NOT routed through driveSrc — it is a one-shot INITIAL arm, not a
 			// recovery re-attach, and routing it would newly subject a share arrival to the re-drive
 			// brake (nowbar-freeze-reresolve-loop) in the freeze-sensitive core.
-			this.lastSrcKind = offlineBlob ? 'download-blob' : this.srcKindFor(resolved);
+			this.setSrcKind(offlineBlob ? 'download-blob' : this.srcKindFor(resolved));
 			this.armedUid = resolved.uid; // debug-share-card-play-dead-replay: resolved, not the stub (see restore())
 			audio.src = src;
 			// 38-D-14: warm-up stops HERE, at the src assign. No forced element reload, no preload
@@ -2522,7 +2533,7 @@ class Player {
 			this.haltRunawayRecovery(); // pause + abort in-flight + sticky Retry — never a spinning flood
 			return false;
 		}
-		this.lastSrcKind = kind; // 31-D-12
+		this.setSrcKind(kind); // 31-D-12
 		this.armedUid = uid; // debug-share-card-play-dead-replay
 		this.audio.src = url;
 		// slow-cold-start-first-playing: stamp the src-set so the media-event log lines in attach() carry
@@ -3218,7 +3229,7 @@ class Player {
 			if (badBytes === 'download-blob' || badBytes === 'prebuffer-blob') {
 				// Whatever happens below, the next attach decides its own provenance; clear it now so a
 				// repeat error on the network re-stream takes the ordinary path.
-				this.lastSrcKind = 'url';
+				this.setSrcKind('url');
 				if (badBytes === 'prebuffer-blob') {
 					// A prebuffer blob is NOT a download. Discard it (and any still-claimed slot) and FALL
 					// THROUGH to the pre-existing handling — no eviction, no toast, no library write. A
@@ -4758,7 +4769,7 @@ class Player {
 				// deliberate-pause flag so the next pause is judged on this src's own merits.
 				this.disarmResume();
 				this.deliberatePause = false;
-				this.lastSrcKind = offlineKind; // 31-D-12 (direct assign — see restore()'s note); quick-261116-prebuf: 'prebuffer-blob' for car-buffer cache plays
+				this.setSrcKind(offlineKind); // 31-D-12 (direct assign — see restore()'s note); quick-261116-prebuf: 'prebuffer-blob' for car-buffer cache plays
 				this.armedUid = track.uid; // debug-share-card-play-dead-replay
 				this.audio.src = this.cachedBlobUrl;
 				this.armStall();

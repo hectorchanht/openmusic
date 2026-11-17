@@ -82,6 +82,49 @@ describe('settings persistence round-trip — shareIncludeTitle (quick-260808-vz
 	});
 });
 
+// quick-261116-carmode: the Car Mode entry button's visibility toggle. Default is FALSE
+// (Q5 — the button is hidden until the user opts in from Settings), the same resting
+// value as shareIncludeTitle, so the cases mirror that describe exactly.
+describe('settings persistence round-trip — showCarModeButton (quick-261116-carmode)', () => {
+	beforeEach(() => memStore.clear());
+
+	it('defaults to false when nothing is persisted', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.showCarModeButton).toBe(false);
+	});
+
+	it('an explicitly persisted `true` wins on load', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', showCarModeButton: true }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.showCarModeButton).toBe(true);
+	});
+
+	it('a corrupt non-boolean falls back to the default (false)', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', showCarModeButton: 'yes' }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.showCarModeButton).toBe(false);
+	});
+
+	it('save() writes the field into the persisted blob', async () => {
+		const settings = await freshSettings();
+		settings.showCarModeButton = true;
+		settings.save();
+		expect(JSON.parse(localStorage.getItem(KEY) as string).showCarModeButton).toBe(true);
+	});
+
+	it('resetGeneral() reverts the field AND the persisted blob', async () => {
+		const settings = await freshSettings();
+		settings.showCarModeButton = true;
+		settings.save();
+		settings.resetGeneral();
+		expect(settings.showCarModeButton).toBe(false);
+		expect(JSON.parse(localStorage.getItem(KEY) as string).showCarModeButton).toBe(false);
+	});
+});
+
 // quick-261102-srcpill: the Now-Playing source pill's toggle. Default is TRUE (Hector
 // asked for the pill; hiding it is the opt-out) — the exact inverse of shareIncludeTitle's
 // default, which is why every case below asserts the TRUE resting value explicitly.

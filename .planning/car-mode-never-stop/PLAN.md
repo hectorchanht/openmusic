@@ -331,6 +331,52 @@ song is not.
   settings-persist 3, untouched files), zero regressions; svelte-check
   0 errors / 18 warnings (baseline, none in touched files). Playback
   behaviour live/device verification remains Phase 5 work.
+- Phase 4 (Car Mode UI) — EXECUTED 2026-11-16 (quick-261116-carmode):
+  `settings.showCarModeButton` (GENERAL_DEFAULTS, default FALSE per Q5) wired
+  through all four settings touchpoints (field / load with the explicit-boolean
+  guard / save / resetGeneral) + a SettingToggle row on the Settings index
+  (Car icon, beside Haptics) + 3 new i18n keys (home.carMode,
+  settings.carModeButton, settings.carModeButtonDesc) in all 15 locales.
+  Entry: a Car icon button immediately LEFT of the home Randomize/refresh
+  button, rendered only when the toggle is on; it calls carMode.enter().
+  State: new leaf-ish runes store `src/lib/stores/car-mode.svelte.ts` — one
+  boolean; enter() arms the Phase 2 buffer (player.armCarBuffer), exit()
+  disarms it; playback is never touched by the mode. Takeover in the (app)
+  layout: while active, <main> and the tabbar/rail get display:none via a
+  car-off class (absence without unmounting — page state + scroll survive),
+  Nowbar/NowPlaying are {#if}-gated off, and the fixed full-viewport
+  `src/lib/components/CarMode.svelte` (z 60; the z-90 toast host stays above
+  it) owns the screen. Panel: progress sliver (Nowbar idiom), 56px cover
+  carrying the Phase 3 doubleTap (single tap is a deliberate no-op — no
+  expand exists here), title 19px bold / artist 15px in full-contrast text,
+  a colour-only reliability dot (green local / amber streaming — the pure
+  decision lives in `src/lib/services/car-mode.ts` over the player's NEW
+  reactive provenance mirror `player.currentLocal`, written by a setSrcKind()
+  setter that all five lastSrcKind sites now route through), and exactly 5
+  controls >=56px (Prev / Play / Next / Like via library.toggleLike /
+  Download via the shared DownloadControl stretched to fill its grid cell).
+  Exit is one 52x56 X button; exiting restores the shell exactly. Short-pane
+  compaction under max-height:180px keeps every control on-screen at ~150px.
+  Impeccable (source-mode detector + operate/distill review): FIXED in this
+  push — radii moved onto the documented scale (var(--radius-md)), the Play
+  hero switched from white-on-accent (~2.6:1, fails sunlight) to NowPlaying's
+  white-disc/black-glyph treatment with the light-theme inversion,
+  safe-area-inset-top on the panel, the short-height compaction above.
+  DISMISSED as intentional — the fallback-cover gradient literals (verbatim
+  reuse of Nowbar's incumbent gradient), the 19px title (pinned by this
+  plan's spec), the dot's green/amber literals and the play disc's #fff/#000
+  (new fixed semantics the user-variable accent token cannot carry; mirrors
+  NowPlaying's literal disc). Tests: car-mode service 7 new +
+  settings-persist 5 new (showCarModeButton round-trip; the file's baseline
+  failures at this head are the 3 pre-existing showSourceTag cases plus the
+  home-layout-switch case srchrank's migration broke — both reproduce on a
+  pristine head tree); full suite at the pre-existing baseline, zero new
+  failures. svelte-check 0 errors / 18 warnings (baseline, none in touched
+  files). Built on head 65cd94e6 (two sibling quick tasks landed mid-phase —
+  the nav re-tap pair and srchrank; the layout edits were re-applied onto
+  the newer layout and the settings/defaults hunks re-applied onto
+  srchrank's versions, diffs verified disjoint — no sibling work clobbered).
+  Device / split-screen verification remains Phase 5 work.
 
 ## Out of scope
 

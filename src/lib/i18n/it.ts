@@ -24,6 +24,7 @@ const it: Dict = {
 	"home.topPicks": "Le migliori scelte",
 	"home.loadingPicks": "Caricamento…",
 	"home.randomize": "Randomizzare",
+	"home.carMode": "Modalità di guida",
 	"home.noResults": "nessun risultato: le fonti potrebbero non essere disponibili",
 	"home.topHits": "I migliori successi",
 	"home.songsOfYear": "Songs of the year",
@@ -144,6 +145,7 @@ const it: Dict = {
 	"settings.nowbarLyrics": "Mostra il testo nel mini player",
 	"settings.reduceMotion": "Ridurre il movimento",
 	"settings.haptics": "Vibrazione",
+	"settings.carModeButton": "Pulsante modalità di guida",
 	"settings.shareIncludeTitle": "Includi il titolo quando condividi",
 	"settings.data": "Dati",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
@@ -741,6 +743,7 @@ const it: Dict = {
 	"settings.accentColorDesc": "Il colore di evidenziazione usato per i controlli attivi, gli interruttori e il brano in riproduzione; scegli quello che preferisci.",
 	"settings.reduceMotionDesc": "Disattiva animazioni e transizioni non essenziali in tutta l'app; attivalo se il movimento ti disturba o per risparmiare batteria.",
 	"settings.hapticsDesc": "Vibrazione leggera per azioni come aprire il menu a pressione lunga, scorrere una riga o cercare nella traccia; disattivala per silenziare ogni vibrazione.",
+	"settings.carModeButtonDesc": "Mostra un pulsante della modalità di guida accanto a Casuale nella pagina principale. La modalità di guida è un pannello di riproduzione con pulsanti grandi per la guida, con buffer offline per non fermare mai la musica.",
 	"settings.shareIncludeTitleDesc": "Aggiunge una riga di titolo (brano • artista) sopra il link quando condividi. Disattivato invia solo il link — l'anteprima del link mostra già il titolo.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Ridimensiona il testo del titolo del brano in elenchi e risultati di ricerca, dove 100% è il valore predefinito; aumentalo per la leggibilità o riducilo per mostrarne di più sullo schermo.",

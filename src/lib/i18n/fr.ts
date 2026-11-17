@@ -24,6 +24,7 @@ const fr: Dict = {
 	"home.topPicks": "Meilleurs choix",
 	"home.loadingPicks": "Chargement…",
 	"home.randomize": "Randomiser",
+	"home.carMode": "Mode conduite",
 	"home.noResults": "aucun résultat — les sources peuvent être indisponibles",
 	"home.topHits": "Meilleurs succès",
 	"home.songsOfYear": "Songs of the year",
@@ -144,6 +145,7 @@ const fr: Dict = {
 	"settings.nowbarLyrics": "Afficher les paroles dans le mini-lecteur",
 	"settings.reduceMotion": "Réduire les mouvements",
 	"settings.haptics": "Vibrations",
+	"settings.carModeButton": "Bouton du mode conduite",
 	"settings.shareIncludeTitle": "Inclure le titre lors du partage",
 	"settings.data": "Données",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
@@ -741,6 +743,7 @@ const fr: Dict = {
 	"settings.accentColorDesc": "La couleur de surbrillance des commandes actives, des interrupteurs et du morceau en cours de lecture ; choisissez celle qui vous plaît.",
 	"settings.reduceMotionDesc": "Désactive les animations et transitions non essentielles dans toute l'application ; activez-le si le mouvement vous gêne ou pour aider à économiser la batterie.",
 	"settings.hapticsDesc": "Légère vibration lors d'actions comme l'ouverture du menu d'appui long, le balayage d'une ligne ou la recherche dans le titre ; désactivez-la pour couper tout retour haptique.",
+	"settings.carModeButtonDesc": "Afficher un bouton du mode conduite à côté d'Aléatoire sur la page d'accueil. Le mode conduite est un panneau de lecture à grands boutons pour la conduite, avec mise en mémoire tampon hors ligne pour que la musique ne s'arrête jamais.",
 	"settings.shareIncludeTitleDesc": "Ajoute une ligne de titre (chanson • artiste) au-dessus du lien lors du partage. Désactivé, seul le lien est envoyé — l'aperçu du lien affiche déjà le titre.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Met à l'échelle le titre des chansons dans les listes et les résultats de recherche, 100% étant la valeur par défaut ; augmentez-le pour la lisibilité ou réduisez-le pour afficher plus à l'écran.",

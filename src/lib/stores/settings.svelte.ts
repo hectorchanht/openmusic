@@ -272,6 +272,9 @@ class Settings {
 	shareIncludeTitle = $state<boolean>(GENERAL_DEFAULTS.shareIncludeTitle);
 	/** quick-261116-perf: commit-tier haptic ticks on/off (default ON, light only). */
 	haptics = $state<boolean>(GENERAL_DEFAULTS.haptics);
+	/** quick-261116-carmode: show the Car Mode entry button on the home page. Default
+	 *  OFF (Q5) — the button renders only when this is on. */
+	showCarModeButton = $state<boolean>(GENERAL_DEFAULTS.showCarModeButton);
 	/** Light/dark theme. Default 'dark' (today's design). applyTheme() flips
 	 *  the `data-theme` attribute on <html>. */
 	theme = $state<Theme>(GENERAL_DEFAULTS.theme);
@@ -495,6 +498,9 @@ class Settings {
 				// quick-261116-perf: same explicit-boolean guard as shareIncludeTitle.
 				this.haptics = typeof v.haptics === 'boolean' ? v.haptics : GENERAL_DEFAULTS.haptics;
 				setHapticsEnabled(this.haptics);
+				// quick-261116-carmode: same explicit-boolean guard as haptics.
+				this.showCarModeButton =
+					typeof v.showCarModeButton === 'boolean' ? v.showCarModeButton : GENERAL_DEFAULTS.showCarModeButton;
 				// Theme is validated against the 4-value union; anything else → the default.
 				// quick-261023-perks: a stored supporter theme without supporter status
 				// demotes to dark (status is per-device localStorage — never trust it blind).
@@ -688,6 +694,7 @@ class Settings {
 					reduceMotion: this.reduceMotion,
 					shareIncludeTitle: this.shareIncludeTitle,
 					haptics: this.haptics,
+					showCarModeButton: this.showCarModeButton,
 					theme: this.theme,
 					autoExpandOnPlay: this.autoExpandOnPlay,
 					showQualityTag: this.showQualityTag,
@@ -814,6 +821,8 @@ class Settings {
 		// quick-261116-perf: haptics rides the General reset like shareIncludeTitle.
 		this.haptics = d.haptics;
 		setHapticsEnabled(this.haptics);
+		// quick-261116-carmode: the Car Mode button visibility rides the General reset too.
+		this.showCarModeButton = d.showCarModeButton;
 		this.resetLook();
 	}
 

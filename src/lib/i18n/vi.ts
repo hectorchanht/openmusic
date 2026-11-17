@@ -24,6 +24,7 @@ const vi: Dict = {
 	"home.topPicks": "Lựa chọn hàng đầu",
 	"home.loadingPicks": "Đang tải…",
 	"home.randomize": "Chọn ngẫu nhiên",
+	"home.carMode": "Chế độ lái xe",
 	"home.noResults": "không có kết quả - nguồn có thể không có sẵn",
 	"home.topHits": "Những bản hit hàng đầu",
 	"home.songsOfYear": "Songs of the year",
@@ -144,6 +145,7 @@ const vi: Dict = {
 	"settings.nowbarLyrics": "Hiển thị lời trong trình phát thu nhỏ",
 	"settings.reduceMotion": "Giảm chuyển động",
 	"settings.haptics": "Rung",
+	"settings.carModeButton": "Nút chế độ lái xe",
 	"settings.shareIncludeTitle": "Kèm tiêu đề khi chia sẻ",
 	"settings.data": "dữ liệu",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
@@ -741,6 +743,7 @@ const vi: Dict = {
 	"settings.accentColorDesc": "Màu nhấn dùng cho các điều khiển đang hoạt động, công tắc và bài hát đang phát; chọn màu hợp với sở thích của bạn.",
 	"settings.reduceMotionDesc": "Tắt các hoạt ảnh và chuyển cảnh không thiết yếu trên toàn ứng dụng; bật nếu chuyển động làm bạn khó chịu hoặc để tiết kiệm pin.",
 	"settings.hapticsDesc": "Rung nhẹ khi thực hiện các thao tác như mở menu nhấn giữ, vuốt một hàng hoặc tua bài hát; tắt để tắt mọi rung.",
+	"settings.carModeButtonDesc": "Hiển thị nút chế độ lái xe bên cạnh Ngẫu nhiên trên trang chủ. Chế độ lái xe là bảng điều khiển phát nhạc với các nút lớn dành cho việc lái xe, có bộ đệm ngoại tuyến để nhạc không bao giờ dừng.",
 	"settings.shareIncludeTitleDesc": "Thêm một dòng tiêu đề (bài hát • nghệ sĩ) phía trên liên kết khi chia sẻ. Tắt thì chỉ gửi liên kết — bản xem trước liên kết đã hiển thị tiêu đề.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Chỉnh cỡ chữ tên bài hát trong danh sách và kết quả tìm kiếm, với 100% là mặc định; tăng để dễ đọc hoặc giảm để hiển thị được nhiều hơn trên màn hình.",

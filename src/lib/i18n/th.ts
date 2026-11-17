@@ -24,6 +24,7 @@ const th: Dict = {
 	"home.topPicks": "สุดยอด",
 	"home.loadingPicks": "กำลังโหลด...",
 	"home.randomize": "สุ่ม",
+	"home.carMode": "โหมดขับรถ",
 	"home.noResults": "ไม่มีผลลัพธ์ — แหล่งข้อมูลอาจไม่พร้อมใช้งาน",
 	"home.topHits": "ยอดฮิต",
 	"home.songsOfYear": "Songs of the year",
@@ -144,6 +145,7 @@ const th: Dict = {
 	"settings.nowbarLyrics": "แสดงเนื้อเพลงในเครื่องเล่นขนาดเล็ก",
 	"settings.reduceMotion": "ลดการเคลื่อนไหว",
 	"settings.haptics": "การสั่น",
+	"settings.carModeButton": "ปุ่มโหมดขับรถ",
 	"settings.shareIncludeTitle": "แนบชื่อเพลงเมื่อแชร์",
 	"settings.data": "ข้อมูล",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
@@ -741,6 +743,7 @@ const th: Dict = {
 	"settings.accentColorDesc": "สีเน้นที่ใช้กับตัวควบคุมที่ใช้งานอยู่ สวิตช์ และเพลงที่กำลังเล่น เลือกสีที่ถูกใจคุณ",
 	"settings.reduceMotionDesc": "ปิดแอนิเมชันและการเปลี่ยนภาพที่ไม่จำเป็นทั่วทั้งแอป เปิดใช้หากการเคลื่อนไหวรบกวนคุณหรือเพื่อช่วยประหยัดแบตเตอรี",
 	"settings.hapticsDesc": "สั่นเบา ๆ เมื่อทำสิ่งต่าง ๆ เช่น เปิดเมนูกดค้าง ปัดแถว หรือเลื่อนตำแหน่งเพลง ปิดเพื่อปิดเสียงสั่นทั้งหมด",
+	"settings.carModeButtonDesc": "แสดงปุ่มโหมดขับรถข้างปุ่มสุ่มในหน้าแรก โหมดขับรถคือแผงเครื่องเล่นปุ่มใหญ่สำหรับการขับรถ พร้อมบัฟเฟอร์ออฟไลน์เพื่อให้เพลงไม่หยุดเล่น",
 	"settings.shareIncludeTitleDesc": "เพิ่มบรรทัดชื่อ (เพลง • ศิลปิน) เหนือลิงก์เมื่อแชร์ หากปิด จะส่งเฉพาะลิงก์ — ตัวอย่างลิงก์แสดงชื่อเพลงอยู่แล้ว",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "ปรับขนาดข้อความชื่อเพลงที่แสดงในรายการและผลการค้นหา โดย 100% คือค่าเริ่มต้น เพิ่มเพื่อให้อ่านง่ายหรือลดเพื่อให้แสดงได้มากขึ้นบนหน้าจอ",

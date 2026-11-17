@@ -28,6 +28,7 @@ const en = {
 	"home.topPicks": "Top picks",
 	"home.loadingPicks": "Loading…",
 	"home.randomize": "Randomize",
+	"home.carMode": "Car Mode",
 	"home.noResults": "no results — sources may be unavailable",
 	"home.topHits": "Top hits",
 	"home.songsOfYear": "Songs of the year",
@@ -176,6 +177,7 @@ const en = {
 	"settings.nowbarLyrics": "Show lyrics in the mini player",
 	"settings.reduceMotion": "Reduce motion",
 	"settings.haptics": "Haptics",
+	"settings.carModeButton": "Car Mode button",
 	"settings.shareIncludeTitle": "Include title when sharing",
 	"settings.data": "Data",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
@@ -801,6 +803,7 @@ const en = {
 	"settings.accentColorDesc": "The highlight colour used for active controls, toggles and the track that's playing; choose one that matches your taste.",
 	"settings.reduceMotionDesc": "Turns off non-essential animations and transitions across the app; enable it if motion bothers you or to help save battery.",
 	"settings.hapticsDesc": "Light vibration on actions like opening the long-press menu, swiping a row, or seeking; turn it off to silence all haptic feedback.",
+	"settings.carModeButtonDesc": "Show a Car Mode button next to Randomize on the home page. Car Mode is a big-button player panel for driving, with offline buffering so the music never stops.",
 	"settings.shareIncludeTitleDesc": "Adds a title line (song • artist) above the link when you share. Off sends the link only — the link preview already shows the title.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Scales the song-title text shown in lists and search results, where 100% is the default; raise it for readability or lower it to fit more on screen.",

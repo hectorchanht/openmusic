@@ -24,6 +24,7 @@ const es: Dict = {
 	"home.topPicks": "Mejores elecciones",
 	"home.loadingPicks": "Cargando…",
 	"home.randomize": "Aleatorizar",
+	"home.carMode": "Modo de conducción",
 	"home.noResults": "no hay resultados: es posible que las fuentes no estén disponibles",
 	"home.topHits": "Grandes éxitos",
 	"home.songsOfYear": "Songs of the year",
@@ -144,6 +145,7 @@ const es: Dict = {
 	"settings.nowbarLyrics": "Mostrar la letra en el minirreproductor",
 	"settings.reduceMotion": "Reducir el movimiento",
 	"settings.haptics": "Vibración",
+	"settings.carModeButton": "Botón del modo de conducción",
 	"settings.shareIncludeTitle": "Incluir el título al compartir",
 	"settings.data": "Datos",
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
@@ -741,6 +743,7 @@ const es: Dict = {
 	"settings.accentColorDesc": "El color de resalte usado en los controles activos, los interruptores y la canción en reproducción; elige el que más te guste.",
 	"settings.reduceMotionDesc": "Desactiva las animaciones y transiciones no esenciales en toda la app; actívalo si el movimiento te molesta o para ayudar a ahorrar batería.",
 	"settings.hapticsDesc": "Vibración ligera en acciones como abrir el menú de pulsación larga, deslizar una fila o buscar en la pista; desactívala para silenciar toda la vibración.",
+	"settings.carModeButtonDesc": "Muestra un botón del modo de conducción junto a Aleatorio en la página principal. El modo de conducción es un panel de reproducción con botones grandes para conducir, con almacenamiento en búfer sin conexión para que la música nunca se detenga.",
 	"settings.shareIncludeTitleDesc": "Añade una línea de título (canción • artista) encima del enlace al compartir. Desactivado envía solo el enlace: la vista previa ya muestra el título.",
 	// appearance settings helper text (quick-260630-fce)
 	"settings.fontSizeTitleDesc": "Escala el texto del título de la canción en listas y resultados de búsqueda, donde 100% es el valor predeterminado; súbelo para leer mejor o bájalo para que quepa más en pantalla.",
