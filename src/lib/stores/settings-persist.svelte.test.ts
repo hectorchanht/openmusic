@@ -513,7 +513,9 @@ describe('one-time home layout switch (39-D-40 / P39-06)', () => {
 	});
 
 	it('a blob already at version 2 is untouched and load() does not write', async () => {
-		const raw = JSON.stringify({ ...OLD_BLOB, homeLayoutVersion: 2 });
+		// quick-261116-srchrank: the fixture is current on BOTH one-time migrations — the
+		// sources-defaults marker rides along, or that migration (correctly) writes.
+		const raw = JSON.stringify({ ...OLD_BLOB, homeLayoutVersion: 2, sourcesDefaultsVersion: 1 });
 		memStore.set(KEY, raw);
 		const settings = await freshSettings();
 		settings.load();
@@ -547,6 +549,58 @@ describe('one-time home layout switch (39-D-40 / P39-06)', () => {
 		expect(blob.homeLayoutVersion).toBe(2);
 		expect(blob.homeHidden).toEqual([...CLASSIC_SECTIONS]);
 		expect(blob.homeSectionOrder).toEqual(HOME_DEFAULTS.homeSectionOrder);
+	});
+});
+
+// quick-261116-srchrank: the UGC sources (fivesing/bilibili/audius/jamendo/archive/ccmixter)
+// flipped to default-OFF. A persisted enabledSources map is auto-saved wholesale by save(),
+// so its `true`s are mostly yesterday's defaults, not choices — the one-time migration
+// (sourcesDefaultsVersion) forces the new defaults off ONCE on load and stamps the marker.
+describe('one-time sources-defaults switch (quick-261116-srchrank)', () => {
+	beforeEach(() => memStore.clear());
+
+	async function loadWith(blob: Record<string, unknown>) {
+		memStore.set(KEY, JSON.stringify(blob));
+		const settings = await freshSettings();
+		settings.load();
+		return settings;
+	}
+	const persisted = () => JSON.parse(localStorage.getItem(KEY) as string);
+	const ALL_ON = {
+		qq: true, joox: true, netease: true, gdnetease: true, kuwo: true, suyin: true,
+		kugou: true, migu: true, fivesing: true, jamendo: true, audius: true, archive: true,
+		ccmixter: true, bandcamp: true, bilibili: true, ytmusic: true
+	};
+
+	it('a pre-srchrank blob (all sources on, no marker) gets the six UGC sources forced off + marker saved', async () => {
+		const settings = await loadWith({ appLang: 'en', enabledSources: { ...ALL_ON } });
+		for (const id of ['fivesing', 'jamendo', 'audius', 'archive', 'ccmixter', 'bilibili'] as const) {
+			expect(settings.enabledSources[id]).toBe(false);
+		}
+		// Mainstream + ytmusic/bandcamp untouched.
+		expect(settings.enabledSources.joox).toBe(true);
+		expect(settings.enabledSources.ytmusic).toBe(true);
+		expect(settings.enabledSources.bandcamp).toBe(true);
+		const blob = persisted();
+		expect(blob.sourcesDefaultsVersion).toBe(1);
+		expect(blob.enabledSources.fivesing).toBe(false);
+	});
+
+	it('a source re-enabled after the migration stays on (marker already current)', async () => {
+		const settings = await loadWith({
+			appLang: 'en',
+			sourcesDefaultsVersion: 1,
+			enabledSources: { ...ALL_ON }
+		});
+		expect(settings.enabledSources.fivesing).toBe(true);
+		expect(settings.enabledSources.bilibili).toBe(true);
+	});
+
+	it('save() writes the sourcesDefaultsVersion marker', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		settings.save();
+		expect(persisted().sourcesDefaultsVersion).toBe(1);
 	});
 });
 
