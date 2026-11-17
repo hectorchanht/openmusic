@@ -29,3 +29,8 @@
 - Affected suites (sources/config/settings/catalog/search): 398/398 pass. Posture tests
   updated to the new defaults (registry/archive/bilibili/source-order/catalog lyric walk).
 - svelte-check: 0 errors.
+- FULL suite: 5499 passed / 0 failed.
+- Shipped: commit 65cd94e on main (Git Data API push, cherry-picked onto 745aae0 — sibling
+  nav work untouched), web-deploy run 44025359724 success. Live-verified on openmusic.lol:
+  deployed chunk carries `sourcesDefaultsVersion` + defaults map `fivesing:!1, jamendo:!1,
+  audius:!1, archive:!1, …`.
