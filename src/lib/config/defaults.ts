@@ -185,38 +185,36 @@ export const PLAYBACK_DEFAULTS = {
 	autoExpandOnPlay: false,
 	/** quick-260831-k5y: show the resolved track's quality tag (FLAC / 320 / …) on the
 	 *  Now-Playing page. Shown by default per quick-260925-vtg (the user's own exported settings
-	 *  adopted as the defaults); k5y's original "extra chrome" reasoning for OFF is superseded. */
+	 *  adopted as the defaults); k5y's original "extra chrome" reasoning for OFF is superseded.
+	 *  quick-261117-srctag (Hector 2026-11-17): explicitly decided ON — value unchanged. */
 	showQualityTag: true,
 	/** quick-261102-srcpill (Hector 2026-11-02): show the current track's SOURCE pill
 	 *  (registry adapter label — JOOX, Netease（GD）, …) immediately before the quality
-	 *  tag on the Now-Playing page. ON by default: Hector asked for the pill to exist;
-	 *  this toggle is the opt-out, mirroring showQualityTag beside it.
-	 *  quick-261116-spfix: restored to true — commit 050f5fa12b ("update", 2026-11-04)
-	 *  flipped this literal to false with no message, no comment update and no test
-	 *  update, contradicting the decision recorded above; the three settings-persist
-	 *  tests asserting the ON default failed from that commit until this restore. */
-	showSourceTag: true,
-	/** quick-261024-vid1: the Now Playing MV video layer (ytmusic tracks). ON by default —
-	 *  the layer is inert until the user taps Watch MV, so nobody pays its data cost by
-	 *  accident; the toggle exists so it can be banished entirely (rows stop tagging too).
-	 *  quick-261117-deflip: restored to true — commit 050f5fa12b ("update", 2026-11-04)
-	 *  flipped this literal to false in the same silent snapshot that flipped
-	 *  showSourceTag (restored in quick-261116-spfix), contradicting the ON-by-default
-	 *  decision above; history shows no later commit re-decided it. */
-	videoEnabled: true,
+	 *  tag on the Now-Playing page.
+	 *  quick-261117-srctag (Hector 2026-11-17): Hector's explicit decision — OFF by
+	 *  default; showing the pill is now the opt-IN (Settings → Appearance). This
+	 *  supersedes BOTH srcpill's original ON-by-default choice AND the
+	 *  quick-261116-spfix restore to true (which had reverted a silent 050f5fa12b
+	 *  flip; Hector has since decided the OFF value himself, so it stands). */
+	showSourceTag: false,
+	/** quick-261024-vid1: the Now Playing MV video layer (ytmusic tracks); the toggle
+	 *  banishes it entirely (rows stop tagging too).
+	 *  quick-261117-vidlyr (Hector 2026-11-17): Hector's explicit decision — OFF by
+	 *  default. This supersedes BOTH vid1's original ON-by-default choice AND the
+	 *  quick-261117-deflip restore to true (which had reverted a silent 050f5fa12b
+	 *  flip; Hector has since decided the OFF value himself, so it stands). */
+	videoEnabled: false,
 	/** quick-261024-vid1: height cap for the MV layer, shared by Settings and the Now
 	 *  Playing quality menu (one setting, two surfaces). */
 	videoQuality: 720 as VideoQuality,
 	/** quick-260919-1we (D-7): make the docked mini player show the currently-sung lyric line in
-	 *  place of the artist name. OFF by default, for the reason k5y originally gave for
-	 *  showQualityTag (before quick-260925-vtg flipped it): it
-	 *  REPLACES information already on screen with different information, so a user who never opens
-	 *  Settings must keep exactly today's Nowbar.
-	 *  quick-261117-deflip: restored to false — commit 050f5fa12b ("update", 2026-11-04)
-	 *  flipped this literal to true in the same silent snapshot that flipped
-	 *  showSourceTag (restored in quick-261116-spfix), contradicting the OFF-by-default
-	 *  reasoning above; history shows no later commit re-decided it. */
-	nowbarLyrics: false,
+	 *  place of the artist name.
+	 *  quick-261117-vidlyr (Hector 2026-11-17): Hector's explicit decision — ON by
+	 *  default. This supersedes BOTH 1we's original OFF-by-default reasoning (the
+	 *  lyric line replaces the artist name on screen) AND the quick-261117-deflip
+	 *  restore to false (which had reverted a silent 050f5fa12b flip; Hector has
+	 *  since decided the ON value himself, so it stands). */
+	nowbarLyrics: true,
 	/** Per-source search enable map. quick-261104-defs: every source is listed explicitly — flip
 	 *  one to `false` to ship it off. A source missing here falls back to its adapter's own
 	 *  `enabledByDefault` (registry.ts getEnabledAdapters).

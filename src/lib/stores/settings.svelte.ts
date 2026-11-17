@@ -280,19 +280,20 @@ class Settings {
 	theme = $state<Theme>(GENERAL_DEFAULTS.theme);
 	autoExpandOnPlay = $state<boolean>(PLAYBACK_DEFAULTS.autoExpandOnPlay);
 	/** quick-260831-k5y: render the resolved track's quality tag on the Now-Playing page.
-	 *  Default lives in PLAYBACK_DEFAULTS.showQualityTag (ON since quick-260925-vtg). */
+	 *  Default lives in PLAYBACK_DEFAULTS.showQualityTag (ON since quick-260925-vtg,
+	 *  re-confirmed by Hector 2026-11-17, quick-261117-srctag). */
 	showQualityTag = $state<boolean>(PLAYBACK_DEFAULTS.showQualityTag);
 	/** quick-261102-srcpill: render the current track's source pill before the quality
 	 *  tag on the Now-Playing page. Default lives in PLAYBACK_DEFAULTS.showSourceTag
-	 *  (ON — the pill was requested; hiding it is the opt-out). */
+	 *  (OFF since quick-261117-srctag, Hector 2026-11-17 — showing it is the opt-in). */
 	showSourceTag = $state<boolean>(PLAYBACK_DEFAULTS.showSourceTag);
 	/** quick-261024-vid1: the Now Playing MV layer master switch + its height cap. The NP
 	 *  quality menu and Settings → Playback write the SAME field (one setting, two surfaces). */
 	videoEnabled = $state<boolean>(PLAYBACK_DEFAULTS.videoEnabled);
 	videoQuality = $state<VideoQuality>(PLAYBACK_DEFAULTS.videoQuality);
 	/** quick-260919-1we (D-7): the docked Nowbar shows the currently-sung lyric line INSTEAD of the
-	 *  artist name. Off by default (PLAYBACK_DEFAULTS.nowbarLyrics) — it replaces information
-	 *  already on screen, so it is opt-in. */
+	 *  artist name. ON by default (PLAYBACK_DEFAULTS.nowbarLyrics) since quick-261117-vidlyr
+	 *  (Hector 2026-11-17) — originally opt-in because it replaces on-screen information. */
 	nowbarLyrics = $state<boolean>(PLAYBACK_DEFAULTS.nowbarLyrics);
 
 	// --- home layout (quick-260606-w87) ---------------------------------------------

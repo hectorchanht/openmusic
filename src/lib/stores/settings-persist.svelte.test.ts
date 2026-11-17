@@ -131,41 +131,46 @@ describe('settings persistence round-trip — showCarModeButton (quick-261116-ca
 describe('settings persistence round-trip — showSourceTag (quick-261102-srcpill)', () => {
 	beforeEach(() => memStore.clear());
 
-	it('defaults to true when nothing is persisted', async () => {
-		const settings = await freshSettings();
-		settings.load();
-		expect(settings.showSourceTag).toBe(true);
-	});
-
-	it('an explicitly persisted `false` wins on load', async () => {
-		memStore.set(KEY, JSON.stringify({ appLang: 'en', showSourceTag: false }));
+	// quick-261117-srctag (Hector 2026-11-17): Hector explicitly decided the default is
+	// FALSE (superseding srcpill's ON default and the quick-261116-spfix restore), so
+	// the pinned expectations below mirror to false — persisted-`true`-wins and the
+	// save/reset cases flip to the opposite value so they still distinguish from the
+	// default at the same strictness.
+	it('defaults to false when nothing is persisted', async () => {
 		const settings = await freshSettings();
 		settings.load();
 		expect(settings.showSourceTag).toBe(false);
 	});
 
-	it('a corrupt non-boolean falls back to the default (true)', async () => {
-		memStore.set(KEY, JSON.stringify({ appLang: 'en', showSourceTag: 'no' }));
+	it('an explicitly persisted `true` wins on load', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', showSourceTag: true }));
 		const settings = await freshSettings();
 		settings.load();
 		expect(settings.showSourceTag).toBe(true);
 	});
 
+	it('a corrupt non-boolean falls back to the default (false)', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', showSourceTag: 'no' }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.showSourceTag).toBe(false);
+	});
+
 	it('save() writes the field into the persisted blob', async () => {
 		const settings = await freshSettings();
-		settings.showSourceTag = false;
+		settings.showSourceTag = true;
 		settings.save();
-		expect(JSON.parse(localStorage.getItem(KEY) as string).showSourceTag).toBe(false);
+		expect(JSON.parse(localStorage.getItem(KEY) as string).showSourceTag).toBe(true);
 	});
 
 	// quick-261103-stg: the source-tag picker moved to Appearance, and its reset with it.
 	it('resetAppearance() reverts the field AND the persisted blob', async () => {
 		const settings = await freshSettings();
-		settings.showSourceTag = false;
+		settings.showSourceTag = true;
 		settings.save();
 		settings.resetAppearance();
-		expect(settings.showSourceTag).toBe(true);
-		expect(JSON.parse(localStorage.getItem(KEY) as string).showSourceTag).toBe(true);
+		expect(settings.showSourceTag).toBe(false);
+		expect(JSON.parse(localStorage.getItem(KEY) as string).showSourceTag).toBe(false);
 	});
 });
 

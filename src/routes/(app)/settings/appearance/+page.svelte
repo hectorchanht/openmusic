@@ -112,7 +112,7 @@
     function toggleQualityTag(v: "off" | "on") { settings.showQualityTag = v === "on"; settings.save(); }
     // quick-261102-srcpill: the Now-Playing source pill, rendered before the quality tag.
     function toggleSourceTag(v: "off" | "on") { settings.showSourceTag = v === "on"; settings.save(); }
-    // quick-260919-1we (D-7): opt-in lyric line in the docked mini player.
+    // quick-260919-1we (D-7): lyric line in the docked mini player (ON by default since quick-261117-vidlyr).
     function toggleNowbarLyrics(v: "off" | "on") { settings.nowbarLyrics = v === "on"; settings.save(); }
     const offOn = $derived([
         { v: "off" as const, label: t("settings.optOff") },
