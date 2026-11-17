@@ -38,7 +38,8 @@
 	// /artist/[name]/albums, whose URL no rail entry reads.
 	import { dedupeShelfList } from '$lib/services/dedupe';
 	import { pickTab, tabHref } from '$lib/services/url-tab';
-	import { LIBRARY_TAB_SET, DEFAULT_LIBRARY_TAB, type LibraryTab } from '$lib/services/library-tabs';
+	import { LIBRARY_TAB_SET, DEFAULT_LIBRARY_TAB, nextLibraryTab, type LibraryTab } from '$lib/services/library-tabs';
+import { navSignals } from '$lib/stores/nav-signals.svelte';
 
 	// UX-04 / D-03/D-04 swipe-right = like (quick-261104-swipe), swipe-left = play next: the handlers moved INTO
 	// SongRow (quick-260919-l9e), so this page no longer declares them. Still wired on the TRACK
@@ -172,6 +173,22 @@
 			// guards above, so at mount this recomputes what loadInitialTab() already seeded and
 			// frame 1 is unchanged.
 			writeTabUrl(tab);
+		});
+	});
+	// quick-261116-libcycle: a bottom-nav Library RE-TAP (signalled by the layout through
+	// navSignals — it cannot setTab across the route boundary) advances to the NEXT tab
+	// in displayed order, wrapping radio → liked. Routing through setTab is the point:
+	// a cycle lands EXACTLY like a pill tap — same state write, same stored-tab persist,
+	// same ?playlist pin clear, same router URL write — because it is the same function.
+	// The seen-value is seeded at init (plain field, per the internal-guard convention),
+	// so the effect's first run and any later remount can never replay a stale bump.
+	let seenCycleSeq = navSignals.libraryCycleSeq;
+	$effect(() => {
+		const seq = navSignals.libraryCycleSeq;
+		untrack(() => {
+			if (seq === seenCycleSeq) return;
+			seenCycleSeq = seq;
+			setTab(nextLibraryTab(tab));
 		});
 	});
 	// kyf-followup: active-tab label, so the pill row can shrink to icon-only and fit all 6 tabs

@@ -14,7 +14,8 @@
 	import { swUpdate } from '$lib/stores/swUpdate.svelte';
 	import { LANDING_PATHS } from '$lib/services/home-layout';
 	// quick-260919-oc6: the nav's active-match rule, shared with the library page's allowlist.
-	import { navActive, shouldInterceptNavClick } from '$lib/services/library-tabs';
+	import { navActive, navRetapAction, shouldInterceptNavClick } from '$lib/services/library-tabs';
+import { navSignals } from '$lib/stores/nav-signals.svelte';
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { deviceImport } from '$lib/stores/device-import.svelte';
 	import { retagQueue } from '$lib/stores/retag-queue.svelte';
@@ -435,6 +436,35 @@
 	// and let the plain <a> navigate, so the ordinary path keeps native anchor behaviour
 	// (prefetch, middle-click, cmd-click) and pays no JS.
 	function onTabClick(e: MouseEvent, href: string) {
+		// quick-261116-srchfocus / quick-261116-libcycle — a RE-TAP of the current page's
+		// own nav entry does something useful instead of a same-route navigation:
+		// Search focuses the search field, Library cycles to the next library tab. The
+		// decision is pure and node-tested (navRetapAction in library-tabs.ts); it only
+		// fires for a plain click with no overlay open — while an overlay IS open the
+		// navigateAway path below keeps owning the tap, because focusing a field under
+		// the sheet (or cycling a tab nobody can see) would both be wrong.
+		const retap = navRetapAction(e, page.url, href, overlays.depth);
+		if (retap === 'search') {
+			e.preventDefault();
+			// Synchronous inside the tap's own click handler, deliberately NOT the
+			// goto+tick shape of focusSearchField() above: iOS Safari only raises the
+			// keyboard for a focus() called within the user-gesture call stack, and a
+			// re-tap has the field already mounted, so the direct query suffices. The
+			// [data-search-input] hook is the same one quick-260919-keys established
+			// for the `/` shortcut. Focusing an already-focused field is a no-op, so
+			// a re-tap while typing never blurs, clears or scrolls anything.
+			document.querySelector<HTMLInputElement>('[data-search-input]')?.focus();
+			return;
+		}
+		if (retap === 'library') {
+			e.preventDefault();
+			// The layout cannot advance the tab itself: the page's setTab also persists
+			// the stored tab, clears a ?playlist pin and writes the URL, and the wrap
+			// back to 'liked' has no URL spelling that means "switch" (a plain /library
+			// reads as "keep the stored tab"). Signal the page; it setTabs to the next.
+			navSignals.cycleLibraryTab();
+			return;
+		}
 		// The rule itself is pure and lives in library-tabs.ts next to navActive, so the
 		// modified-click and depth-0 carve-outs are node-tested rather than asserted here.
 		if (!shouldInterceptNavClick(e, overlays.depth)) return;

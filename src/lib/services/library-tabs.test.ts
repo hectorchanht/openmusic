@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
 	LIBRARY_TAB_SET,
+	LIBRARY_TAB_ORDER,
 	DEFAULT_LIBRARY_TAB,
 	navActive,
+	navRetapAction,
+	nextLibraryTab,
 	shouldInterceptNavClick,
 	type LibraryTab,
 	type NavClickLike
@@ -146,5 +149,100 @@ describe('shouldInterceptNavClick (quick-260920-m0l)', () => {
 
 	it('does NOT intercept an already-handled click', () => {
 		expect(shouldInterceptNavClick(plain({ defaultPrevented: true }), 1)).toBe(false);
+	});
+});
+
+describe('LIBRARY_TAB_ORDER + nextLibraryTab (quick-261116-libcycle)', () => {
+	it('is the displayed order and carries exactly the allowlist', () => {
+		expect(LIBRARY_TAB_ORDER).toEqual([
+			'liked',
+			'playlists',
+			'downloads',
+			'fav-artists',
+			'history',
+			'radio'
+		] satisfies LibraryTab[]);
+		expect(new Set(LIBRARY_TAB_ORDER)).toEqual(LIBRARY_TAB_SET);
+	});
+
+	it('advances one step in displayed order', () => {
+		expect(nextLibraryTab('liked')).toBe('playlists');
+		expect(nextLibraryTab('playlists')).toBe('downloads');
+		expect(nextLibraryTab('downloads')).toBe('fav-artists');
+		expect(nextLibraryTab('fav-artists')).toBe('history');
+		expect(nextLibraryTab('history')).toBe('radio');
+	});
+
+	it('wraps from the last tab back to the first', () => {
+		expect(nextLibraryTab('radio')).toBe('liked');
+	});
+
+	it('a full cycle of six steps returns to the start', () => {
+		let t: LibraryTab = 'downloads';
+		for (let i = 0; i < 6; i++) t = nextLibraryTab(t);
+		expect(t).toBe('downloads');
+	});
+});
+
+describe('navRetapAction (quick-261116-srchfocus / quick-261116-libcycle)', () => {
+	const plain = (over: Partial<NavClickLike> = {}): NavClickLike => ({
+		defaultPrevented: false,
+		button: 0,
+		metaKey: false,
+		ctrlKey: false,
+		shiftKey: false,
+		altKey: false,
+		...over
+	});
+
+	it('a Search re-tap on /search focuses the field', () => {
+		expect(navRetapAction(plain(), u('https://x/search'), '/search', 0)).toBe('search');
+		expect(navRetapAction(plain(), u('https://x/search?q=ab'), '/search', 0)).toBe('search');
+	});
+
+	it('a Library re-tap on /library cycles — on the canonical URL and on any tab', () => {
+		expect(navRetapAction(plain(), u('https://x/library'), '/library', 0)).toBe('library');
+		expect(navRetapAction(plain(), u('https://x/library?tab=downloads'), '/library', 0)).toBe(
+			'library'
+		);
+		expect(navRetapAction(plain(), u('https://x/library?tab=radio'), '/library', 0)).toBe('library');
+	});
+
+	it('tapping a DIFFERENT page is ordinary navigation, never a re-tap', () => {
+		expect(navRetapAction(plain(), u('https://x/'), '/search', 0)).toBeNull();
+		expect(navRetapAction(plain(), u('https://x/search'), '/library', 0)).toBeNull();
+		expect(navRetapAction(plain(), u('https://x/library'), '/search', 0)).toBeNull();
+		expect(navRetapAction(plain(), u('https://x/search'), '/', 0)).toBeNull();
+	});
+
+	it('a Home re-tap has no re-tap behaviour', () => {
+		expect(navRetapAction(plain(), u('https://x/'), '/', 0)).toBeNull();
+	});
+
+	it('the desktop rail’s ?tab= entries are destinations, never a cycle', () => {
+		for (const href of TABBED) {
+			expect(navRetapAction(plain(), u('https://x/library?tab=liked'), href, 0)).toBeNull();
+		}
+	});
+
+	it('modified / non-primary / already-handled clicks belong to the browser', () => {
+		for (const k of ['metaKey', 'ctrlKey', 'shiftKey', 'altKey'] as const) {
+			expect(navRetapAction(plain({ [k]: true }), u('https://x/search'), '/search', 0)).toBeNull();
+		}
+		expect(navRetapAction(plain({ button: 1 }), u('https://x/search'), '/search', 0)).toBeNull();
+		expect(
+			navRetapAction(plain({ defaultPrevented: true }), u('https://x/search'), '/search', 0)
+		).toBeNull();
+	});
+
+	it('while an overlay is open the navigateAway path owns the tap — no re-tap', () => {
+		expect(navRetapAction(plain(), u('https://x/search'), '/search', 1)).toBeNull();
+		expect(navRetapAction(plain(), u('https://x/library'), '/library', 2)).toBeNull();
+	});
+
+	it('never throws on a malformed url-like object', () => {
+		const notAUrl = { pathname: '/search' } as unknown as URL;
+		expect(() => navRetapAction(plain(), notAUrl, '/search', 0)).not.toThrow();
+		expect(navRetapAction(plain(), notAUrl, '/search', 0)).toBeNull();
 	});
 });
