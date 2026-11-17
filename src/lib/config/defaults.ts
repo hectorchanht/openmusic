@@ -94,7 +94,12 @@ export const APPEARANCE_DEFAULTS = {
 	showRowMenu: true,
 	/** quick-261006-mnu / quick-261021-menu2: the TrackMenu grid, IN ORDER (row-major, 4 columns).
 	 *  quick-261104-defs: this list is ALSO the action catalog (track-menu-order.ts MENU_ACTIONS
-	 *  reads it), so reorder freely, but deleting an id deletes that action from the menu. */
+	 *  reads it), so reorder freely, but deleting an id deletes that action from the menu.
+	 *  quick-261117-deflip: the grouping below is fd6fa01a's arrangement (2026-11-15,
+	 *  superseding the menu2 grouping), with viewComments/viewRelated commented out by
+	 *  233cfbb5 (2026-11-16) — commented-out ids are NOT in the catalog, so
+	 *  normalizeMenuOrder drops them from saved orders. The track-menu-order tests
+	 *  pin this exact order. */
 	trackMenuOrder: [
 		// Group 1
 		'remix',
@@ -193,8 +198,12 @@ export const PLAYBACK_DEFAULTS = {
 	showSourceTag: true,
 	/** quick-261024-vid1: the Now Playing MV video layer (ytmusic tracks). ON by default —
 	 *  the layer is inert until the user taps Watch MV, so nobody pays its data cost by
-	 *  accident; the toggle exists so it can be banished entirely (rows stop tagging too). */
-	videoEnabled: false,
+	 *  accident; the toggle exists so it can be banished entirely (rows stop tagging too).
+	 *  quick-261117-deflip: restored to true — commit 050f5fa12b ("update", 2026-11-04)
+	 *  flipped this literal to false in the same silent snapshot that flipped
+	 *  showSourceTag (restored in quick-261116-spfix), contradicting the ON-by-default
+	 *  decision above; history shows no later commit re-decided it. */
+	videoEnabled: true,
 	/** quick-261024-vid1: height cap for the MV layer, shared by Settings and the Now
 	 *  Playing quality menu (one setting, two surfaces). */
 	videoQuality: 720 as VideoQuality,
@@ -202,8 +211,12 @@ export const PLAYBACK_DEFAULTS = {
 	 *  place of the artist name. OFF by default, for the reason k5y originally gave for
 	 *  showQualityTag (before quick-260925-vtg flipped it): it
 	 *  REPLACES information already on screen with different information, so a user who never opens
-	 *  Settings must keep exactly today's Nowbar. */
-	nowbarLyrics: true,
+	 *  Settings must keep exactly today's Nowbar.
+	 *  quick-261117-deflip: restored to false — commit 050f5fa12b ("update", 2026-11-04)
+	 *  flipped this literal to true in the same silent snapshot that flipped
+	 *  showSourceTag (restored in quick-261116-spfix), contradicting the OFF-by-default
+	 *  reasoning above; history shows no later commit re-decided it. */
+	nowbarLyrics: false,
 	/** Per-source search enable map. quick-261104-defs: every source is listed explicitly — flip
 	 *  one to `false` to ship it off. A source missing here falls back to its adapter's own
 	 *  `enabledByDefault` (registry.ts getEnabledAdapters).

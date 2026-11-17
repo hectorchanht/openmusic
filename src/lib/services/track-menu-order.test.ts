@@ -20,38 +20,38 @@ describe('MENU_GRID_SLOTS', () => {
 });
 
 describe('MENU_ACTIONS', () => {
-	it('is the 23-id catalog in the documented default order', () => {
+	it('is the 21-id catalog in the documented default order', () => {
 		expect([...MENU_ACTIONS]).toEqual([
-			// quick-261021-menu2: regrouped by user 2026-10-21
+			// quick-261117-deflip: this pins the CURRENT spec — fd6fa01a's regrouping
+			// (2026-11-15, superseding the quick-261021-menu2 grouping this test used
+			// to pin) with viewComments/viewRelated removed by 233cfbb5 (2026-11-16,
+			// commented out in defaults.ts, so not catalog ids at all).
 			// Group 1: remix (autoplay), share, download, like
 			'remix',
 			'share',
 			'download',
 			'like',
-			// Group 2: versions, changeCover, changeLyrics, goToArtist, goToAlbum
-			'versions',
+			// Group 2: playNext, changeCover, changeLyrics, goToArtist
+			'playNext',
 			'changeCover',
 			'changeLyrics',
 			'goToArtist',
-			'goToAlbum',
-			// Group 3: customize, downloadSource, repeat, addToPlaylist
-			'customize',
-			'downloadSource',
+			// Group 3: repeat, shuffleQueue, clearQueue, addQueue
 			'repeat',
-			'addToPlaylist',
-			// Group 4: detail, sleepTimer, editTags, playNext
-			'detail',
-			'sleepTimer',
-			'editTags',
-			'playNext',
-			// the remainder of the catalog, in a stable order
-			// quick-261021-menu3: lyricsTiming removed — now a toggle in the Fix lyrics picker
-			'addQueue',
-			'startRadio',
-			'viewComments',
-			'viewRelated',
 			'shuffleQueue',
-			'clearQueue'
+			'clearQueue',
+			'addQueue',
+			// Group 4: downloadSource, editTags, addToPlaylist, detail
+			'downloadSource',
+			'editTags',
+			'addToPlaylist',
+			'detail',
+			// Group 5: sleepTimer, versions, customize, goToAlbum, startRadio
+			'sleepTimer',
+			'versions',
+			'customize',
+			'goToAlbum',
+			'startRadio'
 		]);
 	});
 
@@ -116,6 +116,7 @@ describe('normalizeMenuOrder', () => {
 
 	// quick-261021-menu3: any saved order containing the removed 'lyricsTiming' triggers
 	// a full reset to the new default (one-time migration).
+	// quick-261117-deflip: the default is now the 21-id catalog (fd6fa01a + 233cfbb5).
 	it('migrates a pre-customize order: full reset to new default when lyricsTiming present', () => {
 		const oldOrder = [
 			'remix', 'playNext', 'download', 'like', 'addQueue', 'versions',
@@ -126,8 +127,8 @@ describe('normalizeMenuOrder', () => {
 		const out = normalizeMenuOrder(oldOrder);
 		// Full reset to the new MENU_ACTIONS default
 		expect(out).toEqual([...MENU_ACTIONS]);
-		expect(out).toHaveLength(23);
-		expect(new Set(out).size).toBe(23);
+		expect(out).toHaveLength(21);
+		expect(new Set(out).size).toBe(21);
 	});
 
 	it('does not re-migrate an order that already has customize', () => {
@@ -139,17 +140,23 @@ describe('normalizeMenuOrder', () => {
 		const out = normalizeMenuOrder(['like', 'share']);
 		expect(out).toContain('customize');
 		expect(out).toContain('repeat');
-		expect(out.indexOf('customize')).toBeLessThan(out.indexOf('repeat'));
+		// quick-261117-deflip: fd6fa01a's grouping puts repeat (Group 3) BEFORE
+		// customize (Group 5) — the reverse of the menu2 grouping this assertion
+		// originally pinned. Both ids still land at their catalog positions.
+		expect(out.indexOf('repeat')).toBeLessThan(out.indexOf('customize'));
 	});
 
 	it('inserts new actions at catalog positions for a user-reordered full order', () => {
-		// A user on the 20-action catalog who moved 'share' to the front.
-		const twenty = [...MENU_ACTIONS].filter(
-			(id) => id !== 'startRadio' && id !== 'viewComments' && id !== 'viewRelated' && id !== 'downloadSource'
+		// A user on an 18-action subset of the catalog who moved 'share' to the front.
+		// quick-261117-deflip: rewritten from the 23-id version — viewComments /
+		// viewRelated left the catalog in 233cfbb5 so they can no longer be inserted;
+		// clearQueue is the third missing id here instead.
+		const eighteen = [...MENU_ACTIONS].filter(
+			(id) => id !== 'startRadio' && id !== 'downloadSource' && id !== 'clearQueue'
 		) as MenuActionId[];
-		const saved = ['share', ...twenty.filter((id) => id !== 'share')] as MenuActionId[];
+		const saved = ['share', ...eighteen.filter((id) => id !== 'share')] as MenuActionId[];
 		const out = normalizeMenuOrder(saved);
-		expect(out).toHaveLength(23);
+		expect(out).toHaveLength(21);
 		// quick-261021-menu2: Group 1 (remix, share, download, like) is pinned — user's
 		// arrangement is respected for the rest, but Group 1 always leads.
 		expect(out[0]).toBe('remix');
@@ -157,10 +164,9 @@ describe('normalizeMenuOrder', () => {
 		expect(out[2]).toBe('download');
 		expect(out[3]).toBe('like');
 		expect(out).toContain('startRadio');
-		expect(out).toContain('viewComments');
-		expect(out).toContain('viewRelated');
 		expect(out).toContain('downloadSource');
-		expect(new Set(out).size).toBe(23);
+		expect(out).toContain('clearQueue');
+		expect(new Set(out).size).toBe(21);
 	});
 });
 
@@ -313,21 +319,23 @@ describe('menuSlotForIndex', () => {
 describe('menu drag composition — drop commit + Group-1 pinning (quick-261102-menudrag)', () => {
 	it('a drag crossing row 1 commits the documented splice result', () => {
 		// Default normalized order: Group 1 (remix, share, download, like) at 0–3,
-		// 'versions' first in row 2 at index 4. Drag versions up over share's center
+		// 'playNext' first in row 2 at index 4. Drag playNext up over share's center
 		// (index 1): menuDropIndex gives insertion 1 (asserted above), so the commit
-		// is exactly this order — versions lands at 1, share/download/like shift right.
+		// is exactly this order — playNext lands at 1, share/download/like shift right.
+		// quick-261117-deflip: this pinned 'versions' at index 4 under the superseded
+		// menu2 grouping; fd6fa01a's grouping puts playNext at the row-2 head.
 		const order = [...MENU_ACTIONS];
 		const cells = grid(order.length);
 		const to = menuDropIndex(center(cells, 1).x, center(cells, 1).y, cells, 4);
 		expect(to).toBe(1);
 		expect(spliceMove(order, 4, to)).toEqual([
-			'remix', 'versions', 'share', 'download', 'like',
+			'remix', 'playNext', 'share', 'download', 'like',
 			...order.slice(5)
 		]);
 	});
 
 	it('pinning is respected end-to-end: whatever a drag does to row 1, normalizeMenuOrder re-pins Group 1 on load', () => {
-		// A drag that pulls 'versions' INTO row 1 displaces Group 1 within the
+		// A drag that pulls the row-2 head (index 4) INTO row 1 displaces Group 1 within the
 		// session (the edit grid's committed order is the user's, verbatim) — but the
 		// pinning rule lives in normalizeMenuOrder, and the drag math composes with
 		// it: the next load restores remix/share/download/like to 0–3 with every
