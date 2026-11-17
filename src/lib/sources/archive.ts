@@ -42,7 +42,9 @@ export const archive: SourceAdapter = {
 	id: 'archive',
 	health: archiveHealth,
 	label: 'Internet Archive',
-	enabledByDefault: true,
+	// quick-261116-srchrank: OFF by default — UGC/indie noise flooded mainstream search
+	// (Hector 2026-11-16); opt back in via Settings → Playback → Sources.
+	enabledByDefault: false,
 	// Legal-catalog source: searchable, but never a silent stand-in on the floor.
 	autoResolveEligible: false,
 

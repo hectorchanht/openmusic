@@ -119,7 +119,15 @@ export function mergeArtistTiles(tiles: ArtistTile[], artistLang: string | null 
  */
 export function prioritizeArtistIntent(tiles: ArtistTile[], queryTokens: string[]): ArtistTile[] {
 	if (!queryTokens.length || tiles.length < 2) return tiles;
-	const hits = tiles.filter((t) => fuzzyArtistMatchesQuery(t.name, queryTokens));
+	// quick-261116-srchrank: also try every CONTIGUOUS WINDOW of the query — a "title artist"
+	// search ("blue bigbang") names the artist in only PART of the query, so the whole-query
+	// compare could never lead BIGBANG's tile (live: junk uploader tiles sat beside it). A
+	// window hit is the same fuzzy equality, just scoped to the window the artist occupies.
+	const windows: string[][] = [];
+	for (let len = queryTokens.length; len >= 1; len--) {
+		for (let i = 0; i + len <= queryTokens.length; i++) windows.push(queryTokens.slice(i, i + len));
+	}
+	const hits = tiles.filter((t) => windows.some((w) => fuzzyArtistMatchesQuery(t.name, w)));
 	if (!hits.length || hits.length === tiles.length) return tiles;
 	const hitSet = new Set(hits);
 	return [...hits, ...tiles.filter((t) => !hitSet.has(t))];

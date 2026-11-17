@@ -4,6 +4,7 @@ import { warmScript } from '$lib/services/zh-convert';
 import { dedupeBest } from '$lib/services/dedupe';
 import { rankPool, rankAutoCandidates } from '$lib/services/song-variant';
 import { scoreMatch } from '$lib/services/score-match';
+import { computeSetContext } from '$lib/services/score-context';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 
 function mk(source: SourceId, id: string, title: string, extra: Partial<Track> = {}): Track {
@@ -45,5 +46,59 @@ describe('one pool ranker (quick-261102-t7i)', () => {
 		for (const t of ['Song (消音)', 'Song KTV', 'Song (Remaster)']) {
 			expect(scoreMatch(q, { ...base, title: t })).toBeLessThan(scoreMatch(q, base));
 		}
+	});
+});
+
+// quick-261116-srchrank (Hector 2026-11-16, live screenshot): query "blue bigbang" ranked the
+// exact song BLUE/BIGBANG at ~#16 — the search page scores the whole query in BOTH slots, and
+// matchKey glues it to one token "bluebigbang", so the split candidate (artist BIGBANG +
+// title BLUE) matched on NO path and similarity was 0; title-length proximity to the query
+// then floated every longer same-artist title above it. The combined-token exact term in
+// similarity() fixes the whole "title artist" / "artist title" query class.
+describe('title+artist query exactness (quick-261116-srchrank)', () => {
+	const bb = (source: SourceId, id: string, title: string, artist: string) =>
+		mk(source, id, title, { artist, keyword: 'blue bigbang' });
+	const pool = () => [
+		bb('ytmusic', 'v1', 'Hotspur Stadium, London', 'Dana'),
+		bb('qq', 'h1', '하루하루 Haru Haru', 'BIGBANG'),
+		bb('qq', 'l1', 'LAST DANCE', 'BIGBANG'),
+		bb('qq', 'bb1', 'BANG BANG BANG', 'BIGBANG'),
+		bb('qq', 'bd1', 'Bad Boy', 'BIGBANG'),
+		bb('qq', 'mv1', 'BIGBANG - BLUE M/V', 'BIGBANG'),
+		bb('joox', 'blue1', 'BLUE', 'BIGBANG'),
+		bb('ytmusic', 'bg1', 'Blue Groove', 'Bangbang123')
+	];
+	// The search page's exact call shape: whole query in both slots + set context.
+	const rankSearch = (rows: Track[], query: string) => {
+		const ctx = computeSetContext(rows, query);
+		return rankPool(rows, query, { score: (c) => scoreMatch({ artist: query, title: query }, c, ctx) });
+	};
+
+	it('"blue bigbang": the exact BLUE / BIGBANG ranks #1 (was #11 of 14 pre-fix)', () => {
+		const ranked = rankSearch(pool(), 'blue bigbang');
+		expect(ranked[0].uid).toBe('joox:blue1');
+		// The fan/uploader rows sink below every authentic BIGBANG row.
+		expect(ranked.findIndex((t) => t.uid === 'ytmusic:v1')).toBeGreaterThan(
+			ranked.findIndex((t) => t.uid === 'qq:bd1')
+		);
+		expect(ranked.findIndex((t) => t.uid === 'ytmusic:bg1')).toBeGreaterThan(
+			ranked.findIndex((t) => t.uid === 'joox:blue1')
+		);
+	});
+
+	it('"bigbang blue" (artist-first order) also puts BLUE #1 — token coverage is order-free', () => {
+		expect(rankSearch(pool(), 'bigbang blue')[0].uid).toBe('joox:blue1');
+	});
+
+	it('a title-carried credit ("BIGBANG Blue", blank artist) earns exact too', () => {
+		const q = { artist: 'blue bigbang', title: 'blue bigbang' };
+		const carried = bb('qq', 'tc', 'BIGBANG Blue', '');
+		expect(scoreMatch(q, carried)).toBeGreaterThan(scoreMatch(q, bb('qq', 'x', 'Bad Boy', 'BIGBANG')));
+	});
+
+	it('partial coverage does NOT promote: an unrelated same-token row stays low', () => {
+		const q = { artist: 'blue bigbang', title: 'blue bigbang' };
+		// "Blue" alone (no bigbang anywhere) must not reach exact-level scores.
+		expect(scoreMatch(q, bb('qq', 'p', 'Blue', 'Some Indie'))).toBeLessThan(6);
 	});
 });

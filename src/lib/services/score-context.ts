@@ -20,7 +20,12 @@ import type { SourceId, Track } from '$lib/sources/types';
 export interface SetContext {
 	/** matchKey(artist,'') → the set of DISTINCT sources that artist appears under (D-05). */
 	artistSources: Map<string, Set<SourceId>>;
-	/** Trimmed length of the user's query string (D-06 short-title proximity). */
+	/** Reference length for D-06 short-title proximity. Single-token query: its trimmed
+	 *  length. Multi-token query (quick-261116-srchrank): the LONGEST token's length — a
+	 *  "title artist" query's full length (12 for "blue bigbang") is the wrong ruler for a
+	 *  title: the exact 4-char title scored ~0 proximity while unrelated 12-char titles
+	 *  maxed it. The title the user means is (part of) one segment, so the longest —
+	 *  most distinctive — token is the scale. Only shortTitleBoost consumes this field. */
 	queryLen: number;
 	/**
 	 * quick-261006-lyr LYRIC-01: the query reads as a pasted LYRIC line, not a title/artist.
@@ -121,13 +126,17 @@ export function computeSetContext(rows: Track[], query: string): SetContext {
 	// quick-261006-lyr LYRIC-01/02: the consensus election is meaningful only in lyric mode —
 	// skip the O(set) titleKey pass for every normal title/artist search.
 	const lyricMode = hanCount(trimmed) >= LYRIC_MIN_HAN;
+	// quick-261024-cig: tokenizeQuery — the same split scoreMatch's token helpers use
+	// (non letter/digit runs), so query and candidate artist tokenize identically.
+	const queryTokens = tokenizeQuery(trimmed);
 	return {
 		artistSources,
-		queryLen: trimmed.length,
+		// quick-261116-srchrank: multi-token → longest token (see the field doc); a lyric
+		// line is ONE token here (no spaces), so lyric mode keeps the full-length ruler.
+		queryLen:
+			queryTokens.length >= 2 ? Math.max(...queryTokens.map((tk) => tk.length)) : trimmed.length,
 		lyricMode,
 		lyricConsensus: lyricMode ? electLyricConsensus(rows) : null,
-		// quick-261024-cig: tokenizeQuery — the same split scoreMatch's token helpers use
-		// (non letter/digit runs), so query and candidate artist tokenize identically.
-		queryTokens: tokenizeQuery(trimmed)
+		queryTokens
 	};
 }

@@ -1153,6 +1153,9 @@ describe('collectLyricCandidates — every source with an LRC (quick-260919-1we)
 		expect(out).toEqual([{ source: 'kuwo', lrc: '[00:01]kw' }]);
 		for (const id of Object.keys(SOURCES) as SourceId[]) {
 			if (LYRICLESS.includes(id)) continue;
+			// quick-261116-srchrank: the walk enumerates DEFAULT-enabled sources — a source
+			// that ships off (archive/bilibili) is not consulted until the user opts in.
+			if (!SOURCES[id].enabledByDefault) continue;
 			expect(search[id]).toHaveBeenCalledOnce();
 		}
 	});
@@ -1165,6 +1168,9 @@ describe('collectLyricCandidates — every source with an LRC (quick-260919-1we)
 		expect(out).toEqual([]);
 		for (const id of Object.keys(SOURCES) as SourceId[]) {
 			if (LYRICLESS.includes(id)) continue;
+			// quick-261116-srchrank: the walk enumerates DEFAULT-enabled sources — a source
+			// that ships off (archive/bilibili) is not consulted until the user opts in.
+			if (!SOURCES[id].enabledByDefault) continue;
 			expect(search[id]).toHaveBeenCalledOnce();
 		}
 	});

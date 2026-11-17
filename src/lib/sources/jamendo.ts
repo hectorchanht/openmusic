@@ -46,7 +46,9 @@ export const jamendo: SourceAdapter = {
 	label: 'Jamendo',
 	// Ships enabled by default (1bf113c); toggleable off via the Playback Advanced — Sources
 	// accordion (ii6). CC indie is a different intent than mainstream search.
-	enabledByDefault: true,
+	// quick-261116-srchrank: OFF by default — UGC/indie noise flooded mainstream search
+	// (Hector 2026-11-16); opt back in via Settings → Playback → Sources.
+	enabledByDefault: false,
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
 		// HEALTH-GATE short-circuit (jamendo-health, universal-gate rollout 2026-11-01):

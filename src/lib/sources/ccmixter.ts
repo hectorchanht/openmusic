@@ -44,7 +44,9 @@ export const ccmixter: SourceAdapter = {
 	// Ships enabled by default; toggleable off via the Playback Advanced — Sources
 	// accordion (registry-driven, no per-source UI). CC remix/indie is a different
 	// intent than mainstream search.
-	enabledByDefault: true,
+	// quick-261116-srchrank: OFF by default — UGC/indie noise flooded mainstream search
+	// (Hector 2026-11-16); opt back in via Settings → Playback → Sources.
+	enabledByDefault: false,
 	// Search-only legal catalog — off the auto-resolve floor (jamendo/archive posture).
 	autoResolveEligible: false,
 

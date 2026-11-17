@@ -186,21 +186,21 @@ describe('isAutoResolveEligible (quick-260926-c69)', () => {
 	it('bilibili is off the auto-resolve floor (search-only)', () => {
 		expect(isAutoResolveEligible('bilibili')).toBe(false);
 		expect(SOURCES.bilibili.autoResolveEligible).toBe(false);
-		expect(SOURCES.bilibili.enabledByDefault).toBe(true);
+		expect(SOURCES.bilibili.enabledByDefault).toBe(false); // quick-261116-srchrank: UGC off by default
 	});
 
 	// quick-261020-arch: archive is a legal-catalog source — searchable, off the floor.
 	it('archive is off the auto-resolve floor (legal catalog)', () => {
 		expect(isAutoResolveEligible('archive')).toBe(false);
 		expect(SOURCES.archive.autoResolveEligible).toBe(false);
-		expect(SOURCES.archive.enabledByDefault).toBe(true);
+		expect(SOURCES.archive.enabledByDefault).toBe(false); // quick-261116-srchrank: UGC off by default
 	});
 
 	// quick-261101-ccm: ccmixter is a legal-catalog source — searchable, off the floor.
 	it('ccmixter is off the auto-resolve floor (legal catalog)', () => {
 		expect(isAutoResolveEligible('ccmixter')).toBe(false);
 		expect(SOURCES.ccmixter.autoResolveEligible).toBe(false);
-		expect(SOURCES.ccmixter.enabledByDefault).toBe(true);
+		expect(SOURCES.ccmixter.enabledByDefault).toBe(false); // quick-261116-srchrank: UGC off by default
 		expect(SOURCES.ccmixter.label).toBe('CCMixter');
 	});
 

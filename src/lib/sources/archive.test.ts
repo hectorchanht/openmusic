@@ -118,8 +118,8 @@ describe('archiveDownloadUrl', () => {
 });
 
 describe('archive registry posture', () => {
-	it('is a legal-catalog source: enabledByDefault true, autoResolveEligible false', () => {
-		expect(archive.enabledByDefault).toBe(true);
+	it('is a legal-catalog source: enabledByDefault false (quick-261116-srchrank), autoResolveEligible false', () => {
+		expect(archive.enabledByDefault).toBe(false);
 		expect(archive.autoResolveEligible).toBe(false);
 	});
 });

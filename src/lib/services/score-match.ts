@@ -20,6 +20,7 @@
 // query-title-credit zero-out for a candidate whose canonical title IS the query (a pasted-lyric
 // mistitle, not the song). Both are ctx-gated; the 2-arg resolveStub path is byte-identical.
 import { matchKey, titleKey } from '$lib/services/dedupe';
+import { foldScript } from '$lib/services/zh-convert';
 import type { Track } from '$lib/sources/types';
 
 /** quick-261102-t7i: what scoreMatch reads off a candidate — any row with artist/title/duration
@@ -193,6 +194,33 @@ function similarity(query: { artist: string; title: string }, candidate: Scorabl
 	const qKey = matchKey(query.artist, query.title);
 	const cKey = matchKey(candidate.artist, candidate.title);
 	if (qKey === cKey) return SIM_EXACT;
+
+	// quick-261116-srchrank: COMBINED-TOKEN exact. matchKey strips spaces/punctuation, so the
+	// halves above are GLUED single tokens ("bluebigbang") — a candidate that carries the query
+	// split across its fields (artist "BIGBANG" + title "BLUE", the shape every "title artist"
+	// search names) can never equal either half, and its similarity was 0: the exact song scored
+	// BELOW every same-artist row and ranked by title-length proximity instead (live: "blue
+	// bigbang" put BLUE at #11+ behind Haru Haru / LAST DANCE at 4.5 vs its 3). Tokenize the RAW
+	// strings (script-folded like matchKey) and ask the field-agnostic question: does the
+	// candidate's artist+title TOGETHER contain every query token? Full coverage IS an exact
+	// match, whichever field each word landed in — including a title-carried credit
+	// ("BIGBANG Blue" with a blank artist). Needs >= 2 query tokens (a single word already has
+	// the component paths) and is additive-only: it can only raise a zero/partial score to
+	// SIM_EXACT, never lower one. Han tokens stay whole words here (no per-char splitting), so
+	// 姜涛 ≠ 姜濤 is preserved exactly as in the component compare.
+	const qToksAll = new Set([
+		...tokens(foldScript(query.artist || '').toLowerCase()),
+		...tokens(foldScript(query.title || '').toLowerCase())
+	]);
+	if (qToksAll.size >= 2) {
+		const cToksAll = new Set([
+			...tokens(foldScript(candidate.artist || '').toLowerCase()),
+			...tokens(foldScript(candidate.title || '').toLowerCase())
+		]);
+		let covered = true;
+		for (const tk of qToksAll) if (!cToksAll.has(tk)) { covered = false; break; }
+		if (covered) return SIM_EXACT;
+	}
 
 	const [qArtist, qTitle] = qKey.split('|');
 	const [cArtist, cTitle] = cKey.split('|');

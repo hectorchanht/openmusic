@@ -196,7 +196,15 @@ export const PLAYBACK_DEFAULTS = {
 	nowbarLyrics: true,
 	/** Per-source search enable map. quick-261104-defs: every source is listed explicitly — flip
 	 *  one to `false` to ship it off. A source missing here falls back to its adapter's own
-	 *  `enabledByDefault` (registry.ts getEnabledAdapters). */
+	 *  `enabledByDefault` (registry.ts getEnabledAdapters).
+	 *  quick-261116-srchrank (Hector 2026-11-16): the UGC/indie/CC sources ship OFF — fivesing
+	 *  （同人/翻唱/伴奏）, bilibili (UGC video), audius + jamendo + archive + ccmixter (indie/CC)
+	 *  flooded mainstream searches with fan uploads that outranked the original (live: "blue
+	 *  bigbang" led by stadium fan videos). They stay one tap away in Settings → Playback →
+	 *  Sources. ytmusic + bandcamp stay ON: ytmusic carries Western/K-pop official songs + the
+	 *  MV layer, bandcamp is artist-official audio. Existing installs are moved by the one-time
+	 *  migration in settings.load() (SOURCES_DEFAULTS_VERSION) — this map alone only reaches
+	 *  fresh installs, because a persisted map wins wholesale. */
 	enabledSources: {
 		qq: true,
 		joox: true,
@@ -206,15 +214,19 @@ export const PLAYBACK_DEFAULTS = {
 		suyin: true,
 		kugou: true,
 		migu: true,
-		fivesing: true,
-		jamendo: true,
-		audius: true,
-		archive: true,
-		ccmixter: true,
+		fivesing: false,
+		jamendo: false,
+		audius: false,
+		archive: false,
+		ccmixter: false,
 		bandcamp: true,
-		bilibili: true,
+		bilibili: false,
 		ytmusic: true
 	} as Partial<Record<SourceId, boolean>>,
+	/** quick-261116-srchrank: one-time sources-defaults migration version (settings.load()).
+	 *  1 = the UGC-off flip above. Bump ONLY alongside a new forced default change; a user who
+	 *  re-enables a source after the migration keeps it (the marker is already current). */
+	sourcesDefaultsVersion: 1,
 	/** quick-261108-swp (Hector 2026-11-08): what a sideways swipe does, per direction. `swipePlayer`
 	 *  governs the Nowbar + the Now Playing cover (the playing song); `swipeRow` governs song rows
 	 *  in lists (SongRow + Related). Defaults are the pre-setting behaviour. Up Next rows keep

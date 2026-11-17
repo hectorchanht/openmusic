@@ -111,8 +111,8 @@ await expect(bilibili.resolve(stubTrack(), ac.signal)).rejects.toThrow(/no playa
 });
 
 describe('bilibili registry posture', () => {
-it('is search-only: enabledByDefault true, autoResolveEligible false', () => {
-expect(bilibili.enabledByDefault).toBe(true);
+it('is search-only: enabledByDefault false (quick-261116-srchrank), autoResolveEligible false', () => {
+expect(bilibili.enabledByDefault).toBe(false);
 expect(bilibili.autoResolveEligible).toBe(false);
 });
 });

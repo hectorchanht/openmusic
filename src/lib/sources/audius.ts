@@ -36,7 +36,9 @@ export const audius: SourceAdapter = {
 	label: 'Audius',
 	// Verified-working, zero-overlap net-new supply — enabled in the default resolver
 	// (parallel Promise.allSettled fan-out means an extra source can't break existing ones).
-	enabledByDefault: true,
+	// quick-261116-srchrank: OFF by default — UGC/indie noise flooded mainstream search
+	// (Hector 2026-11-16); opt back in via Settings → Playback → Sources.
+	enabledByDefault: false,
 
 	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
 		// Endpoint does not paginate (research A3) — page>1 is a no-op (no upstream call,

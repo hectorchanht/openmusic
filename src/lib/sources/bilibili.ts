@@ -77,7 +77,9 @@ export const bilibili: SourceAdapter = {
 	id: 'bilibili',
 	health: bilibiliHealth,
 	label: 'Bilibili',
-	enabledByDefault: true,
+	// quick-261116-srchrank: OFF by default — UGC/indie noise flooded mainstream search
+	// (Hector 2026-11-16); opt back in via Settings → Playback → Sources.
+	enabledByDefault: false,
 	// Search-only: never let a video upload satisfy another source's resolve.
 	autoResolveEligible: false,
 

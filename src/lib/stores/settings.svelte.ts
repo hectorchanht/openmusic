@@ -337,6 +337,9 @@ class Settings {
 	/** 39-D-40: persisted home-layout version. A PLAIN field, not $state: the UI never reads it —
 	 *  it only gates the one-time layout migration in load() and is written by save(). */
 	homeLayoutVersion: number = HOME_DEFAULTS.homeLayoutVersion;
+	/** quick-261116-srchrank: persisted sources-defaults version. Same plain-field posture as
+	 *  homeLayoutVersion — gates the one-time UGC-sources-off migration in load(). */
+	sourcesDefaultsVersion: number = PLAYBACK_DEFAULTS.sourcesDefaultsVersion;
 
 	private loaded = false;
 
@@ -381,6 +384,20 @@ class Settings {
 					v.enabledSources && typeof v.enabledSources === 'object' && !Array.isArray(v.enabledSources)
 						? (v.enabledSources as Partial<Record<SourceId, boolean>>)
 						: { ...PLAYBACK_DEFAULTS.enabledSources };
+				// quick-261116-srchrank — one-time UGC-off migration (Hector 2026-11-16). Unlike
+				// upnextPerContext (jtw: persisted = explicit choice, no migration), a persisted
+				// enabledSources map is mostly AUTO-SAVED defaults — save() writes the whole map
+				// on any settings change, so its `true`s are rarely deliberate. The version marker
+				// keeps this one-shot: a user who re-enables a source afterwards is never
+				// re-migrated. Absent / non-number = 0 (every pre-srchrank blob).
+				const srcVer = typeof v.sourcesDefaultsVersion === 'number' ? v.sourcesDefaultsVersion : 0;
+				if (srcVer < PLAYBACK_DEFAULTS.sourcesDefaultsVersion) {
+					for (const id of Object.keys(PLAYBACK_DEFAULTS.enabledSources) as SourceId[]) {
+						if (PLAYBACK_DEFAULTS.enabledSources[id] === false) this.enabledSources[id] = false;
+					}
+					migrated = true;
+				}
+				this.sourcesDefaultsVersion = PLAYBACK_DEFAULTS.sourcesDefaultsVersion;
 				// Up-next sourcing (Phase 17). perContext: same object-not-array guard as
 				// enabledSources (T-17-01 — malformed → safe defaults); mode validated against the
 				// 2-value union, else the global default.
@@ -641,6 +658,7 @@ class Settings {
 					lyricsSkip: this.lyricsSkip,
 					lastfmSkip: this.lastfmSkip,
 					enabledSources: this.enabledSources,
+					sourcesDefaultsVersion: this.sourcesDefaultsVersion,
 					upnextPerContext: this.upnextPerContext,
 					upnextMode: this.upnextMode,
 					tapUpnext: this.tapUpnext,
