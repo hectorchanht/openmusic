@@ -577,6 +577,21 @@ class Player {
 		return readCoverByUidOrName(cur.uid, cur.artist, cur.title) ?? rc;
 	}
 
+	/** quick-261116-dtap: read-only Never-Stop state for the double-tap discovery service
+	 *  (services/random-discovery.ts). While an interlude is active the streaming sources
+	 *  are marked down, so a discovery dive must draw from the local pool instead of
+	 *  resolving — the service reads these two getters and never touches the private
+	 *  nsInterlude / nsRetrying fields behind them. */
+	get inInterlude(): boolean {
+		return this.nsInterlude !== null;
+	}
+
+	/** quick-261116-dtap: the zero-asset retrying state (Q14) — no local track exists to
+	 *  dive into; the service's only move is an immediate revival probe via next(). */
+	get inRetrying(): boolean {
+		return this.nsRetrying;
+	}
+
 	/** quick-260831-t2g: a cover the CALLER supplied (an album's art, a discovery tile's image),
 	 *  keyed by SONG identity — `matchKey(artist, title)` — not by uid.
 	 *
@@ -6724,6 +6739,33 @@ class Player {
 			settings.preferredSource
 		);
 		this.playPoolTrack(pool[0]);
+	}
+
+	/**
+	 * quick-261116-dtap: the double-tap discovery dive DURING an interlude — play a random
+	 * pool track (never the current one) through the same playPoolTrack registration as a
+	 * boundary advance, so the dive earns its probe token and counts in the cycle exactly
+	 * like a next(). The interlude stays alive: play() only supersedes an interlude for a
+	 * NON-pool track, and this pick is pool by construction. Returns the played track, or
+	 * null when no interlude / pool is active (the caller then dives over the network).
+	 */
+	playRandomPoolTrack(rng: () => number = Math.random): Track | null {
+		if (!this.nsInterlude || this.nsPoolTracks.length === 0) return null;
+		const candidates = this.nsPoolTracks.filter((t) => t.uid !== this.current?.uid);
+		if (candidates.length === 0) return null;
+		const pick = candidates[Math.min(candidates.length - 1, Math.floor(rng() * candidates.length))];
+		// The live queue normally already holds the pool, but a failed probe leaves it
+		// holding the restored streaming queue — rebuild the interlude shape (the
+		// wrapInterludePool idiom) so next() keeps advancing inside the pool afterwards.
+		if (!this.queue.some((t) => t.uid === pick.uid)) {
+			this.queue = dedupeBest(
+				[...(this.current ? [this.current] : []), ...this.nsPoolTracks],
+				settings.preferredSource
+			);
+		}
+		logAction('neverstop.interlude.dtap', { uid: pick.uid });
+		this.playPoolTrack(pick);
+		return pick;
 	}
 
 	/** Play one local pool track and register it: play count, cycle set, and the one probe

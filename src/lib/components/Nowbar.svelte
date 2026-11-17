@@ -28,6 +28,11 @@
     import { lyricsTranslation, publishedLineFor } from "$lib/stores/lyrics-translation.svelte";
     import { sleepTimer } from "$lib/stores/sleepTimer.svelte";
     import { coverSwipe } from "$lib/actions/coverSwipe";
+    // quick-261116-dtap: cover double-tap → random discovery dive (Phase 3). The handler
+    // (coverRandom) sits beside handleOpen below; the action lives on .np-art ONLY.
+    import { doubleTap } from "$lib/actions/doubleTap";
+    import { playRandomDiscovery } from "$lib/services/random-discovery";
+    import { CHART_GENRE_LABEL } from "$lib/services/home-charts";
     import { playerSwipe } from "$lib/components/swipe-act";
     import { tapBounce } from "$lib/actions/tapBounce";
     import KeyTip from "$lib/components/KeyTip.svelte";
@@ -271,6 +276,22 @@
         else player.expand();
     }
 
+    // quick-261116-dtap: the cover double-tap dive. Feedback = the haptic tick (the
+    // settings-gated leaf — the toggle reaches it via the settings store seam), the
+    // action's own .dtap-pulse on the cover, and a toast naming what the dive landed
+    // on. A null result is the home discovery tap's unplayable toast, never silence.
+    async function coverRandom() {
+        hapticTick();
+        const r = await playRandomDiscovery();
+        if (!r) {
+            toast.show(t("home.unplayable"));
+            return;
+        }
+        if (r.kind === "genre") toast.show(t("toast.dtapGenre", { genre: t(CHART_GENRE_LABEL[r.genre]) }));
+        else if (r.kind === "local") toast.show(t("toast.dtapLocal"));
+        else toast.show(t("toast.dtapAny"));
+    }
+
     // quick-261115-inj: right-click / long-press on the docked bar opens the TrackMenu — desktop
     // AND phone (follow-up). longpress cancels past 8px of movement, so a coverSwipe drag never
     // opens it, and it eats the trailing click so the hold does not also expand Now Playing.
@@ -387,10 +408,23 @@
                  gesture surface is never remounted mid-drag (the slide is the button transform; the
                  crossfade is the inner content swap on the post-commit store change). -->
             {#key npKey}
+                <!-- quick-261116-dtap: use:doubleTap on the COVER ONLY (Q6). It claims
+                     cover clicks in the capture phase: a single tap runs handleOpen
+                     deferred by ≤260ms (the ONLY taps in the app that pay the window —
+                     title/text taps hit .np-open's onclick instantly, as before), a
+                     double tap cancels the expand and dives (coverRandom). coverSwipe
+                     is untouched: its committed-swipe click suppressor sits on .np-open
+                     (an ancestor), so it eats post-swipe clicks before this action's
+                     gate ever sees them. enabled mirrors the button's disabled state. -->
                 <span
                     class="np-art"
                     in:fade={{ duration: xfadeMs }}
                     out:fade={{ duration: xfadeMs }}
+                    use:doubleTap={{
+                        onsingletap: handleOpen,
+                        ondoubletap: coverRandom,
+                        enabled: !resolving,
+                    }}
                     style:background-image={npCover
                         ? `url(${npCover}), ${fallbackCover()}`
                         : fallbackCover()}

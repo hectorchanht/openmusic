@@ -290,6 +290,47 @@ song is not.
   settings-persist 3), zero regressions; svelte-check 0 errors / 18
   warnings (fresh-head baseline, none in touched files). Playback
   behaviour live/device verification remains Phase 5 work.
+- Phase 3 (Double-Tap Random Discovery, global) — EXECUTED 2026-11-16
+  (quick-261116-dtap): pure tap-timing gate `src/lib/gestures/tapGate.ts`
+  (260ms window, inclusive edge, skew-safe) + `use:doubleTap` action
+  (`src/lib/actions/doubleTap.ts`) mounted on the COVER element only —
+  Nowbar `.np-art` and Now Playing `.cover-cell.cur`. The action claims
+  cover clicks in the capture phase and stopPropagation()s them before the
+  ancestor's tap handler (.np-open expand / .cover collapse): a single tap
+  runs the host action deferred by ≤260ms — paid ONLY by cover taps, title/
+  text taps and keyboard (whose event path never crosses the cover child)
+  stay instant — and a second tap inside the window cancels it and dives.
+  coverSwipe coexistence is structural: its committed-swipe click
+  suppressor sits on the ancestor and eats post-swipe clicks before the
+  gate sees them; longpress's document-capture suppressor likewise.
+  Discovery: `src/lib/services/random-discovery.ts` — genre signal is
+  Last.fm tags (enrichTrack + up to 5 recent distinct artists' enrichArtist,
+  6h-cached, never-throw) mapped onto the chart-genre vocabulary by a small
+  exact alias table (regional pops also block the overlapping 'asian'
+  pool; a bare 'pop'/'chinese' tag blocks nothing); the dive draws a random
+  unblocked genre pool (genreChart, the home shelves' own pools), filters
+  out the last 20 history entries' artists (normField-folded) and heard
+  songs (matchKey), and plays through player.tapStub('home-discovery') —
+  the home discovery path verbatim, original-artist gate and tap Up-Next
+  setting included. Dry pools fall back to buildDiversePicks, then to the
+  home unplayable toast — never silent. During a Phase 1 interlude the
+  dive draws from the local pool via the new player seam
+  (playRandomPoolTrack + inInterlude/inRetrying getters; the pick is pool
+  by construction so the interlude survives, registered like a boundary
+  advance) and toasts as local; in the zero-asset retrying state it spends
+  an immediate revival probe instead. Feedback: haptic tick() (the
+  settings-gated leaf), `.dtap-pulse` in app.css (glow = light channel,
+  re-asserted under data-reduce-motion per the marquee precedent; flip =
+  positional, gated to no-preference + no app reduce flag), and a toast
+  naming the genre (new i18n keys toast.dtapGenre / toast.dtapLocal /
+  toast.dtapAny in all 15 locales; genre names reuse CHART_GENRE_LABEL).
+  No settings toggle — the gesture ships always-on per the confirmed
+  brief. Tests: tapGate 10 + doubleTap action 8 + random-discovery 12 new,
+  player suite 414 → 415 (interlude dive test); full suite 5477 passed /
+  8 failed = the pre-existing baseline (track-menu-order 5 +
+  settings-persist 3, untouched files), zero regressions; svelte-check
+  0 errors / 18 warnings (baseline, none in touched files). Playback
+  behaviour live/device verification remains Phase 5 work.
 
 ## Out of scope
 

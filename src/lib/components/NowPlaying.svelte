@@ -46,6 +46,11 @@
 	import KeyTip from '$lib/components/KeyTip.svelte';
 	import { marquee } from '$lib/actions/marquee';
 	import { coverSwipe } from '$lib/actions/coverSwipe';
+	// quick-261116-dtap: cover double-tap → random discovery dive (Phase 3), on the
+	// current cover cell only — see the use:doubleTap mount at .cover-cell.cur.
+	import { doubleTap } from '$lib/actions/doubleTap';
+	import { playRandomDiscovery } from '$lib/services/random-discovery';
+	import { CHART_GENRE_LABEL } from '$lib/services/home-charts';
 	import { playerSwipe } from '$lib/components/swipe-act';
 import VideoStage from '$lib/components/VideoStage.svelte';
 import NpAbout from '$lib/components/NpAbout.svelte';
@@ -966,6 +971,21 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		else if (sheetState === 'half') sheetState = 'closed';
 		// `full` is a no-op.
 	}
+	// quick-261116-dtap: the cover double-tap dive — same feedback contract as the
+	// Nowbar's (haptic tick via the settings-gated leaf, the action's .dtap-pulse on
+	// the cell, a toast naming the landing). The single-tap side stays tapCoverCollapse
+	// verbatim, deferred ≤260ms by the action for current-cell taps only.
+	async function coverRandom() {
+		hapticTick();
+		const r = await playRandomDiscovery();
+		if (!r) {
+			toast.show(t('home.unplayable'));
+			return;
+		}
+		if (r.kind === 'genre') toast.show(t('toast.dtapGenre', { genre: t(CHART_GENRE_LABEL[r.genre]) }));
+		else if (r.kind === 'local') toast.show(t('toast.dtapLocal'));
+		else toast.show(t('toast.dtapAny'));
+	}
 	// Keyboard parity for the cover's role="button" (Enter/Space) — mirrors the grip's gripKey idiom
 	// and satisfies the a11y click-needs-keydown rule. Inherits the closed→toggle / half→no-op behavior.
 	function tapCoverKey(e: KeyboardEvent) {
@@ -1173,7 +1193,17 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 			{:else}
 				<div class="cover-cell prev" style:background-image="none"></div>
 			{/if}
-			<div class="cover-cell cur">
+			<!-- quick-261116-dtap: use:doubleTap on the CURRENT cell only (Q6). It claims
+			     the cell's clicks in the capture phase: a single tap runs tapCoverCollapse
+			     deferred by ≤260ms (prev/next cell taps still reach .cover's onclick
+			     instantly), a double tap cancels it and dives (coverRandom). coverSwipe's
+			     committed-swipe suppressor sits on .cover-strip (an ancestor), so a swipe
+			     can never pair into a double; the keyboard path (tapCoverKey on .cover)
+			     never routes through the cell and stays instant. -->
+			<div
+				class="cover-cell cur"
+				use:doubleTap={{ onsingletap: tapCoverCollapse, ondoubletap: coverRandom }}
+			>
 				<!-- plan 003: the current cell crossfades its art on a non-swipe track change / late
 				     resolve. Two keyed layers stack at inset:0 and dissolve; the strip transform
 				     (coverSwipe) is on the parent .cover-strip and is unaffected. xfadeMs → 0 under

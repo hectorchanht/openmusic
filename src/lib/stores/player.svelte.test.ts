@@ -3275,6 +3275,39 @@ describe('player resilience — loop-guard + skip-on-failure (PLAY-07/08)', () =
 		library.downloads = [];
 	});
 
+	it('DOUBLE-TAP local dive (quick-261116-dtap): playRandomPoolTrack plays a random pool track (never the current), keeps the interlude alive, and registers the play; outside an interlude it is a null no-op', async () => {
+		// Outside any interlude: no pool to dive into.
+		expect(player.inInterlude).toBe(false);
+		expect(player.inRetrying).toBe(false);
+		expect(player.playRandomPoolTrack(() => 0)).toBeNull();
+
+		const a = mk('netease', 'a', 'A', 'Dead');
+		const b = mk('qq', 'b', 'B', 'Next');
+		const d1 = mk('kuwo', 'dl1', 'DL', 'Downloaded One');
+		const d2 = mk('kuwo', 'dl2', 'DL', 'Downloaded Two');
+		const d3 = mk('kuwo', 'dl3', 'DL', 'Downloaded Three');
+		player.queue = [a, b];
+		player.current = a;
+		library.downloads = [d1, d2, d3];
+		setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1);
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		await runFallback(a);
+		await flush();
+		expect(player.inInterlude).toBe(true);
+		expect(player.current?.uid).toBe(d1.uid); // interlude opened on the pool head
+
+		// rng () => 0 → the first candidate that is not the current track (d2), played
+		// through the pool registration (play count bumps, interlude survives).
+		playSpy.mockClear();
+		const played = player.playRandomPoolTrack(() => 0);
+		expect(played?.uid).toBe(d2.uid);
+		expect(playSpy).toHaveBeenCalledWith(d2, { fresh: false });
+		expect(player.inInterlude).toBe(true);
+		const ns = player as unknown as { nsInterlude: { plays: number } | null };
+		expect(ns.nsInterlude?.plays).toBe(2); // d1 (entry) + d2 (the dive)
+		library.downloads = [];
+	});
+
 	it('NEVER-STOP queue restore (quick-261116-nstop): a successful probe restores the saved queue at the boundary and exits with the one-time recovered summary', async () => {
 		const a = mk('netease', 'a', 'A', 'Dead');
 		const b = mk('qq', 'b', 'B', 'Next');

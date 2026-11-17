@@ -241,6 +241,54 @@ button, a, [role="button"] { -webkit-tap-highlight-color: transparent; }
    devices report OS reduced-motion for non-accessibility reasons (dev-options animation
    scale off, battery saver), which silently killed the bounce on-device. See tapBounce.ts. */
 
+/* use:doubleTap discovery-dive feedback (quick-261116-dtap). The action adds `.dtap-pulse`
+   to the cover node the instant a double-tap lands; animationend (or the action's 900ms
+   fallback) removes it. Two channels, gated differently ON PURPOSE:
+     - the GLOW (box-shadow + brightness — the LIGHT channel) is the signal "a random song
+       is coming": it stays alive under reduced motion, re-asserted against the global
+       kill rule below with the marquee precedent's specificity maths ((0,4,0) beats the
+       blanket rule's (0,3,0), both !important);
+     - the FLIP (a rotateY tilt — POSITIONAL travel) only runs when neither the OS query
+       nor the app setting asks for reduced motion. */
+@keyframes dtap-glow {
+	0% {
+		box-shadow: 0 0 0 0 transparent;
+		filter: brightness(1);
+	}
+	35% {
+		box-shadow: 0 0 22px 4px color-mix(in srgb, var(--color-primary) 55%, transparent);
+		filter: brightness(1.3);
+	}
+	100% {
+		box-shadow: 0 0 0 0 transparent;
+		filter: brightness(1);
+	}
+}
+@keyframes dtap-flip {
+	0% {
+		transform: perspective(600px) rotateY(0deg);
+	}
+	45% {
+		transform: perspective(600px) rotateY(24deg);
+	}
+	100% {
+		transform: perspective(600px) rotateY(0deg);
+	}
+}
+.dtap-pulse {
+	animation: dtap-glow 0.7s ease-out;
+}
+@media (prefers-reduced-motion: no-preference) {
+	:root:not([data-reduce-motion]) .dtap-pulse {
+		animation:
+			dtap-glow 0.7s ease-out,
+			dtap-flip 0.45s ease;
+	}
+}
+:root[data-reduce-motion] .dtap-pulse.dtap-pulse {
+	animation: dtap-glow 0.7s ease-out !important;
+}
+
 /* ---- Global scrubber (plan 002) --------------------------------------------------------
    Shared slider skin for any horizontal progress+seek control. The component supplies the
    fraction (inline --scrub-frac 0..1) and toggles `.scrubbing` while a pointer drag is live.
