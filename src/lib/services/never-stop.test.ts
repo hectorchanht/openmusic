@@ -5,7 +5,14 @@ import {
 	ProbeBudget,
 	NS_COOLDOWN_BASE_MS,
 	NS_COOLDOWN_CAP_MS,
-	NS_SMALL_POOL
+	NS_SMALL_POOL,
+	measureLocalPool,
+	planBufferTopUp,
+	planBufferEvictions,
+	bufferTierFor,
+	estimateTrackSec,
+	NS_POOL_TARGET_SEC,
+	NS_DEFAULT_TRACK_SEC
 } from './never-stop';
 import type { SourceId } from '$lib/sources/types';
 
@@ -121,5 +128,120 @@ describe('ProbeBudget — at most one probe per interlude track (Q10)', () => {
 		expect(b.tryConsume()).toBe(false);
 		b.onInterludeTrackStart();
 		expect(b.tryConsume()).toBe(true);
+	});
+});
+
+// quick-261116-prebuf: Adaptive Pre-Buffer pure math (Car Mode plan Phase 2, Q7/Q15).
+// Q15 threshold as corrected by Hector: 30 minutes of local audio is enough.
+
+const d = (uid: string, duration?: number) => ({ uid, duration });
+
+describe('measureLocalPool — the 30-minute pool measurement (Q15)', () => {
+	it('sums real durations across Downloads + Cached, Downloads winning duplicates', () => {
+		const m = measureLocalPool([d('a', 300), d('b', 240)], [d('b', 999), d('c', 60)]);
+		expect(m.totalSec).toBe(600);
+		expect(m.knownTracks).toBe(3);
+		expect(m.estimatedTracks).toBe(0);
+	});
+
+	it('estimates a duration-less track at the pool average of known durations', () => {
+		const m = measureLocalPool([d('a', 300), d('b', 100), d('c')], []);
+		expect(m.fallbackSec).toBe(200);
+		expect(m.totalSec).toBe(600);
+		expect(m.estimatedTracks).toBe(1);
+	});
+
+	it('falls back to the conservative default when NO track reports a duration', () => {
+		const m = measureLocalPool([d('a'), d('b')], []);
+		expect(m.fallbackSec).toBe(NS_DEFAULT_TRACK_SEC);
+		expect(m.totalSec).toBe(2 * NS_DEFAULT_TRACK_SEC);
+		expect(m.knownTracks).toBe(0);
+	});
+
+	it('an empty pool measures zero', () => {
+		const m = measureLocalPool([], []);
+		expect(m.totalSec).toBe(0);
+		expect(NS_POOL_TARGET_SEC).toBe(30 * 60);
+	});
+});
+
+describe('planBufferTopUp — top the pool up to the target, in queue order (Q15)', () => {
+	it('plans nothing when the pool already meets the target (no wasted data)', () => {
+		expect(planBufferTopUp(NS_POOL_TARGET_SEC, NS_POOL_TARGET_SEC, [d('x', 300)])).toEqual([]);
+		expect(planBufferTopUp(NS_POOL_TARGET_SEC + 1, NS_POOL_TARGET_SEC, [d('x', 300)])).toEqual(
+			[]
+		);
+	});
+
+	it('takes the in-order prefix whose durations close the gap, overshooting by one track', () => {
+		const plan = planBufferTopUp(1200, 1800, [d('a', 300), d('b', 400), d('c', 300)]);
+		expect(plan.map((x) => x.uid)).toEqual(['a', 'b']); // 1200+300+400 = 1900 ≥ 1800, c unneeded
+	});
+
+	it('passes over skipped uids without counting them toward the gap', () => {
+		const plan = planBufferTopUp(
+			1500,
+			1800,
+			[d('owned', 900), d('next', 300)],
+			new Set(['owned'])
+		);
+		expect(plan.map((x) => x.uid)).toEqual(['next']);
+	});
+
+	it('estimates duration-less candidates at the supplied fallback', () => {
+		const plan = planBufferTopUp(1700, 1800, [d('a')], new Set(), 200);
+		expect(plan.map((x) => x.uid)).toEqual(['a']); // 1700 + est. 200 ≥ 1800
+	});
+
+	it('returns what exists when the queue cannot fill the gap', () => {
+		const plan = planBufferTopUp(0, 1800, [d('a', 300)]);
+		expect(plan.map((x) => x.uid)).toEqual(['a']);
+	});
+});
+
+describe('bufferTierFor — the 320K buffer cap (Q7)', () => {
+	it('pulls lossless and auto down to 320', () => {
+		expect(bufferTierFor('lossless')).toBe('320');
+		expect(bufferTierFor('auto')).toBe('320');
+		expect(bufferTierFor('320')).toBe('320');
+	});
+
+	it("respects an explicit 128 data-saving choice (never upscaled)", () => {
+		expect(bufferTierFor('128')).toBe('128');
+	});
+});
+
+describe('planBufferEvictions — LRU down to the target, downloads untouchable', () => {
+	const e = (uid: string, at: number, sec: number) => ({ uid, at, sec });
+
+	it('evicts nothing at or under the keep target', () => {
+		expect(planBufferEvictions([e('a', 1, 900), e('b', 2, 900)], new Set(), 1800)).toEqual([]);
+	});
+
+	it('evicts oldest-first until the remainder fits', () => {
+		const out = planBufferEvictions(
+			[e('new', 300, 600), e('old', 100, 600), e('mid', 200, 600)],
+			new Set(),
+			1200
+		);
+		expect(out.map((x) => x.uid)).toEqual(['old']);
+	});
+
+	it('never evicts a protected (now-downloaded) uid, even when still over target', () => {
+		const out = planBufferEvictions(
+			[e('dl', 100, 1200), e('cache', 200, 1200)],
+			new Set(['dl']),
+			600
+		);
+		expect(out.map((x) => x.uid)).toEqual(['cache']);
+	});
+});
+
+describe('estimateTrackSec', () => {
+	it('prefers a real positive duration, else the fallback', () => {
+		expect(estimateTrackSec(245, 200)).toBe(245);
+		expect(estimateTrackSec(undefined, 200)).toBe(200);
+		expect(estimateTrackSec(0, 200)).toBe(200);
+		expect(estimateTrackSec(Number.NaN, 200)).toBe(200);
 	});
 });

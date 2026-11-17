@@ -258,6 +258,38 @@ song is not.
   device-filename's timing probe flaky under full-suite load, passes
   standalone); svelte-check 0 errors, no findings in touched files.
   Playback behaviour live/device verification remains Phase 5 work.
+- Phase 2 (Adaptive Pre-Buffer) — EXECUTED 2026-11-16 (quick-261116-prebuf):
+  pure helpers appended to `src/lib/services/never-stop.ts` (measureLocalPool
+  — Downloads + byte-present Cached, duration-less tracks estimated at the
+  pool's own average, NS_DEFAULT_TRACK_SEC 210 when nothing is known;
+  planBufferTopUp; bufferTierFor; planBufferEvictions) + player wiring:
+  a persisted car-buffer registry (localStorage openmusic:carbuffer:v1),
+  an idle-gated strictly-sequential walk (onApiPipelineIdle before every
+  track, 2 consecutive failures end the walk) that resolves upcoming queue
+  tracks tier-capped per call and byte-buffers them into blobStore as
+  CACHE, and LRU eviction down to the target that unregisters — never
+  deletes — entries whose uid became a real Download. Triggers: first
+  Fallback Interlude entry (armCarBuffer() inside enterFallbackInterlude)
+  + the public player.armCarBuffer() entry point for Phase 4; rolling
+  re-top-up kicked at every real `playing`. Buffered tracks are
+  offline-playable via a new play() branch (blobStore read under the
+  track's own uid, 'prebuffer-blob' provenance so corrupt bytes are
+  discarded + unregistered without touching library state) and join the
+  interlude pool as cached filler (buildInterludePool candidate list now
+  leads with registry uids). Q15 threshold as corrected by Hector:
+  NS_POOL_TARGET_SEC = 30 min (was 60 in the original plan text) — at or
+  above it the walk is a no-op (gate-tested: zero resolves/fetches).
+  Q7 achieved for real: bufferTierFor maps lossless/auto → '320' (an
+  explicit '128' choice is respected), threaded through
+  ensureTrackDetails' per-call quality parameter — the same WR-07 seam
+  probeDownload's `want` tier uses; test asserts every walk resolve
+  carried tier '320' under a lossless setting. Tests: never-stop service
+  12 → 27, player suite 408 → 414 (6 CAR-BUFFER tests: gate, walk+tier,
+  pool-join, offline play, eviction, interlude trigger); full suite at
+  the pre-existing-fail baseline (8: track-menu-order 5 +
+  settings-persist 3), zero regressions; svelte-check 0 errors / 18
+  warnings (fresh-head baseline, none in touched files). Playback
+  behaviour live/device verification remains Phase 5 work.
 
 ## Out of scope
 

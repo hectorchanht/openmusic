@@ -40,7 +40,7 @@ vi.mock('$app/environment', () => ({ browser: true }));
 // WR-02/CR-02: mock the IDB blob store so the offline-blob read in reresolveCurrent/play can be a
 // DEFERRED promise (controls the await window the gen re-check guards). Defaults to a miss.
 vi.mock('$lib/services/blob-store', () => ({
-	blobStore: { get: vi.fn(async () => null), put: vi.fn(), del: vi.fn() }
+	blobStore: { get: vi.fn(async () => null), put: vi.fn(), del: vi.fn(), has: vi.fn(async () => false) }
 }));
 // QUEUE-05 (17-02): mock the two up-next generators so a test can OBSERVE the exclude/`have` Set
 // passed to them (the removedUids-exclusion assertions) without real network. Both default to []
@@ -197,6 +197,9 @@ const mockResolve = vi.mocked(resolveStub);
 const mockEnsure = vi.mocked(ensureTrackDetails);
 const mockTryFallback = vi.mocked(tryFallback);
 const mockBlobGet = vi.mocked(blobStore.get);
+const mockBlobPut = vi.mocked(blobStore.put);
+const mockBlobDel = vi.mocked(blobStore.del);
+const mockBlobHas = vi.mocked(blobStore.has);
 const mockDownloadTrack = vi.mocked(downloadTrack);
 const mockSimilar = vi.mocked(buildSimilarQueue);
 const mockPicks = vi.mocked(buildDiversePicks);
@@ -451,6 +454,23 @@ beforeEach(() => {
 	// session-scoped on the singleton too — reset so a hidden test can't leak a park into the next.
 	bg.audibleThisHide = false;
 	bg.stallRecheckOnVisible = false;
+	// quick-261116-prebuf: the car-buffer arm + registry are session-scoped on the singleton
+	// too — a walk armed by one suite must not fire resolves/fetches inside the next.
+	// Disarm (bumps the walk generation + aborts), clear the registry in place, and drop
+	// the persisted copy so a later load can't resurrect it.
+	const cb = player as unknown as {
+		disarmCarBuffer(): void;
+		cbEntries: Map<string, unknown>;
+	};
+	cb.disarmCarBuffer();
+	cb.cbEntries.clear();
+	localStorageMock.removeItem('openmusic:carbuffer:v1');
+	// The blob mocks the car-buffer walk/probes read: reset to factory behaviour so a
+	// suite's keyed implementation can't leak into the next (has defaults to "no bytes").
+	mockBlobPut.mockReset();
+	mockBlobDel.mockReset();
+	mockBlobHas.mockReset();
+	mockBlobHas.mockResolvedValue(false);
 });
 
 afterEach(() => {
@@ -3306,6 +3326,182 @@ describe('player resilience — loop-guard + skip-on-failure (PLAY-07/08)', () =
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	// ─── ADAPTIVE PRE-BUFFER (quick-261116-prebuf, Phase 2, Q7/Q15) ─────────────────────
+	// The walk byte-buffers upcoming queue tracks into blobStore as CACHE (never library
+	// Downloads) until the local pool reaches the 30-minute target — and spends nothing
+	// when the user's Downloads already reach it.
+
+	const cbState = () =>
+		player as unknown as {
+			cbArmed: boolean;
+			cbEntries: Map<string, { track: Track; at: number; sec: number }>;
+			evictCarBuffer(): void;
+			buildInterludePool(): Promise<Track[]>;
+		};
+
+	const bufferFetchStub = () =>
+		vi.fn(
+			async () =>
+				({
+					ok: true,
+					headers: { get: () => null },
+					blob: async () => new Blob(['audio-bytes'])
+				}) as unknown as Response
+		);
+
+	const resolveAtTier = () =>
+		mockEnsure.mockImplementation(
+			async (t: Track) =>
+				({ ...t, detailsLoaded: true, audioUrl: `https://cdn.example.com/${t.uid}.mp3` }) as Track
+		);
+
+	it('CAR-BUFFER gate (quick-261116-prebuf): Downloads already ≥30 min — arm is a no-op, zero data spent', async () => {
+		const fetchSpy = bufferFetchStub();
+		vi.stubGlobal('fetch', fetchSpy);
+		resolveAtTier();
+		const cur = mk('netease', 'cur', 'A', 'Now');
+		const n1 = { ...mk('qq', 'n1', 'B', 'Next'), duration: 600 };
+		library.downloads = [1, 2, 3].map((i) => ({
+			...mk('kuwo', `dl${i}`, 'DL', `Downloaded ${i}`),
+			duration: 700
+		})); // 2100s ≥ 1800s target
+		player.queue = [cur, n1];
+		player.current = cur;
+
+		player.armCarBuffer();
+		await flush();
+		await flush();
+
+		expect(mockBlobPut).not.toHaveBeenCalled();
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect(mockEnsure).not.toHaveBeenCalled();
+		expect(cbState().cbEntries.size).toBe(0);
+		library.downloads = [];
+	});
+
+	it('CAR-BUFFER walk (quick-261116-prebuf): buffers upcoming tracks at the 320 tier into cache, topping the pool up to 30 min', async () => {
+		const fetchSpy = bufferFetchStub();
+		vi.stubGlobal('fetch', fetchSpy);
+		resolveAtTier();
+		mockBlobPut.mockResolvedValue(true);
+		// Bytes the walk stores are present afterwards — the pool measurement probes
+		// blobStore.has, so answer from the live registry.
+		mockBlobHas.mockImplementation(async (uid: string) => cbState().cbEntries.has(uid));
+		const prevQuality = settings.downloadQuality;
+		settings.downloadQuality = 'lossless'; // a FLAC user — the buffer must still cap at 320 (Q7)
+		try {
+			const cur = mk('netease', 'cur', 'A', 'Now');
+			const n1 = { ...mk('qq', 'n1', 'B', 'One'), duration: 600 };
+			const n2 = { ...mk('qq', 'n2', 'B', 'Two'), duration: 600 };
+			const n3 = { ...mk('qq', 'n3', 'B', 'Three'), duration: 600 };
+			const n4 = { ...mk('qq', 'n4', 'B', 'Four'), duration: 600 };
+			library.downloads = [];
+			player.queue = [cur, n1, n2, n3, n4];
+			player.current = cur;
+
+			player.armCarBuffer();
+			await flush();
+			await flush();
+			await flush();
+
+			// Exactly the 1800s gap is buffered (3 × 600s); n4 is never touched.
+			expect([...cbState().cbEntries.keys()].sort()).toEqual([n1.uid, n2.uid, n3.uid].sort());
+			expect(mockBlobPut).toHaveBeenCalledTimes(3);
+			// Every buffer resolve was tier-capped at '320' despite the lossless setting.
+			const tiers = mockEnsure.mock.calls.map((c) => c[2]);
+			expect(tiers.length).toBeGreaterThan(0);
+			expect(tiers.every((tier) => tier === '320')).toBe(true);
+			// Cache, not Downloads: the library gained nothing.
+			expect(library.downloads).toEqual([]);
+		} finally {
+			settings.downloadQuality = prevQuality;
+		}
+	});
+
+	it('CAR-BUFFER pool (quick-261116-prebuf): buffered tracks join the interlude pool as cached filler', async () => {
+		const n1 = { ...mk('qq', 'n1', 'B', 'Buffered One'), duration: 600 };
+		cbState().cbEntries.set(n1.uid, { track: n1, at: Date.now(), sec: 600 });
+		mockBlobHas.mockImplementation(async (uid: string) => uid === n1.uid);
+		library.downloads = [];
+
+		const pool = await cbState().buildInterludePool();
+		expect(pool.map((t) => t.uid)).toContain(n1.uid);
+	});
+
+	it('CAR-BUFFER play (quick-261116-prebuf): a buffered track plays from its blob with the network dead, as prebuffer-blob', async () => {
+		const buf = { ...mk('qq', 'buf', 'B', 'Buffered'), duration: 300 };
+		cbState().cbEntries.set(buf.uid, { track: buf, at: Date.now(), sec: 300 });
+		mockBlobGet.mockImplementation(async (uid: string) =>
+			uid === buf.uid ? new Blob(['audio-bytes']) : null
+		);
+		mockEnsure.mockRejectedValue(new Error('offline')); // any network resolve would die
+		vi.stubGlobal('URL', {
+			createObjectURL: () => 'blob:local-bytes',
+			revokeObjectURL: vi.fn()
+		});
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		// The global beforeEach stubs play() — restore the REAL one for this test.
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		player.queue = [buf];
+
+		await player.play(buf);
+		await flush();
+
+		expect(player.current?.uid).toBe(buf.uid);
+		expect(el.src).toBe('blob:local-bytes');
+		expect(
+			(player as unknown as { lastSrcKind: string }).lastSrcKind
+		).toBe('prebuffer-blob');
+	});
+
+	it('CAR-BUFFER eviction (quick-261116-prebuf): LRU evicts cache bytes but NEVER a real download', async () => {
+		const dl = { ...mk('kuwo', 'dlx', 'DL', 'Became A Download'), duration: 900 };
+		const old1 = { ...mk('qq', 'o1', 'B', 'Old One'), duration: 900 };
+		const old2 = { ...mk('qq', 'o2', 'B', 'Old Two'), duration: 900 };
+		const old3 = { ...mk('qq', 'o3', 'B', 'Old Three'), duration: 900 };
+		library.downloads = [dl];
+		const st = cbState();
+		st.cbEntries.set(dl.uid, { track: dl, at: 50, sec: 900 }); // buffered BEFORE it was downloaded
+		st.cbEntries.set(old1.uid, { track: old1, at: 100, sec: 900 });
+		st.cbEntries.set(old2.uid, { track: old2, at: 200, sec: 900 });
+		st.cbEntries.set(old3.uid, { track: old3, at: 300, sec: 900 });
+
+		st.evictCarBuffer();
+
+		// The download's bytes are untouched and its registry entry is simply dropped;
+		// the remaining 2700s of cache LRU-evicts the single oldest entry to reach 1800s.
+		expect(mockBlobDel).not.toHaveBeenCalledWith(dl.uid);
+		expect(mockBlobDel).toHaveBeenCalledTimes(1);
+		expect(mockBlobDel).toHaveBeenCalledWith(old1.uid);
+		expect([...st.cbEntries.keys()].sort()).toEqual([old2.uid, old3.uid].sort());
+		library.downloads = [];
+	});
+
+	it('CAR-BUFFER trigger (quick-261116-prebuf): the first interlude entry arms the buffer and caches the saved queue', async () => {
+		const fetchSpy = bufferFetchStub();
+		vi.stubGlobal('fetch', fetchSpy);
+		resolveAtTier();
+		mockBlobPut.mockResolvedValue(true);
+		const a = mk('netease', 'a', 'A', 'Dead');
+		const b = { ...mk('qq', 'b', 'B', 'Next'), duration: 900 };
+		const d1 = { ...mk('kuwo', 'dl1', 'DL', 'Downloaded One'), duration: 300 };
+		player.queue = [a, b];
+		player.current = a;
+		library.downloads = [d1];
+		setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1);
+
+		await runFallback(a);
+		await flush();
+		await flush();
+		await flush();
+
+		expect(cbState().cbArmed).toBe(true);
+		expect(cbState().cbEntries.has(b.uid)).toBe(true); // saved queue's next track got cached
+		expect(mockBlobPut).toHaveBeenCalledWith(b.uid, expect.anything());
+		library.downloads = [];
 	});
 
 	it('a real `playing` event resets the counter and clears a stopped notice (D-06)', () => {

@@ -41,7 +41,14 @@ import {
 	orderFallbackPool,
 	SourceCooldowns,
 	ProbeBudget,
-	NS_RETRY_PROBE_MS
+	NS_RETRY_PROBE_MS,
+	measureLocalPool,
+	planBufferTopUp,
+	planBufferEvictions,
+	bufferTierFor,
+	estimateTrackSec,
+	NS_POOL_TARGET_SEC,
+	type PoolMeasure
 } from '$lib/services/never-stop';
 import { shouldAdoptDownloaded } from '$lib/services/download-upgrade';
 import { dedupeBest, sameSongKey, matchKey, songKey } from '$lib/services/dedupe';
@@ -354,6 +361,31 @@ class Player {
 	private nsProbeUid: string | null = null;
 	private nsRetrying = false;
 	private nsRetryTimer: ReturnType<typeof setTimeout> | null = null;
+	/**
+	 * ADAPTIVE PRE-BUFFER state (quick-261116-prebuf, Car Mode plan Phase 2, Q7/Q15).
+	 * All PLAIN fields, same discipline as the never-stop state above.
+	 *
+	 * `cbEntries` is the car-buffer registry: upcoming queue tracks whose bytes were
+	 * fetched into blobStore as CACHE — deliberately NOT library Downloads (no Downloads
+	 * UI, no library record), so they are evictable and a real download of the same uid
+	 * simply takes ownership of the bytes. The registry persists (localStorage
+	 * openmusic:carbuffer:v1) so buffered bytes stay addressable across a reload;
+	 * blobStore remains the byte authority — a registry entry whose bytes vanished is
+	 * dropped on first failed read. `cbArmed` is set by armCarBuffer() (the Phase 4 Car
+	 * Mode entry will call it; the first Fallback Interlude entry already does) and
+	 * stays armed so the walk re-tops-up as playback advances (rolling). The walk is
+	 * generation-guarded by `cbGen` (bumped on disarm) — NOT by playGen: a rolling
+	 * walk must survive the track advances it exists to serve. `cbAbort` cancels the
+	 * one in-flight resolve/fetch on disarm.
+	 */
+	private cbEntries = new Map<string, { track: Track; at: number; sec: number }>();
+	private cbLoaded = false;
+	private cbArmed = false;
+	private cbRunning = false;
+	private cbGen = 0;
+	private cbAbort: AbortController | null = null;
+	private cbIdleUnsub: (() => void) | null = null;
+	private static CB_KEY = 'openmusic:carbuffer:v1';
 	/** RAPID-FIRE BRAKE window (debug-nowbar-freeze-reresolve-loop). Two consecutive audio `error`
 	 *  events closer together than this — with NO intervening real `playing` — cannot be two distinct
 	 *  network failures: a fresh detail re-resolve + a full `<audio>` load simply cannot complete this
@@ -2892,6 +2924,10 @@ class Player {
 			this.loadRetryBurst = 0; // loadRetries: real audio = the load retry worked.
 			this.rapidErrorBurst = 0; // RAPID-FIRE BRAKE (debug-nowbar-freeze-reresolve-loop): output = the storm ended.
 			this.lastAudioErrorAt = 0;
+			// quick-261116-prebuf: a new track is producing audio — the local pool just
+			// shrank by one track, so the rolling car-buffer walk re-tops-up (a no-op
+			// unless armed and below the 30-minute target).
+			this.kickCarBuffer();
 			// Over-aggressive-skip fix: this track actually produced audio — drop any accumulated
 			// unplayable strikes for it so an earlier transient prefetch/probe failure can't push it
 			// toward a false permanent skip later in the session.
@@ -3176,6 +3212,15 @@ class Player {
 					if (this.prebufferedBlobUrl) URL.revokeObjectURL(this.prebufferedBlobUrl);
 					this.prebufferedBlobUrl = null;
 					this.prebufferedUid = null;
+					// quick-261116-prebuf: a CAR-BUFFER entry's bytes live in blobStore under the
+					// track uid (not the in-memory slot above). Corrupt CACHE bytes are safe to
+					// delete outright — unregister + del so the walk can re-buffer a fresh copy.
+					// Still no library write: the entry was never a download.
+					if (this.current && this.carBufferEntry(this.current.uid)) {
+						const uid = this.current.uid;
+						this.unregisterCarBuffer(uid);
+						void blobStore.del(uid); // never-throws
+					}
 				} else if (this.current) {
 					// A LIBRARY download that will not decode. Evict it, tell the user once, keep playing
 					// over the network, and quietly re-download so offline works next time. No strike, no
@@ -4626,9 +4671,21 @@ class Player {
 			// another source's uid) — a downloaded copy always wins over streaming.
 			const tdlUid = library.downloadUidFor(track);
 			let offlineBlob: Blob | null = null;
+			// 31-D-12 provenance for the offline branch below: a library download reads as
+			// 'download-blob'; a car-buffer CACHE entry (quick-261116-prebuf) reads as
+			// 'prebuffer-blob' so the corrupt-byte repair discards bytes WITHOUT ever
+			// touching library state.
+			let offlineKind: SrcKind = 'download-blob';
 			if (tdlUid) {
 				offlineBlob = await blobStore.get(tdlUid).catch(() => null);
 				if (myGen !== this.playGen) return; // CR-02: superseded mid-IDB-read — discard
+			} else if (this.carBufferEntry(track.uid)) {
+				// quick-261116-prebuf: no download, but the adaptive pre-buffer cached this
+				// track's bytes — play them straight from blobStore, no network resolve.
+				offlineBlob = await blobStore.get(track.uid).catch(() => null);
+				if (myGen !== this.playGen) return; // CR-02: superseded mid-IDB-read — discard
+				if (offlineBlob) offlineKind = 'prebuffer-blob';
+				else this.unregisterCarBuffer(track.uid); // bytes vanished (IDB eviction) — drop the stale entry
 			}
 			// ─── 34-D-06 (the ONE player seam D-05 could not cover) ──────────────────────────────────
 			// blobStore.get answers "give me the bytes" for both kinds of download, but only the player
@@ -4686,7 +4743,7 @@ class Player {
 				// deliberate-pause flag so the next pause is judged on this src's own merits.
 				this.disarmResume();
 				this.deliberatePause = false;
-				this.lastSrcKind = 'download-blob'; // 31-D-12 (direct assign — see restore()'s note)
+				this.lastSrcKind = offlineKind; // 31-D-12 (direct assign — see restore()'s note); quick-261116-prebuf: 'prebuffer-blob' for car-buffer cache plays
 				this.armedUid = track.uid; // debug-share-card-play-dead-replay
 				this.audio.src = this.cachedBlobUrl;
 				this.armStall();
@@ -6279,6 +6336,11 @@ class Player {
 				if (!this.nsInterlude.markedSources.includes(s)) this.nsInterlude.markedSources.push(s);
 		}
 		logAction('neverstop.interlude.sources', { sources: [...marked] });
+		// quick-261116-prebuf (Phase 2 trigger): an interlude entry arms the adaptive
+		// pre-buffer — if the local pool is under the 30-minute target, the walk caches
+		// the saved queue's upcoming tracks so a long outage outlasts the pool the user
+		// happened to download. Idle-gated + gen-guarded inside; a no-op at/above target.
+		this.armCarBuffer();
 		void this.beginInterludePlayback(this.playGen);
 	}
 
@@ -6297,11 +6359,16 @@ class Player {
 		for (const t of this.nsSavedQueue?.queue ?? []) if (t?.uid) known.set(t.uid, t);
 		if (this.current) known.set(this.current.uid, this.current);
 		const historyUids = history.entries.map((e) => e.uid);
+		// quick-261116-prebuf: car-buffered queue tracks are cached filler too — they were
+		// buffered for exactly this moment, so they lead the candidate list (history filler
+		// follows); their Track objects come from the buffer registry when the saved queue
+		// does not carry them.
+		const candidateUids = [...this.carBufferUids(), ...historyUids];
 		const cached: Track[] = [];
-		for (const uid of historyUids.slice(0, 20)) {
+		for (const uid of candidateUids.slice(0, 30)) {
 			if (cached.length >= 10) break;
 			if (downloadUids.has(uid)) continue;
-			const track = known.get(uid);
+			const track = known.get(uid) ?? this.carBufferEntry(uid)?.track;
 			if (!track) continue;
 			try {
 				if (await blobStore.has(uid)) cached.push(track);
@@ -6315,6 +6382,317 @@ class Player {
 			if (buffered) pool = [buffered];
 		}
 		return pool;
+	}
+
+	// ─── ADAPTIVE PRE-BUFFER (quick-261116-prebuf, Car Mode plan Phase 2, Q7/Q15) ────────
+	// The registry + walk below keep the local pool topped up to NS_POOL_TARGET_SEC
+	// (30 minutes — one car trip) of playable audio by byte-buffering upcoming queue
+	// tracks into blobStore as CACHE. The pure math (measure / top-up plan / tier cap /
+	// eviction plan) lives in never-stop.ts; this store owns the I/O. Buffered tracks
+	// become offline-playable through play()'s car-buffer branch and join the interlude
+	// pool as cached filler (buildInterludePool) — without ever becoming Downloads.
+
+	/** Lazy-load the persisted buffer registry (browser-only, never throws). Entries are
+	 *  validated on load; blobStore stays the byte authority, so a stale entry costs one
+	 *  failed read, never a phantom pool track (play() unregisters on a miss). */
+	private loadCarBuffer(): void {
+		if (this.cbLoaded) return;
+		this.cbLoaded = true;
+		if (!browser) return;
+		try {
+			const raw = localStorage.getItem(Player.CB_KEY);
+			if (!raw) return;
+			const arr = JSON.parse(raw) as { track?: Track; at?: number; sec?: number }[];
+			if (!Array.isArray(arr)) return;
+			for (const e of arr) {
+				if (!e?.track?.uid || typeof e.sec !== 'number' || !(e.sec > 0)) continue;
+				this.cbEntries.set(e.track.uid, {
+					track: e.track,
+					at: typeof e.at === 'number' ? e.at : 0,
+					sec: e.sec
+				});
+			}
+		} catch {
+			/* corrupt / unavailable storage — the buffer simply starts empty */
+		}
+	}
+
+	/** Persist the registry (inline data: covers stripped at the serialization boundary,
+	 *  the library's stripInlineCover discipline — the cover cache re-supplies them). */
+	private persistCarBuffer(): void {
+		if (!browser) return;
+		try {
+			const arr = [...this.cbEntries.values()].map((e) => ({
+				track:
+					e.track.cover && e.track.cover.startsWith('data:')
+						? { ...e.track, cover: null }
+						: e.track,
+				at: e.at,
+				sec: e.sec
+			}));
+			localStorage.setItem(Player.CB_KEY, JSON.stringify(arr));
+		} catch {
+			/* quota / unavailable — the in-memory registry still serves this session */
+		}
+	}
+
+	/** The registry entry for `uid` (loads the registry on first use), or undefined. */
+	private carBufferEntry(uid: string): { track: Track; at: number; sec: number } | undefined {
+		this.loadCarBuffer();
+		return this.cbEntries.get(uid);
+	}
+
+	/** All buffered uids, oldest first. */
+	private carBufferUids(): string[] {
+		this.loadCarBuffer();
+		return [...this.cbEntries.values()]
+			.sort((a, b) => a.at - b.at)
+			.map((e) => e.track.uid);
+	}
+
+	/** Drop a registry entry (bytes are the caller's concern — see evictCarBuffer for the
+	 *  one path that also deletes them; a stale entry whose bytes vanished needs no del). */
+	private unregisterCarBuffer(uid: string): void {
+		this.loadCarBuffer();
+		if (this.cbEntries.delete(uid)) this.persistCarBuffer();
+	}
+
+	/**
+	 * Measure the playable local pool (Q15): ALL Downloads + byte-present Cached tracks
+	 * (history filler, the buildInterludePool seam — plus car-buffer registry tracks,
+	 * whose bytes are present by construction but are still probed so an OS-evicted
+	 * entry never inflates the pool). Pure summation is measureLocalPool's; this method
+	 * owns the blobStore probes. Never throws.
+	 */
+	private async measureLocalPool(): Promise<PoolMeasure> {
+		const downloads = [...library.downloads];
+		const downloadUids = new Set(downloads.map((t) => t.uid));
+		const known = new Map<string, Track>();
+		for (const t of this.queue) if (t?.uid) known.set(t.uid, t);
+		if (this.current) known.set(this.current.uid, this.current);
+		const candidates: Track[] = [];
+		const pushCandidate = (t: Track | undefined) => {
+			if (t?.uid && !downloadUids.has(t.uid) && !candidates.some((c) => c.uid === t.uid))
+				candidates.push(t);
+		};
+		for (const e of this.cbEntries.values()) pushCandidate(e.track);
+		for (const uid of history.entries.map((e) => e.uid).slice(0, 20)) {
+			if (candidates.length >= 16) break;
+			pushCandidate(known.get(uid) ?? this.carBufferEntry(uid)?.track);
+		}
+		const cached: Track[] = [];
+		for (const t of candidates) {
+			try {
+				if (await blobStore.has(t.uid)) cached.push(t);
+			} catch {
+				/* probe unavailable — the track simply does not count toward the pool */
+			}
+		}
+		return measureLocalPool(downloads, cached);
+	}
+
+	/**
+	 * Arm the adaptive pre-buffer (Phase 2's public entry point): the first Fallback
+	 * Interlude entry calls this, and the Phase 4 Car Mode entry will call it too.
+	 * Arming is sticky for the session — the walk re-tops-up at every track boundary
+	 * (the `playing` handler kicks it) so the pool stays at target as playback drains
+	 * it. At/above the 30-minute target the walk is a no-op: no data is spent
+	 * re-fetching what the user already owns (Q15).
+	 */
+	armCarBuffer(): void {
+		this.loadCarBuffer();
+		this.cbArmed = true;
+		this.kickCarBuffer();
+	}
+
+	/** Disarm (a future Car Mode exit may call this): stop the walk and cancel the one
+	 *  in-flight resolve/fetch. Buffered bytes stay — they are the interlude's pool. */
+	disarmCarBuffer(): void {
+		this.cbArmed = false;
+		this.cbGen++;
+		this.cbAbort?.abort();
+		this.cbAbort = null;
+		// A walk parked in waitPipelineIdle may never wake (its idle subscription is its
+		// own); release the running flag so a later arm can walk again. The parked walk
+		// still exits at its next gen check, and its in-flight bufferOneTrack sees the
+		// aborted signal — the flag is the only state shared with it.
+		this.cbRunning = false;
+		if (this.cbIdleUnsub) {
+			this.cbIdleUnsub();
+			this.cbIdleUnsub = null;
+		}
+	}
+
+	/** Kick the buffer walk through the idle gate: it fires only when the governed /api
+	 *  pipeline has fully drained, so buffering never competes with the playing track's
+	 *  resolve or the single-next prefetch (the quick-261102-idle1 seam). */
+	private kickCarBuffer(): void {
+		if (!browser || !this.cbArmed || this.cbRunning || this.cbIdleUnsub) return;
+		const gen = this.cbGen;
+		this.cbIdleUnsub = onApiPipelineIdle(() => {
+			this.cbIdleUnsub = null;
+			if (gen !== this.cbGen || !this.cbArmed) return;
+			void this.runCarBuffer(gen);
+		});
+	}
+
+	/** One pipeline-idle wait, used between buffered tracks: each iteration re-earns the
+	 *  right to spend network by waiting for a full drain first. */
+	private waitPipelineIdle(): Promise<void> {
+		return new Promise((resolve) => {
+			const unsub = onApiPipelineIdle(() => {
+				unsub();
+				resolve();
+			});
+		});
+	}
+
+	/** Upcoming streaming-queue tracks eligible for buffering, in queue order: the saved
+	 *  queue while an interlude owns the live queue, else the live queue — in both cases
+	 *  strictly after the current/resume position. */
+	private carBufferCandidates(): Track[] {
+		const saved = this.nsInterlude ? this.nsSavedQueue : null;
+		const src = saved ? saved.queue : this.queue;
+		const start = saved ? saved.resumeIndex + 1 : this.indexOf(this.current) + 1;
+		return src.slice(Math.max(0, start));
+	}
+
+	/**
+	 * The buffer walk: strictly sequential (one track in flight — the map app and the
+	 * playing track keep their bandwidth), re-measuring and re-planning from the LIVE
+	 * queue each iteration so advances and queue edits self-correct. Two consecutive
+	 * failures end the walk (the network is likely gone — Q10's probing discipline);
+	 * the next track boundary re-kicks it. Ends with the eviction pass.
+	 */
+	private async runCarBuffer(gen: number): Promise<void> {
+		if (this.cbRunning || !this.cbArmed) return;
+		this.cbRunning = true;
+		this.cbAbort = new AbortController();
+		try {
+			let fails = 0;
+			while (gen === this.cbGen && this.cbArmed) {
+				const pool = await this.measureLocalPool();
+				if (gen !== this.cbGen || !this.cbArmed) break;
+				const skip = new Set<string>();
+				if (this.current) skip.add(this.current.uid);
+				for (const t of library.downloads) skip.add(t.uid);
+				for (const uid of this.cbEntries.keys()) skip.add(uid);
+				const plan = planBufferTopUp(
+					pool.totalSec,
+					NS_POOL_TARGET_SEC,
+					this.carBufferCandidates().filter(
+						(t) => t?.uid && !library.downloadUidFor(t) && !isDeviceUid(t.uid)
+					),
+					skip,
+					pool.fallbackSec
+				);
+				if (plan.length === 0) break; // at target, or nothing bufferable ahead
+				await this.waitPipelineIdle();
+				if (gen !== this.cbGen || !this.cbArmed) break;
+				const sec = await this.bufferOneTrack(plan[0], pool.fallbackSec);
+				if (sec > 0) fails = 0;
+				else if (++fails >= 2) break;
+			}
+		} finally {
+			this.cbRunning = false;
+			this.cbAbort = null;
+			this.evictCarBuffer();
+		}
+	}
+
+	/**
+	 * Buffer ONE queue track into blobStore as cache. The resolve is tier-capped per
+	 * call at bufferTierFor(settings.downloadQuality) — '320' even for a FLAC user
+	 * (Q7) — threaded through ensureTrackDetails exactly as probeDownload threads its
+	 * `want` tier (WR-07: never a settings swap). The byte fetch is a RAW fetch (media
+	 * bytes never route through the /api governor) under the prebuffer size ceiling.
+	 * Returns the seconds added to the pool, 0 on any failure. Never throws.
+	 */
+	private async bufferOneTrack(track: Track, fallbackSec: number): Promise<number> {
+		const tier = bufferTierFor(settings.downloadQuality);
+		const sig = this.cbAbort?.signal;
+		let resolved: Track;
+		try {
+			resolved = await ensureTrackDetails(
+				{ ...track, detailsLoaded: false, audioUrl: null, lrc: null },
+				sig,
+				tier
+			);
+		} catch {
+			return 0;
+		}
+		if (!resolved?.audioUrl || sig?.aborted) return 0;
+		let blob: Blob | null = null;
+		try {
+			const resp = await fetch(resolved.audioUrl, {
+				signal: sig,
+				referrerPolicy: 'no-referrer'
+			});
+			if (!resp.ok) return 0;
+			if (overPrebufferCeiling(resp.headers?.get('content-length') ?? null)) {
+				try {
+					await resp.body?.cancel();
+				} catch {
+					/* best-effort stream release */
+				}
+				return 0;
+			}
+			blob = await resp.blob();
+		} catch {
+			return 0;
+		}
+		if (!blob || sig?.aborted) return 0;
+		// A real download of this track landed while we fetched: its bytes own the uid
+		// now — drop ours on the floor rather than register a cache entry over them.
+		if (library.downloadUidFor(track)) return 0;
+		let ok = false;
+		try {
+			ok = await blobStore.put(track.uid, blob);
+		} catch {
+			ok = false;
+		}
+		if (!ok) return 0;
+		const sec = estimateTrackSec(resolved.duration ?? track.duration, fallbackSec);
+		this.cbEntries.set(track.uid, {
+			track: { ...track, duration: resolved.duration ?? track.duration },
+			at: Date.now(),
+			sec
+		});
+		this.persistCarBuffer();
+		logAction('prebuffer.carbuffer.stored', { uid: track.uid, sec, tier });
+		return sec;
+	}
+
+	/**
+	 * Eviction pass (runs at the end of every walk): registry entries whose uid became
+	 * a real Download are merely unregistered (the download owns the bytes — deleting
+	 * them would delete the user's download); the rest are LRU-evicted, oldest first,
+	 * down to the 30-minute target via planBufferEvictions. Real downloads are never
+	 * deleted — they are not registry entries, and the protected set guards the rest.
+	 */
+	private evictCarBuffer(): void {
+		this.loadCarBuffer();
+		if (this.cbEntries.size === 0) return;
+		let changed = false;
+		for (const uid of [...this.cbEntries.keys()]) {
+			if (library.isDownloaded(uid)) {
+				this.cbEntries.delete(uid);
+				changed = true;
+			}
+		}
+		const protectedUids = new Set(library.downloads.map((t) => t.uid));
+		const entries = [...this.cbEntries.values()].map((e) => ({
+			uid: e.track.uid,
+			at: e.at,
+			sec: e.sec
+		}));
+		for (const ev of planBufferEvictions(entries, protectedUids, NS_POOL_TARGET_SEC)) {
+			this.cbEntries.delete(ev.uid);
+			if (!library.isDownloaded(ev.uid)) void blobStore.del(ev.uid);
+			changed = true;
+			logAction('prebuffer.carbuffer.evict', { uid: ev.uid });
+		}
+		if (changed) this.persistCarBuffer();
 	}
 
 	/**
