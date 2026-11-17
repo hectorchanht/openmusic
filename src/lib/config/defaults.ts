@@ -185,8 +185,12 @@ export const PLAYBACK_DEFAULTS = {
 	/** quick-261102-srcpill (Hector 2026-11-02): show the current track's SOURCE pill
 	 *  (registry adapter label — JOOX, Netease（GD）, …) immediately before the quality
 	 *  tag on the Now-Playing page. ON by default: Hector asked for the pill to exist;
-	 *  this toggle is the opt-out, mirroring showQualityTag beside it. */
-	showSourceTag: false,
+	 *  this toggle is the opt-out, mirroring showQualityTag beside it.
+	 *  quick-261116-spfix: restored to true — commit 050f5fa12b ("update", 2026-11-04)
+	 *  flipped this literal to false with no message, no comment update and no test
+	 *  update, contradicting the decision recorded above; the three settings-persist
+	 *  tests asserting the ON default failed from that commit until this restore. */
+	showSourceTag: true,
 	/** quick-261024-vid1: the Now Playing MV video layer (ytmusic tracks). ON by default —
 	 *  the layer is inert until the user taps Watch MV, so nobody pays its data cost by
 	 *  accident; the toggle exists so it can be banished entirely (rows stop tagging too). */
