@@ -100,7 +100,7 @@ import {
 // a colocated, node-tested module (the "runes store thinly wraps a pure helper" precedent).
 import { readLyrics } from '$lib/stores/lyric-pins.svelte';
 import { getPinnedLyrics } from '$lib/services/lyric-pins';
-import { STATE_KEY, serializePlayerState, parsePlayerState } from '$lib/stores/player-persist';
+import { STATE_KEY, serializePlayerState, parsePlayerState, stampUpdatedAt } from '$lib/stores/player-persist';
 // quick-260910-piz: the same "runes store thinly wraps a pure helper" precedent — the album-scoped
 // cover seeding + attachment build live in a pure, node-tested sibling module.
 import { seedCover, buildAttachment, type AttachedCover } from '$lib/stores/attached-cover';
@@ -781,17 +781,24 @@ class Player {
 			return;
 		}
 		try {
+			const snapshot = {
+				current: this.current,
+				queue: this.queue,
+				currentTime: this.currentTime,
+				shuffle: this.shuffle,
+				repeatMode: this.repeatMode,
+				// quick-260712-hm9: persist the Up-Next VIEW anchor so a reload restores the exact
+				// played-history view (see restore() for why a null anchor discarded played songs).
+				anchorUid: this.upNextAnchorUid
+			};
 			localStorage.setItem(
 				STATE_KEY,
 				serializePlayerState({
-					current: this.current,
-					queue: this.queue,
-					currentTime: this.currentTime,
-					shuffle: this.shuffle,
-					repeatMode: this.repeatMode,
-					// quick-260712-hm9: persist the Up-Next VIEW anchor so a reload restores the exact
-					// played-history view (see restore() for why a null anchor discarded played songs).
-					anchorUid: this.upNextAnchorUid
+					...snapshot,
+					// quick-261118-xdresume: the cross-device resume LWW clock — Date.now() only when
+					// something meaningful changed (stampUpdatedAt explains the reload ping-pong a
+					// blind stamp on every flush would cause).
+					updatedAt: stampUpdatedAt(localStorage.getItem(STATE_KEY), snapshot, Date.now())
 				})
 			);
 		} catch {

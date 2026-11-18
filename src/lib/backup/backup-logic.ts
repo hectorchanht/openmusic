@@ -49,15 +49,36 @@ export const SETTINGS_KEY = 'openmusic:settings:v1';
  */
 export const NAME_TR_PREFIX = 'openmusic:name-tr:';
 
+/**
+ * Owner: src/lib/stores/player-persist.ts (STATE_KEY) — the persisted now-playing state.
+ * quick-261118-xdresume: a local copy (not an import) for symmetry with LIBRARY_KEY — every
+ * owned key name sits in this one block so the travel set is auditable at a glance. PINNED to
+ * STATE_KEY by an equality assertion in backup-logic.test.ts, so the two can never drift.
+ */
+export const PLAYER_KEY = 'openmusic:player:v1';
+
 /** Where the 35-D-09 rollback snapshot lives. The page passes the per-tab Storage, never the
  *  persistent one — the live keys already occupy ~740 KB of a ~5 MB origin budget shared with
  *  the cover cache, and library.save()'s quota catch is silent. */
 export const UNDO_KEY = 'openmusic:import-undo:v1';
 
-/** 35-D-01: the four exactly-named keys that travel. Everything else is derivable, machine-local,
+/** 35-D-01: the exactly-named keys that travel. Everything else is derivable, machine-local,
  *  or a secret: the player queue (35-D-02), the cover cache (stale URLs are worse than none),
- *  the diag upload token, and the device-local `openmusic-blob-uri:` content URIs. */
-export const BACKUP_EXACT_KEYS: readonly string[] = [LIBRARY_KEY, HISTORY_KEY, SEARCH_HISTORY_KEY, SETTINGS_KEY];
+ *  the diag upload token, and the device-local `openmusic-blob-uri:` content URIs.
+ *
+ *  35-D-02 SUPERSEDED FOR PLAYER STATE (2026-11-18, Hector — quick-261118-xdresume): the player
+ *  key now travels so a user can resume on another device. It is slimmed + validated by
+ *  cleanPlayerPayload below (identity/display fields only — never a resolved audio URL, lyrics,
+ *  a `data:` cover or a device-local blob URI). The OTHER exclusions in this comment stand
+ *  unchanged: the cover cache, the diag token and the device-local blob URIs never travel, and
+ *  downloads' local files never sync. */
+export const BACKUP_EXACT_KEYS: readonly string[] = [
+	LIBRARY_KEY,
+	HISTORY_KEY,
+	SEARCH_HISTORY_KEY,
+	SETTINGS_KEY,
+	PLAYER_KEY
+];
 
 /**
  * 35-D-12: old key name → upgrade function. EMPTY TODAY and that is correct: no exported key has
@@ -74,7 +95,10 @@ const DOMAINS: ReadonlyArray<readonly [string, string]> = [
 	['openmusic:library:', LIBRARY_KEY],
 	['openmusic:search-history:', SEARCH_HISTORY_KEY],
 	['openmusic:history:', HISTORY_KEY],
-	['openmusic:settings:', SETTINGS_KEY]
+	['openmusic:settings:', SETTINGS_KEY],
+	// quick-261118-xdresume (35-D-02 superseded for player state, 2026-11-18): a future
+	// `openmusic:player:v2` in a file is refused per-key and named, like every other domain.
+	['openmusic:player:', PLAYER_KEY]
 ];
 
 export interface BackupEnvelope {
@@ -192,6 +216,115 @@ export function slimLibraryForSync(lib: unknown, stripDeviceLocal = false): unkn
 }
 
 /**
+ * quick-261118-xdresume — cross-device resume (35-D-02 superseded for player state,
+ * 2026-11-18). The player blob (player-persist.ts serializePlayerState) is ALREADY slimmed to
+ * serializeTrack's 11-field whitelist on write, but a synced/imported payload is external data:
+ * re-apply that exact whitelist here so nothing else (audioUrl, lrc, a blob: URI smuggled in an
+ * extra field, Last.fm extras) can ever reach another device.
+ */
+/** In serializeTrack's EXACT field order, so a cleaned blob re-serializes byte-identically (the
+ *  35-D-09 undo snapshot and a keep-local merge then write back the bytes that were there).
+ *  'str' = string only; 'strOrNull' = string | null. uid is handled separately (required). */
+const PLAYER_TRACK_FIELDS = [
+	['source', 'str'],
+	['songid', 'str'],
+	['title', 'str'],
+	['artist', 'str'],
+	['album', 'str'],
+	['cover', 'strOrNull'],
+	['quality', 'strOrNull'],
+	['qualityLabel', 'strOrNull'],
+	['keyword', 'str']
+] as const;
+
+/** Queue cap for a synced player payload — a radio auto-grow queue can run long, and the
+ *  whole blob rides every push of this key. */
+export const PLAYER_QUEUE_CAP = 500;
+
+/**
+ * PURE: slim one persisted track to the serializeTrack whitelist (uid, source, songid, title,
+ * artist, album, cover, quality, qualityLabel, keyword, displayIndex). Returns null when the
+ * entry has no usable identity (not an object / no non-empty string uid) — the caller refuses
+ * the whole payload. A whitelisted field of the WRONG TYPE is dropped (cleaned), not fatal:
+ * parsePlayerState's reshape() already defaults every missing field. A `data:` cover is
+ * dropped to null exactly as serializeTrack does (quick-261008-audit).
+ */
+function slimPlayerTrack(t: unknown): Record<string, unknown> | null {
+	if (!isPlainObject(t)) return null;
+	if (typeof t['uid'] !== 'string' || !t['uid']) return null;
+	const out: Record<string, unknown> = { uid: t['uid'] };
+	for (const [f, kind] of PLAYER_TRACK_FIELDS) {
+		const v = t[f];
+		if (typeof v === 'string') out[f] = f === 'cover' && v.startsWith('data:') ? null : v;
+		else if (v === null && kind === 'strOrNull') out[f] = null;
+	}
+	const di = t['displayIndex'];
+	if (typeof di === 'number' && Number.isFinite(di)) out['displayIndex'] = di;
+	return out;
+}
+
+/**
+ * PURE + NEVER THROWS: validate + clean a player payload (`openmusic:player:v1`). Returns the
+ * cleaned payload, or null when the shape is not one we know — the caller then applies this
+ * module's per-key posture: buildEnvelope SKIPS the key (a local mess never aborts an export),
+ * validateEnvelope rejects the file as damaged (35-D-10), validateSyncKey refuses the push.
+ *
+ * Accepted shape: v === 1; current = slim track or null; queue = array of slim tracks (capped
+ * at PLAYER_QUEUE_CAP); currentTime finite >= 0; shuffle boolean; repeatMode 'off' | 'one'
+ * (a legacy tri-state 'all' collapses to 'off' — the same D-11 migration parsePlayerState
+ * applies); upNextAnchorUid string | null (absent → null: pre-hm9 blobs); updatedAt finite
+ * >= 0 (absent → 0: every blob written before quick-261118-xdresume). Unknown fields dropped.
+ *
+ * Queue cap: a plain truncate to the first PLAYER_QUEUE_CAP entries — UNLESS the current track
+ * sits beyond the cap, in which case the kept window slides forward so the current (and the
+ * songs after it) survive; a restored queue that lost its own current would resume nowhere.
+ */
+export function cleanPlayerPayload(v: unknown): Record<string, unknown> | null {
+	if (!isPlainObject(v)) return null;
+	if (v['v'] !== 1) return null;
+	let current: Record<string, unknown> | null = null;
+	if (v['current'] !== null) {
+		current = slimPlayerTrack(v['current']);
+		if (!current) return null;
+	}
+	if (!Array.isArray(v['queue'])) return null;
+	let queue: Record<string, unknown>[] = [];
+	for (const t of v['queue'] as unknown[]) {
+		const slim = slimPlayerTrack(t);
+		if (!slim) return null;
+		queue.push(slim);
+	}
+	if (queue.length > PLAYER_QUEUE_CAP) {
+		const curUid = current ? current['uid'] : undefined;
+		const ci = curUid === undefined ? -1 : queue.findIndex((t) => t['uid'] === curUid);
+		const start =
+			ci < PLAYER_QUEUE_CAP
+				? 0
+				: Math.min(ci - Math.floor(PLAYER_QUEUE_CAP / 2), queue.length - PLAYER_QUEUE_CAP);
+		queue = queue.slice(start, start + PLAYER_QUEUE_CAP);
+	}
+	const ct = v['currentTime'];
+	if (typeof ct !== 'number' || !Number.isFinite(ct) || ct < 0) return null;
+	if (typeof v['shuffle'] !== 'boolean') return null;
+	const rm = v['repeatMode'];
+	if (rm !== 'off' && rm !== 'one' && rm !== 'all') return null;
+	const anchor = v['upNextAnchorUid'];
+	if (anchor !== undefined && anchor !== null && typeof anchor !== 'string') return null;
+	const at = v['updatedAt'];
+	if (at !== undefined && (typeof at !== 'number' || !Number.isFinite(at) || at < 0)) return null;
+	return {
+		v: 1,
+		current,
+		queue,
+		currentTime: ct,
+		shuffle: v['shuffle'],
+		repeatMode: rm === 'one' ? 'one' : 'off',
+		upNextAnchorUid: typeof anchor === 'string' ? anchor : null,
+		updatedAt: typeof at === 'number' ? at : 0
+	};
+}
+
+/**
  * Build the export payload. SYNCHRONOUS on purpose: the web export runs inside the click
  * handler, and iOS Safari discards the user gesture across an await (35-RESEARCH Pitfall 5).
  *
@@ -206,7 +339,7 @@ export function buildEnvelope(
 	opts?: { stripDeviceLocal?: boolean }
 ): BackupEnvelope {
 	const keys: Record<string, unknown> = {};
-	// 35-D-01: the four exact keys, then the name-tr PREFIX FAMILY enumerated from the store.
+	// 35-D-01: the exact keys, then the name-tr PREFIX FAMILY enumerated from the store.
 	const wanted = [...BACKUP_EXACT_KEYS, ...allKeys.filter((k) => k.startsWith(NAME_TR_PREFIX))];
 	for (const k of wanted) {
 		let raw: string | null = null;
@@ -222,6 +355,13 @@ export function buildEnvelope(
 			// was 75% of a 1.7MB payload); slim to identity+display fields before export so
 			// neither sync pushes nor manual backups haul lyrics/ephemeral URLs.
 			if (k === LIBRARY_KEY) parsed = slimLibraryForSync(parsed, opts?.stripDeviceLocal ?? false);
+			// quick-261118-xdresume: the player blob is cleaned through the same validator the
+			// pull/import path uses; an unrecognisable local blob is SKIPPED (a local mess must
+			// never abort an export, nor wedge every sync push on a server 400).
+			if (k === PLAYER_KEY) {
+				parsed = cleanPlayerPayload(parsed);
+				if (parsed === null) continue;
+			}
 			keys[k] = parsed;
 		} catch {
 			/* corrupt local value — skip this key, never abort the export */
@@ -245,7 +385,7 @@ function isStringRecord(v: unknown): boolean {
 }
 
 /**
- * Per-key shape check for the four exact keys. Deliberately asymmetric, because each owning
+ * Per-key shape check for the exact keys. Deliberately asymmetric, because each owning
  * `load()` already defends a different amount:
  *  - library: liked/playlists/downloads/favArtists must each be an array or absent. library.load()
  *    casts the first three with only a `?? []` fallback (Pitfall 7 / T-35-02), so a hostile
@@ -272,6 +412,8 @@ function shapeOk(key: string, v: unknown): boolean {
 	}
 	if (key === HISTORY_KEY || key === SEARCH_HISTORY_KEY) return Array.isArray(v);
 	if (key === SETTINGS_KEY) return isPlainObject(v);
+	// quick-261118-xdresume: the player key's shape gate IS the cleaner (null = refused).
+	if (key === PLAYER_KEY) return cleanPlayerPayload(v) !== null;
 	return false;
 }
 
@@ -279,8 +421,10 @@ function shapeOk(key: string, v: unknown): boolean {
  * quick-261020-incsync — per-key incremental sync. The server accepts PARTIAL key sets
  * (only what changed) and can no longer run validateEnvelope over a whole envelope, so
  * each pushed key is validated on its own. The accept set mirrors validateEnvelope
- * exactly: the four exact keys via shapeOk, the name-tr prefix family via isStringRecord.
- * Anything else (player state, diag tokens, unknown domains) is refused.
+ * exactly: the exact keys via shapeOk, the name-tr prefix family via isStringRecord.
+ * Anything else (diag tokens, unknown domains) is refused.
+ * quick-261118-xdresume (35-D-02 superseded for player state, 2026-11-18 — Hector): the player
+ * key is now an exact key — accepted when cleanPlayerPayload recognises its shape, else refused.
  */
 export function validateSyncKey(key: string, value: unknown): boolean {
 	if ((BACKUP_EXACT_KEYS as readonly string[]).includes(key)) return shapeOk(key, value);
@@ -321,7 +465,9 @@ export function validateEnvelope(raw: string): ValidateResult {
 	for (const [k, v] of Object.entries(parsed.keys)) {
 		if (BACKUP_EXACT_KEYS.includes(k)) {
 			if (!shapeOk(k, v)) return { ok: false, reason: 'damaged' };
-			keys[k] = v;
+			// quick-261118-xdresume: the player payload is CLEANED, not kept verbatim — only the
+			// whitelisted, slimmed shape is ever written to localStorage.
+			keys[k] = k === PLAYER_KEY ? cleanPlayerPayload(v) : v;
 			continue;
 		}
 		if (k.startsWith(NAME_TR_PREFIX)) {
@@ -348,11 +494,13 @@ export function validateEnvelope(raw: string): ValidateResult {
 			}
 			const current = domain[1];
 			if (!shapeOk(current, upgraded)) return { ok: false, reason: 'damaged' };
-			keys[current] = upgraded;
+			keys[current] = current === PLAYER_KEY ? cleanPlayerPayload(upgraded) : upgraded;
 			continue;
 		}
-		// Unknown domain — including `openmusic:player:v1` (35-D-02) and the diag token. Dropped
-		// silently and NOT reported: these are not failures, they are keys we refuse to restore.
+		// Unknown domain — e.g. the diag token. Dropped silently and NOT reported: these are not
+		// failures, they are keys we refuse to restore. (This once also covered
+		// `openmusic:player:v1` under 35-D-02; that decision was SUPERSEDED for player state on
+		// 2026-11-18 by Hector — quick-261118-xdresume — and the player key is now an exact key.)
 	}
 
 	return {

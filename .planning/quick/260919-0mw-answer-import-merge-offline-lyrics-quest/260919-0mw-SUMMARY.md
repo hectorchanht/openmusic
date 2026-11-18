@@ -78,7 +78,7 @@ Confirmed against the body, not just the comment:
 | Search history | `openmusic:search-history:v1` | **Replaced** wholesale |
 | Settings | `openmusic:settings:v1` | **Replaced** wholesale |
 | Name translations | every `openmusic:name-tr:*` | **Replaced**, including languages the file does not carry |
-| Player state (now playing, queue, seek) | `openmusic:player:v1` | **Untouched** — excluded from backup by `35-D-02` (pinned at `backup-logic.test.ts:112`) |
+| Player state (now playing, queue, seek) | `openmusic:player:v1` | **Untouched** — excluded from backup by `35-D-02` (pinned at `backup-logic.test.ts:112`) **[35-D-02 SUPERSEDED for player state — 2026-11-18, Hector (quick-261118-xdresume): `openmusic:player:v1` now travels in backup + cross-device sync, slimmed to the serializeTrack whitelist and merged last-write-wins by its `updatedAt`. The other exclusions (diag token, cover cache, device-local blob URIs, downloads' local files) stand.]** |
 | Downloaded audio BLOBS (IndexedDB) | — | **Untouched.** Only the downloads *list* is in the envelope. `35-D-07` (`settings/data/+page.svelte:112-116`) is what reconciles the two: "missing" is computed from `blobStore.has` at render time and never stored in the file, so an imported entry whose bytes happen to be on this device reads as present, one whose bytes are absent reads as missing. |
 
 **Undo and the warning.** It is not a silent destructive step:

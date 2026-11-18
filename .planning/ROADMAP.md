@@ -242,7 +242,7 @@ Overlaps Phases 34 (import device songs), 36 (tag downloaded songs with metadata
 
 Open questions — ANSWERED 2026-09-19 (quick-260919-0mw):
 
-- **Does app-data import MERGE or overwrite?** It REPLACES. `wipeAndWrite()` (`src/lib/backup/backup-logic.ts:288`, `35-D-08`) deletes every restorable key first — library, history, search history, settings, `name-tr:*` — including keys the imported file does not carry. Downloaded audio *blobs* in IndexedDB survive; the downloads *list* does not. Player state is excluded from backup entirely (`35-D-02`).
+- **Does app-data import MERGE or overwrite?** It REPLACES. `wipeAndWrite()` (`src/lib/backup/backup-logic.ts:288`, `35-D-08`) deletes every restorable key first — library, history, search history, settings, `name-tr:*` — including keys the imported file does not carry. Downloaded audio *blobs* in IndexedDB survive; the downloads *list* does not. Player state is excluded from backup entirely (`35-D-02`). **[35-D-02 SUPERSEDED for player state — 2026-11-18, Hector (quick-261118-xdresume): `openmusic:player:v1` now travels in backup + cross-device sync, slimmed to the serializeTrack whitelist and merged last-write-wins by its `updatedAt`. The other exclusions (diag token, cover cache, device-local blob URIs, downloads' local files) stand.]**
 - **Is lyrics read from the downloaded file offline?** It was, but only when the file happened to carry usable embedded LRC — otherwise the player still reached for the network. Closed 2026-09-19 by quick-260919-3j1.
 
 Plans:

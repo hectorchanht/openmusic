@@ -49,7 +49,24 @@ vi.stubGlobal('navigator', { language: 'en-US' });
 vi.stubGlobal('document', { documentElement: { style: { setProperty: () => {} }, dataset: {} } });
 
 const NAME_TR_KEY = 'openmusic:name-tr:v2:zh-Hant';
-const PLAYER_SENTINEL = JSON.stringify({ v: 1, current: { uid: 'kuwo:sentinel' } });
+// quick-261118-xdresume: 35-D-02 was SUPERSEDED for player state on 2026-11-18 (Hector) — the
+// player key now travels in a backup. Both blobs are canonical serializePlayerState output, so
+// the import / undo assertions below can compare raw bytes.
+const playerBlob = (uid: string, at: number) =>
+	JSON.stringify({
+		v: 1,
+		current: { uid, source: 'kuwo', songid: '1', title: 'T', artist: 'A', album: '', cover: null, quality: null, qualityLabel: null, keyword: '', displayIndex: 1 },
+		queue: [{ uid, source: 'kuwo', songid: '1', title: 'T', artist: 'A', album: '', cover: null, quality: null, qualityLabel: null, keyword: '', displayIndex: 1 }],
+		currentTime: 61,
+		shuffle: false,
+		repeatMode: 'off',
+		upNextAnchorUid: uid,
+		updatedAt: at
+	});
+/** The source device's now-playing — travels with the backup. */
+const PLAYER_SOURCE = playerBlob('kuwo:source', 2000);
+/** The fresh device's own now-playing — REPLACED by the import, restored by undo. */
+const PLAYER_SENTINEL = playerBlob('kuwo:sentinel', 1000);
 const DIAG_SENTINEL = JSON.stringify('device-local-upload-token');
 
 const LIKED = [
@@ -65,15 +82,15 @@ const HISTORY = [
 const SETTINGS = { appLang: 'zh-Hant', theme: 'dark', showQualityTag: false };
 const NAME_TR = JSON.stringify({ Foo: '福' });
 
-/** Seed the source device: the five restorable key families plus two keys that must survive an
- *  import untouched (the player queue, 35-D-02, and the diag upload token). */
+/** Seed the source device: the restorable key families (the player state among them since
+ *  quick-261118-xdresume) plus the diag upload token, which must survive an import untouched. */
 function seedSourceDevice() {
 	memStore.set(LIBRARY_KEY, JSON.stringify({ liked: LIKED, playlists: PLAYLISTS, downloads: DOWNLOADS, favArtists: ['A'] }));
 	memStore.set(HISTORY_KEY, JSON.stringify(HISTORY));
 	memStore.set(SEARCH_HISTORY_KEY, JSON.stringify([{ query: 'x', ts: 1 }]));
 	memStore.set(SETTINGS_KEY, JSON.stringify(SETTINGS));
 	memStore.set(NAME_TR_KEY, NAME_TR);
-	memStore.set('openmusic:player:v1', PLAYER_SENTINEL);
+	memStore.set('openmusic:player:v1', PLAYER_SOURCE);
 	memStore.set('openmusic:diag:v1', DIAG_SENTINEL);
 }
 
@@ -125,8 +142,12 @@ describe('backup round-trip through the real stores', () => {
 		// The name-translation cache is asserted as raw bytes: its owning store pulls in the
 		// translate + zh-convert chain, which this node test has no business booting.
 		expect(localStorage.getItem(NAME_TR_KEY)).toBe(NAME_TR);
-		// 35-D-02 / secret: neither sentinel was touched by the import.
-		expect(localStorage.getItem('openmusic:player:v1')).toBe(PLAYER_SENTINEL);
+		// quick-261118-xdresume (35-D-02 superseded for player state, 2026-11-18): the source
+		// device's now-playing travelled and replaced the fresh device's, byte-for-byte.
+		expect(localStorage.getItem('openmusic:player:v1')).toBe(PLAYER_SOURCE);
+		const { parsePlayerState } = await import('$lib/stores/player-persist');
+		expect(parsePlayerState(localStorage.getItem('openmusic:player:v1'))!.current.uid).toBe('kuwo:source');
+		// Secret: the diag token was not touched by the import.
 		expect(localStorage.getItem('openmusic:diag:v1')).toBe(DIAG_SENTINEL);
 	});
 

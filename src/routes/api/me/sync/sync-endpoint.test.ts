@@ -166,6 +166,40 @@ describe('PUT /api/me/sync', () => {
 		expect(stored).toEqual({ theme: 'dark' });
 	});
 
+	// quick-261118-xdresume: a legacy full-envelope PUT carrying a DIRTY player payload stores
+	// only the validator's cleaned copy (data: cover dropped, volatile fields stripped).
+	it('a legacy envelope with a dirty player payload stores the CLEANED player row', async () => {
+		const f = await seededDb();
+		const env = { ACCOUNTS_DB: f.db };
+		const envelope = {
+			...validEnvelope(),
+			keys: {
+				'openmusic:player:v1': {
+					v: 1,
+					current: { uid: 'kuwo:1', cover: 'data:image/png;base64,AA', audioUrl: 'https://x', lrc: 'l' },
+					queue: [],
+					currentTime: 1,
+					shuffle: false,
+					repeatMode: 'one',
+					updatedAt: 9
+				}
+			}
+		};
+		const put = await callPUT(fakeEvent('PUT', { body: JSON.stringify({ envelope }), env }));
+		expect(put.status).toBe(200);
+		const stored = JSON.parse(f.keyRows.get('u1|openmusic:player:v1')!.data);
+		expect(stored).toEqual({
+			v: 1,
+			current: { uid: 'kuwo:1', cover: null },
+			queue: [],
+			currentTime: 1,
+			shuffle: false,
+			repeatMode: 'one',
+			upNextAnchorUid: null,
+			updatedAt: 9
+		});
+	});
+
 	it('a foreign Origin → 403; a non-JSON type → 415', async () => {
 		const f = await seededDb();
 		const a = await callPUT(

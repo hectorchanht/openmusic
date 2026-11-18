@@ -12,9 +12,11 @@
 // Extracted in quick-260704-3ov (optimization backlog #7) from player.svelte.ts to de-risk
 // the #1 regression hotspot: the serialize/parse slice is pure and cohesive, so peeling it
 // out into a colocated, independently-tested module shrinks the god-object without any
-// behavior change. The persisted bytes are BYTE-IDENTICAL to before — the same key, the same
-// `v:1` envelope, the same serializeTrack whitelist — so an existing user's saved state still
-// restores unchanged.
+// behavior change. The persisted bytes were BYTE-IDENTICAL to before at extraction — the same
+// key, the same `v:1` envelope, the same serializeTrack whitelist — so an existing user's saved
+// state still restores unchanged. Since then two ADDITIVE fields joined the `v:1` envelope (no
+// key or field change, legacy blobs parse exactly as before): `upNextAnchorUid`
+// (quick-260712-hm9) and `updatedAt` (quick-261118-xdresume — the cross-device resume LWW clock).
 import type { Track } from '$lib/sources/types';
 
 /**
@@ -49,6 +51,10 @@ export interface PlayerSnapshot {
 	shuffle: boolean;
 	repeatMode: 'off' | 'one';
 	anchorUid: string | null;
+	/** quick-261118-xdresume: epoch ms of the last MEANINGFUL change (see stampUpdatedAt) — the
+	 *  last-write-wins clock the cross-device sync merge compares (merge-logic mergePlayerLww).
+	 *  Optional so a snapshot without it serializes as 0 ("older than anything"). */
+	updatedAt?: number;
 }
 
 /** Strip volatile fields (audioUrl / lrc / lrcUrl / detailsLoaded) before persisting a
@@ -95,8 +101,49 @@ export function serializePlayerState(snapshot: PlayerSnapshot): string {
 		// quick-260712-hm9: persist the Up-Next VIEW anchor so a reload/PWA reopen restores the
 		// EXACT played-song history view. Additive to the `v:1` envelope (placed after repeatMode);
 		// legacy blobs simply lack this key and parse back to null (back-compatible).
-		upNextAnchorUid: snapshot.anchorUid ?? null
+		upNextAnchorUid: snapshot.anchorUid ?? null,
+		// quick-261118-xdresume (35-D-02 superseded for player state, 2026-11-18): the LWW clock
+		// for cross-device resume. ADDITIVE to the `v:1` envelope exactly as upNextAnchorUid was;
+		// parsePlayerState ignores it, so legacy blobs (which lack it) restore unchanged and the
+		// sync layer reads a missing value as 0.
+		updatedAt: snapshot.updatedAt ?? 0
 	});
+}
+
+/** Player tolerance for "the same position" — a reload re-seeks to the saved currentTime and the
+ *  element can report it back a few ms off (frame snapping), which is not a user change. */
+const SAME_POSITION_S = 1;
+
+/**
+ * quick-261118-xdresume — PURE: the `updatedAt` to persist. Returns the PREVIOUS blob's
+ * updatedAt when nothing meaningful changed since it was written, else `now`.
+ *
+ * Why not just `Date.now()` on every persist: persist also runs on non-changes (the
+ * visibilitychange/pagehide flush, a restore re-seek). A fresh stamp there would make a device
+ * that merely ADOPTED another device's state look newer than it — it would push the identical
+ * state back, the other device would adopt it and reload, and the two would ping-pong reloads
+ * forever. "Meaningful" = any field other than updatedAt differs, with currentTime compared to
+ * SAME_POSITION_S. A missing / corrupt previous blob → `now`.
+ */
+export function stampUpdatedAt(prevRaw: string | null, snapshot: PlayerSnapshot, now: number): number {
+	if (!prevRaw) return now;
+	let prev: Record<string, unknown>;
+	try {
+		const p: unknown = JSON.parse(prevRaw);
+		if (p == null || typeof p !== 'object' || Array.isArray(p)) return now;
+		prev = p as Record<string, unknown>;
+	} catch {
+		return now;
+	}
+	const prevAt = prev.updatedAt;
+	if (typeof prevAt !== 'number' || !Number.isFinite(prevAt) || prevAt <= 0) return now;
+	const next = JSON.parse(serializePlayerState({ ...snapshot, updatedAt: 0 })) as Record<string, unknown>;
+	const prevTime = Number(prev.currentTime) || 0;
+	const nextTime = Number(next.currentTime) || 0;
+	if (Math.abs(prevTime - nextTime) >= SAME_POSITION_S) return now;
+	const strip = (o: Record<string, unknown>) =>
+		JSON.stringify({ ...o, currentTime: 0, updatedAt: 0 });
+	return strip(prev) === strip(next) ? prevAt : now;
 }
 
 /** Re-hydrate a persisted Partial<Track> back to a full Track: apply the whitelist defaults

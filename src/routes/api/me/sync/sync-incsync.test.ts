@@ -120,10 +120,49 @@ describe('PUT { keys } (incremental)', () => {
 		const db = fakeDb();
 		await db._addSession();
 		const p = platform(db);
-		const bad1 = await PUT({ request: req('PUT', { keys: { 'openmusic:player:v1': {} } }), platform: p } as never);
+		// quick-261118-xdresume: the player key is now ALLOWED (35-D-02 superseded for player
+		// state, 2026-11-18), so the disallowed-key probe uses the diag token (a secret).
+		const bad1 = await PUT({ request: req('PUT', { keys: { 'openmusic:diag:v1': 'tok' } }), platform: p } as never);
 		expect(bad1.status).toBe(400);
 		const bad2 = await PUT({ request: req('PUT', { keys: { 'openmusic:history:v1': 'nope' } }), platform: p } as never);
 		expect(bad2.status).toBe(400);
+	});
+
+	// quick-261118-xdresume: cross-device resume — the player key travels per-key like the others.
+	it('accepts a valid player payload and GET returns it', async () => {
+		const db = fakeDb();
+		await db._addSession();
+		const p = platform(db);
+		const player = {
+			v: 1,
+			current: { uid: 'kuwo:1', title: 'T' },
+			queue: [{ uid: 'kuwo:1', title: 'T' }],
+			currentTime: 12,
+			shuffle: false,
+			repeatMode: 'off',
+			upNextAnchorUid: null,
+			updatedAt: 1000
+		};
+		const put = await PUT({ request: req('PUT', { keys: { 'openmusic:player:v1': player } }), platform: p } as never);
+		expect(put.status).toBe(200);
+		const get = await GET({ request: req('GET'), platform: p } as never);
+		const body = (await get.json()) as { envelope: { keys: Record<string, unknown> } };
+		expect(body.envelope.keys['openmusic:player:v1']).toEqual(player);
+	});
+
+	it('rejects a malformed player payload, nothing stored', async () => {
+		const db = fakeDb();
+		await db._addSession();
+		const p = platform(db);
+		for (const bad of [
+			{},
+			{ v: 1, current: { title: 'no uid' }, queue: [], currentTime: 0, shuffle: false, repeatMode: 'off' },
+			{ v: 1, current: null, queue: [], currentTime: 'x', shuffle: false, repeatMode: 'off' }
+		]) {
+			const res = await PUT({ request: req('PUT', { keys: { 'openmusic:player:v1': bad } }), platform: p } as never);
+			expect(res.status, JSON.stringify(bad)).toBe(400);
+		}
+		expect(db._keyRows.size).toBe(0);
 	});
 
 	it('legacy { envelope } PUT still works (split into rows)', async () => {

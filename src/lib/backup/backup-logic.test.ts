@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { HISTORY_KEY } from '$lib/history/history-logic';
 import { SEARCH_HISTORY_KEY } from '$lib/search/search-history-logic';
+import { STATE_KEY } from '$lib/stores/player-persist';
 import {
 	BACKUP_EXACT_KEYS,
 	BACKUP_FORMAT,
@@ -13,11 +14,14 @@ import {
 	LIBRARY_KEY,
 	MIGRATIONS,
 	NAME_TR_PREFIX,
+	PLAYER_KEY,
+	PLAYER_QUEUE_CAP,
 	SETTINGS_KEY,
 	UNDO_KEY,
 	applyEnvelope,
 	backupFilename,
 	buildEnvelope,
+	cleanPlayerPayload,
 	hasUndoSnapshot,
 	serializeEnvelope,
 	slimLibraryForSync,
@@ -29,6 +33,18 @@ import {
 	type BackupEnvelope
 } from './backup-logic';
 
+/** quick-261118-xdresume: a canonical player blob — exactly what serializePlayerState writes. */
+const PLAYER_BLOB = {
+	v: 1,
+	current: { uid: 'kuwo:1', source: 'kuwo', songid: '1', title: 'T', artist: 'A', album: '', cover: null, quality: null, qualityLabel: null, keyword: 'T', displayIndex: 1 },
+	queue: [{ uid: 'kuwo:1', source: 'kuwo', songid: '1', title: 'T', artist: 'A', album: '', cover: null, quality: null, qualityLabel: null, keyword: 'T', displayIndex: 1 }],
+	currentTime: 42.5,
+	shuffle: false,
+	repeatMode: 'off',
+	upNextAnchorUid: 'kuwo:1',
+	updatedAt: 1_700_000_000_000
+};
+
 /** Every `openmusic*` key the app writes today (35-RESEARCH Answer 1), plus the differently
  *  prefixed `openmusic-blob-uri:` family and two name-tr languages. */
 function seed(): Record<string, string> {
@@ -39,7 +55,9 @@ function seed(): Record<string, string> {
 		'openmusic:settings:v1': JSON.stringify({ appLang: 'zh-Hant' }),
 		'openmusic:name-tr:v2:zh-Hant': JSON.stringify({ Foo: '福' }),
 		'openmusic:name-tr:v2:en': JSON.stringify({ 福: 'Foo' }),
-		'openmusic:player:v1': JSON.stringify({ v: 1, current: { uid: 'kuwo:1' } }),
+		// quick-261118-xdresume: a VALID player blob in the cleaner's canonical (serializePlayerState)
+		// field order — it now travels (35-D-02 superseded for player state, 2026-11-18).
+		'openmusic:player:v1': JSON.stringify(PLAYER_BLOB),
 		'openmusic:cover-cache:v1': JSON.stringify({}),
 		'openmusic:action-log:v1': JSON.stringify([]),
 		'openmusic:lyrics-tr:v3:en:abc': JSON.stringify(['line']),
@@ -66,11 +84,13 @@ function okEnvelope(keys: Record<string, unknown>): string {
 }
 
 describe('envelope', () => {
-	it('carries exactly the 4 exact keys plus every name-tr key in the store', () => {
+	// quick-261118-xdresume: 5 exact keys now — the player state joined (35-D-02 superseded for
+	// player state, 2026-11-18).
+	it('carries exactly the exact keys (player included) plus every name-tr key in the store', () => {
 		const store = seed();
 		const got = Object.keys(buildEnvelope(readerFor(store), Object.keys(store)).keys).sort();
 		expect(got).toEqual(
-			[LIBRARY_KEY, HISTORY_KEY, SEARCH_HISTORY_KEY, SETTINGS_KEY, 'openmusic:name-tr:v2:en', 'openmusic:name-tr:v2:zh-Hant'].sort()
+			[LIBRARY_KEY, HISTORY_KEY, SEARCH_HISTORY_KEY, SETTINGS_KEY, PLAYER_KEY, 'openmusic:name-tr:v2:en', 'openmusic:name-tr:v2:zh-Hant'].sort()
 		);
 	});
 
@@ -111,18 +131,37 @@ describe('never exports', () => {
 		expect(BACKUP_FORMAT).toBe(1);
 	});
 
-	it('BACKUP_EXACT_KEYS excludes the player state (35-D-02) and the diag upload token', () => {
-		expect(BACKUP_EXACT_KEYS).not.toContain('openmusic:player:v1');
-		expect(BACKUP_EXACT_KEYS).not.toContain('openmusic:diag:v1');
-		expect([...BACKUP_EXACT_KEYS].sort()).toEqual([LIBRARY_KEY, HISTORY_KEY, SEARCH_HISTORY_KEY, SETTINGS_KEY].sort());
+	it('PLAYER_KEY is pinned to the player store\'s STATE_KEY (quick-261118-xdresume)', () => {
+		expect(PLAYER_KEY).toBe(STATE_KEY);
+		expect(PLAYER_KEY).toBe('openmusic:player:v1');
 	});
 
-	it('an envelope built over a full store contains no player / diag / blob-uri key', () => {
+	// 35-D-02 was SUPERSEDED for player state on 2026-11-18 (Hector, quick-261118-xdresume): the
+	// player key now travels; the diag token (a secret) still never does.
+	it('BACKUP_EXACT_KEYS includes the player state (35-D-02 superseded) but never the diag upload token', () => {
+		expect(BACKUP_EXACT_KEYS).toContain('openmusic:player:v1');
+		expect(BACKUP_EXACT_KEYS).not.toContain('openmusic:diag:v1');
+		expect([...BACKUP_EXACT_KEYS].sort()).toEqual(
+			[LIBRARY_KEY, HISTORY_KEY, SEARCH_HISTORY_KEY, SETTINGS_KEY, PLAYER_KEY].sort()
+		);
+	});
+
+	it('an envelope built over a full store carries the player state but no diag / blob-uri / cover-cache key', () => {
 		const store = seed();
-		const got = Object.keys(buildEnvelope(readerFor(store), Object.keys(store)).keys);
-		expect(got).not.toContain('openmusic:player:v1');
+		const env = buildEnvelope(readerFor(store), Object.keys(store));
+		const got = Object.keys(env.keys);
+		expect(got).toContain('openmusic:player:v1');
+		expect(env.keys['openmusic:player:v1']).toEqual(PLAYER_BLOB);
 		expect(got).not.toContain('openmusic:diag:v1');
+		expect(got).not.toContain('openmusic:cover-cache:v1');
 		expect(got.some((k) => k.startsWith('openmusic-blob-uri:'))).toBe(false);
+	});
+
+	it('an unrecognisable local player blob is SKIPPED, never aborting the export', () => {
+		const store = { ...seed(), 'openmusic:player:v1': JSON.stringify({ v: 1, current: { uid: 'kuwo:1' } }) };
+		const env = buildEnvelope(readerFor(store), Object.keys(store));
+		expect('openmusic:player:v1' in env.keys).toBe(false);
+		expect(LIBRARY_KEY in env.keys).toBe(true);
 	});
 });
 
@@ -222,12 +261,92 @@ describe('migration', () => {
 		}
 	});
 
-	it('a player-state key inside a file is dropped and NOT reported (35-D-02)', () => {
-		const res = validateEnvelope(okEnvelope({ 'openmusic:player:v1': { v: 1 } }));
+	// quick-261118-xdresume: 35-D-02 superseded for player state (2026-11-18) — a player key in a
+	// file is now RESTORED (cleaned), and an unknown version of it is refused per-key + named.
+	it('a valid player-state key inside a file is accepted verbatim', () => {
+		const res = validateEnvelope(okEnvelope({ 'openmusic:player:v1': PLAYER_BLOB }));
 		expect(res.ok).toBe(true);
 		if (res.ok) {
-			expect('openmusic:player:v1' in res.envelope.keys).toBe(false);
+			expect(res.envelope.keys['openmusic:player:v1']).toEqual(PLAYER_BLOB);
 			expect(res.skipped).toEqual([]);
+		}
+	});
+
+	it('a dirty player payload is CLEANED: data: cover dropped, volatile fields stripped, queue capped', () => {
+		const dirtyTrack = (i: number) => ({
+			uid: `kuwo:${i}`,
+			title: `T${i}`,
+			cover: 'data:image/jpeg;base64,AAAA',
+			audioUrl: 'https://cdn/x.mp3',
+			lrc: '[00:01]la',
+			lrcUrl: 'https://l',
+			detailsLoaded: true,
+			proxyUrl: 'blob:abc',
+			songMid: 'zzz'
+		});
+		const dirty = {
+			v: 1,
+			current: dirtyTrack(0),
+			queue: Array.from({ length: PLAYER_QUEUE_CAP + 20 }, (_, i) => dirtyTrack(i)),
+			currentTime: 3,
+			shuffle: true,
+			repeatMode: 'one',
+			upNextAnchorUid: 'kuwo:0',
+			updatedAt: 5,
+			junk: { nested: true }
+		};
+		const res = validateEnvelope(okEnvelope({ 'openmusic:player:v1': dirty }));
+		expect(res.ok).toBe(true);
+		if (!res.ok) return;
+		const got = res.envelope.keys['openmusic:player:v1'] as Record<string, unknown>;
+		expect(Object.keys(got)).toEqual(['v', 'current', 'queue', 'currentTime', 'shuffle', 'repeatMode', 'upNextAnchorUid', 'updatedAt']);
+		expect(got.current).toEqual({ uid: 'kuwo:0', title: 'T0', cover: null });
+		const queue = got.queue as Record<string, unknown>[];
+		expect(queue).toHaveLength(PLAYER_QUEUE_CAP);
+		expect(queue[0]).toEqual({ uid: 'kuwo:0', title: 'T0', cover: null });
+		for (const t of queue) {
+			for (const f of ['audioUrl', 'lrc', 'lrcUrl', 'detailsLoaded', 'proxyUrl', 'songMid']) expect(f in t).toBe(false);
+		}
+	});
+
+	it('the queue cap keeps a current that sits beyond the cap', () => {
+		const q = Array.from({ length: 900 }, (_, i) => ({ uid: `kuwo:${i}` }));
+		const got = cleanPlayerPayload({ v: 1, current: { uid: 'kuwo:800' }, queue: q, currentTime: 0, shuffle: false, repeatMode: 'off' });
+		const queue = (got as Record<string, unknown>).queue as { uid: string }[];
+		expect(queue).toHaveLength(PLAYER_QUEUE_CAP);
+		expect(queue.some((t) => t.uid === 'kuwo:800')).toBe(true);
+		expect(queue[queue.length - 1].uid).toBe('kuwo:899');
+	});
+
+	it('a legacy player blob (no upNextAnchorUid / updatedAt, tri-state repeat) is accepted with defaults', () => {
+		const got = cleanPlayerPayload({ v: 1, current: { uid: 'qq:1' }, queue: [], currentTime: 0, shuffle: false, repeatMode: 'all' });
+		expect(got).toEqual({ v: 1, current: { uid: 'qq:1' }, queue: [], currentTime: 0, shuffle: false, repeatMode: 'off', upNextAnchorUid: null, updatedAt: 0 });
+	});
+
+	it('a malformed player payload damages the whole file (35-D-10 atomicity, like every exact key)', () => {
+		for (const bad of [
+			{ v: 2, current: null, queue: [], currentTime: 0, shuffle: false, repeatMode: 'off' },
+			{ v: 1, current: { title: 'no uid' }, queue: [], currentTime: 0, shuffle: false, repeatMode: 'off' },
+			{ v: 1, current: null, queue: 'nope', currentTime: 0, shuffle: false, repeatMode: 'off' },
+			{ v: 1, current: null, queue: [5], currentTime: 0, shuffle: false, repeatMode: 'off' },
+			{ v: 1, current: null, queue: [], currentTime: -1, shuffle: false, repeatMode: 'off' },
+			{ v: 1, current: null, queue: [], currentTime: 0, shuffle: 'yes', repeatMode: 'off' },
+			{ v: 1, current: null, queue: [], currentTime: 0, shuffle: false, repeatMode: 'loop' },
+			{ v: 1, current: null, queue: [], currentTime: 0, shuffle: false, repeatMode: 'off', upNextAnchorUid: 7 },
+			{ v: 1, current: null, queue: [], currentTime: 0, shuffle: false, repeatMode: 'off', updatedAt: -5 },
+			[]
+		]) {
+			expect(validateEnvelope(okEnvelope({ 'openmusic:player:v1': bad }))).toEqual({ ok: false, reason: 'damaged' });
+		}
+	});
+
+	it('an unknown-version player key is refused per-key and named, like every other domain', () => {
+		const res = validateEnvelope(okEnvelope({ 'openmusic:player:v2': PLAYER_BLOB }));
+		expect(res.ok).toBe(true);
+		if (res.ok) {
+			expect(res.skipped).toEqual(['openmusic:player:v2']);
+			expect('openmusic:player:v2' in res.envelope.keys).toBe(false);
+			expect('openmusic:player:v1' in res.envelope.keys).toBe(false);
 		}
 	});
 
@@ -320,7 +439,10 @@ describe('atomic', () => {
 		// Replace, not merge: name-tr languages absent from the file are gone.
 		expect(live.map.has('openmusic:name-tr:v2:ja')).toBe(false);
 		expect(live.map.has('openmusic:name-tr:v2:zh-Hant')).toBe(false);
-		for (const untouched of ['openmusic:player:v1', 'openmusic:cover-cache:v1', 'openmusic:diag:v1', 'openmusic-blob-uri:kuwo:1']) {
+		// quick-261118-xdresume: the player key is now a 35-D-01 family — a file WITHOUT one
+		// replaces (clears) it, exactly like a missing name-tr language above.
+		expect(live.map.has('openmusic:player:v1')).toBe(false);
+		for (const untouched of ['openmusic:cover-cache:v1', 'openmusic:diag:v1', 'openmusic-blob-uri:kuwo:1']) {
 			expect(live.map.get(untouched)).toBe(before[untouched]);
 		}
 	});
@@ -344,7 +466,8 @@ describe('atomic', () => {
 		if (snapshot.ok) {
 			expect(snapshot.envelope.keys[LIBRARY_KEY]).toEqual(JSON.parse(before[LIBRARY_KEY]));
 			expect(snapshot.envelope.keys['openmusic:name-tr:v2:ja']).toEqual(JSON.parse(before['openmusic:name-tr:v2:ja']));
-			expect('openmusic:player:v1' in snapshot.envelope.keys).toBe(false);
+			// quick-261118-xdresume: the player state is in the snapshot now, so Undo restores it.
+			expect(snapshot.envelope.keys['openmusic:player:v1']).toEqual(JSON.parse(before['openmusic:player:v1']));
 		}
 	});
 });

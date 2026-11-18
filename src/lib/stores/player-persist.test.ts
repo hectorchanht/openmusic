@@ -9,7 +9,8 @@ import {
 	STATE_KEY,
 	serializeTrack,
 	serializePlayerState,
-	parsePlayerState
+	parsePlayerState,
+	stampUpdatedAt
 } from '$lib/stores/player-persist';
 
 // A FULLY-populated Track — every field present, incl. the volatile ones set to
@@ -109,7 +110,8 @@ describe('serializePlayerState — byte shape', () => {
 			currentTime: 42.5,
 			shuffle: true,
 			repeatMode: 'one',
-			anchorUid: 'netease-123'
+			anchorUid: 'netease-123',
+			updatedAt: 1_700_000_000_123
 		});
 		const obj = JSON.parse(s);
 		expect(obj).toEqual({
@@ -123,8 +125,18 @@ describe('serializePlayerState — byte shape', () => {
 			shuffle: true,
 			repeatMode: 'one', // passed through unchanged (serializePlayerState does no migration)
 			// quick-260712-hm9: the persisted Up-Next VIEW anchor rides in the envelope after repeatMode.
-			upNextAnchorUid: 'netease-123'
+			upNextAnchorUid: 'netease-123',
+			// quick-261118-xdresume: the cross-device resume LWW clock — additive, after the anchor.
+			updatedAt: 1_700_000_000_123
 		});
+		expect(Object.keys(obj)).toEqual(['v', 'current', 'queue', 'currentTime', 'shuffle', 'repeatMode', 'upNextAnchorUid', 'updatedAt']);
+	});
+
+	it('a snapshot without updatedAt serializes updatedAt: 0 (quick-261118-xdresume)', () => {
+		const obj = JSON.parse(
+			serializePlayerState({ current: mk(), queue: [], currentTime: 0, shuffle: false, repeatMode: 'off', anchorUid: null })
+		);
+		expect(obj.updatedAt).toBe(0);
 	});
 
 	it('emits upNextAnchorUid: null when the snapshot anchor is null (quick-260712-hm9)', () => {
@@ -378,5 +390,57 @@ describe('parsePlayerState — repeatMode migration (D-11)', () => {
 
 	it("garbage → 'off'", () => {
 		expect(parseWithRepeat('garbage')!.repeatMode).toBe('off');
+	});
+});
+
+// quick-261118-xdresume — the cross-device resume LWW clock (35-D-02 superseded for player
+// state, 2026-11-18). Additive to the v:1 envelope; legacy blobs parse EXACTLY as before.
+describe('updatedAt back-compat (quick-261118-xdresume)', () => {
+	const legacy = {
+		v: 1,
+		current: { uid: 'netease-r1', source: 'netease', songid: 'r1', title: 'T', artist: 'A', album: '', cover: null, quality: null, qualityLabel: null, keyword: '', displayIndex: 1 },
+		queue: [{ uid: 'netease-r1' }],
+		currentTime: 33,
+		shuffle: true,
+		repeatMode: 'one',
+		upNextAnchorUid: 'netease-r1'
+	};
+
+	it('a legacy blob WITHOUT updatedAt parses identically to the same blob with one', () => {
+		const a = parsePlayerState(JSON.stringify(legacy));
+		const b = parsePlayerState(JSON.stringify({ ...legacy, updatedAt: 1_700_000_000_000 }));
+		expect(a).not.toBeNull();
+		expect(b).toEqual(a);
+		// RestoredState carries no clock — the restore path is untouched by the new field.
+		expect('updatedAt' in (a as object)).toBe(false);
+	});
+
+	it('serialize → parse round-trips with updatedAt present', () => {
+		const raw = serializePlayerState({ current: mk(), queue: [mk()], currentTime: 5, shuffle: false, repeatMode: 'off', anchorUid: null, updatedAt: 42 });
+		expect(JSON.parse(raw).updatedAt).toBe(42);
+		expect(parsePlayerState(raw)!.current.uid).toBe('netease-123');
+	});
+});
+
+describe('stampUpdatedAt (quick-261118-xdresume)', () => {
+	const snap = { current: mk(), queue: [mk()], currentTime: 10, shuffle: false, repeatMode: 'off' as const, anchorUid: null };
+	const prevRaw = serializePlayerState({ ...snap, updatedAt: 1000 });
+
+	it('no / corrupt / clock-less previous blob → now', () => {
+		expect(stampUpdatedAt(null, snap, 5000)).toBe(5000);
+		expect(stampUpdatedAt('{nope', snap, 5000)).toBe(5000);
+		expect(stampUpdatedAt(serializePlayerState(snap), snap, 5000)).toBe(5000);
+	});
+
+	it('an unchanged state (a flush, a restore re-seek within 1s) KEEPS the previous clock', () => {
+		expect(stampUpdatedAt(prevRaw, snap, 5000)).toBe(1000);
+		expect(stampUpdatedAt(prevRaw, { ...snap, currentTime: 10.4 }, 5000)).toBe(1000);
+	});
+
+	it('a meaningful change (position >= 1s, track, queue, mode) takes now', () => {
+		expect(stampUpdatedAt(prevRaw, { ...snap, currentTime: 12 }, 5000)).toBe(5000);
+		expect(stampUpdatedAt(prevRaw, { ...snap, current: mk({ uid: 'qq-9' }) }, 5000)).toBe(5000);
+		expect(stampUpdatedAt(prevRaw, { ...snap, queue: [] }, 5000)).toBe(5000);
+		expect(stampUpdatedAt(prevRaw, { ...snap, shuffle: true }, 5000)).toBe(5000);
 	});
 });
