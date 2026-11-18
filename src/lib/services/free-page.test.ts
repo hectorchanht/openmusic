@@ -46,7 +46,7 @@ describe('whatsappShareUrl', () => {
 
 describe('constants', () => {
 	it('points at the Dawn Studio gateway and the public repo', () => {
-		expect(DAWN_GATEWAY_URL).toBe('https://dawnstudio.app');
+		expect(DAWN_GATEWAY_URL).toBe('https://dawnstudio.app/gateway');
 		expect(OPENMUSIC_REPO_URL).toBe('https://github.com/hectorchanht/openmusic');
 	});
 });

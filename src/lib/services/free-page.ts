@@ -6,7 +6,7 @@
 /** The Dawn Studio gateway — the one address that always lists OpenMusic's CURRENT home. The /free
  *  page tells people to bookmark THIS, not the app's own domain (domains can be lost; the gateway
  *  is the survival link). */
-export const DAWN_GATEWAY_URL = 'https://dawnstudio.app';
+export const DAWN_GATEWAY_URL = 'https://dawnstudio.app/gateway';
 
 /** The public source repository (same literal as Settings → About's REPO). */
 export const OPENMUSIC_REPO_URL = 'https://github.com/hectorchanht/openmusic';
