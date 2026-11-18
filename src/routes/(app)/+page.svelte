@@ -7,6 +7,9 @@
 	import Logo from '$lib/components/Logo.svelte';
 	import ShelfChevrons from '$lib/components/ShelfChevrons.svelte';
 	import SponsoredStrip from '$lib/components/SponsoredStrip.svelte';
+	// quick-261118-free: the slim "Free forever" band → /free (after the first shelf) + footer link.
+	import FreeBand from '$lib/components/FreeBand.svelte';
+	import { firstShelfId } from '$lib/services/free-page';
 	import { buildDiversePicks } from '$lib/services/picks';
 	import { dedupeShelfList } from '$lib/services/dedupe';
 	import { foldArtistName } from '$lib/sync/merge-logic';
@@ -1062,6 +1065,11 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 		}
 		return { per, total: used };
 	});
+	// quick-261118-free: the FIRST section that actually paints a shelf — the Free band renders
+	// right after it (Hector via Muse: after the first content shelf, never above it / at the top).
+	const firstShelf = $derived(
+		firstShelfId(resolveSectionOrder(settings.homeSectionOrder), settings.homeHidden, shelfCount, shelfBudget.per)
+	);
 	function revealShelves() {
 		if (revealed >= shelfBudget.total) {
 			revealed = Infinity;
@@ -1292,6 +1300,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 				</div>
 			{/each}
 		</div>
+		<FreeBand />
 	{:else}
 		<!-- PRIMARY: the four Last.fm discovery shelves (D-01/D-02). w87: render each
 		     section block in the user's RESOLVED order (resolveSectionOrder drops unknown /
@@ -1319,10 +1328,16 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 				{:else if id === 'genres'}{@render genresBlock()}
 				{:else if id === 'regions'}{@render regionsBlock()}
 				{/if}
+				{#if id === firstShelf}<FreeBand />{/if}
 			{/if}
 		{/each}
 	{/if}
 </section>
+
+<!-- quick-261118-free: Home's footer — one quiet link to the /free manifesto page. -->
+<footer class="home-footer">
+	<a href="/free" data-testid="footer-free-link">{t('free.footerLink')}</a>
+</footer>
 
 <!-- D-14: the whole section-title row is one tap target → its destination (chart page /
      library tab / playlist detail). `dest` is built from FIXED in-app paths with any dynamic
@@ -1846,6 +1861,10 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 <TrackMenu track={menuTrack} open={menuOpen} loading={menuLoading} onclose={() => { menuOpen = false; menuLoading = false; menuGen++; }} />
 
 <style>
+	/* quick-261118-free: Home footer link to /free. */
+	.home-footer { text-align: center; margin: 28px 0 8px; font-size: 0.8125rem; }
+	.home-footer a { color: var(--color-text-muted); text-decoration: none; font-weight: 600; display: inline-block; padding: 12px 8px; }
+	.home-footer a:hover { color: var(--color-text); }
 	.topnav { display: flex; align-items: center; justify-content: space-between; padding: 14px 0 10px; }
 	.brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1.35rem; }
 	.gear { position: relative; background: none; border: none; color: var(--color-text); cursor: pointer; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; transition: opacity 0.15s ease; }
