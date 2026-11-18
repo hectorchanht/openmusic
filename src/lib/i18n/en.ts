@@ -264,6 +264,8 @@ const en = {
 	"account.syncSearchHistoryDesc": "Your recent searches.",
 	"account.syncNameTr": "Name cache",
 	"account.syncNameTrDesc": "Cached translations of artist and song names.",
+	"account.syncPlayer": "Now playing",
+	"account.syncPlayerDesc": "Your current song, queue and playback position — pick up where you left off on another device.",
 	// --- first-sync review (quick-261023-syncmerge-review) ---
 	"sync.review.title": "Sync this device?",
 	"sync.review.desc": "This device and your cloud copy have different data. Review what's different, then choose how to combine them.",
@@ -281,6 +283,7 @@ const en = {
 	"sync.review.names": "Name cache",
 	"sync.review.settings": "Settings",
 	"sync.review.settingsDiffers": "Settings differ — merging keeps the cloud copy.",
+	"sync.review.playerDiffers": "Now playing differs — merging keeps whichever was played most recently.",
 	"account.openInApp": "Open in OpenMusic",
 	"account.openInAppTitle": "You're signed in",
 	"account.openInAppDesc": "Tap the button below to finish signing in to the app.",

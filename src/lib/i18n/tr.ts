@@ -230,6 +230,8 @@ const tr: Dict = {
 	"account.syncSearchHistoryDesc": "Son aramaların.",
 	"account.syncNameTr": "Ad önbelleği",
 	"account.syncNameTrDesc": "Sanatçı ve şarkı adlarının önbelleğe alınmış çevirileri.",
+	"account.syncPlayer": "Şimdi çalıyor",
+	"account.syncPlayerDesc": "Çalan şarkın, sıran ve çalma konumun — başka bir cihazda kaldığın yerden devam et.",
 	// --- first-sync review (quick-261023-syncmerge-review) ---
 	"sync.review.title": "Sync this device?",
 	"sync.review.desc": "This device and your cloud copy have different data. Review what's different, then choose how to combine them.",
@@ -247,6 +249,7 @@ const tr: Dict = {
 	"sync.review.names": "Name cache",
 	"sync.review.settings": "Settings",
 	"sync.review.settingsDiffers": "Settings differ — merging keeps the cloud copy.",
+	"sync.review.playerDiffers": "Now playing differs — merging keeps whichever was played most recently.",
 	"account.openInApp": "OpenMusic'te aç",
 	"account.openInAppTitle": "Giriş yapıldı",
 	"account.openInAppDesc": "Uygulamada oturum açmayı tamamlamak için aşağıdaki düğmeye dokun.",

@@ -241,6 +241,8 @@ const zhHans: Dict = {
 	"account.syncSearchHistoryDesc": "你最近的搜索。",
 	"account.syncNameTr": "名称缓存",
 	"account.syncNameTrDesc": "艺人和歌名的翻译缓存。",
+	"account.syncPlayer": "正在播放",
+	"account.syncPlayerDesc": "当前歌曲、播放队列和播放进度——在另一台设备上从上次停下的地方继续。",
 	// --- first-sync review (quick-261023-syncmerge-review) ---
 	"sync.review.title": "要同步这台设备吗？",
 	"sync.review.desc": "这台设备和云端的数据不同。看看有什么分别，然后选择如何合并。",
@@ -258,6 +260,7 @@ const zhHans: Dict = {
 	"sync.review.names": "名称缓存",
 	"sync.review.settings": "设置",
 	"sync.review.settingsDiffers": "设置有不同 — 合并会保留云端那份。",
+	"sync.review.playerDiffers": "正在播放的内容不同 — 合并会保留最近播放的那份。",
 	"account.openInApp": "在 OpenMusic 中打开",
 	"account.openInAppTitle": "你已登录",
 	"account.openInAppDesc": "点击下方按钮，完成 App 登录。",

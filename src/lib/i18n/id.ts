@@ -230,6 +230,8 @@ const id: Dict = {
 	"account.syncSearchHistoryDesc": "Pencarian terakhirmu.",
 	"account.syncNameTr": "Cache nama",
 	"account.syncNameTrDesc": "Terjemahan tersimpan dari nama artis dan lagu.",
+	"account.syncPlayer": "Sedang diputar",
+	"account.syncPlayerDesc": "Lagu saat ini, antrean, dan posisi pemutaran — lanjutkan dari bagian terakhir di perangkat lain.",
 	// --- first-sync review (quick-261023-syncmerge-review) ---
 	"sync.review.title": "Sync this device?",
 	"sync.review.desc": "This device and your cloud copy have different data. Review what's different, then choose how to combine them.",
@@ -247,6 +249,7 @@ const id: Dict = {
 	"sync.review.names": "Name cache",
 	"sync.review.settings": "Settings",
 	"sync.review.settingsDiffers": "Settings differ — merging keeps the cloud copy.",
+	"sync.review.playerDiffers": "Now playing differs — merging keeps whichever was played most recently.",
 	"account.openInApp": "Buka di OpenMusic",
 	"account.openInAppTitle": "Kamu sudah masuk",
 	"account.openInAppDesc": "Ketuk tombol di bawah untuk menyelesaikan masuk di aplikasi.",

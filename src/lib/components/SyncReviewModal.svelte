@@ -126,6 +126,15 @@
 				note: t('sync.review.settingsDiffers')
 			});
 		}
+		// quick-261118-xdresume: the now-playing state merges LWW — say so, like settings.
+		if (p.player.differs) {
+			out.push({
+				key: 'player',
+				title: t('account.syncPlayer'),
+				groups: [],
+				note: t('sync.review.playerDiffers')
+			});
+		}
 		return out;
 	}
 

@@ -5,6 +5,7 @@
 	import { Capacitor } from '@capacitor/core';
 	import {
 		CircleUserRound,
+		CirclePlay,
 		History,
 		Languages,
 		LibraryBig,
@@ -227,7 +228,9 @@
 		{ key: 'library', icon: LibraryBig, label: 'account.syncLibrary', hint: 'account.syncLibraryDesc' },
 		{ key: 'history', icon: History, label: 'account.syncHistory', hint: 'account.syncHistoryDesc' },
 		{ key: 'searchHistory', icon: Search, label: 'account.syncSearchHistory', hint: 'account.syncSearchHistoryDesc' },
-		{ key: 'nameTr', icon: Languages, label: 'account.syncNameTr', hint: 'account.syncNameTrDesc' }
+		{ key: 'nameTr', icon: Languages, label: 'account.syncNameTr', hint: 'account.syncNameTrDesc' },
+		// quick-261118-xdresume: cross-device resume (35-D-02 superseded for player state, 2026-11-18).
+		{ key: 'player', icon: CirclePlay, label: 'account.syncPlayer', hint: 'account.syncPlayerDesc' }
 	];
 
 	async function doSignOut() {

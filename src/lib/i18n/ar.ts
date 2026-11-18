@@ -230,6 +230,8 @@ const ar: Dict = {
 	"account.syncSearchHistoryDesc": "عمليات البحث الأخيرة.",
 	"account.syncNameTr": "ذاكرة الأسماء",
 	"account.syncNameTrDesc": "ترجمات مخزّنة لأسماء الفنانين والأغاني.",
+	"account.syncPlayer": "قيد التشغيل",
+	"account.syncPlayerDesc": "أغنيتك الحالية وقائمة الانتظار وموضع التشغيل — تابع من حيث توقفت على جهاز آخر.",
 	// --- first-sync review (quick-261023-syncmerge-review) ---
 	"sync.review.title": "Sync this device?",
 	"sync.review.desc": "This device and your cloud copy have different data. Review what's different, then choose how to combine them.",
@@ -247,6 +249,7 @@ const ar: Dict = {
 	"sync.review.names": "Name cache",
 	"sync.review.settings": "Settings",
 	"sync.review.settingsDiffers": "Settings differ — merging keeps the cloud copy.",
+	"sync.review.playerDiffers": "Now playing differs — merging keeps whichever was played most recently.",
 	"account.openInApp": "فتح في OpenMusic",
 	"account.openInAppTitle": "تم تسجيل الدخول",
 	"account.openInAppDesc": "اضغط الزر أدناه لإتمام تسجيل الدخول في التطبيق.",

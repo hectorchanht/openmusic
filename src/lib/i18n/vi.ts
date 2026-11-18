@@ -230,6 +230,8 @@ const vi: Dict = {
 	"account.syncSearchHistoryDesc": "Các tìm kiếm gần đây của bạn.",
 	"account.syncNameTr": "Bộ nhớ tên",
 	"account.syncNameTrDesc": "Bản dịch đã lưu của tên nghệ sĩ và bài hát.",
+	"account.syncPlayer": "Đang phát",
+	"account.syncPlayerDesc": "Bài hát hiện tại, hàng chờ và vị trí phát — tiếp tục từ chỗ bạn dừng trên thiết bị khác.",
 	// --- first-sync review (quick-261023-syncmerge-review) ---
 	"sync.review.title": "Sync this device?",
 	"sync.review.desc": "This device and your cloud copy have different data. Review what's different, then choose how to combine them.",
@@ -247,6 +249,7 @@ const vi: Dict = {
 	"sync.review.names": "Name cache",
 	"sync.review.settings": "Settings",
 	"sync.review.settingsDiffers": "Settings differ — merging keeps the cloud copy.",
+	"sync.review.playerDiffers": "Now playing differs — merging keeps whichever was played most recently.",
 	"account.openInApp": "Mở trong OpenMusic",
 	"account.openInAppTitle": "Đã đăng nhập",
 	"account.openInAppDesc": "Chạm vào nút bên dưới để hoàn tất đăng nhập trong ứng dụng.",

@@ -230,6 +230,8 @@ const hi: Dict = {
 	"account.syncSearchHistoryDesc": "आपकी हाल की खोजें।",
 	"account.syncNameTr": "नाम कैश",
 	"account.syncNameTrDesc": "कलाकार और गानों के नामों के सहेजे अनुवाद।",
+	"account.syncPlayer": "अभी चल रहा है",
+	"account.syncPlayerDesc": "आपका मौजूदा गाना, कतार और प्लेबैक स्थिति — किसी दूसरे डिवाइस पर वहीं से जारी रखें जहाँ आपने छोड़ा था।",
 	// --- first-sync review (quick-261023-syncmerge-review) ---
 	"sync.review.title": "Sync this device?",
 	"sync.review.desc": "This device and your cloud copy have different data. Review what's different, then choose how to combine them.",
@@ -247,6 +249,7 @@ const hi: Dict = {
 	"sync.review.names": "Name cache",
 	"sync.review.settings": "Settings",
 	"sync.review.settingsDiffers": "Settings differ — merging keeps the cloud copy.",
+	"sync.review.playerDiffers": "Now playing differs — merging keeps whichever was played most recently.",
 	"account.openInApp": "OpenMusic में खोलें",
 	"account.openInAppTitle": "आप साइन इन हो गए हैं",
 	"account.openInAppDesc": "ऐप में साइन-इन पूरा करने के लिए नीचे दिया बटन दबाएं।",

@@ -230,6 +230,8 @@ const th: Dict = {
 	"account.syncSearchHistoryDesc": "การค้นหาล่าสุดของคุณ",
 	"account.syncNameTr": "แคชชื่อ",
 	"account.syncNameTrDesc": "คำแปลที่บันทึกไว้ของชื่อศิลปินและเพลง",
+	"account.syncPlayer": "กำลังเล่น",
+	"account.syncPlayerDesc": "เพลงปัจจุบัน คิว และตำแหน่งการเล่น — เล่นต่อจากจุดเดิมบนอุปกรณ์อื่น",
 	// --- first-sync review (quick-261023-syncmerge-review) ---
 	"sync.review.title": "Sync this device?",
 	"sync.review.desc": "This device and your cloud copy have different data. Review what's different, then choose how to combine them.",
@@ -247,6 +249,7 @@ const th: Dict = {
 	"sync.review.names": "Name cache",
 	"sync.review.settings": "Settings",
 	"sync.review.settingsDiffers": "Settings differ — merging keeps the cloud copy.",
+	"sync.review.playerDiffers": "Now playing differs — merging keeps whichever was played most recently.",
 	"account.openInApp": "เปิดใน OpenMusic",
 	"account.openInAppTitle": "เข้าสู่ระบบแล้ว",
 	"account.openInAppDesc": "แตะปุ่มด้านล่างเพื่อเข้าสู่ระบบในแอปให้เสร็จสมบูรณ์",

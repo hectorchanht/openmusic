@@ -241,6 +241,8 @@ const zhHant: Dict = {
 	"account.syncSearchHistoryDesc": "你最近嘅搜尋。",
 	"account.syncNameTr": "名稱快取",
 	"account.syncNameTrDesc": "藝人同歌名嘅翻譯快取。",
+	"account.syncPlayer": "正在播放",
+	"account.syncPlayerDesc": "目前歌曲、播放佇列和播放進度——在另一部裝置上從上次停下的地方繼續。",
 	// --- first-sync review (quick-261023-syncmerge-review) ---
 	"sync.review.title": "要同步呢部裝置嗎？",
 	"sync.review.desc": "呢部裝置同雲端嘅資料唔同。睇睇有咩分別，然後揀點樣合併。",
@@ -258,6 +260,7 @@ const zhHant: Dict = {
 	"sync.review.names": "名稱快取",
 	"sync.review.settings": "設定",
 	"sync.review.settingsDiffers": "設定有唔同 — 合併會保留雲端嗰份。",
+	"sync.review.playerDiffers": "正在播放嘅內容唔同 — 合併會保留最近播放嗰份。",
 	"account.openInApp": "喺 OpenMusic 開啟",
 	"account.openInAppTitle": "你已經登入",
 	"account.openInAppDesc": "撳下面個掣，完成 app 登入。",
