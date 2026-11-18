@@ -14,12 +14,18 @@
 //   - quick-261023-syncmerge-review: on FIRST sign-in, when both sides hold differing data,
 //     the engine stays parked until the user picks Merge / Keep this device / Use cloud in
 //     the review modal (checkFirstSync/resolveFirstSync below) — never an auto-merge.
+// quick-261118-xdresume — IDLE-ONLY player application: a pull whose merged player state
+// differs from the local one is DEFERRED (nothing applied, no reload) while this device is
+// actively playing, probed via the optional SyncHooks.isPlaying. The engine still never imports
+// the player store — the auth store wires the probe (see shouldDeferPull below).
+//
 // Only the backup key set travels (BACKUP_EXACT_KEYS + the name-tr prefix family — exactly
 // what buildEnvelope reads), and the change hash covers exactly that set, so a cover-cache
 // write can never trigger a sync.
 //
 // quick-261020-sync — the sync-item PICKER: settings.syncItems (SYNC_DEFAULTS in
-// $lib/config/defaults) selects which of the five families travels. The engine reads the
+// $lib/config/defaults) selects which of the six families travels (quick-261118-xdresume
+// added the player family — 35-D-02 superseded for player state, 2026-11-18). The engine reads the
 // selection from the settings blob through the `read` closure (never the settings runes
 // singleton), filters push AND pull by it (filterEnvelopeKeys), and folds it into the
 // change hash so a pure toggle counts as dirty and pushes immediately.
@@ -35,6 +41,7 @@ import { browser } from '$app/environment';
 import {
 	LIBRARY_KEY,
 	NAME_TR_PREFIX,
+	PLAYER_KEY,
 	SETTINGS_KEY,
 	applyEnvelope,
 	buildEnvelope,
@@ -53,7 +60,13 @@ import { SEARCH_HISTORY_KEY } from '$lib/search/search-history-logic';
 import { SYNC_DEFAULTS, type SyncItems } from '$lib/config/defaults';
 // quick-261023-syncmerge: the pull path unions instead of replacing (see merge-logic.ts).
 // quick-261023-syncmerge-review: first-sign-in review gate (checkFirstSync/resolveFirstSync).
-import { mergeEnvelopes, previewHasDiff, previewMerge, type SyncPreview } from '$lib/sync/merge-logic';
+import {
+	mergeEnvelopes,
+	playerStateDiffers,
+	previewHasDiff,
+	previewMerge,
+	type SyncPreview
+} from '$lib/sync/merge-logic';
 import { ensureFoldReady } from '$lib/services/zh-convert';
 /** Re-exported for the auth store's review-modal state (the type lives in merge-logic). */
 export type { SyncPreview } from '$lib/sync/merge-logic';
@@ -89,6 +102,10 @@ export interface SyncHooks {
 	isSignedIn(): boolean;
 	setStatus(status: SyncStatus): void;
 	setLastSyncedAt(at: number | null): void;
+	/** quick-261118-xdresume: is this device actively playing right now? OPTIONAL — absent means
+	 *  "idle" (the pull applies). The auth store wires it from a probe the app layout registers,
+	 *  so neither this engine nor the auth store imports the player store. */
+	isPlaying?: () => boolean;
 }
 
 /** cyrb53 — a fast non-cryptographic string hash. Change DETECTION only (never a security
@@ -121,6 +138,8 @@ export function selectedWantedKeys(items: SyncItems, allKeys: readonly string[])
 	if (items.history) out.push(HISTORY_KEY);
 	if (items.searchHistory) out.push(SEARCH_HISTORY_KEY);
 	if (items.nameTr) out.push(...allKeys.filter((k) => k.startsWith(NAME_TR_PREFIX)));
+	// quick-261118-xdresume: the now-playing state (35-D-02 superseded for player state).
+	if (items.player) out.push(PLAYER_KEY);
 	return out;
 }
 
@@ -147,7 +166,9 @@ export function readSyncItems(read: (k: string) => string | null): SyncItems {
 			library: typeof r.library === 'boolean' ? r.library : def.library,
 			history: typeof r.history === 'boolean' ? r.history : def.history,
 			searchHistory: typeof r.searchHistory === 'boolean' ? r.searchHistory : def.searchHistory,
-			nameTr: typeof r.nameTr === 'boolean' ? r.nameTr : def.nameTr
+			nameTr: typeof r.nameTr === 'boolean' ? r.nameTr : def.nameTr,
+			// quick-261118-xdresume: absent in every pre-resume blob → the default (ON).
+			player: typeof r.player === 'boolean' ? r.player : def.player
 		};
 	} catch {
 		return def;
@@ -172,6 +193,8 @@ export function filterEnvelopeKeys(env: BackupEnvelope, items: SyncItems): Backu
 	if (items.library) allowExact.add(LIBRARY_KEY);
 	if (items.history) allowExact.add(HISTORY_KEY);
 	if (items.searchHistory) allowExact.add(SEARCH_HISTORY_KEY);
+	// quick-261118-xdresume: the player family maps to exactly PLAYER_KEY, like the others.
+	if (items.player) allowExact.add(PLAYER_KEY);
 	const keys: Record<string, unknown> = {};
 	for (const [k, v] of Object.entries(env.keys)) {
 		if (k.startsWith(NAME_TR_PREFIX)) {
@@ -186,7 +209,7 @@ export function filterEnvelopeKeys(env: BackupEnvelope, items: SyncItems): Backu
 }
 
 /**
- * PURE: hash of exactly the key set the selection allows to sync — the four exact keys
+ * PURE: hash of exactly the key set the selection allows to sync — the exact keys
  * + the name-tr prefix family present in `allKeys`, each gated by the picker.
  * The SELECTION itself is folded into the hash: a pure toggle changes no payload but
  * MUST still count as dirty, or the push carrying the new selection never fires.
@@ -270,6 +293,60 @@ function localEnvelopeHashes(): { keys: Record<string, unknown>; hashes: Record<
  *  what the user checked (filterEnvelopeKeys documents the uncheck-drops-it semantics).
  *  quick-261023-syncmerge: the sync payload strips the device-local downloads/unavailable
  *  (they describe this device's files and never sync). */
+/**
+ * quick-261118-xdresume — PURE: keep this device's player state through an apply when the
+ * player family is DESELECTED here. applyEnvelope's 35-D-08 wipe clears every exact key the
+ * applied envelope lacks, and a deselected family is filtered out of the remote copy before the
+ * merge — so without this, turning "Now playing" sync OFF would wipe the local now-playing on
+ * every pull, the opposite of the picker's promise. A selected family is untouched (a remote
+ * copy WITHOUT a player key stays delete-wins, like every other family).
+ */
+export function keepDeselectedPlayer(
+	env: BackupEnvelope,
+	items: SyncItems,
+	localPlayerRaw: string | null
+): BackupEnvelope {
+	if (items.player || localPlayerRaw == null) return env;
+	try {
+		return { ...env, keys: { ...env.keys, [PLAYER_KEY]: JSON.parse(localPlayerRaw) } };
+	} catch {
+		return env;
+	}
+}
+
+/**
+ * quick-261118-xdresume — PURE: the idle-only gate for applying a pull. True (DEFER the whole
+ * pull: no apply, no meta anchor, no reload) exactly when the merged player state differs from
+ * this device's (ignoring the LWW clock) AND this device is actively playing — applying would
+ * reload the page and yank the user out of the song. An undefined probe counts as idle. A later
+ * tick (or the next load) applies it once playback stops.
+ */
+export function shouldDeferPull(
+	merged: BackupEnvelope,
+	localPlayerRaw: string | null,
+	isPlaying: (() => boolean) | undefined
+): boolean {
+	if (!isPlaying) return false;
+	let local: unknown = null;
+	if (localPlayerRaw != null) {
+		try {
+			local = JSON.parse(localPlayerRaw);
+		} catch {
+			local = null;
+		}
+	}
+	if (!playerStateDiffers(asKeys(merged)[PLAYER_KEY], local)) return false;
+	try {
+		return isPlaying() === true;
+	} catch {
+		return false;
+	}
+}
+
+function asKeys(env: BackupEnvelope): Record<string, unknown> {
+	return env.keys != null && typeof env.keys === 'object' ? (env.keys as Record<string, unknown>) : {};
+}
+
 function localEnvelope(): BackupEnvelope {
 	return filterEnvelopeKeys(
 		buildEnvelope(localRead, storageKeys(localStorage), new Date(), { stripDeviceLocal: true }),
@@ -493,10 +570,15 @@ export async function resolveFirstSync(
 		}
 		hooks.setStatus('syncing');
 		await ensureFoldReady(); // quick-261102-sdm: the merge folds + persists favourite keys
-		const merged =
+		// quick-261118-xdresume: the full local player blob rides along (an LWW keep-local never
+		// truncates this device's queue), and a deselected player family is carried through.
+		const merged = keepDeselectedPlayer(
 			choice === 'merge'
-				? mergeEnvelopes(localEnvelope(), remoteEnv, localRead(LIBRARY_KEY))
-				: remoteEnv;
+				? mergeEnvelopes(localEnvelope(), remoteEnv, localRead(LIBRARY_KEY), localRead(PLAYER_KEY))
+				: remoteEnv,
+			localItems(),
+			localRead(PLAYER_KEY)
+		);
 		let applied: ReturnType<typeof applyEnvelope>;
 		try {
 			applied = applyEnvelope(merged, localStorage, sessionStorage);
@@ -582,7 +664,22 @@ export async function syncOnce(hooks: SyncHooks): Promise<void> {
 		// The merge reads the FULL local library blob (localRead, not the slimmed push
 		// envelope) so the device-local downloads/unavailable survive the round trip.
 		await ensureFoldReady(); // quick-261102-sdm: the merge folds + persists favourite keys
-		const merged = mergeEnvelopes(localEnvelope(), verdict.envelope, localRead(LIBRARY_KEY));
+		// quick-261118-xdresume: the player key merges LWW by updatedAt (merge-logic
+		// mergePlayerLww) against the FULL local blob; a deselected family is carried through.
+		const localPlayerRaw = localRead(PLAYER_KEY);
+		const merged = keepDeselectedPlayer(
+			mergeEnvelopes(localEnvelope(), verdict.envelope, localRead(LIBRARY_KEY), localPlayerRaw),
+			localItems(),
+			localPlayerRaw
+		);
+		// quick-261118-xdresume: IDLE-ONLY application. A different now-playing state must never
+		// reload the page under a playing user — defer the WHOLE pass (no apply, no meta anchor,
+		// no reload). The meta stays behind the server, so the next tick (or the next load)
+		// re-detects the server-ahead state and applies it once playback has stopped.
+		if (shouldDeferPull(merged, localPlayerRaw, hooks.isPlaying)) {
+			hooks.setStatus('synced');
+			return;
+		}
 		let applied: ReturnType<typeof applyEnvelope>;
 		try {
 			applied = applyEnvelope(merged, localStorage, sessionStorage);

@@ -38,12 +38,21 @@ describe('hashSyncedKeys', () => {
 		expect(hashSyncedKeys(read(b), keys)).not.toBe(hashSyncedKeys(read(a), keys));
 	});
 
-	it('ignores keys outside the synced set (cover cache, player queue)', () => {
-		const a = mapStore({ 'openmusic:cover-cache:v1': '{"x":1}', 'openmusic:player:v1': '{"q":[]}' });
+	it('ignores keys outside the synced set (cover cache, diag token)', () => {
+		const a = mapStore({ 'openmusic:cover-cache:v1': '{"x":1}', 'openmusic:diag:v1': '"a"' });
 		const before = hashSyncedKeys(read(a), [...a.m.keys()]);
 		a.m.set('openmusic:cover-cache:v1', '{"x":2}');
-		a.m.set('openmusic:player:v1', '{"q":[1]}');
+		a.m.set('openmusic:diag:v1', '"b"');
 		expect(hashSyncedKeys(read(a), [...a.m.keys()])).toBe(before);
+	});
+
+	// quick-261118-xdresume: 35-D-02 superseded for player state (2026-11-18) — the player key
+	// is now IN the synced set, so a now-playing change moves the hash.
+	it('covers the player state (cross-device resume)', () => {
+		const a = mapStore({ 'openmusic:player:v1': '{"v":1,"currentTime":1}' });
+		const before = hashSyncedKeys(read(a), [...a.m.keys()]);
+		a.m.set('openmusic:player:v1', '{"v":1,"currentTime":2}');
+		expect(hashSyncedKeys(read(a), [...a.m.keys()])).not.toBe(before);
 	});
 
 	it('covers the name-tr prefix family and every exact key', () => {

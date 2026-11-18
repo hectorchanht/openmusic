@@ -447,7 +447,7 @@ export const HOME_DEFAULTS = {
 /**
  * quick-261020-sync: which data families travel in the cross-device sync envelope.
  * One member per envelope key family in $lib/backup/backup-logic.ts (SETTINGS_KEY,
- * LIBRARY_KEY, HISTORY_KEY, SEARCH_HISTORY_KEY, NAME_TR_PREFIX). The sync ENGINE reads
+ * LIBRARY_KEY, HISTORY_KEY, SEARCH_HISTORY_KEY, NAME_TR_PREFIX, PLAYER_KEY). The sync ENGINE reads
  * this through the settings blob and filters push/pull to the selected set; unchecking
  * a family drops it from the cloud copy on the next push (last-write-wins).
  */
@@ -457,6 +457,10 @@ export interface SyncItems {
 	history: boolean;
 	searchHistory: boolean;
 	nameTr: boolean;
+	/** quick-261118-xdresume (35-D-02 superseded for player state, 2026-11-18 — Hector): the
+	 *  now-playing state (current song, queue, position) — cross-device resume. Merges
+	 *  last-write-wins by the blob's updatedAt, never a union (merge-logic mergePlayerLww). */
+	player: boolean;
 }
 
 export const SYNC_DEFAULTS = {
@@ -466,7 +470,9 @@ export const SYNC_DEFAULTS = {
 		library: true,
 		history: true,
 		searchHistory: true,
-		nameTr: true
+		nameTr: true,
+		// quick-261118-xdresume: ON by default, like every family — resume is the point.
+		player: true
 	} satisfies SyncItems
 };
 

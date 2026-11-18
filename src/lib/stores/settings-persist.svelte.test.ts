@@ -648,7 +648,9 @@ describe('settings persistence round-trip — syncItems (quick-261020-sync)', ()
 			library: true,
 			history: true,
 			searchHistory: true,
-			nameTr: true
+			nameTr: true,
+			// quick-261118-xdresume: absent in pre-resume blobs → default ON.
+			player: true
 		});
 	});
 
@@ -667,7 +669,9 @@ describe('settings persistence round-trip — syncItems (quick-261020-sync)', ()
 			library: true,
 			history: true,
 			searchHistory: true,
-			nameTr: true
+			nameTr: true,
+			// quick-261118-xdresume: absent in pre-resume blobs → default ON.
+			player: true
 		});
 	});
 
@@ -680,7 +684,9 @@ describe('settings persistence round-trip — syncItems (quick-261020-sync)', ()
 			library: true,
 			history: true,
 			searchHistory: true,
-			nameTr: true
+			nameTr: true,
+			// quick-261118-xdresume: absent in pre-resume blobs → default ON.
+			player: true
 		});
 	});
 
@@ -695,7 +701,9 @@ describe('settings persistence round-trip — syncItems (quick-261020-sync)', ()
 			library: false,
 			history: true,
 			searchHistory: true,
-			nameTr: true
+			nameTr: true,
+			// quick-261118-xdresume: absent in pre-resume blobs → default ON.
+			player: true
 		});
 	});
 

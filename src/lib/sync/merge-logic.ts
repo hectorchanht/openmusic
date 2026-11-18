@@ -33,7 +33,9 @@ import {
 	BACKUP_MAGIC,
 	LIBRARY_KEY,
 	NAME_TR_PREFIX,
+	PLAYER_KEY,
 	SETTINGS_KEY,
+	cleanPlayerPayload,
 	type BackupEnvelope
 } from '$lib/backup/backup-logic';
 import { HISTORY_CAP, HISTORY_KEY } from '$lib/history/history-logic';
@@ -297,6 +299,42 @@ export function mergeNameTrRecords(local: unknown, remote: unknown): Record<stri
 }
 
 /**
+ * quick-261118-xdresume — cross-device resume (35-D-02 superseded for player state,
+ * 2026-11-18). The now-playing state is ONE coherent snapshot (a position only means something
+ * against its own current + queue), so it can never be unioned: it merges REPLACE-WINS by the
+ * blob's `updatedAt` clock (player-persist stampUpdatedAt), last-write-wins.
+ */
+
+/** PURE: a player payload's LWW clock; missing / garbage → 0 (legacy blobs predate the field). */
+export function playerUpdatedAt(v: unknown): number {
+	const at = asRecord(v).updatedAt;
+	return typeof at === 'number' && Number.isFinite(at) && at >= 0 ? at : 0;
+}
+
+/**
+ * PURE: last-write-wins for the player key. Remote STRICTLY newer → remote; a tie or an older
+ * remote → keep local (never churn a device for an equal clock); no usable local (absent, or a
+ * shape cleanPlayerPayload refuses) → adopt remote. `remote === undefined` is the caller's
+ * delete-wins branch and never reaches here.
+ */
+export function mergePlayerLww(local: unknown, remote: unknown): unknown {
+	if (local === undefined || local === null || cleanPlayerPayload(local) === null) return remote;
+	return playerUpdatedAt(remote) > playerUpdatedAt(local) ? remote : local;
+}
+
+/** PURE: do two player payloads differ in anything but their clock? (The review preview and
+ *  the sync engine's idle-only gate both ask this — an identical state stamped at a different
+ *  time is not a change worth a modal row, nor a reason to defer.) */
+export function playerStateDiffers(a: unknown, b: unknown): boolean {
+	const norm = (v: unknown): string => {
+		if (v === undefined || v === null) return 'null';
+		const r = asRecord(v);
+		return JSON.stringify({ ...r, updatedAt: 0 });
+	};
+	return norm(a) !== norm(b);
+}
+
+/**
  * PURE: merge a validated remote envelope into the local envelope for the sync PULL path.
  * `localLibraryRaw` is the FULL local library blob text (the push-side slim strips
  * downloads/unavailable — the merge needs the full blob so those device-local fields
@@ -307,11 +345,16 @@ export function mergeNameTrRecords(local: unknown, remote: unknown): Record<stri
  *  - any family ABSENT remotely → OMITTED (delete-wins): applyEnvelope's wipe then clears
  *    it locally, preserving the picker's uncheck-deletes-family semantics
  *  - settings PRESENT remotely → the remote blob wins whole (LWW — device prefs, rarely conflict)
+ *  - player PRESENT remotely → quick-261118-xdresume: REPLACE-WINS by updatedAt (mergePlayerLww),
+ *    never a union. `localPlayerRaw` is the FULL local player blob text: when local wins, the
+ *    un-capped local blob is written back as-is (the envelope copy is queue-capped for transport,
+ *    and a pull must never truncate this device's own queue). Falls back to the envelope copy.
  */
 export function mergeEnvelopes(
 	localEnv: BackupEnvelope,
 	remoteEnv: BackupEnvelope,
-	localLibraryRaw: string | null
+	localLibraryRaw: string | null,
+	localPlayerRaw: string | null = null
 ): BackupEnvelope {
 	const lk = asRecord(localEnv.keys);
 	const rk = asRecord(remoteEnv.keys);
@@ -336,6 +379,18 @@ export function mergeEnvelopes(
 	if (rk[SEARCH_HISTORY_KEY] !== undefined)
 		out[SEARCH_HISTORY_KEY] = mergeSearchHistoryEntries(lk[SEARCH_HISTORY_KEY], rk[SEARCH_HISTORY_KEY], tombstones);
 	if (rk[SETTINGS_KEY] !== undefined) out[SETTINGS_KEY] = rk[SETTINGS_KEY];
+	if (rk[PLAYER_KEY] !== undefined) {
+		let localPlayer: unknown = lk[PLAYER_KEY];
+		if (localPlayerRaw != null) {
+			try {
+				const parsed: unknown = JSON.parse(localPlayerRaw);
+				if (cleanPlayerPayload(parsed) !== null) localPlayer = parsed;
+			} catch {
+				/* unreadable local blob — the envelope copy (or nothing) stands in */
+			}
+		}
+		out[PLAYER_KEY] = mergePlayerLww(localPlayer, rk[PLAYER_KEY]);
+	}
 	for (const [k, v] of Object.entries(rk)) {
 		if (k.startsWith(NAME_TR_PREFIX)) out[k] = mergeNameTrRecords(lk[k], v);
 	}
@@ -391,6 +446,9 @@ export interface SyncPreview {
 	searches: PreviewList<QueryPreviewItem>;
 	nameTr: { key: string; incoming: number; outgoing: number }[];
 	settings: { differs: boolean };
+	/** quick-261118-xdresume: the now-playing state differs (ignoring its clock). A merge keeps
+	 *  whichever side was played most recently (LWW). */
+	player: { differs: boolean };
 }
 
 function trackLabel(t: Record<string, unknown>): TrackPreviewItem {
@@ -506,12 +564,19 @@ export function previewMerge(localEnv: BackupEnvelope, remoteEnv: BackupEnvelope
 			JSON.stringify(lk[SETTINGS_KEY] ?? null) !== JSON.stringify(rk[SETTINGS_KEY] ?? null)
 	};
 
+	// ---- player: differs? (a merge keeps the most recently played side — LWW) ----
+	// quick-261118-xdresume: compared ignoring the clock. One-sided counts too — a cloud copy
+	// WITHOUT a player key is the delete-wins branch (the merge would clear this device's), so
+	// hiding it from the review would be a lie, exactly like `willDelete` elsewhere.
+	const player = { differs: playerStateDiffers(lk[PLAYER_KEY], rk[PLAYER_KEY]) };
+
 	return {
 		library: { tracks, playlists, artists },
 		history: { incoming: hIn, outgoing: hOut, willDelete: hDel },
 		searches,
 		nameTr,
-		settings
+		settings,
+		player
 	};
 }
 
@@ -528,6 +593,7 @@ export function previewHasDiff(p: SyncPreview): boolean {
 		p.history.willDelete > 0 ||
 		nonEmpty(p.searches) ||
 		p.nameTr.some((n) => n.incoming > 0 || n.outgoing > 0) ||
-		p.settings.differs
+		p.settings.differs ||
+		p.player.differs
 	);
 }

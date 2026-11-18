@@ -94,6 +94,17 @@ class Auth {
 	private bearer: string | null = null;
 	private loaded = false;
 	private engine: { stop: () => void; syncNow: () => Promise<void> } | null = null;
+	/** quick-261118-xdresume: "is this device actively playing?" — REGISTERED by the app layout
+	 *  (which already imports both stores) rather than imported here, so this store keeps its
+	 *  imports-no-other-store rule and the dependency graph stays acyclic. Plain field: the
+	 *  engine reads it imperatively, the UI never does. Null = idle (the sync pull applies). */
+	private playbackProbe: (() => boolean) | null = null;
+
+	/** quick-261118-xdresume: register the playback probe the sync engine's idle-only player
+	 *  application reads (SyncHooks.isPlaying). Called once from the app layout. */
+	setPlaybackProbe(probe: (() => boolean) | null): void {
+		this.playbackProbe = probe;
+	}
 
 	/**
 	 * One authed fetch through the api-base seam: credentials:'include' for the web cookie,
@@ -435,7 +446,10 @@ class Auth {
 			request: (path, init) => this.authedFetch(path, init),
 			isSignedIn: () => this.user !== null,
 			setStatus: (s) => (this.syncStatus = s),
-			setLastSyncedAt: (t) => (this.lastSyncedAt = t)
+			setLastSyncedAt: (t) => (this.lastSyncedAt = t),
+			// quick-261118-xdresume: read at call time, so a probe registered after the engine
+			// started still takes effect; no probe → idle.
+			isPlaying: () => this.playbackProbe?.() ?? false
 		};
 	}
 

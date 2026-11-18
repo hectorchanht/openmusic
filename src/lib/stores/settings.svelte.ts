@@ -627,7 +627,9 @@ class Settings {
 						library: typeof r.library === 'boolean' ? r.library : d.library,
 						history: typeof r.history === 'boolean' ? r.history : d.history,
 						searchHistory: typeof r.searchHistory === 'boolean' ? r.searchHistory : d.searchHistory,
-						nameTr: typeof r.nameTr === 'boolean' ? r.nameTr : d.nameTr
+						nameTr: typeof r.nameTr === 'boolean' ? r.nameTr : d.nameTr,
+						// quick-261118-xdresume: absent in every pre-resume blob → the default (ON).
+						player: typeof r.player === 'boolean' ? r.player : d.player
 					} satisfies SyncItems;
 				})();
 			} else {

@@ -11,6 +11,9 @@ import {
 	mergeLibraryBlobs,
 	mergeNameTrRecords,
 	mergeSearchHistoryEntries,
+	mergePlayerLww,
+	playerStateDiffers,
+	playerUpdatedAt,
 	previewHasDiff,
 	previewMerge,
 	readDeleted,
@@ -24,7 +27,7 @@ import {
 	unionTracks
 } from './merge-logic';
 import { HISTORY_CAP, HISTORY_KEY } from '$lib/history/history-logic';
-import { LIBRARY_KEY, SETTINGS_KEY } from '$lib/backup/backup-logic';
+import { LIBRARY_KEY, PLAYER_KEY, SETTINGS_KEY } from '$lib/backup/backup-logic';
 import { SEARCH_HISTORY_KEY } from '$lib/search/search-history-logic';
 
 const tr = (uid: string, title = uid) => ({ uid, title, artist: 'a' });
@@ -401,5 +404,115 @@ describe('readDeleted / mergeDeletedSets', () => {
 	});
 	it('mergeDeletedSets unions both sides', () => {
 		expect(mergeDeletedSets({ deleted: ['u:a'] }, { deleted: ['u:b'] })).toEqual(['u:a', 'u:b']);
+	});
+});
+
+// quick-261118-xdresume — cross-device resume (35-D-02 superseded for player state,
+// 2026-11-18): the player key merges REPLACE-WINS by updatedAt (LWW), never a union.
+describe('player LWW merge (quick-261118-xdresume)', () => {
+	const env = (keys: Record<string, unknown>) => ({
+		app: 'openmusic-backup' as const,
+		format: 1,
+		exportedAt: '',
+		keys
+	});
+	const player = (uid: string, updatedAt: number | undefined, extra: Record<string, unknown> = {}) => {
+		const p: Record<string, unknown> = {
+			v: 1,
+			current: { uid },
+			queue: [{ uid }],
+			currentTime: 10,
+			shuffle: false,
+			repeatMode: 'off',
+			upNextAnchorUid: null,
+			...extra
+		};
+		if (updatedAt !== undefined) p.updatedAt = updatedAt;
+		return p;
+	};
+
+	it('playerUpdatedAt reads the clock; missing / garbage → 0', () => {
+		expect(playerUpdatedAt(player('a', 7))).toBe(7);
+		expect(playerUpdatedAt(player('a', undefined))).toBe(0);
+		expect(playerUpdatedAt({ updatedAt: 'x' })).toBe(0);
+		expect(playerUpdatedAt(null)).toBe(0);
+	});
+
+	it('newer remote wins', () => {
+		const merged = mergeEnvelopes(env({ [PLAYER_KEY]: player('local', 100) }), env({ [PLAYER_KEY]: player('remote', 200) }), null);
+		expect(merged.keys[PLAYER_KEY]).toEqual(player('remote', 200));
+	});
+
+	it('older remote is ignored (local kept)', () => {
+		const merged = mergeEnvelopes(env({ [PLAYER_KEY]: player('local', 300) }), env({ [PLAYER_KEY]: player('remote', 200) }), null);
+		expect(merged.keys[PLAYER_KEY]).toEqual(player('local', 300));
+	});
+
+	it('a tie keeps local', () => {
+		const merged = mergeEnvelopes(env({ [PLAYER_KEY]: player('local', 200) }), env({ [PLAYER_KEY]: player('remote', 200) }), null);
+		expect(merged.keys[PLAYER_KEY]).toEqual(player('local', 200));
+	});
+
+	it('a legacy remote without a clock never beats a stamped local', () => {
+		expect(mergePlayerLww(player('local', 1), player('remote', undefined))).toEqual(player('local', 1));
+	});
+
+	it('remote-only is adopted', () => {
+		const merged = mergeEnvelopes(env({}), env({ [PLAYER_KEY]: player('remote', 200) }), null);
+		expect(merged.keys[PLAYER_KEY]).toEqual(player('remote', 200));
+	});
+
+	it('an unusable local blob loses to any remote', () => {
+		expect(mergePlayerLww({ garbage: true }, player('remote', 0))).toEqual(player('remote', 0));
+	});
+
+	it('absent from the remote → omitted (delete-wins, like every family)', () => {
+		const merged = mergeEnvelopes(env({ [PLAYER_KEY]: player('local', 100) }), env({ [SETTINGS_KEY]: {} }), null);
+		expect(PLAYER_KEY in merged.keys).toBe(false);
+	});
+
+	it('keep-local writes back the FULL local blob (no transport queue cap on this device)', () => {
+		const bigLocal = player('local', 900, { queue: Array.from({ length: 600 }, (_, i) => ({ uid: `q${i}` })) });
+		const capped = { ...bigLocal, queue: (bigLocal.queue as unknown[]).slice(0, 500) };
+		const merged = mergeEnvelopes(
+			env({ [PLAYER_KEY]: capped }),
+			env({ [PLAYER_KEY]: player('remote', 100) }),
+			null,
+			JSON.stringify(bigLocal)
+		);
+		expect((merged.keys[PLAYER_KEY] as { queue: unknown[] }).queue).toHaveLength(600);
+	});
+
+	it('the player merge never touches the other families', () => {
+		const merged = mergeEnvelopes(
+			env({ [SETTINGS_KEY]: { theme: 'dark' }, [PLAYER_KEY]: player('local', 1) }),
+			env({ [SETTINGS_KEY]: { theme: 'light' }, [PLAYER_KEY]: player('remote', 2) }),
+			null
+		);
+		expect(merged.keys[SETTINGS_KEY]).toEqual({ theme: 'light' });
+		expect(merged.keys[PLAYER_KEY]).toEqual(player('remote', 2));
+	});
+
+	it('playerStateDiffers ignores the clock only', () => {
+		expect(playerStateDiffers(player('a', 1), player('a', 999))).toBe(false);
+		expect(playerStateDiffers(player('a', 1), player('a', 1, { currentTime: 11 }))).toBe(true);
+		expect(playerStateDiffers(player('a', 1), undefined)).toBe(true);
+		expect(playerStateDiffers(undefined, null)).toBe(false);
+	});
+
+	it('preview: a player difference is a diff (first-sign-in review), a clock-only one is not', () => {
+		const diff = previewMerge(env({ [PLAYER_KEY]: player('a', 1) }), env({ [PLAYER_KEY]: player('b', 2) }));
+		expect(diff.player).toEqual({ differs: true });
+		expect(previewHasDiff(diff)).toBe(true);
+
+		const clockOnly = previewMerge(env({ [PLAYER_KEY]: player('a', 1) }), env({ [PLAYER_KEY]: player('a', 2) }));
+		expect(clockOnly.player).toEqual({ differs: false });
+		expect(previewHasDiff(clockOnly)).toBe(false);
+	});
+
+	it('preview: a one-sided player state counts (the merge would clear or adopt it)', () => {
+		expect(previewMerge(env({ [PLAYER_KEY]: player('a', 1) }), env({})).player.differs).toBe(true);
+		expect(previewMerge(env({}), env({ [PLAYER_KEY]: player('a', 1) })).player.differs).toBe(true);
+		expect(previewMerge(env({}), env({})).player.differs).toBe(false);
 	});
 });

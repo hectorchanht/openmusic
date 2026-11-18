@@ -262,6 +262,9 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 		// quick-261020-acct: probe the account session (cookie on web, bearer on native) and,
 		// when signed in, start the cross-device sync engine. Fire-and-forget: auth must never
 		// block the shell, and anonymous use stays exactly as before (the engine no-ops).
+		// quick-261118-xdresume: the sync engine applies a different cross-device now-playing
+		// state only while idle — hand it the player's playing flag (auth never imports player).
+		auth.setPlaybackProbe(() => player.playing);
 		void auth.load();
 
 		// quick-261006-i18n: fetch the active locale's dictionary chunk now (`en` is
