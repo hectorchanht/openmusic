@@ -955,7 +955,7 @@ const zhHant: Dict = {
 	"free.shareBody": "有朋友會喜歡免費又沒廣告的音樂嗎?傳給他們吧。",
 	"free.shareWhatsApp": "分享到 WhatsApp",
 	"free.shareText": "OpenMusic — 免費聽歌,沒有廣告,不用帳號。{url}",
-	"free.dataPromise": "你的收聽資料只用來改善 App。絕不出售,也不會針對你個人追蹤。",
+	"free.dataPromise": "你的收聽資料只用來令這個 App 變得更好。絕不出售。我們不會追蹤個別用戶 — 分析只有匿名總數：沒有用戶 ID、沒有 IP 地址、沒有裝置指紋。",
 	"free.bandTitle": "永久免費。沒有廣告。",
 	"free.bandCta": "看看我們怎麼做到 →",
 	"free.footerLink": "永久免費 — OpenMusic 如何保持免費",

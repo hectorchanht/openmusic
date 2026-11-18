@@ -923,7 +923,7 @@ const tr: Dict = {
 	"free.shareBody": "Reklamsız ücretsiz müziğe bayılacak arkadaşların mı var? Onlara gönder.",
 	"free.shareWhatsApp": "WhatsApp'ta paylaş",
 	"free.shareText": "OpenMusic — ücretsiz müzik, reklam yok, hesap gerekmez. {url}",
-	"free.dataPromise": "Dinleme verilerin yalnızca uygulamayı iyileştirmek için kullanılır. Asla satılmaz ve seni hedefleyen bir takip yoktur.",
+	"free.dataPromise": "Dinleme verilerin yalnızca bu uygulamayı daha iyi yapmak için kullanılır. Asla satılmaz. Tek tek kullanıcıları izlemiyoruz — analizler yalnızca anonim toplamlardır: kullanıcı kimliği yok, IP adresi yok, cihaz parmak izi yok.",
 	"free.bandTitle": "Sonsuza dek ücretsiz. Reklam yok.",
 	"free.bandCta": "Nasıl yaptığımızı gör →",
 	"free.footerLink": "Sonsuza dek ücretsiz — OpenMusic nasıl ücretsiz kalıyor",

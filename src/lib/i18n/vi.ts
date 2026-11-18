@@ -923,7 +923,7 @@ const vi: Dict = {
 	"free.shareBody": "Có bạn bè sẽ thích nhạc miễn phí không quảng cáo? Gửi cho họ nhé.",
 	"free.shareWhatsApp": "Chia sẻ qua WhatsApp",
 	"free.shareText": "OpenMusic — nhạc miễn phí, không quảng cáo, không cần tài khoản. {url}",
-	"free.dataPromise": "Dữ liệu nghe của bạn chỉ dùng để cải thiện ứng dụng. Không bao giờ bán, và không theo dõi nhắm vào bạn.",
+	"free.dataPromise": "Dữ liệu nghe của bạn chỉ được dùng để làm cho ứng dụng này tốt hơn. Không bao giờ bán. Chúng tôi không theo dõi từng người dùng — phân tích chỉ là các tổng số ẩn danh: không ID người dùng, không địa chỉ IP, không dấu vân tay thiết bị.",
 	"free.bandTitle": "Miễn phí mãi mãi. Không quảng cáo.",
 	"free.bandCta": "Xem cách chúng tôi làm →",
 	"free.footerLink": "Miễn phí mãi mãi — cách OpenMusic luôn miễn phí",

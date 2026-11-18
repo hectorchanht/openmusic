@@ -971,7 +971,7 @@ const en = {
 	"free.shareBody": "Know friends who'd love free music with no ads? Send it their way.",
 	"free.shareWhatsApp": "Share on WhatsApp",
 	"free.shareText": "OpenMusic — free music, no ads, no account needed. {url}",
-	"free.dataPromise": "Your listening data is only used to improve the app. Never sold, and no tracking aimed at you.",
+	"free.dataPromise": "Your listening data is used only to make this app better. Never sold. We don't track individual users — analytics are anonymous totals only: no user IDs, no IP addresses, no device fingerprints.",
 	"free.bandTitle": "Free forever. No ads.",
 	"free.bandCta": "See how we do it →",
 	"free.footerLink": "Free forever — how OpenMusic stays free",

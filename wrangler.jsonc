@@ -44,10 +44,15 @@
 			"id": "5d1bc5eab71f4fa7973286cd9a2970c8"
 		}
 	],
-	// ANALYTICS (2026-10-10): anonymous play-count store. Holds ONLY play events
-	// (anon random id + song id/title/artist/source + device/OS/platform/version/
-	// locale/country + server timestamp); no IPs, no accounts. Written by
-	// POST /api/analytics/play via the ANALYTICS_DB binding. Same wrangler.jsonc
+	// ANALYTICS (2026-10-10; doctrine retrofit quick-261118-datadoctrine,
+	// 2026-11-18): anonymous TOTALS ONLY. The live table is metric_counters —
+	// (day, action, song_id, title, artist, source, count) written by
+	// POST /api/analytics/{play,like,download} via the ANALYTICS_DB binding
+	// through $lib/services/metric-counter. NO anon ids, NO user ids, NO IPs,
+	// NO User-Agent-derived fields — the schema has no column for them. The
+	// retired per-event tables (play_events here; like_events/download_events
+	// in openmusic-accounts) are no longer read or written; their historical
+	// rows remain untouched pending Hector's decision. Same wrangler.jsonc
 	// pattern as the DIAG R2 binding above — applied by `wrangler pages deploy`.
 	"d1_databases": [
 		{

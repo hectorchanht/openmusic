@@ -923,7 +923,7 @@ const de: Dict = {
 	"free.shareBody": "Kennst du Freunde, die kostenlose Musik ohne Werbung lieben würden? Schick es ihnen.",
 	"free.shareWhatsApp": "Auf WhatsApp teilen",
 	"free.shareText": "OpenMusic — kostenlose Musik, keine Werbung, kein Konto nötig. {url}",
-	"free.dataPromise": "Deine Hördaten werden nur genutzt, um die App zu verbessern. Niemals verkauft, und kein Tracking, das auf dich zielt.",
+	"free.dataPromise": "Deine Hördaten werden nur genutzt, um diese App besser zu machen. Niemals verkauft. Wir verfolgen keine einzelnen Nutzer — die Analyse besteht nur aus anonymen Summen: keine Nutzer-IDs, keine IP-Adressen, keine Geräte-Fingerabdrücke.",
 	"free.bandTitle": "Für immer kostenlos. Keine Werbung.",
 	"free.bandCta": "So machen wir das →",
 	"free.footerLink": "Für immer kostenlos — wie OpenMusic kostenlos bleibt",
