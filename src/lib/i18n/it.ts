@@ -156,6 +156,7 @@ const it: Dict = {
 	"settings.migrateDownloadsResult": "Spostati {moved} di {total}",
 	"settings.about": "Circa",
 	"settings.aboutLine": "openmusic · build demo · flussi da fonti musicali pubbliche",
+	"settings.whyFree": "Dawn's apps are built by one creator, for himself first and for everyone, free — no ads, no data selling, basics free forever.",
 	"settings.optOff": "Spento",
 	"settings.optOn": "Attivo",
 	"settings.optShowBelow": "Mostra sotto",

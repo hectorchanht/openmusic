@@ -188,6 +188,7 @@ const en = {
 	"settings.migrateDownloadsResult": "Moved {moved} of {total}",
 	"settings.about": "About",
 	"settings.aboutLine": "openmusic · demo build · streams from public music sources",
+	"settings.whyFree": "Dawn's apps are built by one creator, for himself first and for everyone, free — no ads, no data selling, basics free forever.",
 	"settings.optOff": "Off",
 	"settings.optOn": "On",
 	"settings.optShowBelow": "Show below",

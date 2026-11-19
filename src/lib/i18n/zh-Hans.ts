@@ -165,6 +165,7 @@ const zhHans: Dict = {
 	"settings.migrateDownloadsResult": "已移动 {moved} / {total}",
 	"settings.about": "关于",
 	"settings.aboutLine": "openmusic · 演示版本 · 流式播放自公开音乐来源",
+	"settings.whyFree": "Dawn's apps are built by one creator, for himself first and for everyone, free — no ads, no data selling, basics free forever.",
 	"settings.optOff": "关闭",
 	"settings.optOn": "开启",
 	"settings.optShowBelow": "显示在下方",

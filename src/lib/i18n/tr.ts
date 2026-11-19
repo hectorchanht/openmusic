@@ -156,6 +156,7 @@ const tr: Dict = {
 	"settings.migrateDownloadsResult": "{total} öğeden {moved} tanesi taşındı",
 	"settings.about": "Hakkında",
 	"settings.aboutLine": "openmusic · demo oluşturma · herkese açık müzik kaynaklarından akışlar",
+	"settings.whyFree": "Dawn's apps are built by one creator, for himself first and for everyone, free — no ads, no data selling, basics free forever.",
 	"settings.optOff": "Kapalı",
 	"settings.optOn": "Açık",
 	"settings.optShowBelow": "Aşağıda göster",

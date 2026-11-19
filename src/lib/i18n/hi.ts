@@ -156,6 +156,7 @@ const hi: Dict = {
 	"settings.migrateDownloadsResult": "{total} में से {moved} ले जाए गए",
 	"settings.about": "के बारे में",
 	"settings.aboutLine": "ओपनम्यूजिक · डेमो बिल्ड · सार्वजनिक संगीत स्रोतों से स्ट्रीम",
+	"settings.whyFree": "Dawn's apps are built by one creator, for himself first and for everyone, free — no ads, no data selling, basics free forever.",
 	"settings.optOff": "बंद",
 	"settings.optOn": "चालू",
 	"settings.optShowBelow": "नीचे दिखाएँ",

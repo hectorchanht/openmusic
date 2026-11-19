@@ -156,6 +156,7 @@ const th: Dict = {
 	"settings.migrateDownloadsResult": "ย้ายแล้ว {moved} จาก {total}",
 	"settings.about": "เกี่ยวกับ",
 	"settings.aboutLine": "openmusic · สร้างการสาธิต · สตรีมจากแหล่งเพลงสาธารณะ",
+	"settings.whyFree": "Dawn's apps are built by one creator, for himself first and for everyone, free — no ads, no data selling, basics free forever.",
 	"settings.optOff": "ปิด",
 	"settings.optOn": "เปิด",
 	"settings.optShowBelow": "แสดงด้านล่าง",

@@ -156,6 +156,7 @@ const ar: Dict = {
 	"settings.migrateDownloadsResult": "تم نقل {moved} من {total}",
 	"settings.about": "حول",
 	"settings.aboutLine": "openmusic · العرض التجريبي · التدفقات من مصادر الموسيقى العامة",
+	"settings.whyFree": "Dawn's apps are built by one creator, for himself first and for everyone, free — no ads, no data selling, basics free forever.",
 	"settings.optOff": "إيقاف",
 	"settings.optOn": "تشغيل",
 	"settings.optShowBelow": "اعرض أدناه",

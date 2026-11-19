@@ -60,6 +60,7 @@
 	<a class="item link" href={TAGLIB} target="_blank" rel="noopener noreferrer"><Tag size={18} /> <span>TagLib licence (LGPL / MPL)</span></a>
 	<!-- quick-261118-free: the /free manifesto page, beside the other about links. -->
 	<a class="item link" href="/free"><Sparkles size={18} /> <span>{t('free.footerLink')}</span></a>
+	<a class="item link" href="https://dawnstudio.app/#manifesto" target="_blank" rel="noopener noreferrer"><Sparkles size={18} /> <span>{t('settings.whyFree')}</span></a>
 	<a class="item link" href={TIPJAR} target="_blank" rel="noopener noreferrer"><Coffee size={18} /> <span>☕ Tip jar</span></a>
 </section>
 

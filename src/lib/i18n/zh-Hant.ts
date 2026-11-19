@@ -165,6 +165,7 @@ const zhHant: Dict = {
 	"settings.migrateDownloadsResult": "已移動 {moved} / {total}",
 	"settings.about": "關於",
 	"settings.aboutLine": "openmusic · 示範版本 · 串流自公開音樂來源",
+	"settings.whyFree": "Dawn 嘅軟件由一位 creator 為自己而起、畀全世界免費用 — 冇廣告、唔賣數據、基本功能永遠免費。代天而行，願你離苦得樂。",
 	"settings.optOff": "關閉",
 	"settings.optOn": "開啟",
 	"settings.optShowBelow": "顯示於下方",

@@ -156,6 +156,7 @@ const vi: Dict = {
 	"settings.migrateDownloadsResult": "Đã chuyển {moved} trên {total}",
 	"settings.about": "Giới thiệu",
 	"settings.aboutLine": "openmusic · xây dựng demo · phát trực tuyến từ các nguồn nhạc công cộng",
+	"settings.whyFree": "Dawn's apps are built by one creator, for himself first and for everyone, free — no ads, no data selling, basics free forever.",
 	"settings.optOff": "Tắt",
 	"settings.optOn": "Bật",
 	"settings.optShowBelow": "Hiển thị bên dưới",
