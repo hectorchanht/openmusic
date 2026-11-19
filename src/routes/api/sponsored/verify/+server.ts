@@ -24,13 +24,27 @@
 // Fails closed: any transport/upstream/shape problem answers { ok:false } and
 // the strip stays visible — never hide on an unverified key.
 //
+// SUPPORTER ACCOUNT BINDING (quick-261119-tipbind, Hector 2026-11-19): a
+// successful verify ALSO records the claim against the signed-in account
+// (ACCOUNTS_DB `account_supporters`, keyed by user, key stored ONLY as its
+// SHA-256 — see $lib/auth/supporter-core.ts) so any device the user signs in
+// on is a supporter automatically via GET /api/auth/session. Best-effort
+// exactly like the wall: no session / no binding / a claim failure NEVER
+// changes the verify answer; the response gains `account: true` only when the
+// claim is recorded (or already the user's). A `refunded` Gumroad result
+// revokes the session user's claim for that key (best-effort). Anonymous
+// verifies are byte-identical to before — no claim, no new fields.
+//
 // THIS FILE MAY EXPORT ONLY HTTP-VERB HANDLERS — `GET` and `POST`. A top-level
 // helper export makes SvelteKit throw "Invalid export" at REQUEST time
 // (same rule as /api/lyric-offset); helpers would live in $lib/proxy.
 
 import type { RequestHandler } from './$types';
 import { jsonResponse, isAllowedOrigin } from '$lib/proxy/http';
-import { GUMROAD_PRODUCT_PERMALINK, ADMIN_KEY_SHA256 } from '$lib/config/sponsored';
+import { GUMROAD_PRODUCT_PERMALINK, ADMIN_KEY_SHA256, type SupporterTier } from '$lib/config/sponsored';
+import type { Env } from '$lib/proxy/proxy-types';
+import { getUserFromRequest } from '$lib/auth/auth-core';
+import { claimSupporter, revokeSupporterByKey } from '$lib/auth/supporter-core';
 
 const GUMROAD_VERIFY_URL = 'https://api.gumroad.com/v2/licenses/verify';
 // 2048 (was 1024): the wall fields add a name (≤40 chars) + message (≤80
@@ -112,6 +126,55 @@ async function syncWall(
 	return false;
 }
 
+/**
+ * quick-261119-tipbind — best-effort account claim after a successful verify.
+ * Returns true only when the claim is recorded for the session user (or
+ * already theirs), which is the sole condition for the `account: true`
+ * response field. Never throws: no ACCOUNTS_DB, no session, a key already
+ * claimed by a DIFFERENT user ('key-in-use' — never stolen), or any D1 error
+ * all answer false and the verify result stands on its own.
+ */
+async function claimForSessionUser(
+	request: Request,
+	platform: App.Platform | undefined,
+	hash: string | null,
+	tier: SupporterTier
+): Promise<boolean> {
+	if (!hash) return false;
+	try {
+		const accountsDb = (platform?.env as Env | undefined)?.ACCOUNTS_DB;
+		if (!accountsDb) return false;
+		const user = await getUserFromRequest(request, accountsDb);
+		if (!user) return false;
+		const result = await claimSupporter(accountsDb, user.id, hash, tier, new Date().toISOString());
+		return result === 'claimed' || result === 'already-yours';
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * quick-261119-tipbind — best-effort refund revocation: when Gumroad reports
+ * the purchase refunded/chargebacked and a session user is present, delete
+ * THAT user's claim for THIS key (and only that pair). Never throws.
+ */
+async function revokeForSessionUser(
+	request: Request,
+	platform: App.Platform | undefined,
+	hash: string | null
+): Promise<void> {
+	if (!hash) return;
+	try {
+		const accountsDb = (platform?.env as Env | undefined)?.ACCOUNTS_DB;
+		if (!accountsDb) return;
+		const user = await getUserFromRequest(request, accountsDb);
+		if (!user) return;
+		await revokeSupporterByKey(accountsDb, user.id, hash);
+	} catch {
+		/* best-effort — the refunded answer stands either way */
+	}
+}
+
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const origin = request.headers.get('origin');
 
@@ -153,7 +216,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	// his unlock never depends on Gumroad's availability.
 	if (hash !== null && hash === ADMIN_KEY_SHA256) {
 		const wall = await syncWall(db, hash, wallBody);
-		return jsonResponse({ ok: true, admin: true, ...(wall ? { wall: true } : {}) }, origin);
+		// quick-261119-tipbind: the admin key claims at gold for a signed-in user.
+		const account = await claimForSessionUser(request, platform, hash, 'gold');
+		return jsonResponse(
+			{ ok: true, admin: true, ...(wall ? { wall: true } : {}), ...(account ? { account: true } : {}) },
+			origin
+		);
 	}
 
 	// NOTE: upstream/transport failures answer HTTP 200 (not 502/503) with
@@ -181,8 +249,12 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	if (!gv || gv.success !== true) return jsonResponse({ ok: false, reason: 'invalid' }, origin);
 	// A refunded / chargebacked purchase must NOT hide the strip.
 	if (gv.purchase?.refunded || gv.purchase?.chargebacked) {
+		// quick-261119-tipbind: a refund revokes the account claim for this key.
+		await revokeForSessionUser(request, platform, hash);
 		return jsonResponse({ ok: false, reason: 'refunded' }, origin);
 	}
 	const wall = await syncWall(db, hash, wallBody);
-	return jsonResponse({ ok: true, ...(wall ? { wall: true } : {}) }, origin);
+	// quick-261119-tipbind: a verified tip claims at bronze for a signed-in user.
+	const account = await claimForSessionUser(request, platform, hash, 'bronze');
+	return jsonResponse({ ok: true, ...(wall ? { wall: true } : {}), ...(account ? { account: true } : {}) }, origin);
 };

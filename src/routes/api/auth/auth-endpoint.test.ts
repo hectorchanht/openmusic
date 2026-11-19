@@ -32,6 +32,8 @@ function fakeDb() {
 	const magic = new Map<string, MagicRow>();
 	const sessions = new Map<string, { user_id: string; expires_at: number }>();
 	const rates = new Map<string, RateRow>();
+	// quick-261119-tipbind: account_supporters rows, seeded directly by the session tests.
+	const supporters = new Map<string, { tier: string; verified_at: string }>();
 	const prepare = (sql: string) => {
 		let args: unknown[] = [];
 		const stmt = {
@@ -56,6 +58,10 @@ function fakeDb() {
 					if (!s || s.expires_at <= (args[1] as number)) return null;
 					const u = users.get(s.user_id);
 					return u ? { id: u.id, email: u.email } : null;
+				}
+				// quick-261119-tipbind: the session route's supporter-claim read.
+				if (sql.startsWith('SELECT tier, verified_at FROM account_supporters')) {
+					return supporters.get(args[0] as string) ?? null;
 				}
 				return null;
 			},
@@ -92,7 +98,7 @@ function fakeDb() {
 		return stmt;
 	};
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	return { db: { prepare } as any, users, usersByEmail, magic, sessions, rates };
+	return { db: { prepare } as any, users, usersByEmail, magic, sessions, rates, supporters };
 }
 
 type Db = ReturnType<typeof fakeDb>;
@@ -352,14 +358,16 @@ describe('POST /api/auth/verify', () => {
 });
 
 describe('GET /api/auth/session + POST /api/auth/logout', () => {
-	it('no credential → 200 {user:null}; no binding → 200 {user:null}', async () => {
+	// quick-261119-tipbind: the session shape is now { user, supporter } — supporter
+	// is null whenever there is no claim (including signed-out / no binding).
+	it('no credential → 200 {user:null, supporter:null}; no binding → 200 {user:null, supporter:null}', async () => {
 		const f = fakeDb();
 		const a = await callSession(fakeGetEvent({ env: env(f) }));
 		expect(a.status).toBe(200);
-		expect(await a.json()).toEqual({ user: null });
+		expect(await a.json()).toEqual({ user: null, supporter: null });
 		const b = await callSession(fakeGetEvent({ env: {} }));
 		expect(b.status).toBe(200);
-		expect(await b.json()).toEqual({ user: null });
+		expect(await b.json()).toEqual({ user: null, supporter: null });
 	});
 
 	it('cookie session resolves; bearer session resolves; logout kills it', async () => {
@@ -370,11 +378,11 @@ describe('GET /api/auth/session + POST /api/auth/logout', () => {
 		const viaCookie = await callSession(
 			fakeGetEvent({ env: env(f), headers: { cookie: `openmusic_session=${body.token}` } })
 		);
-		expect(await viaCookie.json()).toEqual({ user: { id: body.user.id, email: 'a@b.co' } });
+		expect(await viaCookie.json()).toEqual({ user: { id: body.user.id, email: 'a@b.co' }, supporter: null });
 		const viaBearer = await callSession(
 			fakeGetEvent({ env: env(f), headers: { authorization: `Bearer ${body.token}` } })
 		);
-		expect(await viaBearer.json()).toEqual({ user: { id: body.user.id, email: 'a@b.co' } });
+		expect(await viaBearer.json()).toEqual({ user: { id: body.user.id, email: 'a@b.co' }, supporter: null });
 
 		const out = await callLogout(
 			fakeEvent({
@@ -388,6 +396,31 @@ describe('GET /api/auth/session + POST /api/auth/logout', () => {
 		expect(out.headers.get('Set-Cookie')).toContain('Max-Age=0');
 		expect(f.sessions.size).toBe(0);
 		const after = await callSession(fakeGetEvent({ env: env(f), headers: { cookie: `openmusic_session=${body.token}` } }));
-		expect(await after.json()).toEqual({ user: null });
+		expect(await after.json()).toEqual({ user: null, supporter: null });
+	});
+
+	// quick-261119-tipbind: a recorded claim rides the session response as
+	// { tier, since } — this is what heals a second device's local supporter
+	// flag with zero user action.
+	it('a recorded supporter claim → session answers supporter {tier, since}', async () => {
+		const f = fakeDb();
+		const { res } = await signIn(f);
+		const body = (await res.json()) as { user: { id: string; email: string }; token: string };
+		f.supporters.set(body.user.id, { tier: 'gold', verified_at: '2026-11-19T06:00:00.000Z' });
+		const s = await callSession(
+			fakeGetEvent({ env: env(f), headers: { cookie: `openmusic_session=${body.token}` } })
+		);
+		expect(s.status).toBe(200);
+		expect(await s.json()).toEqual({
+			user: { id: body.user.id, email: 'a@b.co' },
+			supporter: { tier: 'gold', since: '2026-11-19T06:00:00.000Z' }
+		});
+		// Another user's claim never leaks into this session.
+		f.supporters.clear();
+		f.supporters.set('someone-else', { tier: 'bronze', verified_at: '2026-11-19T06:00:00.000Z' });
+		const s2 = await callSession(
+			fakeGetEvent({ env: env(f), headers: { cookie: `openmusic_session=${body.token}` } })
+		);
+		expect(await s2.json()).toEqual({ user: { id: body.user.id, email: 'a@b.co' }, supporter: null });
 	});
 });

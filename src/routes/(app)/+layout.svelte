@@ -8,6 +8,7 @@
 	import { library } from '$lib/stores/library.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { auth } from '$lib/stores/auth.svelte';
+	import { support } from '$lib/stores/support.svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { warmScript } from '$lib/services/zh-convert';
 	import { online } from '$lib/stores/online.svelte';
@@ -152,6 +153,15 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 				host = { kind: 'stopped', text, action: n.action };
 			}
 		});
+	});
+
+	// quick-261119-tipbind: mirror the auth store's server-side supporter claim
+	// into the support store's reactive flag (the auth store imports no other
+	// store — the setPlaybackProbe precedent: cross-store wiring lives here).
+	// The feature gates themselves read localStorage via isSupporter(), which
+	// the auth store already healed; this only keeps the sheet's store in step.
+	$effect(() => {
+		if (auth.supporter) support.isSupporter = true;
 	});
 
 	// quick-261102-w2q (impeccable audit, WCAG 3.1.1): <html> was frozen at lang="en" with no `dir`,
