@@ -19,6 +19,17 @@ import { browser } from '$app/environment';
 import { Capacitor } from '@capacitor/core';
 import { apiFetch, type ApiFetchInit } from '$lib/services/api-base';
 import { TOKEN_RE, diagLine, isValidEmail, type AccountUser } from '$lib/auth/auth-core';
+// quick-261119-tipbind: config-level supporter helpers (NOT another store —
+// $lib/config/sponsored is a leaf config module, so the imports-no-other-store
+// rule above still holds). Used to heal this device's local supporter flag
+// from the server-side account claim the session route returns.
+import {
+	SUPPORTER_KEY,
+	TIP_LICENSE_KEY,
+	getSupporterTier,
+	setSupporterTier,
+	type SupporterTier
+} from '$lib/config/sponsored';
 // quick-261023-syncmerge-review: first-sign-in review gate before the engine starts.
 import {
 	checkFirstSync,
@@ -65,6 +76,26 @@ export interface VerifyResult {
 	token: string | null;
 }
 
+/**
+ * quick-261119-tipbind — the account's server-side supporter claim, as the
+ * session route reports it: the tier the verified tip landed on and when it
+ * was first verified (`since` = the claim's verified_at). Null = the account
+ * holds no claim (or the claim store was unavailable).
+ */
+export interface SupporterClaim {
+	tier: SupporterTier;
+	since: string;
+}
+
+/** Parse an untrusted session-response `supporter` field. Pure + exported for tests. */
+export function parseSupporterClaim(v: unknown): SupporterClaim | null {
+	if (!v || typeof v !== 'object') return null;
+	const tier = (v as { tier?: unknown }).tier;
+	if (tier !== 'bronze' && tier !== 'silver' && tier !== 'gold') return null;
+	const since = (v as { since?: unknown }).since;
+	return { tier, since: typeof since === 'string' ? since : '' };
+}
+
 class Auth {
 	/** The signed-in user, or null. Read one-way by the UI. */
 	user = $state<AccountUser | null>(null);
@@ -89,6 +120,14 @@ class Auth {
 	 */
 	firstSyncPreview = $state<SyncPreview | null>(null);
 
+	/**
+	 * quick-261119-tipbind: the account's server-side supporter claim (from the
+	 * session route), or null. Read one-way by the UI / layout wiring; the local
+	 * healing it drives (see settleSupporter) is what every isSupporter() gate
+	 * actually reads.
+	 */
+	supporter = $state<SupporterClaim | null>(null);
+
 	// PLAIN fields (house rule: state the UI never reads reactively stays non-$state).
 	/** Native bearer token; null on web, where the cookie is the credential. */
 	private bearer: string | null = null;
@@ -99,11 +138,96 @@ class Auth {
 	 *  imports-no-other-store rule and the dependency graph stays acyclic. Plain field: the
 	 *  engine reads it imperatively, the UI never does. Null = idle (the sync pull applies). */
 	private playbackProbe: (() => boolean) | null = null;
+	/** quick-261119-tipbind: the claim-on-login migration fires AT MOST ONCE per
+	 *  page load (set only when the POST is actually sent — a sign-in with no
+	 *  local key to migrate does not burn the one shot for a later sign-in). */
+	private supporterClaimAttempted = false;
 
 	/** quick-261118-xdresume: register the playback probe the sync engine's idle-only player
 	 *  application reads (SyncHooks.isPlaying). Called once from the app layout. */
 	setPlaybackProbe(probe: (() => boolean) | null): void {
 		this.playbackProbe = probe;
+	}
+
+	/**
+	 * quick-261119-tipbind — settle the supporter state from the server's word.
+	 * A present claim HEALS this device: every feature gate reads isSupporter()
+	 * from localStorage at call time, so writing SUPPORTER_KEY + the tier here
+	 * makes this device a supporter with zero user action — the user never
+	 * re-enters (or even remembers) their tip key. An absent claim while signed
+	 * in kicks off the claim-on-login migration instead (below).
+	 */
+	private settleSupporter(claim: SupporterClaim | null): void {
+		this.supporter = claim;
+		if (!browser || !this.user) return;
+		if (claim) {
+			try {
+				localStorage.setItem(SUPPORTER_KEY, '1');
+				setSupporterTier(claim.tier);
+			} catch {
+				/* storage unavailable — the $state above still reports the claim */
+			}
+			return;
+		}
+		void this.claimLocalSupporterOnce();
+	}
+
+	/**
+	 * quick-261119-tipbind — claim-on-login migration: a user who verified
+	 * BEFORE this feature existed (or while signed out) has the flag + key only
+	 * in this device's localStorage. Re-verify that stored key ONCE through the
+	 * authed fetch (the session cookie/bearer rides along, so the server can
+	 * bind the claim to this account); NO public_wall field is sent, so the
+	 * supporters wall is untouched. Fire-and-forget and silent on failure — the
+	 * local flag already makes this device a supporter either way; a later boot
+	 * (a new page load) may retry.
+	 */
+	private async claimLocalSupporterOnce(): Promise<void> {
+		if (this.supporterClaimAttempted || !browser || !this.user || this.supporter) return;
+		let key = '';
+		try {
+			if (localStorage.getItem(SUPPORTER_KEY) !== '1') return;
+			key = (localStorage.getItem(TIP_LICENSE_KEY) ?? '').trim();
+		} catch {
+			return;
+		}
+		if (!key) return;
+		this.supporterClaimAttempted = true;
+		try {
+			const res = await this.authedFetch('/api/sponsored/verify', {
+				method: 'POST',
+				body: JSON.stringify({ license_key: key })
+			});
+			const data = (await res.json().catch(() => null)) as { ok?: boolean; account?: boolean } | null;
+			if (data?.ok && data.account) {
+				// The server now holds the claim; mirror it locally from the tier
+				// this device already recorded (the exact `since` arrives with the
+				// next session probe — the local now is the honest stand-in).
+				this.supporter = { tier: getSupporterTier(), since: new Date().toISOString() };
+			}
+		} catch {
+			/* silent — migration is a bonus, never a sign-in failure */
+		}
+	}
+
+	/**
+	 * quick-261119-tipbind — for the post-login paths whose own response carries
+	 * no supporter field (verify / Google / code / native-token adoption):
+	 * re-probe the session route and settle from its answer. Fire-and-forget.
+	 */
+	private async fetchAndSettleSupporter(): Promise<void> {
+		try {
+			const res = await this.authedFetch('/api/auth/session', { priorityLane: true });
+			const body = (await res.json().catch(() => null)) as {
+				user: AccountUser | null;
+				supporter?: unknown;
+			} | null;
+			if (!this.user) return; // signed out again while the probe was in flight
+			if (body?.user && body.user.id !== this.user.id) return; // a different account won the race
+			this.settleSupporter(parseSupporterClaim(body?.supporter));
+		} catch {
+			/* silent — the next boot probe settles it */
+		}
 	}
 
 	/**
@@ -140,8 +264,14 @@ class Auth {
 				}
 			}
 			const res = await this.authedFetch('/api/auth/session', { priorityLane: true });
-			const body = (await res.json().catch(() => null)) as { user: AccountUser | null } | null;
+			const body = (await res.json().catch(() => null)) as {
+				user: AccountUser | null;
+				supporter?: unknown;
+			} | null;
 			this.user = body?.user ?? null;
+			// quick-261119-tipbind: heal / migrate supporter status from the
+			// account's server-side claim (signed-out ⇒ nothing to settle).
+			if (this.user) this.settleSupporter(parseSupporterClaim(body?.supporter));
 			// A native token the server no longer knows is dead weight — drop it so the next
 			// sign-in starts clean instead of sending a stale bearer forever.
 			if (!this.user && this.bearer) {
@@ -284,6 +414,9 @@ class Auth {
 				/* quota — the in-memory bearer still covers this session */
 			}
 		}
+		// quick-261119-tipbind: the login responses carry no supporter field, so
+		// settle supporter status from a fresh session probe (heal or migrate).
+		void this.fetchAndSettleSupporter();
 		// quick-261023-syncmerge-review: the review gate runs before the engine.
 		void this.beginSync();
 	}
@@ -377,8 +510,13 @@ class Auth {
 		}
 		try {
 			const res = await this.authedFetch('/api/auth/session', { priorityLane: true });
-			const body = (await res.json().catch(() => null)) as { user: AccountUser | null } | null;
+			const body = (await res.json().catch(() => null)) as {
+				user: AccountUser | null;
+				supporter?: unknown;
+			} | null;
 			this.user = body?.user ?? null;
+			// quick-261119-tipbind: same supporter settle as the boot probe.
+			if (this.user) this.settleSupporter(parseSupporterClaim(body?.supporter));
 		} catch {
 			this.user = null;
 		}
@@ -410,6 +548,10 @@ class Auth {
 		}
 		this.user = null;
 		this.bearer = null;
+		// quick-261119-tipbind: the account claim is the SERVER's record — signing
+		// out clears only this store's mirror of it. The device-local supporter
+		// flag is deliberately left alone (it is also set by anonymous verifies).
+		this.supporter = null;
 		this.syncStatus = 'idle';
 		this.lastSyncedAt = null;
 		if (Capacitor.isNativePlatform()) {
