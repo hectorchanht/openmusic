@@ -425,12 +425,14 @@
 	};
 	const mWinBlur = () => mCancelDrag();
 	function mArmWindow() {
+		if (!browser) return; // quick-261119-sharecard: SSR has no window (see mDisarmWindow)
 		window.addEventListener('pointermove', mWinMove);
 		window.addEventListener('pointerup', mWinUp);
 		window.addEventListener('pointercancel', mWinCancel);
 		window.addEventListener('blur', mWinBlur);
 	}
 	function mDisarmWindow() {
+		if (!browser) return; // quick-261119-sharecard: Svelte 5 runs onDestroy at the end of SSR too — this unguarded window touch 500'd every SSR entity route (song/artist/album) since quick-261102-menudrag
 		window.removeEventListener('pointermove', mWinMove);
 		window.removeEventListener('pointerup', mWinUp);
 		window.removeEventListener('pointercancel', mWinCancel);

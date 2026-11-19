@@ -232,8 +232,19 @@ export function safeLastfmImageUrl(raw: string | null | undefined): string | nul
  */
 const TOKEN_MAX_CHARS = 64;
 
-/** The `i` tag's ONE lookup subrequest, budgeted like a tier and well inside OG_RESOLVE_MS. */
-const TOKEN_LOOKUP_MS = 900;
+/**
+ * The `i` tag's ONE lookup subrequest.
+ *
+ * quick-261119-sharecard: raised 900 → 2500. The 900 budget sat ON the measured median:
+ * itunes.apple.com/lookup probed 2026-11-19 at 0.79–1.33 s (median ~0.87 s) from the VM, and a
+ * cold-PoP edge fetch adds TLS on top — so in production the lookup timed out as a matter of
+ * routine, the token silently degraded to the tier chain, and the chain misses exactly the
+ * obscure songs the `ci` carrier exists for (live-verified: PetPetShawn/夜行 with a valid
+ * `i:` token returned the branded fallback card, while a `d:` token — no lookup — returned
+ * the real cover). 2500 = the IMAGE_MS precedent; lookup + image fetch still fit the 3–10 s
+ * crawler budget, and a success is bytes-cached for 24 h, so the cost is paid once per song.
+ */
+const TOKEN_LOOKUP_MS = 2500;
 
 /**
  * `d` — Deezer album cover. PROBED 2026-08-09: the rebuilt
