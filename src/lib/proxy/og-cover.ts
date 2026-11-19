@@ -241,10 +241,17 @@ const TOKEN_MAX_CHARS = 64;
  * routine, the token silently degraded to the tier chain, and the chain misses exactly the
  * obscure songs the `ci` carrier exists for (live-verified: PetPetShawn/夜行 with a valid
  * `i:` token returned the branded fallback card, while a `d:` token — no lookup — returned
- * the real cover). 2500 = the IMAGE_MS precedent; lookup + image fetch still fit the 3–10 s
- * crawler budget, and a success is bytes-cached for 24 h, so the cost is paid once per song.
+ * the real cover). A success is bytes-cached for 24 h, so the cost is paid once per song.
+ *
+ * Post-fix live distribution (same day, isolated `i:`-token probes with nonsense text so no
+ * tier could rescue): at 2500 the lookup succeeded ~1/3 of first crawls — the edge→Apple
+ * latency is bimodal (fast successes land lookup+image in ~1.1 s; the slow mode sits past
+ * 2.5 s). Raised to 4000 to catch more of the slow mode: the typical failure total stays
+ * ~4.3 s (tiers miss fast on the obscure songs this path serves), and only the pathological
+ * every-tier-hangs case approaches the crawler ceiling — for one crawl, with nothing
+ * negative-cached, so the next crawl retries.
  */
-const TOKEN_LOOKUP_MS = 2500;
+const TOKEN_LOOKUP_MS = 4000;
 
 /**
  * `d` — Deezer album cover. PROBED 2026-08-09: the rebuilt
