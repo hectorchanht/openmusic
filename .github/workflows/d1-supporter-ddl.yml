@@ -21,11 +21,9 @@ jobs:
         run: npx -y wrangler@4 d1 execute openmusic-accounts --remote --command "CREATE TABLE IF NOT EXISTS account_supporters (user_id TEXT PRIMARY KEY, key_hash TEXT NOT NULL UNIQUE, tier TEXT NOT NULL DEFAULT 'bronze', verified_at TEXT NOT NULL)"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: "280bedba354e1a13c921727f30686447"
       - name: Verify table exists (fail loud)
         run: |
           npx -y wrangler@4 d1 execute openmusic-accounts --remote --json --command "SELECT name FROM sqlite_master WHERE type='table' AND name='account_supporters'" | tee /tmp/verify.json
           grep -q "account_supporters" /tmp/verify.json
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: "280bedba354e1a13c921727f30686447"
