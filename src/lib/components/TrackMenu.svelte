@@ -2034,9 +2034,16 @@
 			<button class="gi" onclick={clearQueue} use:tapBounce><Trash2 size={22} /><span class="gi-label">{t('menu.clearQueue')}</span></button>
 		{/snippet}
 		<!-- Opens the GLOBAL SleepTimerSheet (mounted in the app layout) — not a local sub-sheet
-		     here, so the timer indicator is reachable from the nowbar + now-playing too (D-08). -->
+		     here, so the timer indicator is reachable from the nowbar + now-playing too (D-08).
+		     quick-261119-sleepfix: the handoff goes through overlays.replace(), NOT a bare
+		     close()-then-open — close()'s cleanup dismiss issues history.back(), the sheet's
+		     pushState wins the race against that queued traversal, and the back() then lands
+		     on THIS menu's history entry, so the popstate reconcile instantly closes the
+		     just-opened sheet (the timer was unreachable from here). replace() hands this
+		     menu's stack slot + history entry to the sheet in place; the cleanup dismiss
+		     below finds no 'trackmenu-menu' entry and no-ops. -->
 		{#snippet cellSleepTimer(tr: Track)}
-			<button class="gi" onclick={() => { close(); tick().then(() => (sleepTimer.sheetOpen = true)); }} use:tapBounce><Moon size={22} /><span class="gi-label">{t('menu.sleepTimer')}</span></button>
+			<button class="gi" onclick={() => { overlays.replace('trackmenu-menu', 'trackmenu-timer', () => (sleepTimer.sheetOpen = false)); close(); tick().then(() => (sleepTimer.sheetOpen = true)); }} use:tapBounce><Moon size={22} /><span class="gi-label">{t('menu.sleepTimer')}</span></button>
 		{/snippet}
 		{#snippet cellGoToArtist(tr: Track)}
 			<button class="gi" onclick={gotoArtist} use:tapBounce><User size={22} /><span class="gi-label">{t('menu.goToArtist')}</span></button>

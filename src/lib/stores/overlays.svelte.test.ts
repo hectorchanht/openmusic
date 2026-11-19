@@ -253,3 +253,82 @@ describe('overlays: display URL on the pushed entry (quick-261010-npurl)', () =>
 		expect(overlays.depth).toBe(0);
 	});
 });
+
+describe('overlays: cross-overlay handoff (quick-261119-sleepfix)', () => {
+	// The TrackMenu "Sleep timer" cell hands off to the globally-mounted
+	// SleepTimerSheet. The old sequence — close() (whose $effect cleanup calls
+	// dismiss(), issuing history.back()) and only THEN sheetOpen=true (whose
+	// $effect calls open(), pushState) — races the queued traversal: the
+	// pushState lands first (microtasks beat the traversal task), so the
+	// back() delta is computed from the SHEET's entry and lands ON the menu's
+	// entry (gsdSeq 2); the popstate reconcile then closes every stack entry
+	// above the landing — the brand-new sheet included. The sheet opened and
+	// instantly closed: the sleep timer was unreachable from its only entry
+	// point. replace() hands the menu's stack slot AND history entry to the
+	// sheet in place — no back() is ever issued, so no traversal can kill it.
+	it('replace() hands the menu slot to the sleep sheet: no back(), sheet survives, one pop on dismiss', async () => {
+		const { overlays } = await import('./overlays.svelte');
+		const closeNp = vi.fn();
+		const closeTimer = vi.fn();
+		const teardown = overlays.init();
+		const onpop = vi
+			.mocked(window.addEventListener)
+			.mock.calls.find((c) => (c[0] as string) === 'popstate')![1] as () => void;
+		const land = (seq: number | null) => {
+			(history as { state: unknown }).state = seq === null ? null : { gsdSeq: seq };
+			onpop();
+		};
+
+		overlays.open('nowplaying', closeNp); // gsdSeq 1
+		overlays.open('trackmenu-menu', () => {}); // gsdSeq 2
+		(history as { state: unknown }).state = { gsdSeq: 2 }; // current = menu entry
+
+		// The sleep cell's handoff: swap the menu's slot for the sheet's BEFORE
+		// close() runs, so the menu cleanup's dismiss('trackmenu-menu') finds
+		// nothing and issues no history.back().
+		overlays.replace('trackmenu-menu', 'trackmenu-timer', closeTimer);
+		overlays.dismiss('trackmenu-menu'); // the menu $effect cleanup — must no-op
+		expect(back).not.toHaveBeenCalled();
+		expect(overlays.depth).toBe(2);
+		expect(closeTimer).not.toHaveBeenCalled();
+
+		// The sheet's own open() (from its $effect when sheetOpen flips) is
+		// idempotent against the replaced top entry — no second pushState.
+		const pushes = pushState.mock.calls.length;
+		overlays.open('trackmenu-timer', closeTimer);
+		expect(pushState.mock.calls.length).toBe(pushes);
+		expect(overlays.depth).toBe(2);
+
+		// A genuine Back while the sheet is open closes the SHEET (its close
+		// callback fires), lands below the shared slot, and leaves nowplaying
+		// standing — exactly one overlay per gesture.
+		land(1);
+		expect(closeTimer).toHaveBeenCalledTimes(1);
+		expect(closeNp).not.toHaveBeenCalled();
+		expect(overlays.depth).toBe(1);
+		teardown();
+	});
+
+	it('the pre-fix sequence (dismiss, then open before the echo lands) loses the new sheet — the bug replace() removes', async () => {
+		const { overlays } = await import('./overlays.svelte');
+		const closeTimer = vi.fn();
+		const teardown = overlays.init();
+		const onpop = vi
+			.mocked(window.addEventListener)
+			.mock.calls.find((c) => (c[0] as string) === 'popstate')![1] as () => void;
+
+		overlays.open('nowplaying', () => {}); // gsdSeq 1
+		overlays.open('trackmenu-menu', () => {}); // gsdSeq 2
+		(history as { state: unknown }).state = { gsdSeq: 2 };
+		overlays.dismiss('trackmenu-menu'); // issues history.back(), traversal queued
+		expect(back).toHaveBeenCalledTimes(1);
+		overlays.open('trackmenu-timer', closeTimer); // gsdSeq 3 — pushState wins the race
+		// The queued back() traverses from the sheet's entry and lands on the
+		// menu's entry (gsdSeq 2); reconcile closes everything above it.
+		(history as { state: unknown }).state = { gsdSeq: 2 };
+		onpop();
+		expect(closeTimer).toHaveBeenCalledTimes(1);
+		expect(overlays.depth).toBe(1);
+		teardown();
+	});
+});

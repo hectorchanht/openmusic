@@ -132,6 +132,51 @@ class Overlays {
 	}
 
 	/**
+	 * quick-261119-sleepfix: hand an open overlay's slot to a DIFFERENT overlay IN
+	 * PLACE — same stack position, same gsdSeq, same history entry (retagged via
+	 * replaceState, never a push and never a back). This is the sanctioned
+	 * cross-overlay handoff for when overlay B replaces overlay A in direct
+	 * response to a tap inside A (the TrackMenu "Sleep timer" cell → the global
+	 * SleepTimerSheet).
+	 *
+	 * Why not close-then-open: A's close flips its state, A's $effect cleanup
+	 * calls dismiss(A) which issues history.back(), and only then does B open
+	 * (pushState). The push is synchronous/microtask-fast while the traversal
+	 * is a queued task, so the push lands FIRST and the back()'s delta is
+	 * computed from B's entry — it lands ON A's history entry, and the popstate
+	 * reconcile closes every stack entry above the landing, B included. The
+	 * sheet opened and instantly closed; the sleep timer was unreachable from
+	 * its only set-entry (device report 2026-11-19; mechanism pinned in
+	 * overlays.svelte.test.ts, handoff describe).
+	 *
+	 * With replace() no back() is ever issued: A's cleanup dismiss(A) finds no
+	 * entry (has() guard → no-op), and B's own open() is idempotent against the
+	 * retagged entry when B is already top (or promotes it via the has() path
+	 * if it somehow isn't). B's later dismiss/back handling is completely
+	 * ordinary — it owns A's history entry now. Falls back to a plain open()
+	 * when fromId isn't in the stack (nothing to hand off; also race-free,
+	 * because then no dismiss echo exists either).
+	 */
+	replace(fromId: string, toId: string, close: () => void) {
+		const idx = this.stack.findIndex((e) => e.id === fromId);
+		if (idx < 0) {
+			this.open(toId, close);
+			return;
+		}
+		const entry = this.stack[idx];
+		const next = [...this.stack];
+		next[idx] = { id: toId, close, pushed: entry.pushed, seq: entry.seq };
+		this.stack = next;
+		if (entry.pushed && HAS_WINDOW) {
+			try {
+				history.replaceState({ gsdOverlay: toId, gsdSeq: entry.seq }, '');
+			} catch {
+				/* a history problem must never break the handoff — the stack swap already landed */
+			}
+		}
+	}
+
+	/**
 	 * quick-261010-npurl: repoint the TOP overlay entry's URL WITHOUT touching history
 	 * depth (a replaceState, not a push). NowPlaying calls this when the track, the
 	 * resolved cover, or the display language changes while it is open, so the URL bar
