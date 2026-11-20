@@ -557,3 +557,46 @@ describe('key() with the t2s dict cold (quick-260926-n0r)', () => {
 		await vi.waitFor(() => expect(fresh.dedupeBest(pair)).toHaveLength(1), { timeout: 5000 });
 	}, 10_000);
 });
+
+// Hector 2026-11-20 — correctness first at the seat: evidence per song decides, a
+// quality LABEL is a claim (not evidence), and PLAYBACK_ORDER is the last resort.
+describe('Hector 2026-11-20 — dedupeBest evidence-first seating', () => {
+	it('a verified row beats an unknown row CLAIMING higher quality', () => {
+		const claimer = mk('suyin', 's1', 'Hello', 'Adele', { qualityLabel: '320K' });
+		const proven = mk('netease', 'n1', 'Hello', 'Adele', { duration: 295, qualityLabel: '128K' });
+		expect(dedupeBest([claimer, proven])[0].source).toBe('netease');
+		expect(dedupeBest([proven, claimer])[0].source).toBe('netease');
+	});
+
+	it('inside one tier, richer evidence beats a bare row with a bigger quality claim', () => {
+		const rich = mk('kuwo', 'k1', 'Hello', 'Adele', { album: '25', cover: 'https://img/x.jpg' });
+		const bare = mk('suyin', 's1', 'Hello', 'Adele', { qualityLabel: '320K' });
+		expect(dedupeBest([bare, rich])[0].source).toBe('kuwo');
+		expect(dedupeBest([rich, bare])[0].source).toBe('kuwo');
+	});
+
+	it("per-song evidence overrides a source's reputation: verified netease beats unknown joox (PLAYBACK_ORDER #1)", () => {
+		const jx = mk('joox', 'j1', 'Hello', 'Adele');
+		const ne = mk('netease', 'n1', 'Hello', 'Adele', { duration: 295 });
+		expect(dedupeBest([jx, ne])[0].source).toBe('netease');
+		expect(dedupeBest([ne, jx])[0].source).toBe('netease');
+	});
+
+	it('static PLAYBACK_ORDER breaks ONLY an exact tie (equal evidence, equal quality)', () => {
+		const jx = mk('joox', 'j1', 'Hello', 'Adele');
+		const ne = mk('netease', 'n1', 'Hello', 'Adele');
+		expect(dedupeBest([ne, jx])[0].source).toBe('joox');
+	});
+
+	it('the picker keeps EVERY variant (explicit choice is exempt) while the auto seat goes to the original', () => {
+		const rows = [
+			mk('suyin', 'ring', 'Hello（鈴聲版）', 'Adele', { duration: 48 }),
+			mk('netease', 'n1', 'Hello', 'Adele', { duration: 295 }),
+			mk('kuwo', 'k1', 'Hello (Instrumental)', 'Adele', { duration: 295 })
+		];
+		const groups = groupVariants(rows);
+		expect(groups.size).toBe(1);
+		expect([...groups.values()][0]).toHaveLength(3); // picker lists junk too — choosing it is the user's right
+		expect(dedupeBest(rows)[0].songid).toBe('n1'); // auto seat: the verified original
+	});
+});

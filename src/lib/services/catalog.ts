@@ -243,9 +243,16 @@ function interleave(perSource: SettledSourceResult[]): Track[] {
  * — the shape Plan 26-03's Last.fm `track.getSimilar` Up-Next emits) to a playable Track by walking
  * the PLAYBACK_ORDER (quick-261102-sqn) ONE source at a time through fallback.ts walkSource
  * (quick-261102-sy0): single-source search, isAutoAcceptable gate + rankAutoCandidates order over the
- * RAW rows, up to three candidate resolves, return the FIRST that yields a truthy `audioUrl`.
- * Never-throws (per-source failures are swallowed), AbortSignal-honoring (bails after every await),
- * and stops at the first playable hit — so ~all plays resolve in ONE kuwo call (the ~59→~3 floor).
+ * RAW rows, up to three candidate resolves per source.
+ * Never-throws (per-source failures are swallowed), AbortSignal-honoring (bails after every await).
+ *
+ * Hector 2026-11-20 (correctness first) supersedes the old "stop at the first playable hit —
+ * ~all plays resolve in ONE call" floor: the walk stops at the first VERIFIED hit (walkSource
+ * tier 0 — the resolved track's duration is proven consistent). An unverified hit is retained
+ * (the best-evidence one) and the walk keeps going, because a later source may hold the
+ * provable original and 正確遠比出得快更重要； the retained hit is returned only when no
+ * source verifies (an unverified playable song still beats silence). The one-call fast path
+ * survives exactly where it should: a verified first hit still costs one call.
  *
  * 32-D-01: this walk follows PLAYBACK_ORDER, not qq-first, on purpose. It is the FAILURE path, and qq SEARCH is the
  * flaky half of qq (0 rows intermittently under load, no throw), so leading with it here would make
@@ -298,17 +305,26 @@ export async function resolveNameStub(
 	// per-candidate continue-on-throw, same verdicts. This loop is the sequential exhaustive pass:
 	// every eligible source gets one genuine attempt, so a name stub is never called unplayable
 	// because a source merely errored.
-	const walkAll = async (q: string): Promise<Track | null> => {
+	// Hector 2026-11-20: a VERIFIED hit (tier 0) ends the walk at once; an unverified hit is
+	// retained — best evidence among them — while the walk continues, and is returned only
+	// when the whole order produced nothing verifiable.
+	const walkAll = async (q: string): Promise<{ track: Track; tier: 0 | 1 } | null> => {
+		let weak: { track: Track; evidence: number } | null = null;
 		for (const src of order) {
 			if (sig.aborted) return null;
 			const attempt = await walkSource(src, q, want, sig);
 			if (sig.aborted) return null;
-			if (attempt.hit) return attempt.hit.track;
+			if (!attempt.hit) continue;
+			if (attempt.hit.tier === 0) return { track: attempt.hit.track, tier: 0 };
+			if (!weak || attempt.hit.evidence > weak.evidence) {
+				weak = { track: attempt.hit.track, evidence: attempt.hit.evidence };
+			}
 		}
-		return null;
+		return weak ? { track: weak.track, tier: 1 } : null;
 	};
-	const hit = await walkAll(query);
-	if (hit || sig.aborted) return hit;
+	const first = await walkAll(query);
+	if (sig.aborted) return null;
+	if (first?.tier === 0) return first.track;
 	// quick-261103-cjk (user report 2026-11-03): a bilingual title ("車匙 - Car Key")
 	// defeats the strict CN search engines under its full spelling (live probe
 	// 2026-11-03: junk or nothing on kuwo / migu / netease; the CJK half alone hits
@@ -317,9 +333,19 @@ export async function resolveNameStub(
 	// dropped). `want` is unchanged: the walker's gates still compare every candidate
 	// against the ORIGINAL stub, so the split pool can only adopt a row that is the
 	// same song by the same artist — never a stranger's same-title cover.
+	// Hector 2026-11-20: the split pass is no longer only for a TOTAL miss — a weak
+	// (unverified) first pass also earns it, since the split pool may hold the verifiable
+	// original the full spelling could not prove. A verified split hit beats the retained
+	// weak hit; between two weak hits the first walk's wins (walk order is the tiebreak
+	// of last resort, as everywhere in this doctrine).
 	const splitQuery = cjkSearchQuery(artist, title);
-	if (splitQuery && splitQuery !== query) return walkAll(splitQuery);
-	return null;
+	if (splitQuery && splitQuery !== query) {
+		const second = await walkAll(splitQuery);
+		if (sig.aborted) return null;
+		if (second?.tier === 0) return second.track;
+		return first?.track ?? second?.track ?? null;
+	}
+	return first?.track ?? null;
 }
 
 /**

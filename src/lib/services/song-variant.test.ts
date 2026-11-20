@@ -10,6 +10,8 @@ import {
 	poolExpectedDuration,
 	isImplausiblyShort,
 	candidateTier,
+	candidateEvidence,
+	evidenceClass,
 	isNotableVersionMismatch,
 	isAutoAcceptableArtist,
 	ALLOW_COVER_AS_AUTO_SUBSTITUTE
@@ -450,13 +452,64 @@ describe('43-D-08 — isNotableVersionMismatch', () => {
 		expect(isNotableVersionMismatch({ title: 'Song', duration: 346 }, { title: 'Song', duration: 300 })).toBe(true);
 	});
 
-	it('is neutral on unknown durations', () => {
+	it('unknown durations: a verified candidate stays neutral; an UNVERIFIED substitute is notable', () => {
+		// 43-D-03's blanket neutrality is superseded by Hector 2026-11-20 (correctness
+		// first): unknown evidence no longer counts as safe at the play decision, so a
+		// substitute whose duration is unknown against a known-length target earns the
+		// honest "may not be the original" notice. A candidate whose own duration IS
+		// known has nothing to contradict — still neutral.
 		expect(isNotableVersionMismatch({ title: 'Song', duration: 200 }, { title: 'Song' })).toBe(false);
-		expect(isNotableVersionMismatch({ title: 'Song' }, { title: 'Song', duration: 200 })).toBe(false);
-		expect(isNotableVersionMismatch({ title: 'Song', duration: 0 }, { title: 'Song', duration: 200 })).toBe(false);
+		expect(isNotableVersionMismatch({ title: 'Song' }, { title: 'Song', duration: 200 })).toBe(true);
+		expect(isNotableVersionMismatch({ title: 'Song', duration: 0 }, { title: 'Song', duration: 200 })).toBe(true);
 	});
 
 	it('flags an implausibly short clip', () => {
 		expect(isNotableVersionMismatch({ title: 'Song', duration: 20 }, { title: 'Song', duration: 240 })).toBe(true);
+	});
+});
+
+// Hector 2026-11-20 — correctness first, evidence per song: 「正確遠比出得快更重要」.
+// These pin the evidence layer the whole arbitration stack now shares.
+describe('Hector 2026-11-20 — candidateEvidence and evidence-led arbitration', () => {
+	it('a known, consistent duration is the dominant evidence term', () => {
+		expect(candidateEvidence({ duration: 240 }, 240)).toBe(4);
+		expect(candidateEvidence({ duration: 240, album: 'A', cover: 'c' }, 240)).toBe(6);
+		expect(evidenceClass(candidateEvidence({ duration: 240 }, 240))).toBe('verified');
+	});
+
+	it('unknown duration scores exactly 0; metadata richness alone can support, never verify', () => {
+		expect(candidateEvidence({})).toBe(0);
+		expect(candidateEvidence({ album: 'A', cover: 'c' })).toBe(2);
+		expect(evidenceClass(2)).toBe('supported');
+		expect(evidenceClass(0)).toBe('unknown');
+	});
+
+	it('an implausibly short known duration CONTRADICTS the candidate', () => {
+		expect(candidateEvidence({ duration: 48 }, 240)).toBe(-4);
+		expect(evidenceClass(-4)).toBe('contradicted');
+	});
+
+	it('candidateTier: an official candidate with UNKNOWN duration is tier 1 (unknown is not safe)', () => {
+		expect(candidateTier({ title: 'Song' }, 'Song', [{}])).toBe(1);
+		expect(
+			candidateTier({ title: 'Song', duration: 240 }, 'Song', [{ duration: 240 }])
+		).toBe(0);
+	});
+
+	it('rankPool: within one pool, verified evidence beats a HIGHER caller score on an unknown candidate', () => {
+		const unknown = { title: 'Song', tag: 'unknown' };
+		const verified = { title: 'Song', duration: 240, tag: 'verified' };
+		const out = rankPool([unknown, verified], 'Song', {
+			expectedSec: 240,
+			score: (c) => (c.tag === 'unknown' ? 100 : 0)
+		});
+		expect(out[0].tag).toBe('verified');
+	});
+
+	it('rankPool: rendition floor — a metadata-rich instrumental never leaves the variant pool', () => {
+		const inst = { title: 'Song (Instrumental)', duration: 240, album: 'A', cover: 'c', tag: 'inst' };
+		const orig = { title: 'Song', tag: 'orig' };
+		const out = rankPool([inst, orig], 'Song', { expectedSec: 240 });
+		expect(out[0].tag).toBe('orig');
 	});
 });

@@ -10,7 +10,13 @@
 
 import { searchAll, ensureTrackDetails } from '$lib/services/catalog';
 import { cjkSearchQuery } from '$lib/services/dedupe';
-import { rankAutoCandidates, candidateTier, isNotableVersionMismatch } from '$lib/services/song-variant';
+import {
+	rankAutoCandidates,
+	candidateTier,
+	candidateEvidence,
+	poolExpectedDuration,
+	isNotableVersionMismatch
+} from '$lib/services/song-variant';
 import { SOURCES, getEnabledAdapters, onlySource, isAutoResolveEligible } from '$lib/sources/registry';
 import { PRIORITY_WINDOW_MS } from '$lib/sources/source-order';
 import { isDeviceUid } from '$lib/services/device-track';
@@ -109,6 +115,10 @@ export async function tryFallback(
 	// the first to return a playable URL wins. Worst case drops from sum(latencies) to
 	// max(latency) — typically 3s instead of 10s+. The per-source gates (sameSongKey,
 	// isAcceptableSubstitute, rankAcceptable) still ensure authenticity; speed decides ties.
+	// Hector 2026-11-20 narrows "wins"/"ties": the race arbitrates (tier, evidence,
+	// source order) — arrival speed only ever breaks a tie INSIDE one evidence class,
+	// and an unverified first arrival no longer sounds while other sources are in flight
+	// (see raceSources). Correctness spends the wait; speed keeps the change.
 	// quick-261103-cjk: one full race + exhaustive pass for ONE query string, extracted so
 	// the bilingual-split pass below reuses it verbatim. `attempted` marking is per-pass:
 	// a source genuinely tried under one query string is marked once, and the split pass
@@ -161,8 +171,15 @@ export async function tryFallback(
 /** One source's race result: the resolved track plus its candidate tier (song-variant). */
 export interface FallbackHit {
 	track: Track;
-	/** 0 = official, plausible-length pick; 1 = variant and/or implausibly short. */
+	/** 0 = official, plausible-length, VERIFIED pick; 1 = variant, implausibly short, or unverified. */
 	tier: 0 | 1;
+	/**
+	 * Hector 2026-11-20: the hit's candidateEvidence, computed on the RESOLVED track (a
+	 * resolve is what proves a qq row's duration — the stub alone cannot). The race orders
+	 * by (tier, evidence, source order): evidence is per-song proof, source order is only
+	 * the last-resort tiebreak between otherwise-equal hits.
+	 */
+	evidence: number;
 }
 
 /**
@@ -218,6 +235,19 @@ interface RaceOutcome {
  * better; a tier-0 arrival shortens a pending long window back to the fast one.
  * All-sources-settled still finishes immediately, and the player's
  * FALLBACK_BUDGET_MS watchdog caps the total either way.
+ *
+ * Hector 2026-11-20 (correctness first): tier 0 now means VERIFIED (candidateTier
+ * requires a known, consistent duration), hits carry their evidence score, and
+ * finish() orders by (tier, evidence, source order) — source order is only the
+ * last-resort tiebreak between otherwise-equal hits. And a window expiry no longer
+ * sounds an UNVERIFIED best hit while other sources are still in flight: the window
+ * re-arms and the race keeps waiting for a verifiable original (the initial wait is
+ * free; a 配樂/同人 version the user discovers after waiting is not). Speed now
+ * decides only inside one evidence class: among verified hits the 300ms window
+ * still takes the best promptly, and all-sources-settled still finishes at once.
+ * The verification wait is BOUNDED at one extra DEGRADED window (2 × DEGRADED from
+ * the first weak arm): a source that never settles must not deadlock the chain, so
+ * when the budget is spent the best weak hit sounds after all.
  */
 const DEGRADED_PRIORITY_WINDOW_MS = 2500;
 function raceSources(
@@ -241,17 +271,19 @@ function raceSources(
 			if (done) return;
 			done = true;
 			ac.abort();
-			// Best tier first; within a tier, the highest-priority source (earliest in order).
-			for (const tier of [0, 1] as const) {
-				for (const src of sources) {
-					const r = results.get(src);
-					if (r && r.tier === tier && r.track.audioUrl) {
-						resolve({ hit: r, verdicts });
-						return;
-					}
+			// Hector 2026-11-20: best = lowest tier, then HIGHEST evidence, then earliest
+			// source order. Iterating `sources` in order with a strict evidence comparison
+			// keeps the earliest source on an exact (tier, evidence) tie — the static order
+			// is the last-resort tiebreak between otherwise-equal hits, never more.
+			let best: FallbackHit | null = null;
+			for (const src of sources) {
+				const r = results.get(src);
+				if (!r || !r.track.audioUrl) continue;
+				if (!best || r.tier < best.tier || (r.tier === best.tier && r.evidence > best.evidence)) {
+					best = r;
 				}
 			}
-			resolve({ hit: null, verdicts });
+			resolve({ hit: best, verdicts });
 		};
 		const onAbort = () => {
 			if (!done) {
@@ -263,15 +295,47 @@ function raceSources(
 		signal?.addEventListener('abort', onAbort, { once: true });
 		let windowTimer: ReturnType<typeof setTimeout> | null = null;
 		let windowTier = Infinity;
+		let weakArmedAt: number | null = null;
+		// Hector 2026-11-20: a window expiry may only finish the race when the best hit
+		// in hand is VERIFIED (tier 0) or every source has settled. While the best hit
+		// is unverified and sources are still in flight, a verifiable original may
+		// still land — the window re-arms instead of sounding the unknown. The re-arm
+		// is BOUNDED (2 × DEGRADED from the first weak arm): a source that never
+		// settles must not deadlock the chain, and the caller's budget watchdog is a
+		// backstop, not the bound.
+		const onWindow = () => {
+			windowTimer = null;
+			let bestTier = Infinity;
+			for (const r of results.values()) {
+				if (r.track.audioUrl && r.tier < bestTier) bestTier = r.tier;
+			}
+			if (bestTier === 0 || remaining === 0) {
+				finish();
+				return;
+			}
+			const budgetLeft =
+				weakArmedAt === null
+					? 0
+					: 2 * DEGRADED_PRIORITY_WINDOW_MS - (Date.now() - weakArmedAt);
+			if (budgetLeft <= 0) {
+				finish();
+				return;
+			}
+			windowTimer = setTimeout(
+				onWindow,
+				Math.min(DEGRADED_PRIORITY_WINDOW_MS, budgetLeft)
+			);
+		};
 		// Arm (or shorten) the pick window for an arriving result's tier. A longer
 		// window already armed for a worse tier is replaced; an equal/better armed
 		// window is left alone.
 		const armWindow = (tier: 0 | 1) => {
+			if (tier === 1 && weakArmedAt === null) weakArmedAt = Date.now();
 			if (tier >= windowTier) return;
 			if (windowTimer) clearTimeout(windowTimer);
 			windowTier = tier;
 			windowTimer = setTimeout(
-				finish,
+				onWindow,
 				tier === 0 ? PRIORITY_WINDOW_MS : DEGRADED_PRIORITY_WINDOW_MS
 			);
 		};
@@ -406,10 +470,17 @@ export async function walkSource(
 			if (SOURCES[src].noticeOnAutoPick && isNotableVersionMismatch(resolved, failed)) {
 				resolved.versionMismatch = true;
 			}
+			// Hector 2026-11-20: tier + evidence are read off the RESOLVED track, not the
+			// stub — the resolve is the moment a row's duration gets proven (qq search rows
+			// carry none; qq resolve stamps song_play_time), and the thing that will SOUND
+			// is the resolved track. Judging the stub would keep every qq hit "unverified"
+			// forever and the correctness arbitration would never see the proof.
+			const expected = failed.duration ?? poolExpectedDuration(candidates);
 			return {
 				hit: {
 					track: resolved,
-					tier: candidateTier(stub, failed.title, candidates, failed.duration)
+					tier: candidateTier(resolved, failed.title, candidates, failed.duration),
+					evidence: candidateEvidence(resolved, expected)
 				},
 				verdict: 'hit'
 			};

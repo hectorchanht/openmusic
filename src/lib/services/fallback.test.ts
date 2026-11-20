@@ -370,6 +370,11 @@ describe('tryFallback — the not-playable bar (quick-261102-exh1)', () => {
 		expect(counts.get('qq')).toBe(1);
 	});
 
+	// Hector 2026-11-20: kuwo's hit here carries NO duration, so under correctness-first
+	// it is UNVERIFIED — the race no longer sounds it at the first window while joox is
+	// still in flight; it waits out the bounded verification budget (2 × DEGRADED ≈ 5s)
+	// before the weak hit wins by default. The attempted-set contract under test is
+	// unchanged; only the finish time moved, hence the explicit timeout.
 	it('attempted set: a source the race aborted mid-flight is NOT poisoned as attempted', async () => {
 		// kuwo wins the race fast; joox's search is still in flight when the race finishes
 		// and gets aborted. The old up-front marking had already poisoned joox — when the
@@ -408,7 +413,7 @@ describe('tryFallback — the not-playable bar (quick-261102-exh1)', () => {
 		expect(attempted.has('kuwo')).toBe(true); // the winner WAS genuinely tried
 		expect(attempted.has('qq')).toBe(true); // a genuinely empty pool counts as tried
 		expect(attempted.has('joox')).toBe(false); // never settled → NOT attempted
-	});
+	}, 15000);
 });
 
 // quick-261102-cov1 (user report 2026-11-02): the artist-identity gate on the failover

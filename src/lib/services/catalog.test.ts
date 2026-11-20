@@ -707,6 +707,10 @@ describe('ensureTrackDetails — cross-source lyric fallback (quick-260629-nyl)'
 // Last.fm track.getSimilar Up-Next shape) resolves kuwo-FIRST through a SINGLE source at a time —
 // never a 7-source searchAll fan-out. It stops at the first source yielding a playable name-matching
 // candidate, never-throws, and honors AbortSignal.
+// Hector 2026-11-20 (correctness first) narrows "stops at the first hit": the walk now stops at
+// the first VERIFIED hit (the resolved track carries a known duration). An unverified hit is
+// retained and the walk continues — so the one-call assertions below pin their fixtures with a
+// duration on the resolve, which is what makes those hits verified.
 describe('resolveNameStub — registry-first single-source name resolution (RESOLVE-02)', () => {
 	// Stub EVERY registered source's search so an unexpected walk step never hits the network.
 	function stubAllEmpty() {
@@ -729,7 +733,8 @@ describe('resolveNameStub — registry-first single-source name resolution (RESO
 			...jxCand,
 			detailsLoaded: true,
 			audioUrl: 'https://cdn/joox.flac',
-			lrc: '[00:01]x'
+			lrc: '[00:01]x',
+			duration: 231 // verified hit (Hector 2026-11-20) — the walk stops here
 		});
 
 		const out = await resolveNameStub('Jay', 'Blue');
@@ -752,7 +757,8 @@ describe('resolveNameStub — registry-first single-source name resolution (RESO
 			...kwCand,
 			detailsLoaded: true,
 			audioUrl: 'https://cdn/kw.mp3',
-			lrc: '[00:01]x'
+			lrc: '[00:01]x',
+			duration: 231 // verified hit (Hector 2026-11-20) — qq after kuwo stays unreached
 		});
 
 		const out = await resolveNameStub('Jay', 'Blue');
@@ -767,6 +773,51 @@ describe('resolveNameStub — registry-first single-source name resolution (RESO
 		stubAllEmpty();
 		const out = await resolveNameStub('Nobody', 'Nothing');
 		expect(out).toBeNull();
+	});
+
+	// Hector 2026-11-20 (correctness first): an UNVERIFIED hit no longer ends the walk.
+	it('an unverified joox hit does NOT end the walk — a verified kuwo hit behind it wins', async () => {
+		stubAllEmpty();
+		const jxCand = mk('joox', 'j1', 1, { artist: 'Jay', title: 'Blue' });
+		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([jxCand]);
+		vi.spyOn(SOURCES.joox, 'resolve').mockResolvedValue({
+			...jxCand,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/joox.mp3',
+			lrc: '[00:01]x'
+			// no duration — playable but unverifiable
+		});
+		const kwCand = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Blue' });
+		vi.spyOn(SOURCES.kuwo, 'search').mockResolvedValue([kwCand]);
+		vi.spyOn(SOURCES.kuwo, 'resolve').mockResolvedValue({
+			...kwCand,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/kw.mp3',
+			lrc: '[00:01]x',
+			duration: 231
+		});
+
+		const out = await resolveNameStub('Jay', 'Blue');
+
+		expect(out?.uid).toBe('kuwo:k1');
+	});
+
+	it('an unverified-only pool still returns the weak hit (unverified beats silence)', async () => {
+		stubAllEmpty();
+		const jxCand = mk('joox', 'j1', 1, { artist: 'Jay', title: 'Blue' });
+		vi.spyOn(SOURCES.joox, 'search').mockResolvedValue([jxCand]);
+		vi.spyOn(SOURCES.joox, 'resolve').mockResolvedValue({
+			...jxCand,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/joox.mp3',
+			lrc: '[00:01]x'
+		});
+		const qqSearch = vi.spyOn(SOURCES.qq, 'search').mockResolvedValue([]);
+
+		const out = await resolveNameStub('Jay', 'Blue');
+
+		expect(out?.uid).toBe('joox:j1');
+		expect(qqSearch).toHaveBeenCalled(); // the walk DID continue past the weak hit looking for proof
 	});
 
 	// quick-261103-cjk: a bilingual title defeats the strict CN engines under its full
@@ -1629,8 +1680,18 @@ describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () =>
 		});
 	});
 
-	describe('31-D-06(c): the avail hints still thread into the name-stub walk', () => {
+	describe('31-D-06(c): the avail hints in the name-stub walk (resolveNameStub contract)', () => {
 		it('a source marked dry is SKIPPED in the name-stub walk', async () => {
+			// Hector 2026-11-20: this now pins resolveNameStub's OWN avail contract
+			// directly. It used to run through ensureTrackDetails — but the sqn product
+			// call (DECISIONS.md §5, pinned by 'a name stub never reads the edge cache'
+			// above) bars name stubs from reading the cache at all, so an entry's avail
+			// can never reach the walk on that path; the old shape passed only because
+			// the pre-correctness walk stopped at the joox hit before ever reaching
+			// kuwo. The 31-D-06(c)-vs-sqn conflict is a product decision, not settled
+			// here — the walk-level skip is what's pinned, and it now genuinely bites:
+			// the unverified joox hit no longer ends the walk, so without the skip
+			// kuwo WOULD be searched.
 			const spies = spyAllSources();
 			const cand = mk('joox', 'j1', 1, { artist: 'Jay', title: 'Blue' });
 			spies.search.joox?.mockResolvedValue([cand]);
@@ -1640,18 +1701,10 @@ describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () =>
 				audioUrl: 'https://cdn/joox.mp3',
 				lrc: '[00:01]x'
 			});
-			readResolveCache.mockResolvedValue({
-				source: null,
-				songid: null,
-				avail: { kuwo: 'dry' },
-				url: null,
-				urlExp: null,
-				urlQuality: null
-			});
 
-			const out = await ensureTrackDetails(nameStub());
+			const out = await resolveNameStub('Jay', 'Blue', undefined, { kuwo: 'dry' });
 
-			expect(out.audioUrl).toBe('https://cdn/joox.mp3');
+			expect(out?.audioUrl).toBe('https://cdn/joox.mp3');
 			expect(spies.search.kuwo).not.toHaveBeenCalled(); // the wasted call the hint exists to skip
 		});
 

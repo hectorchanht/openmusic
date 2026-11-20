@@ -280,6 +280,51 @@ export function isImplausiblyShort(
 	return expectedSec !== undefined && expectedSec > 0 && d < expectedSec * 0.5;
 }
 
+// --- CANDIDATE EVIDENCE (Hector 2026-11-20 — correctness first, evidence per song) --------------
+// 「正確遠比出得快更重要。」 Selection used to treat a candidate with NO duration and NO
+// metadata as the equal of a verified original (D-03 unknown-neutrality), so seats and races
+// were decided by quality LABEL claims, resolve speed and the static PLAYBACK_ORDER — the
+// shape that let a 60s preview win its seat (P9) and lets a fast 配樂/同人 cut outrun the
+// original. The doctrine now: a candidate KNOWN to be the genuine version is heavily weighted;
+// more data always beats unknown; speed and static source order are tiebreakers INSIDE one
+// evidence class only; no source carries a frozen reputation — the evidence is THIS song's,
+// assessed per candidate, per moment.
+//
+// The score is deliberately small and legible — three axes only:
+//   duration: known and consistent with the expected full length → +4 (the length is PROVEN);
+//             known but implausibly short → −4 (the length CONTRADICTS the song);
+//             unknown → 0 (says nothing either way — the absence this doctrine refuses to
+//             mistake for a pass).
+//   album present → +1, cover present → +1 (catalog richness: a real catalog row carries
+//   them; a scraped stub usually does not).
+// Classes: ≥4 verified · 1..3 supported · 0 unknown · <0 contradicted. Duration dominates by
+// construction (max metadata bonus is +2 < +4), so richness can never impersonate proof.
+
+export type EvidenceClass = 'verified' | 'supported' | 'unknown' | 'contradicted';
+
+/** How much does THIS candidate's own metadata prove it is the full, genuine recording? */
+export function candidateEvidence(
+	c: { duration?: number; album?: string | null; cover?: string | null },
+	expectedSec?: number
+): number {
+	let ev = 0;
+	const d = c.duration;
+	if (typeof d === 'number' && isFinite(d) && d > 0) {
+		ev += isImplausiblyShort(c, expectedSec) ? -4 : 4;
+	}
+	if ((c.album ?? '').trim()) ev += 1;
+	if (c.cover) ev += 1;
+	return ev;
+}
+
+/** The named class of a candidateEvidence score (see the table above). */
+export function evidenceClass(ev: number): EvidenceClass {
+	if (ev >= 4) return 'verified';
+	if (ev >= 1) return 'supported';
+	if (ev === 0) return 'unknown';
+	return 'contradicted';
+}
+
 /**
  * Pool order behind rankPool (quick-261101-ring1):
  * official-plausible → variant-plausible → official-short → variant-short.
@@ -304,9 +349,17 @@ function poolsInOrder<T extends { title: string; duration?: number }>(
  * candidate is an official, plausible-length pick for the target title; 1 when it is a
  * variant and/or implausibly short. fallback's race uses it so a fast degraded hit cannot
  * beat a slower clean one merely by arriving first.
+ *
+ * Hector 2026-11-20 (correctness first): tier 0 is now reserved for VERIFIED candidates —
+ * official title AND a duration that is known and consistent with the expected full length.
+ * An official title with UNKNOWN duration is tier 1: it may still play (pools are ordered,
+ * never emptied by this), but it no longer stands as the equal of a proven original in a
+ * seat or a race, and a race holding only tier-1 hits keeps waiting for a verifiable one
+ * while other sources are still in flight. This narrows D-03: unknown duration stays
+ * neutral for CATALOG presence and for scoreMatch, but at the PLAY decision unknown loses.
  */
 export function candidateTier(
-	candidate: { title: string; duration?: number },
+	candidate: { title: string; duration?: number; album?: string | null; cover?: string | null },
 	queryTitle: string,
 	pool: readonly { duration?: number }[],
 	expectedSec?: number
@@ -314,7 +367,8 @@ export function candidateTier(
 	const { official } = partitionOfficial([candidate], queryTitle);
 	if (official.length === 0) return 1;
 	const expected = expectedSec ?? poolExpectedDuration(pool);
-	return isImplausiblyShort(candidate, expected) ? 1 : 0;
+	if (isImplausiblyShort(candidate, expected)) return 1;
+	return evidenceClass(candidateEvidence(candidate, expected)) === 'verified' ? 0 : 1;
 }
 
 /**
@@ -328,6 +382,12 @@ export function candidateTier(
  *
  * quick-261102-exh1 (kept): the automatic chains walk this ranked list, resolving until one
  * candidate yields a URL — a single failed resolve never burns a source whose #2 row would play.
+ *
+ * Hector 2026-11-20 (correctness first): within a pool, EVIDENCE now leads and `opts.score`
+ * follows — a candidate whose own metadata proves the full original (known consistent
+ * duration, rich catalog row) outranks a sparse/unknown one even when the unknown's title
+ * scores a cleaner match. Evidence is per-song and per-moment; nothing here reads a source
+ * ranking, so no source's reputation from another song can leak into this song's order.
  */
 export function rankPool<T extends { title: string; duration?: number }>(
 	candidates: T[],
@@ -335,12 +395,12 @@ export function rankPool<T extends { title: string; duration?: number }>(
 	opts?: { expectedSec?: number; score?: (c: T) => number }
 ): T[] {
 	const pools = poolsInOrder(candidates, queryTitle, opts?.expectedSec);
+	const expected = opts?.expectedSec ?? poolExpectedDuration(candidates);
 	const score = opts?.score;
-	if (!score) return pools.flat();
 	return pools.flatMap((pool) =>
 		pool
-			.map((c, i) => ({ c, i, s: score(c) }))
-			.sort((x, y) => y.s - x.s || x.i - y.i)
+			.map((c, i) => ({ c, i, e: candidateEvidence(c, expected), s: score ? score(c) : 0 }))
+			.sort((x, y) => y.e - x.e || y.s - x.s || x.i - y.i)
 			.map((x) => x.c)
 	);
 }
@@ -434,8 +494,10 @@ export function rankAutoCandidates<T extends Named & { duration?: number }>(
  * 43-D-08 — "PLAY it but say so". Does an AUTO-picked substitute notably differ from the song the
  * user asked for? Never rejects anything: it only decides whether the pick deserves the "may not be
  * the original" notice. True when candidateTier calls it a variant / implausibly short, or when both
- * durations are known and differ by more than max(30 s, 15 % of the TARGET). Unknown duration is
- * neutral. Threshold is A5 (assumed) — tune it here only.
+ * durations are known and differ by more than max(30 s, 15 % of the TARGET). Since Hector
+ * 2026-11-20, candidateTier also demotes UNVERIFIED candidates (unknown duration), so an
+ * auto-pick whose length was never proven earns the notice too — the honest outcome: we
+ * genuinely do not know it is the original. Threshold is A5 (assumed) — tune it here only.
  */
 export function isNotableVersionMismatch(
 	candidate: { title: string; duration?: number },

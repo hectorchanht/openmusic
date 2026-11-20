@@ -8,7 +8,7 @@ import { playbackRank, COVER_ORDER } from '$lib/sources/source-order';
 import { qualityRank } from '$lib/sources/quality';
 // quick-261102-t7i: dedupe ↔ song-variant is a deliberate import cycle — both sides use the other
 // only inside function bodies (never at module evaluation), so either load order is safe.
-import { candidateTier } from '$lib/services/song-variant';
+import { candidateTier, candidateEvidence } from '$lib/services/song-variant';
 import { isDeviceUid } from '$lib/services/device-track';
 import { splitArtists } from '$lib/util/artist-split';
 
@@ -466,8 +466,20 @@ export function sameSongByCredit(
  * quick-261102-sy0: the source/quality preference as a comparator (negative = a first):
  * quality → user-preferred source → PLAYBACK_ORDER. better() is its pairwise winner, so dedupe's
  * collapse and preferenceOrder's NON-collapsing sort share one rule.
+ *
+ * Hector 2026-11-20 (correctness first): EVIDENCE now leads the comparator — a candidate
+ * whose own metadata proves the full original beats a higher quality LABEL on an
+ * unverified row (a label is a claim; suyin rows all claim 320K). The pairwise evidence
+ * here is pool-free (absolute plausibility only); dedupeBest's tier pre-filter above it
+ * is the pool-aware half. Order: evidence → quality → user-preferred source →
+ * PLAYBACK_ORDER, the static table demoted to last-resort tiebreak between
+ * otherwise-equal candidates — it carries no per-song information and must never
+ * outrank any. A user's explicit preferred source still beats the static table.
  */
 function comparePreference(a: Track, b: Track, preferred?: SourceId): number {
+	const ea = candidateEvidence(a);
+	const eb = candidateEvidence(b);
+	if (ea !== eb) return eb - ea;
 	const qa = trackQualityRank(a);
 	const qb = trackQualityRank(b);
 	if (qa !== qb) return qb - qa;
