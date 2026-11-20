@@ -225,7 +225,9 @@ interface KuwoSonginfo {
 	pic: string | null;
 }
 
-/** Lyrics + display metadata. NEVER throws — any failure is the all-null object (T-n1i-03). */
+/**
+ * Lyrics + display metadata. NEVER throws — any failure is the all-null object (T-n1i-03).
+ */
 async function fetchKuwoSonginfo(rid: string, fetchImpl: typeof fetch = fetch): Promise<KuwoSonginfo> {
 	const none: KuwoSonginfo = { lyric: null, name: null, artist: null, album: null, pic: null };
 	try {

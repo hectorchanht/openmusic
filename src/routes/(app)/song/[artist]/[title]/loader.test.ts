@@ -13,13 +13,16 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { load, ssr, prerender } from './+page';
 
-function ev(artist: string, title: string, origin = 'https://openmusic.lol', ci?: string) {
+function ev(artist: string, title: string, origin = 'https://openmusic.lol', ci?: string, u?: string) {
 	// The URL carries the ENCODED segments (that is what a real request line looks like); the
 	// `params` beside it are the decoded values the router hands to `load`.
 	// quick-260809-3uo: `ci` is a QUERY param, so it goes on the URL only — NOT into `params`, and
 	// the already-decoded-params discipline in the header above is unaffected by it.
+	// quick-261120-mediacard: `u` rides the same way, beside `ci`. Both are RECEPTION
+	// fixtures now — links already sent carry them; the loader's og:image ignores them.
 	const url = new URL(`${origin}/song/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`);
 	if (ci !== undefined) url.searchParams.set('ci', ci);
+	if (u !== undefined) url.searchParams.set('u', u);
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	return { params: { artist, title }, url } as any;
 }
@@ -73,14 +76,13 @@ describe('song/[artist]/[title] loader — OG head', () => {
 
 	it('points og:image at the own-origin /api/og song card on the REQUEST origin', () => {
 		const out = run('Nirvana', 'Come-As-You-Are');
-		expect(out.og.image).toBe(
-			'https://openmusic.lol/api/og?type=song&artist=Nirvana&title=Come%20As%20You%20Are'
-		);
+		// quick-261120-mediacard: PATH form — keywords only, no query.
+		expect(out.og.image).toBe('https://openmusic.lol/api/og/song/Nirvana/Come-As-You-Are');
 	});
 
 	it('keeps og:image on an http dev origin (own-origin URL, NOT isHttpsUrl-gated)', () => {
 		const out = run('Nirvana', 'Come-As-You-Are', 'http://localhost:5173');
-		expect(out.og.image.startsWith('http://localhost:5173/api/og?type=song')).toBe(true);
+		expect(out.og.image.startsWith('http://localhost:5173/api/og/song')).toBe(true);
 	});
 });
 
@@ -141,24 +143,21 @@ describe('song share page — resolve on mount, never play on mount (quick-26080
 });
 
 // ---------------------------------------------------------------------------------------------
-// quick-260809-3uo — the `ci` cover-id carrier is ECHOED into the own-origin card URL
+// quick-260809-3uo — the `ci` cover-id carrier (RECEPTION ONLY since quick-261120-mediacard)
 // ---------------------------------------------------------------------------------------------
-// The loader does not parse the token; it is opaque here and /api/og's coverUrlFromToken is the
-// real gate. What must hold is that the loader stays SYNCHRONOUS and FETCH-FREE (T-3uo-06) and that
-// a link with no usable `ci` produces exactly today's carrier-free URL.
-describe('song/[artist]/[title] loader — the ci cover-id carrier', () => {
+// Emission into og:image is RETIRED (keyword-only ruling): the loader builds the card image
+// purely from the path segments, so a link carrying `ci` produces the SAME path-form
+// og:image as one without. What survives is the loader's `ci` FIELD echo — the page
+// component's in-app hero fast-path for links already sent (live compat). The loader stays
+// SYNCHRONOUS and FETCH-FREE (T-3uo-06).
+describe('song/[artist]/[title] loader — the ci cover-id carrier (reception only)', () => {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	const runCi = (ci?: string): any => load(ev('陳柏宇', '你瞞我瞞', 'https://openmusic.lol', ci));
-	const BARE = 'https://openmusic.lol/api/og?type=song&artist=%E9%99%B3%E6%9F%8F%E5%AE%87&title=%E4%BD%A0%E7%9E%9E%E6%88%91%E7%9E%9E';
+	const BARE = 'https://openmusic.lol/api/og/song/陳柏宇/你瞞我瞞';
 
-	it('echoes a token verbatim into &ci= on the own-origin /api/og URL', () => {
-		expect(runCi('i:446760418').og.image).toBe(`${BARE}&ci=i%3A446760418`);
-		expect(runCi('d:fe1082c5ef54876802146897e76b592e').og.image).toBe(
-			`${BARE}&ci=d%3Afe1082c5ef54876802146897e76b592e`
-		);
-	});
-
-	it('no ci, an empty ci, or an over-cap ci → exactly today\'s carrier-free URL', () => {
+	it('og:image NEVER carries the token any more — the path form is identical with or without ci', () => {
+		expect(runCi('i:446760418').og.image).toBe(BARE);
+		expect(runCi('d:fe1082c5ef54876802146897e76b592e').og.image).toBe(BARE);
 		expect(runCi().og.image).toBe(BARE);
 		expect(runCi('').og.image).toBe(BARE);
 		expect(runCi('d:' + 'a'.repeat(200)).og.image).toBe(BARE);
@@ -176,6 +175,37 @@ describe('song/[artist]/[title] loader — the ci cover-id carrier', () => {
 	it('returns ci as its own field for the page hero (null when the link had none)', () => {
 		expect(runCi('i:446760418').ci).toBe('i:446760418');
 		expect(runCi().ci).toBeNull();
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// 38-D-08 — the `u` identity carrier (RECEPTION ONLY since quick-261120-mediacard)
+// ---------------------------------------------------------------------------------------------
+// Same retirement as `ci` above: og:image never echoes `u` (the card resolves by keywords
+// through the seam at /api/og). The loader's `u` FIELD echo stays — share-arrival's direct
+// detail resolve for links already sent depends on it, raw and ungated here (the gate is
+// parseEntityParam inside share-arrival, T-38-01).
+describe('song/[artist]/[title] loader — the u identity carrier (reception only)', () => {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const runU = (u?: string, ci?: string): any =>
+		load(ev('茉ひる/Billy Choi', 'ロストライン', 'https://openmusic.lol', ci, u));
+	const BARE = 'https://openmusic.lol/api/og/song/茉ひる%2FBilly-Choi/ロストライン';
+
+	it('og:image NEVER carries u or ci — the reported netease link gets the bare keyword path', () => {
+		expect(runU('netease3396263335').og.image).toBe(BARE);
+		expect(runU('qq001ZZjxN31KF3S').og.image).toBe(BARE);
+		expect(runU('kuwo123', 'k:s4s27-11-1502064321').og.image).toBe(BARE);
+		expect(runU().og.image).toBe(BARE);
+		expect(runU('evil123').og.image).toBe(BARE);
+	});
+
+	it('stays synchronous and fetch-free, and the arrival `u` field is echoed RAW as before', () => {
+		const out = runU('netease3396263335');
+		expect(typeof out.then).not.toBe('function');
+		// The page's arrival resolve does its OWN parseEntityParam gate (share-arrival), so the
+		// field stays the raw query value.
+		expect(out.u).toBe('netease3396263335');
+		expect(runU().u).toBeNull();
 	});
 });
 

@@ -63,13 +63,13 @@ describe('album/[artist]/[name] loader — OG head', () => {
 	it('points og:image at the own-origin /api/og album card on the REQUEST origin', () => {
 		const out = run('周杰倫', '范特西');
 		expect(out.og.image).toBe(
-			`https://openmusic.lol/api/og?type=album&artist=${encodeURIComponent('周杰倫')}&title=${encodeURIComponent('范特西')}`
+			'https://openmusic.lol/api/og/album/周杰倫/范特西'
 		);
 	});
 
 	it('keeps og:image on an http dev origin (own-origin URL, NOT isHttpsUrl-gated)', () => {
 		const out = run('Nirvana', 'Nevermind', 'http://localhost:5173');
-		expect(out.og.image.startsWith('http://localhost:5173/api/og?type=album')).toBe(true);
+		expect(out.og.image.startsWith('http://localhost:5173/api/og/album')).toBe(true);
 	});
 });
 

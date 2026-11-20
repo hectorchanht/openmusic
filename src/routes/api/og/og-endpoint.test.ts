@@ -3,10 +3,13 @@ import {
 	OG_RESOLVE_MS,
 	coverUrlFromToken,
 	isOgType,
+	resolveCoverViaSeam,
 	resolveCoverTiered,
 	safeItunesImageUrl,
 	safeKuwoImageUrl,
-	safeLastfmImageUrl
+	safeLastfmImageUrl,
+	safeNeteaseImageUrl,
+	safeQqImageUrl
 } from '$lib/proxy/og-cover';
 import { OG_FALLBACK_BYTES, OG_FALLBACK_TYPE } from '$lib/proxy/og-fallback';
 import { upgradeArtwork } from '$lib/services/itunes-cover';
@@ -14,7 +17,9 @@ import { t2sConvertLines } from '$lib/services/zh-convert';
 import { GET, OPTIONS } from './+server';
 
 // /api/og (OG-EP-01/OG-EP-02) is the carrier-free share card's cover endpoint: it resolves
-// {type, artist, title} TEXT through a bounded Deezer → iTunes → kuwo chain and STREAMS the
+// {type, artist, title} TEXT — since quick-261120-mediacard through the SEAM first
+// (resolveCoverViaSeam: crowd pick → CN fan-out → qq detail), the bounded Deezer → iTunes →
+// kuwo text chain as fallback — and STREAMS the
 // image bytes from our own origin, so a shared link needs no `?c=` cover carrier at all.
 //
 // LIVE probe facts these tests encode (research 2026-08-07, all three upstreams keyless):
@@ -718,16 +723,46 @@ type ImageReply = 'jpeg' | 'png' | 'html' | 'nolength' | 'THROW' | 'NOTOK';
  * host — the cover URL always lives on a tier's own allow-listed CDN). Returns the call log so
  * "no second upstream fetch" and "≤4 subrequests" are assertable.
  */
+const PICK_MISS = JSON.stringify({ ok: true, u: null, n: null });
+
 function stubRoute(replies: {
 	lf?: TierReply;
 	dz?: TierReply;
 	it?: TierReply;
 	kw?: TierReply;
 	image?: ImageReply;
+	pick?: TierReply;
+	seamNe?: TierReply;
+	seamQq?: TierReply;
+	seamQqDetail?: TierReply;
+	seamKw?: TierReply;
 }) {
 	const calls: string[] = [];
+	const seamCalls: string[] = [];
 	const spy = vi.fn(async (input: RequestInfo | URL) => {
 		const u = String(input);
+		// quick-261120-mediacard — THE SEAM STAGE's calls, classified apart from the tier
+		// sequence so the tier assertions stay byte-exact: crowd pick + the CN fan-out + the
+		// qq detail hop. An undeclared seam reply is a CLEAN MISS, so a pre-seam test sees
+		// the seam run and miss, then the tier chain behaves exactly as before. The seam's
+		// kuwo search is rn=10; the kuwo TIER's is rn=1 — that is the discriminator.
+		const seamReply = u.includes('/api/cover-pick')
+			? (replies.pick ?? PICK_MISS)
+			: u.includes('api.qijieya.cn')
+				? (replies.seamNe ?? '[]')
+				: u.includes('tang.api.s01s.cn')
+					? u.includes('mid=')
+						? (replies.seamQqDetail ?? '[]')
+						: (replies.seamQq ?? '[]')
+					: u.includes('search.kuwo.cn') && u.includes('rn=10')
+						? (replies.seamKw ?? KW_MISS)
+						: undefined;
+		if (seamReply !== undefined) {
+			seamCalls.push(u);
+			if (seamReply === 'THROW') throw new Error('network down');
+			if (seamReply === 'NOTOK') return new Response('upstream error', { status: 500 });
+			return new Response(seamReply, { status: 200, headers: { 'content-type': 'application/json' } });
+		}
 		calls.push(u);
 		// quick-260809-38i: audioscrobbler joins the tier hosts so a Last.fm call is never mistaken for
 		// the image-bytes fetch (the catch-all branch below).
@@ -765,7 +800,7 @@ function stubRoute(replies: {
 		return new Response(JPEG_BODY, { status: 200, headers });
 	});
 	vi.stubGlobal('fetch', spy);
-	return { calls, spy };
+	return { calls, seamCalls, spy };
 }
 
 /** In-memory caches.default (the harness at deezer-endpoint.test.ts:279-347). */
@@ -1446,5 +1481,239 @@ describe('og-cover — candidate identity gate (quick-261102-covgate)', () => {
 		expect(out).toBe(DZ_COVER);
 		expect(calls).toHaveLength(2);
 		expect(calls[0]).toContain('audioscrobbler');
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// quick-261120-mediacard — THE SEAM STAGE (resolving a media card IS resolving a song)
+// ---------------------------------------------------------------------------------------------
+// LIVE probe facts these tests encode (2026-11-20, the reported links):
+//  - netease via the adapter's own Meting search: '茉ひる/Billy Choi ロストライン' resolves
+//    to the 《Cinema》 album art on p2.music.126.net (picId 109951173434200505) — where the
+//    text tier chain returned the branded fallback after ~2.9 s.
+//  - qq via tang search + detail: BIGBANG/LOSER's row carries song_mid 001ZZjxN31KF3S and
+//    NO cover; the detail's album_pic T002R500x500M000000i3NSP2L4How_1.jpg re-templates at
+//    800x800 (the cover chain's qq-tier shape).
+
+const SEAM_NE_PIC = 'https://p2.music.126.net/Rfv0AN4JGsg9pHWXSfsl8g==/109951173434200505.jpg';
+const SEAM_NE_HIT = JSON.stringify([
+	{ name: 'ロストライン', artist: '茉ひる/Billy Choi', pic: SEAM_NE_PIC }
+]);
+const SEAM_NE_REDIRECTOR = 'https://api.qijieya.cn/meting/?server=netease&type=pic&id=109951173434200505';
+const SEAM_NE_HIT_REDIRECTOR = JSON.stringify([
+	{ name: 'ロストライン', artist: '茉ひる/Billy Choi', pic: SEAM_NE_REDIRECTOR }
+]);
+const SEAM_NE_WRONG = JSON.stringify([{ name: '別の歌', artist: '別人', pic: SEAM_NE_PIC }]);
+const SEAM_QQ_SEARCH = JSON.stringify([
+	{ song_mid: '001ZZjxN31KF3S', song_title: 'LOSER', singer_name: 'BIGBANG' }
+]);
+const SEAM_QQ_DETAIL = JSON.stringify({
+	song_mid: '001ZZjxN31KF3S',
+	song_title: 'LOSER',
+	singer_name: 'BIGBANG',
+	album_pic: 'http://y.gtimg.cn/music/photo_new/T002R500x500M000000i3NSP2L4How_1.jpg'
+});
+const SEAM_QQ_DETAIL_WRONG = JSON.stringify({
+	song_mid: '001ZZjxN31KF3S',
+	song_title: 'LOSER',
+	singer_name: 'NOT BIGBANG',
+	album_pic: 'http://y.gtimg.cn/music/photo_new/T002R500x500M000000i3NSP2L4How_1.jpg'
+});
+const SEAM_QQ_COVER = 'https://y.gtimg.cn/music/photo_new/T002R800x800M000000i3NSP2L4How.jpg';
+const SEAM_KW_HIT = JSON.stringify({
+	abslist: [
+		{
+			MUSICRID: 'MUSIC_123456',
+			SONGNAME: 'LOSER',
+			ARTIST: 'BIGBANG',
+			web_albumpic_short: '120/s4s0/93/1794217775.jpg'
+		}
+	]
+});
+
+describe('og-cover — resolveCoverViaSeam, the single seam driven edge-side (quick-261120-mediacard)', () => {
+	it('netease: the fan-out returns the exact album cover for the reported song', async () => {
+		const { seamCalls } = stubRoute({ seamNe: SEAM_NE_HIT });
+		const out = await resolveCoverViaSeam('https://openmusic.lol', '茉ひる/Billy Choi', 'ロストライン', fresh());
+		expect(out).toBe(SEAM_NE_PIC);
+		// The Meting search is the netease adapter's own call, keyword = artist + title.
+		const meting = seamCalls.find((c) => c.includes('api.qijieya.cn/meting'));
+		expect(meting).toContain(encodeURIComponent('茉ひる/Billy Choi ロストライン'));
+	});
+
+	it('netease: a Meting pic REDIRECTOR cover (the gdnetease shape) is accepted in template form', async () => {
+		stubRoute({ seamNe: SEAM_NE_HIT_REDIRECTOR });
+		const out = await resolveCoverViaSeam('https://openmusic.lol', '茉ひる/Billy Choi', 'ロストライン', fresh());
+		expect(out).toBe(SEAM_NE_REDIRECTOR);
+	});
+
+	it('the crowd pick wins FIRST — a pick hit costs ONE subrequest and no fan-out', async () => {
+		const { seamCalls } = stubRoute({
+			pick: JSON.stringify({ ok: true, u: null, n: DZ_COVER }),
+			seamNe: SEAM_NE_HIT
+		});
+		const out = await resolveCoverViaSeam('https://openmusic.lol', '茉ひる/Billy Choi', 'ロストライン', fresh());
+		expect(out).toBe(DZ_COVER);
+		expect(seamCalls).toHaveLength(1);
+		expect(seamCalls[0]).toContain('/api/cover-pick');
+	});
+
+	it('qq: search rows carry no cover — the gated winner takes the detail hop to the T002R800x800 album cover', async () => {
+		const { seamCalls } = stubRoute({ seamQq: SEAM_QQ_SEARCH, seamQqDetail: SEAM_QQ_DETAIL });
+		const out = await resolveCoverViaSeam('https://openmusic.lol', 'BIGBANG', 'LOSER', fresh());
+		expect(out).toBe(SEAM_QQ_COVER);
+		expect(seamCalls.some((c) => c.includes('tang.api.s01s.cn') && c.includes('mid='))).toBe(true);
+	});
+
+	it('kuwo: a gated search row lends its albumpic', async () => {
+		stubRoute({ seamKw: SEAM_KW_HIT });
+		const out = await resolveCoverViaSeam('https://openmusic.lol', 'BIGBANG', 'LOSER', fresh());
+		expect(out).toBe(KW_PIC);
+	});
+
+	it('an identity MISMATCH in the fan-out → null (the seam gate, not a first-hit trust)', async () => {
+		stubRoute({ seamNe: SEAM_NE_WRONG });
+		const out = await resolveCoverViaSeam('https://openmusic.lol', '茉ひる/Billy Choi', 'ロストライン', fresh());
+		expect(out).toBeNull();
+	});
+
+	it('a qq DETAIL naming a different singer → null (the detail is gated too)', async () => {
+		stubRoute({ seamQq: SEAM_QQ_SEARCH, seamQqDetail: SEAM_QQ_DETAIL_WRONG });
+		const out = await resolveCoverViaSeam('https://openmusic.lol', 'BIGBANG', 'LOSER', fresh());
+		expect(out).toBeNull();
+	});
+
+	it('upstream faults → null, never a throw (THROW / NOTOK across the fan-out)', async () => {
+		stubRoute({ seamNe: 'THROW', seamQq: 'NOTOK', seamKw: 'THROW', pick: 'THROW' });
+		await expect(
+			resolveCoverViaSeam('https://openmusic.lol', 'BIGBANG', 'LOSER', fresh())
+		).resolves.toBeNull();
+	});
+});
+
+describe('/api/og — the seam stage serves the card before the tier chain (quick-261120-mediacard)', () => {
+	it('a seam hit streams the cover with ZERO tier calls (the reported netease song)', async () => {
+		const { calls } = stubRoute({ seamNe: SEAM_NE_HIT });
+		const res = await callGET(fakeEvent({ type: 'song', artist: '茉ひる/Billy Choi', title: 'ロストライン' }));
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toBe('image/jpeg');
+		expect(res.headers.get('x-og-fallback')).toBeNull();
+		expect(await res.text()).toBe(JPEG_BODY);
+		// The ONLY tier-side call is the image-bytes fetch of the seam's cover.
+		expect(calls).toEqual([SEAM_NE_PIC]);
+	});
+
+	it('a qq seam hit streams the re-templated 800x800 album cover end-to-end', async () => {
+		const { calls } = stubRoute({ seamQq: SEAM_QQ_SEARCH, seamQqDetail: SEAM_QQ_DETAIL });
+		const res = await callGET(fakeEvent({ type: 'song', artist: 'BIGBANG', title: 'LOSER' }));
+		expect(res.status).toBe(200);
+		expect(await res.text()).toBe(JPEG_BODY);
+		expect(calls).toEqual([SEAM_QQ_COVER]);
+	});
+
+	it('a seam MISS falls through to the tier chain unchanged', async () => {
+		const { calls } = stubRoute({ dz: DZ_HIT });
+		const res = await callGET(fakeEvent(SONG));
+		expect(res.status).toBe(200);
+		expect(await res.text()).toBe(JPEG_BODY);
+		expect(calls.filter((c) => c.includes('cdn-images.dzcdn.net'))[0]).toBe(DZ_COVER);
+	});
+
+	it('a seam hit WRITES the keyword-keyed resolve layer (its memo for the next crawl)', async () => {
+		const { putKeys } = stubCache();
+		stubRoute({ seamNe: SEAM_NE_HIT });
+		const res = await callGET(fakeEvent({ type: 'song', artist: '茉ひる/Billy Choi', title: 'ロストライン' }));
+		expect(res.status).toBe(200);
+		expect(putKeys.some((k) => k.includes('/api/og/_resolve'))).toBe(true);
+	});
+
+	it('LEGACY: a stale `&u=` on the query form is IGNORED — resolution is by keywords alone', async () => {
+		// The u names netease3396263335, but the cover must come from the KEYWORD seam
+		// (here: the qq fan-out for BIGBANG/LOSER) — the retired identity carrier selects
+		// nothing any more.
+		const { calls } = stubRoute({ seamQq: SEAM_QQ_SEARCH, seamQqDetail: SEAM_QQ_DETAIL });
+		const res = await callGET(
+			fakeEvent({ type: 'song', artist: 'BIGBANG', title: 'LOSER', u: 'netease3396263335' })
+		);
+		expect(res.status).toBe(200);
+		expect(calls).toEqual([SEAM_QQ_COVER]);
+	});
+
+	it('album cards do NOT run the song seam — the tier chain stays their primary path', async () => {
+		const { seamCalls } = stubRoute({ seamNe: SEAM_NE_HIT, dz: DZ_HIT });
+		const res = await callGET(fakeEvent({ type: 'album', artist: 'Nirvana', title: 'Nevermind' }));
+		expect(res.status).toBe(200);
+		expect(seamCalls).toHaveLength(0);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// quick-261120-mediacard — the PATH FORM: /api/og/[type]/[artist]/[[title]]
+// ---------------------------------------------------------------------------------------------
+import { GET as GET_PATH } from './[type]/[artist]/[[title]]/+server';
+
+function fakePathEvent(
+	params: { type: string; artist: string; title?: string },
+	env?: Record<string, string>
+) {
+	const url = new URL(
+		`https://openmusic.lol/api/og/${params.type}/${params.artist}${params.title ? `/${params.title}` : ''}`
+	);
+	return {
+		params,
+		url,
+		platform: env ? { env } : undefined,
+		request: new Request(url, { headers: { origin: 'https://openmusic.lol' } })
+	};
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const callGET_PATH = (event: ReturnType<typeof fakePathEvent>) => GET_PATH(event as any);
+
+describe('/api/og path form — one handler, two spellings (quick-261120-mediacard)', () => {
+	it('a song path resolves through the SAME seam and streams the qq album cover', async () => {
+		const { calls } = stubRoute({ seamQq: SEAM_QQ_SEARCH, seamQqDetail: SEAM_QQ_DETAIL });
+		const res = await callGET_PATH(fakePathEvent({ type: 'song', artist: 'BIGBANG', title: 'LOSER' }));
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toBe('image/jpeg');
+		expect(res.headers.get('Cache-Control')).toBe('public, max-age=86400, immutable');
+		expect(await res.text()).toBe(JPEG_BODY);
+		expect(calls).toEqual([SEAM_QQ_COVER]);
+	});
+
+	it('path and query spellings answer IDENTICALLY for the same keywords', async () => {
+		stubRoute({ seamQq: SEAM_QQ_SEARCH, seamQqDetail: SEAM_QQ_DETAIL });
+		const viaPath = await callGET_PATH(fakePathEvent({ type: 'song', artist: 'BIGBANG', title: 'LOSER' }));
+		const viaQuery = await callGET(fakeEvent({ type: 'song', artist: 'BIGBANG', title: 'LOSER' }));
+		expect(viaPath.status).toBe(viaQuery.status);
+		expect(viaPath.headers.get('content-type')).toBe(viaQuery.headers.get('content-type'));
+		expect(await viaPath.text()).toBe(await viaQuery.text());
+	});
+
+	it('the artist form has NO title segment and still resolves (tier chain, artist picture)', async () => {
+		const { calls } = stubRoute({ dz: DZ_HIT });
+		const res = await callGET_PATH(fakePathEvent({ type: 'artist', artist: 'Nirvana' }));
+		expect(res.status).toBe(200);
+		expect(calls.filter((c) => c.includes('cdn-images.dzcdn.net'))[0]).toBe(DZ_PICTURE);
+	});
+
+	it('the hyphen-for-space loss is reversed before resolving (SvelteKit-decoded params)', async () => {
+		// SvelteKit hands the route the decoded segment '茉ひる/Billy-Choi' for the emitted
+		// segment of artist '茉ひる/Billy Choi' — the route's decodePathSegment restores the
+		// space, so the seam searches the true credited name.
+		const { seamCalls } = stubRoute({ seamNe: SEAM_NE_HIT });
+		const res = await callGET_PATH(
+			fakePathEvent({ type: 'song', artist: '茉ひる/Billy-Choi', title: 'ロストライン' })
+		);
+		expect(res.status).toBe(200);
+		const meting = seamCalls.find((c) => c.includes('api.qijieya.cn/meting'));
+		expect(meting).toContain(encodeURIComponent('茉ひる/Billy Choi ロストライン'));
+	});
+
+	it('an unknown type segment is COERCED to song, never a 404', async () => {
+		stubRoute({ seamQq: SEAM_QQ_SEARCH, seamQqDetail: SEAM_QQ_DETAIL });
+		const res = await callGET_PATH(fakePathEvent({ type: 'banana', artist: 'BIGBANG', title: 'LOSER' }));
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toBe('image/jpeg');
 	});
 });

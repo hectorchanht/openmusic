@@ -24,6 +24,14 @@
 // a template whose scheme, host and path shape are literals in our own source. No `ci` (or one the
 // edge rejects) → exactly today's carrier-free behaviour.
 //
+// quick-261120-mediacard — SUPERSESSION (Hector 2026-11-20, keyword-only ruling): NO carrier is
+// echoed into og:image any more. The og:image URL is the PATH FORM `/api/og/song/{artist}/{title}`
+// (ogImageUrl) — keywords only, built purely from the path segments, exactly as pre-carrier.
+// The `u` / `ci` values this loader still RETURNS below are a different thing: RECEPTION compat
+// for share links already sent (they ride the /song URL itself, not the og:image URL) — the
+// page component's arrival resolve and hero fast-path consume them. Emission of both carriers
+// stopped at quick-261120-mediacard; see share.ts songShareUrl.
+//
 // params.artist/params.title are ALREADY decodeURIComponent'd by SvelteKit (decode_params,
 // utils/routing.js) — decoding again throws URIError on a literal '%' (a live 500 on the legacy
 // /album/{name} route today, Pitfall 1). decodePathSegment only reverses the '-'-for-space
@@ -48,13 +56,17 @@ export const load: PageLoad = ({ params, url }) => {
 	// it stays crawler-valid from ANY deploy origin.
 	const og = {
 		...buildOg({ title: title || 'openmusic', artist: artist || undefined, type: 'music.song' }),
-		// quick-260809-3uo: `ci` is OPAQUE here — no parsing, no validation beyond ogImageUrl's cap.
-		image: ogImageUrl(url.origin, 'song', artist, title, url.searchParams.get('ci') ?? '')
+		// quick-261120-mediacard: PATH-FORM og:image, keywords only — no carrier echo (see header).
+		image: ogImageUrl(url.origin, 'song', artist, title)
 	};
 
 	// Same page-data contract as song/[slug] so the page component is a near-copy, plus the 38-D-08
 	// song-identity carrier `u` (`{source}{songid}` — the recipient does ONE direct detail resolve
 	// instead of a name search, and hears the same version the sender did).
+	//
+	// LEGACY COMPAT (quick-261120-mediacard): `u` / `ci` are no longer EMITTED by songShareUrl,
+	// but links already sitting in chats carry them, and this echo is how those links keep their
+	// fast paths. Do not delete while such links can still arrive.
 	//
 	// 38-D-08: `u` is echoed OPAQUE — NO parse and NO validation happens here. The closed source-enum
 	// gate is `parseEntityParam`, which runs CLIENT-side inside share-arrival (T-38-01), so this

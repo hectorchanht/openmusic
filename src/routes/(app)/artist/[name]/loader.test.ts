@@ -58,7 +58,7 @@ describe('artist/[name] loader — legacy ?c=&dn= carriers', () => {
 
 	it('ignores a non-https `c` carrier and falls back to the /api/og card', () => {
 		const out = run('Nirvana', '?c=http%3A%2F%2Fevil.example%2Fx.jpg');
-		expect(out.og.image).toBe('https://openmusic.lol/api/og?type=artist&artist=Nirvana');
+		expect(out.og.image).toBe('https://openmusic.lol/api/og/artist/Nirvana');
 	});
 });
 
@@ -72,13 +72,13 @@ describe('artist/[name] loader — carrier-free shape', () => {
 
 	it('points og:image at the own-origin /api/og artist card on the REQUEST origin', () => {
 		expect(run('Nirvana').og.image).toBe(
-			'https://openmusic.lol/api/og?type=artist&artist=Nirvana'
+			'https://openmusic.lol/api/og/artist/Nirvana'
 		);
 	});
 
 	it('keeps og:image on an http dev origin (own-origin URL, NOT isHttpsUrl-gated)', () => {
 		const out = run('Nirvana', '', 'http://localhost:5173');
-		expect(out.og.image).toBe('http://localhost:5173/api/og?type=artist&artist=Nirvana');
+		expect(out.og.image).toBe('http://localhost:5173/api/og/artist/Nirvana');
 	});
 
 	it('emits the profile card type', () => {

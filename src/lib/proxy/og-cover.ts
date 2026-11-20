@@ -7,8 +7,11 @@
 // unit-testable at all, and it keeps src/routes/api/og/+server.ts verb-only.
 //
 // WHAT IT IS FOR: a share link now carries NO cover (`?c=` is gone — the whole point of phase 30),
-// so `og:image` points at our own `/api/og?type=&artist=&title=` and the cover is re-resolved
-// server-side from TEXT. A crawler is waiting on that request, so the chain is bounded hard:
+// so `og:image` points at our own /api/og card (path form `/api/og/song/{artist}/{title}` since
+// quick-261120-mediacard; the query spelling survives as legacy compat) and the cover is
+// re-resolved server-side from the KEYWORDS — SONG cards through the seam stage first
+// (resolveCoverViaSeam below), this tier chain as the fallback. A crawler is waiting on that
+// request, so every stage is bounded hard:
 //
 // quick-260809-3uo — AMENDMENT to the paragraph above (it is no longer the whole story; the OG-EP-01
 // decision ref stays, it records why the URL carrier left). A share link MAY now carry ONE optional
@@ -78,13 +81,20 @@ import { fetchWithRetry } from '$lib/proxy/http';
 import {
 	safeImageUrl,
 	APPLE_IMAGE_HOSTS,
+	COVER_PICK_IMAGE_HOSTS,
 	KUWO_IMAGE_HOSTS,
-	LASTFM_IMAGE_HOSTS
+	LASTFM_IMAGE_HOSTS,
+	NETEASE_IMAGE_HOSTS,
+	QQ_IMAGE_HOSTS
 } from '$lib/proxy/safe-image-url';
 import { buildKuwoSearchUrl, mapSearch } from '$lib/proxy/kuwo';
+import { qqProxy } from '$lib/proxy/qq';
 import { buildItunesSearchUrl, upgradeArtwork } from '$lib/services/itunes-cover';
-import { isChineseLine, foldScriptReady } from '$lib/services/zh-convert';
+import { ensureFoldReady, isChineseLine, foldScriptReady } from '$lib/services/zh-convert';
 import { isCoverOf } from '$lib/services/song-variant';
+import { COVER_ORDER } from '$lib/sources/source-order';
+import { coverPickKeys } from '$lib/services/cover-pick-shared';
+import { scoreMatch } from '$lib/services/score-match';
 
 /** The closed set of card kinds /api/og understands. */
 export const OG_TYPES = ['song', 'album', 'artist'] as const;
@@ -199,6 +209,23 @@ export function safeLastfmImageUrl(raw: string | null | undefined): string | nul
 	return safeImageUrl(raw, LASTFM_IMAGE_HOSTS);
 }
 
+/**
+ * quick-261120-mediacard: validate a NETEASE cover URL — the seam stage's own allow-list
+ * (T-wv8-05 discipline: a netease body must never smuggle another host past its check).
+ * Hosts are the p1–p4.music.126.net shards the album picUrl lives on. Never throws.
+ */
+export function safeNeteaseImageUrl(raw: string | null | undefined): string | null {
+	return safeImageUrl(raw, NETEASE_IMAGE_HOSTS);
+}
+
+/**
+ * quick-261120-mediacard: validate a QQ cover URL — the seam stage's own allow-list.
+ * y.gtimg.cn EXACT (the tang detail's album_pic host and the T002 template host). Never throws.
+ */
+export function safeQqImageUrl(raw: string | null | undefined): string | null {
+	return safeImageUrl(raw, QQ_IMAGE_HOSTS);
+}
+
 // =============================================================================================
 // quick-260809-3uo — the `ci` COVER-ID TOKEN: closed tag set → fixed template → own allow-list
 // =============================================================================================
@@ -309,10 +336,11 @@ const ITUNES_ID_RE = /^[0-9]{1,12}$/;
  * NEVER THROWS for any input — null is the only failure mode, and /api/og treats null as "no
  * carrier" and falls through to the ordinary tier chain.
  *
- * ANTI-DRIFT: `coverToken` in $lib/services/share is the INVERSE of this function and the two MUST
- * agree. They are deliberately NOT imported into each other (client/edge split — this module pulls
- * in proxy code). What pins them is the both-directions round-trip test in
- * src/lib/services/share.test.ts ('coverToken ⇄ coverUrlFromToken'). Edit one, run that.
+ * LEGACY COMPAT (quick-261120-mediacard): the client half of this grammar (`coverToken` in
+ * $lib/services/share) is DELETED — share links stopped EMITTING `?ci=` under Hector's
+ * keyword-only ruling. This RECEPTION half stays: og:image URLs and share links already sent
+ * with a `ci` token must keep resolving. Do not delete while such links can still arrive;
+ * do not re-add emission.
  */
 export async function coverUrlFromToken(token: string | null | undefined): Promise<string | null> {
 	if (!token || typeof token !== 'string') return null;
@@ -371,6 +399,311 @@ async function itunesArtworkById(id: string): Promise<string | null> {
 		const art = Array.isArray(body?.results) ? body.results[0]?.artworkUrl100 : null;
 		if (!art) return null;
 		return safeItunesImageUrl(upgradeArtwork(art, OG_ARTWORK_SIZE));
+	} catch {
+		return null;
+	}
+}
+
+// =============================================================================================
+// quick-261120-mediacard — THE SEAM STAGE: resolving a media card IS resolving a song
+// =============================================================================================
+//
+// HECTOR'S DOCTRINE (2026-11-20): "Resolving a media card is same as song" — the card cover
+// must come from the system's ONE song-resolver seam, not from a card-local chain. The seam
+// (share-arrival's path) resolves a name through resolveStub (discovery.ts: searchAll fan-out
+// → dedupeBest/rankPool under the isAutoAcceptable gate + scoreMatch) and fills a missing
+// cover through the shared cover chain (cover-backfill.ts resolveTrackChain: crowd pick →
+// iTunes → CN fan-out under COVER_ORDER + the isCoverOf gate → qq detail → Deezer → YTM) —
+// the best version, by the original singer, with its true album cover.
+//
+// WHY THE SEAM IS DRIVEN, NOT IMPORTED (investigated 2026-11-20 — do not re-litigate):
+// catalog.ts / discovery.ts / cover-backfill.ts cannot execute in this server context.
+//  1. Every adapter fetch rides apiFetch ($lib/services/api-base), which on the web build
+//     returns RELATIVE `/api/...` URLs (apiUrl passes the path through when VITE_API_BASE is
+//     unset) — workerd's global fetch rejects relative URLs, so the fan-out's relative-path
+//     sources (qq / kuwo / joox search + detail) can never run here. There is no injection
+//     seam either: the adapters call the module singleton directly.
+//  2. The import graph drags the client world into the route — runes stores
+//     (settings.svelte / actionLog.svelte), the localStorage cover cache — and the repo's
+//     SSR contract (share-arrival.ts's header) forbids importing that graph from a +server.ts.
+// So this stage DRIVES the seam's own calls through the existing proxy dispatch layer — the
+// SAME builders the /api/[source] routes wrap (qqProxy, buildKuwoSearchUrl/mapSearch, the
+// netease adapter's Meting search template) and the SAME /api/cover-pick endpoint the cover
+// chain's crowd layer reads — and selects with the seam's OWN shared helpers: isCoverOf (the
+// cover identity gate, via ogIdentityMatches), COVER_ORDER (the CN-tier source order) and
+// scoreMatch (resolveStub's re-rank). No new upstream template is invented; every call below
+// names the adapter call it replays. (Self-origin HTTP to /api/[source] was the alternative;
+// the kuwoTier below already documents why this module fetches upstreams through the builders
+// instead — a self-hop doubles subrequests and re-enters the Worker.)
+//
+// SHAPE: keyword-only. The share URL carries no identity any more (Hector's keyword-only
+// ruling retired `?u=` / `?ci=` emission the same day), so the stage takes {artist, title} —
+// exactly what resolveStub takes. In the handler it runs AFTER the resolve cache and the
+// legacy `ci` carrier, BEFORE the text tier chain (demoted to fallback-only), and a HIT is
+// written to the keyword-keyed resolve cache like any tier hit.
+//
+// SOURCES: the seam's tier-1 CN set that can yield a cover from a name — netease (Meting
+// search rows carry the pic), kuwo (search rows carry the albumpic), qq (search rows carry
+// NO cover by design, so the gated winner takes the cover chain's qq detail hop). joox is
+// excluded with cause: its search rows also map cover:null (sources/joox.ts) and its detail
+// is POSITIONAL (msg + row index, not name-keyed), so it cannot contribute a name-resolved
+// cover. iTunes / Deezer / YTM are NOT replayed here — the tier chain below already resolves
+// them from the same text, and duplicating those tiers would be a second chain, not the seam.
+
+/** One seam search row reduced to what selection needs. `mid` is qq's detail key. */
+interface SeamCandidate {
+	source: 'netease' | 'qq' | 'kuwo';
+	artist: string;
+	title: string;
+	cover: string | null;
+	mid?: string;
+}
+
+/**
+ * Validate a netease seam cover: either a direct album picUrl on the 126.net shards
+ * (safeNeteaseImageUrl), or the Meting pic redirector the adapters themselves emit as a
+ * cover (sources/gdnetease.ts coverUrl) — accepted ONLY in its exact template shape
+ * (host + path + server/type/id params, digits-only id), never as a free-form URL.
+ */
+function safeMetingPicUrl(raw: string | null | undefined): string | null {
+	const direct = safeNeteaseImageUrl(raw);
+	if (direct) return direct;
+	if (!raw) return null;
+	try {
+		const u = new URL(raw);
+		if (u.protocol !== 'https:' || u.hostname !== 'api.qijieya.cn' || u.pathname !== '/meting/')
+			return null;
+		if (u.searchParams.get('server') !== 'netease' || u.searchParams.get('type') !== 'pic')
+			return null;
+		if (!/^[0-9]+$/.test(u.searchParams.get('id') ?? '')) return null;
+		return raw;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * The crowd layer of the shared cover chain, read through its own endpoint. Keys come from
+ * coverPickKeys — the chain's own builder (NAME key only: a keyword card has no uid) — and
+ * the returned cover is re-screened through the pick allow-list exactly as fetchCoverPick
+ * screens it client-side (cover-pick-shared.ts). One subrequest; never throws.
+ */
+async function crowdPickCover(
+	origin: string,
+	artist: string,
+	title: string,
+	signal: AbortSignal
+): Promise<string | null> {
+	if (!origin) return null;
+	try {
+		const keys = await coverPickKeys('', artist, title);
+		if (!keys?.n) return null;
+		// RAW fetch (not apiFetch — fetch→apiFetch audit): edge-side fetch of an absolute
+		// own-origin URL. apiFetch is the CLIENT seam and must never run edge-side.
+		const res = await fetchWithRetry(
+			`${origin}/api/cover-pick?n=${encodeURIComponent(keys.n)}`,
+			{ signal },
+			0
+		);
+		if (!res.ok) return null;
+		const body = (await res.json()) as { n?: unknown } | null;
+		return safeImageUrl(typeof body?.n === 'string' ? body.n : null, COVER_PICK_IMAGE_HOSTS);
+	} catch {
+		return null;
+	}
+}
+
+/** netease rows — replays the netease adapter's own search (sources/netease.ts): the Meting
+ *  pipe it hits browser-direct; /api/netease is the retained non-browser dispatch of the same
+ *  template. Rows: { name, artist, pic } with pic the album art (see safeMetingPicUrl). */
+async function neteaseSeamRows(keyword: string, signal: AbortSignal): Promise<SeamCandidate[]> {
+	try {
+		const upstream =
+			`https://api.qijieya.cn/meting/?server=netease&type=search&id=${encodeURIComponent(keyword)}` +
+			`&limit=10`;
+		// RAW fetch (not apiFetch — fetch→apiFetch audit): edge-side fetch of an absolute upstream.
+		const res = await fetchWithRetry(upstream, { signal }, 0);
+		if (!res.ok) return [];
+		const body = (await res.json()) as { name?: string; artist?: string; pic?: string }[] | null;
+		if (!Array.isArray(body)) return [];
+		return body.map((r) => ({
+			source: 'netease' as const,
+			artist: (r.artist ?? '').trim(),
+			title: (r.name ?? '').trim(),
+			cover: safeMetingPicUrl(r.pic ?? null)
+		}));
+	} catch {
+		return [];
+	}
+}
+
+/** qq rows — replays the qq adapter's search through qqProxy (the /api/qq/search dispatch
+ *  core). Body is the tang list: a bare array or { data: [...] } (sources/qq.ts). Rows carry
+ *  NO cover by design — `mid` is kept for the detail hop. */
+async function qqSeamRows(keyword: string, signal: AbortSignal): Promise<SeamCandidate[]> {
+	try {
+		const upstream = qqProxy.buildUrl('search', new URLSearchParams({ msg: keyword }), undefined);
+		// RAW fetch (not apiFetch — fetch→apiFetch audit): edge-side fetch of an absolute upstream.
+		const res = await fetchWithRetry(upstream, { signal }, 0);
+		if (!res.ok) return [];
+		const body = (await res.json()) as unknown;
+		const list = Array.isArray(body)
+			? body
+			: Array.isArray((body as { data?: unknown })?.data)
+				? (body as { data: unknown[] }).data
+				: [];
+		return (list as { song_mid?: string; song_title?: string; singer_name?: string }[])
+			.filter((r) => !!r?.song_mid)
+			.map((r) => ({
+				source: 'qq' as const,
+				artist: (r.singer_name ?? '').trim(),
+				title: (r.song_title ?? '').trim(),
+				cover: null,
+				mid: String(r.song_mid)
+			}));
+	} catch {
+		return [];
+	}
+}
+
+/** kuwo rows — the shared search builder + mapper, the kuwoTier's own calls, at seam depth
+ *  (10 rows: the gate needs a pool, not a first hit). pic is the row's albumpic. */
+async function kuwoSeamRows(keyword: string, signal: AbortSignal): Promise<SeamCandidate[]> {
+	try {
+		// RAW fetch (not apiFetch — fetch→apiFetch audit): edge-side fetch of the upstream kuwo API.
+		const res = await fetchWithRetry(buildKuwoSearchUrl(keyword, 10, 1), { signal }, 0);
+		if (!res.ok) return [];
+		const rows = mapSearch(await res.json());
+		if (!rows) return [];
+		return rows.map((r) => ({
+			source: 'kuwo' as const,
+			artist: r.artist,
+			title: r.name,
+			cover: safeKuwoImageUrl(r.pic)
+		}));
+	} catch {
+		return [];
+	}
+}
+
+/** The album mid inside a tang album_pic filename: `T002R500x500M000<albumMid>[_n].jpg`. */
+const QQ_ALBUM_MID_RE = /T002R[0-9]+x[0-9]+M000([A-Za-z0-9]+)/;
+
+/**
+ * The qq card cover from a tang album_pic: re-template the embedded album mid at 800x800 when
+ * the filename parses (the size class QQ's own CDN serves for every album); otherwise the
+ * detail pic itself, https-upgraded (32-D-05 — the qq adapter's own boundary rule). Either
+ * way the result re-enters through safeQqImageUrl.
+ */
+function qqAlbumCover(albumPic: string | null | undefined): string | null {
+	if (!albumPic) return null;
+	const httpsPic = albumPic.replace(/^http:\/\//i, 'https://');
+	const mid = QQ_ALBUM_MID_RE.exec(httpsPic)?.[1];
+	if (mid) return safeQqImageUrl(`https://y.gtimg.cn/music/photo_new/T002R800x800M000${mid}.jpg`);
+	return safeQqImageUrl(httpsPic);
+}
+
+/** The cover chain's qq detail hop (cover-backfill qqSongCover's second half), replayed
+ *  through qqProxy — the /api/qq/detail dispatch core. Liveness = `song_mid` present AND
+ *  echoing the requested mid (tang answers an unknown mid with a 200 all-null body —
+ *  sources/qq.ts's discriminator). One subrequest; never throws. */
+async function qqDetailByMid(
+	mid: string,
+	signal: AbortSignal
+): Promise<{ artist: string; title: string; cover: string | null } | null> {
+	try {
+		const upstream = qqProxy.buildUrl('detail', new URLSearchParams({ mid }), undefined);
+		// RAW fetch (not apiFetch — fetch→apiFetch audit): edge-side fetch of an absolute upstream.
+		const res = await fetchWithRetry(upstream, { signal }, 0);
+		if (!res.ok) return null;
+		const d = (await res.json()) as {
+			song_mid?: string | null;
+			song_title?: string | null;
+			song_name?: string | null;
+			singer_name?: string | null;
+			album_pic?: string | null;
+		} | null;
+		if (!d || typeof d !== 'object' || !d.song_mid || String(d.song_mid) !== mid) return null;
+		return {
+			artist: (d.singer_name ?? '').trim(),
+			title: (d.song_title ?? d.song_name ?? '').trim(),
+			cover: qqAlbumCover(d.album_pic)
+		};
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Resolve a share card's cover through the system's single song-resolver seam
+ * (quick-261120-mediacard — see the section header for why it is driven, not imported).
+ * `origin` is the request's own origin (the crowd-pick dispatch base). Returns the validated
+ * cover URL or null; the handler treats null as "seam miss" and falls through to the tier
+ * chain. NEVER throws.
+ */
+export async function resolveCoverViaSeam(
+	origin: string,
+	artist: string,
+	title: string,
+	signal: AbortSignal
+): Promise<string | null> {
+	try {
+		if (!`${artist}${title}`.trim() || signal.aborted) return null;
+		// isCoverOf compares script-folded identity keys — never gate cold.
+		await ensureFoldReady();
+
+		// Stage 1 — the cover chain's crowd layer.
+		const crowd = await crowdPickCover(origin, artist, title, signal);
+		if (crowd) return crowd;
+		if (signal.aborted) return null;
+
+		// Stage 2 — resolveStub's search fan-out, replayed through the dispatch builders on
+		// the cover chain's folded search terms (coverSearchTerms: the CN catalogs index the
+		// Simplified fold, so the seam searches folded while identity stays the caller's).
+		const qArtist = await foldScriptReady(artist);
+		const qTitle = await foldScriptReady(title);
+		const keyword = `${qArtist} ${qTitle}`.trim();
+		if (!keyword) return null;
+		const rows = (
+			await Promise.all([
+				neteaseSeamRows(keyword, signal),
+				qqSeamRows(keyword, signal),
+				kuwoSeamRows(keyword, signal)
+			])
+		).flat();
+		if (signal.aborted) return null;
+
+		// THE seam's own identity gate — the same predicate every in-app cover rung asks.
+		const wants: readonly OgIdentity[] = [{ artist, title }];
+		const gated = rows.filter((r) => ogIdentityMatches(wants, r.artist, r.title));
+		// resolveStub's re-rank, applied within a source's gated pool.
+		const query = { artist, title };
+		const best = (list: SeamCandidate[]): SeamCandidate | null =>
+			list.reduce<SeamCandidate | null>(
+				(acc, r) => (acc === null || scoreMatch(query, r) > scoreMatch(query, acc) ? r : acc),
+				null
+			);
+
+		// Stage 3a — a cover the resolved song already carries, in the cover chain's CN
+		// source order (COVER_ORDER; joox/migu carry none at search, so netease precedes kuwo).
+		for (const src of COVER_ORDER) {
+			const hit = best(gated.filter((r) => r.source === src && r.cover));
+			if (hit?.cover) return hit.cover;
+		}
+
+		// Stage 3b — the cover chain's qq tier: the gated qq winner's detail album_pic,
+		// itself identity-gated (a detail naming NEITHER field is drift, not a candidate).
+		const qqRow = best(gated.filter((r) => r.source === 'qq' && r.mid));
+		if (qqRow?.mid) {
+			const detail = await qqDetailByMid(qqRow.mid, signal);
+			if (
+				detail?.cover &&
+				(detail.title || detail.artist) &&
+				ogIdentityMatches(wants, detail.artist, detail.title)
+			)
+				return detail.cover;
+		}
+		return null;
 	} catch {
 		return null;
 	}

@@ -73,7 +73,7 @@
 	import { syncFileTags } from '$lib/services/file-tag-sync';
 	import type { RetagEntry } from '$lib/services/retag';
 	import { browser } from '$app/environment';
-	import { songShareUrl, coverToken, encodePathSegment } from '$lib/services/share';
+	import { songShareUrl, encodePathSegment } from '$lib/services/share';
 	// quick-260809-3uo: the share card now carries the cover the user is looking at — read from the
 	// SAME shared reactive cache every other surface reads, plus the retained iTunes id.
 	import { readCoverByUidOrName, readChosenCover, pinCover } from '$lib/stores/cover-version.svelte';
@@ -81,10 +81,7 @@
 	import { coverPickKeys, submitCoverPick } from '$lib/services/cover-pick-shared';
 	// quick-260915-w4f: the ENUMERATE-ALL cover collector. Imported for the picker only — it runs
 	// alongside resolveTrackChain, never inside it, and fires ONLY on the Change-cover tap (Q1).
-	// quick-260920-l82: the share-card carrier chain now lives beside the display chain in
-	// cover-backfill.ts — this component no longer calls a cover tier directly (CLAUDE.md "Shared
-	// Primitives — import these, never re-inline them"). `resolveShareCover` also owns the session memo.
-	import { collectCoverCandidates, resolveShareCover, type CoverCandidate } from '$lib/services/cover-backfill';
+	import { collectCoverCandidates, type CoverCandidate } from '$lib/services/cover-backfill';
 	// quick-261006-o9u: picker tiles are ~120px — render the 200px variant of each candidate.
 	// The PIN keeps the full candidate URL (c.url); only the <img> src is downsized.
 	import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
@@ -95,7 +92,6 @@
 	// quick-261021-menu7: lyric-offset imports moved to LyricsTimingToggle.svelte (shared component).
 	import { parseLyrics } from '$lib/stores/lyric-script.svelte';
 	import { combinedSignal } from '$lib/services/abort-signal';
-	import { recallItunesId } from '$lib/services/itunes-cover';
 	import { isDeviceUid } from '$lib/services/device-track';
 	import { excludeUid } from '$lib/services/import-exclusions';
 	import type { Track } from '$lib/sources/types';
@@ -716,71 +712,6 @@
 			: null
 	);
 
-	// quick-260920-kn4 — THE SHARE-CARD COVER FALLBACK (share card only; displayed art untouched).
-	//
-	// ROOT CAUSE. quick-260919-0mw put YouTube Music at the FRONT of resolveTrackChain, so
-	// `activeCover` above is now usually a lh3.googleusercontent.com / i.ytimg.com URL. `coverToken`
-	// is a CLOSED grammar (d: Deezer · l: Last.fm · k: kuwo · i: iTunes-by-id) and returns null for
-	// those hosts, so `songShareUrl` emits no `?ci=` at all, /api/og re-resolves from artist+title
-	// TEXT, and on a miss serves the branded OpenMusic fallback. The carrier grammar was simply never
-	// revisited when the tier order changed.
-	//
-	// REJECTED: adding googleusercontent/ytimg to the grammar. Their artwork URLs are opaque
-	// irregular paths with `=w120-h120-s-l90-rj` suffixes — nothing structural to close a grammar
-	// over (the same reason iTunes is carried by ID, not by path). It would also WIDEN the set of
-	// hosts /api/og fetches, which T-3uo-02 forbids.
-	//
-	// SO: while the menu is open, PREWARM a carriable cover for the same song via `resolveShareCover`
-	// (cover-backfill.ts — iTunes, then Deezer on a miss). Its iTunes tier runs `fetchTopArtwork →
-	// rememberItunesId`, which retains the numeric id against that URL, so `recallItunesId` in doShare
-	// yields it and `coverToken` emits `i:<id>`. quick-260920-l82: the DEEZER tier is new and closes
-	// kn4's residual gap — a song iTunes does not carry now yields `d:<32hex>` rather than the branded
-	// card. It is a PREWARM and not an await in
-	// doShare because navigator.share() must run synchronously inside the user gesture on iOS Safari.
-	let shareCoverFallback = $state<string | null>(null);
-	$effect(() => {
-		// Tracked deps, read up-front and kept to exactly {open, track, activeCover}.
-		const target = track;
-		const cover = activeCover;
-		if (!open || !target) {
-			shareCoverFallback = null;
-			return;
-		}
-		// NEVER override a working carrier: if the cover the user is looking at already tokenizes
-		// (Deezer / Last.fm / kuwo / iTunes-with-id), the link is byte-identical to before and no
-		// request is made at all. recallItunesId is a sync localStorage read, not reactive.
-		if (coverToken(cover, recallItunesId(cover)) !== null) {
-			shareCoverFallback = null;
-			return;
-		}
-		// quick-260920-l82: no memo branch here any more — memoisation lives inside resolveShareCover.
-		// A memo hit therefore lands one microtask later instead of synchronously; doShare reads
-		// `shareCoverFallback` on a later user tap, so the ordering is unaffected.
-		const ac = new AbortController();
-		// The whole `target` Track is passed, so the RAW target.artist / target.title travel inside it,
-		// NOT the display-language names.dn* strings — same rule as activeCover's cache lookup above:
-		// the iTunes/Deezer search term must be the catalog metadata.
-		// combinedSignal is the shared primitive (never hand-roll a second timeout); 8 s is the
-		// ceiling because this is a background nicety behind a menu the user may close at any moment —
-		// long enough for a slow mobile round-trip, short enough that a hung request cannot outlive
-		// the session's interest in it.
-		// untrack for the same reason the sibling effects give: resolveShareCover's iTunes tier reads
-		// and writes the `itunes:` id family of the cover cache and Deezer's ttl-cache reads
-		// localStorage — those reads would otherwise re-invalidate this effect (the restore-effect
-		// self-invalidation loop).
-		untrack(() => resolveShareCover(target, combinedSignal(8_000, ac.signal))).then((url) => {
-			// Drop a late result for a song the user has already navigated past — exactly like the
-			// localProbe effect below. No stale cover is ever carried for the wrong song.
-			if (ac.signal.aborted || track?.uid !== target.uid) return;
-			if (url) shareCoverFallback = url;
-		});
-		// 🔴 The no-cache-write prohibition now lives with the chain: resolveShareCover writes NEITHER
-		// cover-cache layer, pinned by its "NO cover-cache write on a hit" test in cover-backfill.test.ts.
-		// This component must still never call writeCoverBoth here — `activeCover` reads
-		// readCoverByUidOrName, so a write would flip the art the app DISPLAYS on every list row and
-		// on the hero. The fallback lives in this $state and the service-level memo, nowhere else.
-		return () => ac.abort();
-	});
 
 	// MENU-01 (D-02/D-03): per-action in-flight set drives the inline row spinners. A gated
 	// action (Download / Detail / Remix) is tappable on a STUB — tapping kicks off the resolve,
@@ -1556,15 +1487,6 @@
 
 	async function doShare() {
 		if (!track) return;
-		// quick-260920-kn4 — read the carried cover BEFORE onclose(). `onclose()` flips `open` to
-		// false in the parent, which makes the prewarm effect above reset `shareCoverFallback` to
-		// null. Effects flush after this synchronous handler in Svelte 5, so today the order is
-		// already safe — reading first makes it correct regardless of flush timing.
-		//
-		// The fallback is the resolveShareCover prewarm result (iTunes, else Deezer), used ONLY when the displayed cover could not be
-		// tokenized (see the effect above for why YTM hosts cannot be). It never overrides a working
-		// carrier, so links for Deezer/Last.fm/kuwo/iTunes covers are unchanged.
-		const shareCover = shareCoverFallback ?? activeCover;
 		onclose();
 		// SHARE-02 / DQ-1 / DQ-4 / OG-PATH-02 (quick-260614-1w3, supersedes D-04/D-06 for the SONG
 		// surface): build the SHORT readable link `/song/{artist}/{title}` — CARRIER-FREE (no `?` at
@@ -1601,30 +1523,12 @@
 		// non-Latin artist skips the wa7 rescue); the pair gives /song/周杰倫/珊瑚海.
 		const dTitle = names.dnTitle(track.title, track.artist);
 		const dArtist = names.dnArtist(track.artist);
-		// quick-260809-3uo — CARRY THE COVER THE USER IS ACTUALLY LOOKING AT.
-		//
-		// WHY at all: /api/og re-resolves the card cover server-side from artist+title TEXT, through a
-		// chain that is independent of the client's. So a song the app is visibly showing art for could
-		// still unfurl a BLANK card — reported for 你瞞我瞞 / 陳柏宇, whose in-app cover comes from the
-		// client's iTunes tier (Quinquennium). Adding more server tiers is whack-a-mole; the client
-		// already knows the answer right here. What travels is a SHORT COVER ID, never a URL (see
-		// coverToken), so no sharer-supplied host or path can reach /api/og's fetcher.
-		//
-		// Precedence, widest-authority first: the hero's own cover when this IS the playing song, then
-		// the SAME shared cache every list row reads (so sharing from a row matches the row), then the
-		// stub's art.
-		//
-		// 🔴 The cache lookup MUST use the RAW track.artist / track.title, NOT dArtist / dTitle. The
-		// name layer is matchKey'd on the raw CATALOG metadata; passing the display-language strings
-		// (quick-260808-urx converts them — zh-Hant 夢伴 for catalog 梦伴) would miss the cache for
-		// exactly the users the display conversion exists for.
-		// An uncovered-tier cover (netease / qq / joox) simply yields no token and no regression — the
-		// carrier is advisory, and the card falls back to the server tier chain exactly as today. The
-		// iTunes id is recalled HERE because coverToken is pure: a store/storage never flows into a
-		// pure service (CLAUDE.md), so the component does the lookup and passes the value in.
-		// 38-D-08: the 4th arg is the song IDENTITY (uid/source/songid) — a direct detail resolve, not a
-		// name search. Args 1-2 stay display names (OG-ZH-01); share.ts skips device:/non-decodable ids.
-		const url = songShareUrl({ title: dTitle, artist: dArtist }, shareCover, recallItunesId(shareCover), track);
+		// quick-261120-mediacard (Hector 2026-11-20, keyword-only ruling): the link is the bare
+		// keyword path — the quick-260809-3uo cover carrier and the 38-D-08 identity carrier
+		// that used to be appended here are retired, and the resolveShareCover prewarm that fed
+		// them is deleted with them. The card resolves server-side through the same resolver
+		// seam the song itself resolves through (see /api/og).
+		const url = songShareUrl({ title: dTitle, artist: dArtist });
 		// User call 2026-10-06: the menu's Share button copies the link straight to the device
 		// clipboard, ready to paste — the native share sheet is gone from this path. (Side
 		// benefit, and why this is strictly better for CJK links: clipboard.writeText takes the
@@ -2062,9 +1966,9 @@
 		{/snippet}
 		<!-- quick-260920-kia: Share is UNCONDITIONAL — UI-SPEC Contract 8's `!isDevice` guard on
 		     Share is SUPERSEDED. songShareUrl() emits a NAME-based /song/{artist}/{title} catalog
-		     link, and share.ts uidCarrier() returns null for isDeviceUid() (38-D-08), so an imported
-		     local track shares a valid catalog link and no device: uid ever reaches the URL.
-		     Do not reintroduce a device guard here. -->
+		     link with NO parameters at all (quick-261120-mediacard keyword-only ruling; the 38-D-08
+		     uid carrier that used to filter device: uids is retired with the carrier itself), so an
+		     imported local track shares a valid catalog link. Do not reintroduce a device guard here. -->
 		{#snippet cellShare(tr: Track)}
 			<button class="gi" onclick={doShare} use:tapBounce><Share2 size={22} /><span class="gi-label">{t('menu.share')}</span></button>
 		{/snippet}

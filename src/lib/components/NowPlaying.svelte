@@ -24,7 +24,6 @@
 	import { displayQualityLabel, trackSourceLabel } from '$lib/services/display-quality';
 	import { enrichTrack } from '$lib/services/lastfm';
 	import { songShareUrl } from '$lib/services/share';
-	import { recallItunesId } from '$lib/services/itunes-cover';
 	import { lazyCover } from '$lib/actions/lazyCover';
 	import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	import { hasHttpsScheme } from '$lib/services/url-safety';
@@ -529,23 +528,16 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		return raw ? names.zhLock(raw) : null;
 	});
 	// quick-261010-npurl: the share URL of the current track, built with the EXACT recipe the
-	// Share button copies (display-language names via names.dnTitle/dnArtist, the hero cover's
-	// token via coverToken inside songShareUrl, the identity carrier) — so the URL bar shows
-	// the share URL while NowPlaying is open and the URL is always "true". Reactive on the
-	// track, player.resolvedCover, AND the display language: a track advance, a cover resolving
-	// mid-play, or a language switch repoints the SAME history entry via the replaceUrl effect
-	// below (replaceState — history depth never changes).
+	// Share button copies (display-language names via names.dnTitle/dnArtist) — so the URL bar
+	// shows the share URL while NowPlaying is open and the URL is always "true". Reactive on
+	// the track AND the display language: a track advance or a language switch repoints the
+	// SAME history entry via the replaceUrl effect below (replaceState — history depth never
+	// changes). quick-261120-mediacard: the link is keyword-only now (no cover token, no
+	// identity carrier), so the displayed cover no longer feeds this derivation.
 	const npShareUrl = $derived.by(() => {
 		const t = player.current;
 		if (!t) return null;
-		return songShareUrl(
-			{ title: names.dnTitle(t.title, t.artist), artist: names.dnArtist(t.artist) },
-			// quick-261102-tdc: the cover every surface shows (displayCover), as TrackMenu's share does —
-			// resolvedCover alone missed the cache's latest write. coverToken drops a non-https (data:) art.
-			player.displayCover,
-			recallItunesId(player.displayCover),
-			t
-		);
+		return songShareUrl({ title: names.dnTitle(t.title, t.artist), artist: names.dnArtist(t.artist) });
 	});
 	// quick-261010-npvol: desktop volume gate — the SAME (min-width:1024px)+(hover:hover) DOM
 	// gate as the Nowbar's desktop bar (quick-260919-et3). iOS ignores audio.volume entirely,

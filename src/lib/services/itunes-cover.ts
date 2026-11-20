@@ -31,7 +31,6 @@
 // `results[0].artworkUrl100`. itunesArtistCover uses that album-art path.
 
 import { isCoverOf } from '$lib/services/song-variant';
-import { getCachedItunesId, setCachedItunesId } from '$lib/services/cover-cache';
 import { combinedSignal as combineWithTimeout } from './abort-signal';
 
 const ITUNES_SEARCH = 'https://itunes.apple.com/search';
@@ -42,9 +41,8 @@ const FETCH_TIMEOUT_MS = 6000;
  * (tiles, rows, the Now Playing hero) asks for. The chain's historic default was
  * 1200x1200bb (~330 KB per cover measured); a 400px image is plenty for the largest
  * display surface (the hero is ≤ ~390 CSS px wide on a phone) and cuts the bytes
- * several-fold. The share carrier keeps the 1200 default (it is id-tokenized, never
- * rendered) and /api/og keeps its own OG_ARTWORK_SIZE (600) — neither is a display
- * surface, so they do not follow this constant.
+ * several-fold. /api/og keeps its own OG_ARTWORK_SIZE (600) — it is not a display
+ * surface, so it does not follow this constant.
  */
 export const DISPLAY_ARTWORK_SIZE = '400x400bb';
 
@@ -58,9 +56,6 @@ interface ItunesResult {
 	/** quick-261102-tdc: the candidate's own identity, checked by the cover gate. */
 	trackName?: string;
 	artistName?: string;
-	/** quick-260809-3uo — the numeric ids the share carrier tokenizes by (see rememberItunesId). */
-	collectionId?: unknown;
-	trackId?: unknown;
 }
 interface ItunesResponse {
 	results?: ItunesResult[];
@@ -106,74 +101,6 @@ export function upgradeArtwork(
 	return clean.includes('100x100bb') ? clean.replace('100x100bb', size) : clean;
 }
 
-// =============================================================================================
-// quick-260809-3uo — retaining the NUMERIC id alongside the artwork URL
-// =============================================================================================
-// The share card carries an iTunes cover as `i:<digits>` (see coverToken in $lib/services/share and
-// coverUrlFromToken in $lib/proxy/og-cover). Only the ID travels: an mzstatic URL is a ~90-char
-// irregular path, so carrying it would be neither short nor structural, and it would reintroduce
-// exactly the sharer-supplied-path property the token design removes.
-//
-// The id is NOT derivable from the artwork URL (the trailing number in the path is the release's
-// UPC, not an Apple id), so it is retained HERE — the one place it is known, in the same response
-// that produced the URL — and read back at share time. Retention rides the EXISTING cover cache
-// under a disjoint `itunes:` key family, so it inherits that store's TTL, LRU cap and clear button
-// instead of adding a second store.
-//
-// DEGRADES CLEANLY: a cover cached BEFORE this retention existed (or after its entry expires) has
-// no id, so recallItunesId returns null → coverToken emits nothing → no carrier → the card falls
-// through to /api/og's ordinary tier chain, i.e. exactly today's behaviour.
-
-/** An Apple id is a positive integer; 12 digits is well past the current 9–10 and still bounded. */
-const ITUNES_ID_RE = /^[0-9]{1,12}$/;
-
-/**
- * The SIZE-INDEPENDENT identity of an mzstatic artwork URL: the `/image/thumb/` path with the
- * trailing `/<size>.<ext>` segment dropped, so `100x100bb`, `600x600bb` and `1200x1200bb` variants
- * of one asset all key to the same entry. https + `.mzstatic.com` only; anything else → null.
- * Pure, never throws.
- */
-export function itunesArtworkKey(url: string | null | undefined): string | null {
-	if (!url || typeof url !== 'string') return null;
-	try {
-		const u = new URL(url);
-		if (u.protocol !== 'https:') return null;
-		if (!u.hostname.toLowerCase().endsWith('.mzstatic.com')) return null;
-		const m = /^\/image\/thumb\/(.+)\/[0-9]+x[0-9]+[a-z-]*\.(?:jpg|png)$/i.exec(u.pathname);
-		return m ? m[1] : null;
-	} catch {
-		return null;
-	}
-}
-
-/**
- * Retain the numeric id for a resolved artwork URL. COLLECTION (album) id is preferred over track
- * id: `/lookup?id=` on either returns the same `artworkUrl100` (live-probed 2026-08-09 for
- * 446760418 / 446760995), and the album id is the artwork's own identity — it is also the only id
- * an `entity=album` artist lookup carries. A non-numeric / absent id retains NOTHING rather than
- * junk. Never throws (storage access is guarded one layer down).
- */
-function rememberItunesId(artworkUrl: string | null, result: ItunesResult | undefined): void {
-	const key = itunesArtworkKey(artworkUrl);
-	if (!key || !result) return;
-	const id = String(result.collectionId ?? result.trackId ?? '');
-	if (!ITUNES_ID_RE.test(id)) return;
-	setCachedItunesId(key, id);
-}
-
-/**
- * Read back the numeric id retained for an iTunes cover URL (any size variant), or null when it was
- * never seen / has expired / storage is unavailable. This is the CALLER-side lookup the pure
- * `coverToken` cannot do for itself — a store or storage never flows into a pure service (CLAUDE.md),
- * so the component reads it and passes the value in. Never throws.
- */
-export function recallItunesId(coverUrl: string | null | undefined): string | null {
-	const key = itunesArtworkKey(coverUrl);
-	if (!key) return null;
-	const id = getCachedItunesId(key);
-	return id && ITUNES_ID_RE.test(id) ? id : null;
-}
-
 /**
  * Combine the caller's AbortSignal (if any) with a per-call timeout so a hung request always
  * settles. Returns null if the caller's signal is ALREADY aborted (the caller should not even
@@ -203,10 +130,6 @@ async function fetchTopArtwork(
 		// quick-261102-tdc: with `accept`, the first result passing the cover identity gate.
 		const top = accept ? data?.results?.find(accept) : data?.results?.[0];
 		const art = upgradeArtwork(top?.artworkUrl100, size);
-		// quick-260809-3uo: retain the numeric id beside the URL — the ONE moment both are in hand.
-		// The retention keys on the SIZE-INDEPENDENT artwork key (itunesArtworkKey), so a 400px
-		// display cover and the 1200px carrier share one id entry (quick-261006-o9t).
-		rememberItunesId(art, top);
 		return art;
 	} catch {
 		// Non-ok / abort / timeout / malformed JSON / network failure → miss → gradient.
@@ -217,9 +140,8 @@ async function fetchTopArtwork(
 /**
  * Resolve a song cover via iTunes Search (entity=song) for `${artist} ${title}`.
  * Returns the upgraded artwork URL or null on any miss/abort/throw (never throws).
- * `size` selects the artwork variant; the default keeps the historic 1200x1200bb byte-identical
- * for the share carrier (id-tokenized, never rendered), while inline display surfaces pass
- * DISPLAY_ARTWORK_SIZE (quick-261006-o9t).
+ * `size` selects the artwork variant; the default keeps the historic 1200x1200bb byte-identical,
+ * while inline display surfaces pass DISPLAY_ARTWORK_SIZE (quick-261006-o9t).
  */
 export async function itunesSongCover(
 	artist: string,

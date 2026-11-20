@@ -74,6 +74,25 @@ export const KUWO_IMAGE_HOSTS: ImageHostAllowlist = {
 	suffix: ['.kuwo.cn']
 };
 
+/**
+ * quick-261120-mediacard: QQ art for the /api/og IDENTITY path — the tang detail's album_pic /
+ * the T002 template both live on y.gtimg.cn exactly (the same host COVER_PICK_IMAGE_HOSTS
+ * records). Exact only, so neither the gtimg.cn apex nor a lookalike shard passes.
+ */
+export const QQ_IMAGE_HOSTS: ImageHostAllowlist = {
+	exact: ['y.gtimg.cn'],
+	suffix: []
+};
+
+/**
+ * quick-261120-mediacard: Netease art for the /api/og IDENTITY path — the official song
+ * detail's album picUrl lives on p1–p4.music.126.net (Netease's own zone, the same suffix
+ * COVER_PICK_IMAGE_HOSTS permits). Apex not permitted.
+ */
+export const NETEASE_IMAGE_HOSTS: ImageHostAllowlist = {
+	suffix: ['.music.126.net']
+};
+
 /** 43: SoundCloud art, e.g. i1.sndcdn.com/artworks-…-t500x500.jpg. Apex not permitted. */
 export const SOUNDCLOUD_IMAGE_HOSTS: ImageHostAllowlist = {
 	suffix: ['.sndcdn.com']

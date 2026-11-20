@@ -4,8 +4,6 @@ import {
 	upgradeArtwork,
 	itunesSongCover,
 	itunesArtistCover,
-	itunesArtworkKey,
-	recallItunesId,
 	DISPLAY_ARTWORK_SIZE
 } from './itunes-cover';
 
@@ -227,89 +225,6 @@ const QUIN_100 =
 const QUIN_1200 = QUIN_100.replace('100x100bb', '1200x1200bb');
 const QUIN_600 = QUIN_100.replace('100x100bb', '600x600bb');
 
-describe('itunes id retention (quick-260809-3uo)', () => {
-	const original = (globalThis as { localStorage?: Storage }).localStorage;
-	let store: MemStorage;
-	beforeEach(() => {
-		store = new MemStorage();
-		Object.defineProperty(globalThis, 'localStorage', { value: store, configurable: true });
-	});
-	afterEach(() => {
-		if (original) Object.defineProperty(globalThis, 'localStorage', { value: original, configurable: true });
-		else delete (globalThis as { localStorage?: Storage }).localStorage;
-	});
-
-	it('itunesArtworkKey is SIZE-INDEPENDENT, so any variant recalls the same id', () => {
-		const k = itunesArtworkKey(QUIN_100);
-		expect(k).not.toBeNull();
-		expect(itunesArtworkKey(QUIN_600)).toBe(k);
-		expect(itunesArtworkKey(QUIN_1200)).toBe(k);
-	});
-
-	it('itunesArtworkKey returns null for a non-mzstatic / malformed / empty URL', () => {
-		for (const bad of [
-			'https://cdn-images.dzcdn.net/images/cover/aa/500x500-000000-80-0-0.jpg',
-			'https://is1-ssl.mzstatic.com.evil.example/image/thumb/a/b/600x600bb.jpg',
-			'http://is1-ssl.mzstatic.com/image/thumb/a/b/600x600bb.jpg',
-			'not a url',
-			'',
-			null,
-			undefined
-		])
-			expect(itunesArtworkKey(bad)).toBeNull();
-	});
-
-	it('a song resolve REMEMBERS the id, and recallItunesId reads it back at any size', async () => {
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(async () =>
-				jsonResponse({
-					results: [{ trackId: 446760995, collectionId: 446760418, artworkUrl100: QUIN_100 }]
-				})
-			)
-		);
-		expect(await itunesSongCover('陳柏宇', '你瞞我瞞')).toBe(QUIN_1200);
-		// The COLLECTION (album) id is preferred — /lookup?id= on it returns the same artwork and it
-		// is the album-art identity, live-probed identical for both ids.
-		expect(recallItunesId(QUIN_1200)).toBe('446760418');
-		expect(recallItunesId(QUIN_600)).toBe('446760418');
-	});
-
-	it('falls back to trackId when the response carries no collectionId', async () => {
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(async () => jsonResponse({ results: [{ trackId: 446760995, artworkUrl100: QUIN_100 }] }))
-		);
-		await itunesSongCover('陳柏宇', '你瞞我瞞');
-		expect(recallItunesId(QUIN_1200)).toBe('446760995');
-	});
-
-	it('remembers NOTHING when the response carries no usable numeric id (never junk)', async () => {
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(async () => jsonResponse({ results: [{ collectionId: 'abc', artworkUrl100: QUIN_100 }] }))
-		);
-		await itunesSongCover('陳柏宇', '你瞞我瞞');
-		expect(recallItunesId(QUIN_1200)).toBeNull();
-	});
-
-	it('recallItunesId is null for an unseen cover (a cover cached BEFORE this change)', () => {
-		expect(recallItunesId(QUIN_1200)).toBeNull();
-		expect(recallItunesId('https://cdn-images.dzcdn.net/images/cover/aa/500x500-000000-80-0-0.jpg')).toBeNull();
-		expect(recallItunesId(null)).toBeNull();
-	});
-
-	it('never throws when storage is unavailable (SSR / privacy mode)', async () => {
-		delete (globalThis as { localStorage?: Storage }).localStorage;
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(async () => jsonResponse({ results: [{ collectionId: 446760418, artworkUrl100: QUIN_100 }] }))
-		);
-		expect(await itunesSongCover('陳柏宇', '你瞞我瞞')).toBe(QUIN_1200);
-		expect(recallItunesId(QUIN_1200)).toBeNull();
-	});
-});
-
 describe('artwork size param (quick-261006-o9t, cover-bandwidth)', () => {
 	const ART100 = 'https://is1-ssl.mzstatic.com/image/thumb/abc/100x100bb.jpg';
 
@@ -351,12 +266,5 @@ describe('artwork size param (quick-261006-o9t, cover-bandwidth)', () => {
 		expect(upgradeArtwork(ART100, '600x600bb')).toBe(
 			'https://is1-ssl.mzstatic.com/image/thumb/abc/600x600bb.jpg'
 		);
-	});
-
-	it('the size-independent artwork key is identical across size variants (id retention)', () => {
-		const k400 = itunesArtworkKey('https://is1-ssl.mzstatic.com/image/thumb/abc/400x400bb.jpg');
-		const k1200 = itunesArtworkKey('https://is1-ssl.mzstatic.com/image/thumb/abc/1200x1200bb.jpg');
-		expect(k400).toBeTruthy();
-		expect(k400).toBe(k1200);
 	});
 });

@@ -135,34 +135,6 @@ export function uidCoverCacheKey(uid: string): string {
 	return 'uid:' + uid;
 }
 
-/**
- * quick-260809-3uo: the key for an ITUNES NUMERIC ID retained alongside a resolved artwork URL.
- * Pinned form `'itunes:' + artworkKey`, provably disjoint from all three existing families
- * (matchKey never emits a leading `itunes:`, and `uid:` / `artist:` are different prefixes), so it
- * coexists in the same flat record — and therefore inherits the TTL, the write-time-LRU cap and
- * clearCoverCache for free rather than adding a second store.
- *
- * WHY IT EXISTS: the share card carries an iTunes cover by its numeric id (`i:<digits>`), never by
- * its ~90-char mzstatic path. That id is not derivable from the artwork URL, so it has to be
- * retained at the one moment it is known — the search response that produced the URL. See
- * itunes-cover.ts (rememberItunesId / recallItunesId), the only two callers.
- *
- * The stored VALUE is a digit string, not a URL — writeKey/readKey are value-agnostic.
- */
-export function itunesIdCacheKey(artworkKey: string): string {
-	return 'itunes:' + artworkKey;
-}
-
-/** Read a retained iTunes numeric id, or null when absent / expired / storage unavailable. */
-export function getCachedItunesId(artworkKey: string): string | null {
-	return readKey(itunesIdCacheKey(artworkKey));
-}
-
-/** Retain an iTunes numeric id under its artwork key. No-op on empty; never throws. */
-export function setCachedItunesId(artworkKey: string, id: string): void {
-	writeKey(itunesIdCacheKey(artworkKey), id);
-}
-
 /** Wipe the entire cover cache (used by the Data settings tab). Never throws. */
 export function clearCoverCache(): void {
 	try {
@@ -442,7 +414,7 @@ export function removeCachedArtistCover(artist: string): void {
 // The cover OTHER listeners voted for (/api/cover-pick), cached locally per song. Two keys mirror
 // the two vote keys: `crowd:uid:<uid>` (exact song) and `crowd:name:<matchKey>` (same-named songs).
 // A matchKey never contains `:` (norm strips it), and `crowd:` is a new prefix, so this family is
-// disjoint from the `uid:` / `<matchKey>` / `artist:` / `itunes:` families — a crowd pick never
+// disjoint from the `uid:` / `<matchKey>` / `artist:` families — a crowd pick never
 // reads as an auto-resolved cover and vice versa. Unlike a pin it IS a cache: it shares the TTL,
 // the write-time-LRU cap and clearCoverCache (the server is the source of truth; a miss refetches).
 // D-19: evicting an entry is local only — nothing here talks to the server.

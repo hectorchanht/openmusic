@@ -11,7 +11,6 @@ import {
 	encodeTrack,
 	shareUrl,
 	songShareUrl,
-	coverToken,
 	entityCardUrl,
 	entityShareUrl,
 	parseEntityParam,
@@ -200,24 +199,42 @@ describe('encodePathSegment / decodePathSegment (OG-PATH-01 codec)', () => {
 });
 
 describe('ogImageUrl (OG-EP-01 own-origin card image)', () => {
-	it('builds ${origin}/api/og?type=&artist=&title= with encoded values', () => {
+	it('quick-261120-mediacard: builds the PATH form ${origin}/api/og/{type}/{artist}/{title} — keywords only', () => {
 		expect(ogImageUrl('https://openmusic.lol', 'song', 'Nirvana', 'Come As You Are')).toBe(
-			'https://openmusic.lol/api/og?type=song&artist=Nirvana&title=Come%20As%20You%20Are'
+			'https://openmusic.lol/api/og/song/Nirvana/Come-As-You-Are'
 		);
+		// Raw CJK segments, exactly like the share path itself (quick-260807-vl1).
 		expect(ogImageUrl('https://openmusic.lol', 'album', '周杰倫', '范特西')).toBe(
-			`https://openmusic.lol/api/og?type=album&artist=${encodeURIComponent('周杰倫')}&title=${encodeURIComponent('范特西')}`
+			'https://openmusic.lol/api/og/album/周杰倫/范特西'
 		);
 	});
 
-	it('omits &title= entirely when there is no secondary name (artist card)', () => {
+	it('omits the title segment entirely when there is no secondary name (artist card)', () => {
 		const url = ogImageUrl('https://openmusic.lol', 'artist', 'Nirvana');
-		expect(url).toBe('https://openmusic.lol/api/og?type=artist&artist=Nirvana');
-		expect(url).not.toContain('title=');
-		expect(ogImageUrl('https://openmusic.lol', 'artist', 'Nirvana', '')).not.toContain('title=');
+		expect(url).toBe('https://openmusic.lol/api/og/artist/Nirvana');
+		expect(ogImageUrl('https://openmusic.lol', 'artist', 'Nirvana', '')).toBe(url);
+	});
+
+	it('carries NO query at all — no type=, no ci=, no u= (keyword-only ruling)', () => {
+		for (const u of [
+			ogImageUrl('https://openmusic.lol', 'song', 'Nirvana', 'Come As You Are'),
+			ogImageUrl('https://openmusic.lol', 'album', '周杰倫', '范特西'),
+			ogImageUrl('https://openmusic.lol', 'artist', 'Nirvana')
+		]) {
+			expect(u).not.toContain('?');
+			expect(u).not.toContain('ci=');
+			expect(u).not.toContain('u=');
+		}
+	});
+
+	it('escapes a slash inside a name into ONE segment (the reported artist shape)', () => {
+		expect(ogImageUrl('https://openmusic.lol', 'song', '茉ひる/Billy Choi', 'ロストライン')).toBe(
+			'https://openmusic.lol/api/og/song/茉ひる%2FBilly-Choi/ロストライン'
+		);
 	});
 
 	it('is pure — no location read, so an SSR loader can call it with any origin', () => {
-		expect(ogImageUrl('', 'song', 'A', 'B')).toBe('/api/og?type=song&artist=A&title=B');
+		expect(ogImageUrl('', 'song', 'A', 'B')).toBe('/api/og/song/A/B');
 	});
 });
 
@@ -358,6 +375,23 @@ describe('songShareUrl (OG-PATH-02 — carrier-free /song/{artist}/{title})', ()
 	it('the trailing segment is the encoded TITLE, never a {source}{id} key (DQ-4)', () => {
 		const url = songShareUrl({ title: 'Dao Xiang', artist: 'Jay Chou' });
 		expect(parseEntityParam(url.split('/').pop()!)).toBeNull();
+	});
+});
+
+describe('songShareUrl — keyword-only ruling (quick-261120-mediacard)', () => {
+	it('the reported netease song shares as the BARE keyword path — no ?u=, no ?ci=', () => {
+		// The 2026-11-20 WhatsApp report: this song's link used to carry ?u=netease3396263335
+		// (and no ci, since netease covers never tokenized). The link is now keywords only;
+		// resolution happens through the seam at arrival and at /api/og.
+		const url = songShareUrl({ title: 'ロストライン', artist: '茉ひる/Billy Choi' });
+		expect(url.endsWith('/song/茉ひる%2FBilly-Choi/ロストライン')).toBe(true);
+		expect(url).not.toContain('?');
+	});
+
+	it('a Deezer/iTunes-covered song also emits NO carrier (the ci retirement)', () => {
+		const url = songShareUrl({ title: '你瞞我瞞', artist: '陳柏宇' });
+		expect(url.endsWith('/song/陳柏宇/你瞞我瞞')).toBe(true);
+		expect(url).not.toContain('ci=');
 	});
 });
 
@@ -585,338 +619,42 @@ describe('nav.share carries the link in text, not url (quick-260808-vkd)', () =>
 });
 
 // =============================================================================================
-// quick-260809-3uo — coverToken: the CLIENT half of the `ci` cover-id carrier
+// LEGACY RECEPTION — coverUrlFromToken (quick-260809-3uo grammar, reception half only)
 // =============================================================================================
-// The client holds the cover the user is actually looking at; /api/og re-resolves from TEXT and is
-// structurally blind to it. coverToken derives a SHORT id from that URL; coverUrlFromToken (edge)
-// rebuilds the canonical card URL from its own fixed template.
-//
-// The fixture URLs below are REAL, LIVE-PROBED 2026-08-09 (see og-endpoint.test.ts for the statuses)
-// — not invented shapes.
-
-const REAL_DZ_1000 =
-	'https://cdn-images.dzcdn.net/images/cover/fe1082c5ef54876802146897e76b592e/1000x1000-000000-80-0-0.jpg';
-const REAL_DZ_500 =
-	'https://cdn-images.dzcdn.net/images/cover/fe1082c5ef54876802146897e76b592e/500x500-000000-80-0-0.jpg';
-const REAL_DZ_ARTIST =
-	'https://cdn-images.dzcdn.net/images/artist/58562952a0f20fb0948cdce22a601794/500x500-000000-80-0-0.jpg';
-const REAL_LF_300 = 'https://lastfm.freetls.fastly.net/i/u/300x300/95f31bcdc1e942d3c24daa08dbf0e654.png';
-const REAL_LF_ALIAS =
-	'https://lastfm-img.freetls.fastly.net/i/u/770x0/95f31bcdc1e942d3c24daa08dbf0e654.png';
-const REAL_LF_GREY = 'https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png';
-const REAL_KW_600 = 'https://img4.kuwo.cn/star/albumcover/600/s4s27/11/1502064321.jpg';
-const REAL_KW_150 = 'https://img1.kuwo.cn/star/albumcover/150/s4s79/80/1907599981.jpg';
-const REAL_KW_HEAD = 'https://img1.kuwo.cn/star/starheads/600/s4s23/72/966643473.jpg';
-// The reported song: 你瞞我瞞 / 陳柏宇 — "Quinquennium", collectionId 446760418.
-const REAL_IT_1200 =
-	'https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/44/ab/f4/44abf48c-3f51-31b9-469a-6d99548070e1/886443102378.jpg/1200x1200bb.jpg';
-
-describe('coverToken (quick-260809-3uo) — URL → short cover id, null for anything else', () => {
-	it('tokenizes a Deezer ALBUM cover at ANY size to the same d:<32hex>', () => {
-		expect(coverToken(REAL_DZ_1000)).toBe('d:fe1082c5ef54876802146897e76b592e');
-		expect(coverToken(REAL_DZ_500)).toBe('d:fe1082c5ef54876802146897e76b592e');
-		expect(coverToken(REAL_DZ_1000.replace('1000x1000', '56x56'))).toBe(
-			'd:fe1082c5ef54876802146897e76b592e'
+// quick-261120-mediacard: the CLIENT half of this grammar (coverToken) is DELETED with the
+// carrier emission it fed — share links are keyword-only now. The EDGE half stays: og:image
+// URLs and share links already sent with a `ci` token must keep resolving (live compat).
+// These pins keep the token → canonical-card-URL templates honest from the reception side.
+describe('coverUrlFromToken — legacy reception templates (quick-261120-mediacard)', () => {
+	it('rebuilds the probed canonical templates from literal tokens', async () => {
+		expect(await coverUrlFromToken('d:fe1082c5ef54876802146897e76b592e')).toBe(
+			'https://cdn-images.dzcdn.net/images/cover/fe1082c5ef54876802146897e76b592e/500x500-000000-80-0-0.jpg'
+		);
+		expect(await coverUrlFromToken('l:95f31bcdc1e942d3c24daa08dbf0e654.png')).toBe(
+			'https://lastfm.freetls.fastly.net/i/u/300x300/95f31bcdc1e942d3c24daa08dbf0e654.png'
+		);
+		expect(await coverUrlFromToken('k:s4s27-11-1502064321')).toBe(
+			'https://img4.kuwo.cn/star/albumcover/600/s4s27/11/1502064321.jpg'
 		);
 	});
 
-	it('rejects a Deezer ARTIST picture — out of grammar, not merely unpreferred', () => {
-		expect(coverToken(REAL_DZ_ARTIST)).toBeNull();
-	});
-
-	it('tokenizes Last.fm art at any size segment and on either host alias, keeping the ext', () => {
-		expect(coverToken(REAL_LF_300)).toBe('l:95f31bcdc1e942d3c24daa08dbf0e654.png');
-		expect(coverToken(REAL_LF_ALIAS)).toBe('l:95f31bcdc1e942d3c24daa08dbf0e654.png');
-		expect(coverToken(REAL_LF_300.replace('.png', '.jpg'))).toBe(
-			'l:95f31bcdc1e942d3c24daa08dbf0e654.jpg'
-		);
-		// The size-less form Last.fm also serves.
-		expect(coverToken('https://lastfm.freetls.fastly.net/i/u/95f31bcdc1e942d3c24daa08dbf0e654.png')).toBe(
-			'l:95f31bcdc1e942d3c24daa08dbf0e654.png'
-		);
-	});
-
-	it('NEVER carries the Last.fm grey-star placeholder', () => {
-		expect(coverToken(REAL_LF_GREY)).toBeNull();
-	});
-
-	it('tokenizes a kuwo ALBUM cover at any size / either image host', () => {
-		expect(coverToken(REAL_KW_600)).toBe('k:s4s27-11-1502064321');
-		expect(coverToken(REAL_KW_150)).toBe('k:s4s79-80-1907599981');
-	});
-
-	it('rejects a kuwo starheads (artist) image — a different path family', () => {
-		expect(coverToken(REAL_KW_HEAD)).toBeNull();
-	});
-
-	it('emits i:<digits> ONLY when the caller supplies the retained iTunes id', () => {
-		expect(coverToken(REAL_IT_1200, '446760418')).toBe('i:446760418');
-		// A cover cached BEFORE this change has no retained id → no carrier → today's tier chain.
-		expect(coverToken(REAL_IT_1200)).toBeNull();
-		expect(coverToken(REAL_IT_1200, '')).toBeNull();
-		expect(coverToken(REAL_IT_1200, null)).toBeNull();
-	});
-
-	it('refuses a non-numeric / over-length / injected iTunes id rather than emitting junk', () => {
-		for (const bad of ['44676041a', '4467604180000', '446760418/../9', '446 760', '../../x', '-1'])
-			expect(coverToken(REAL_IT_1200, bad)).toBeNull();
-	});
-
-	it('ignores an iTunes id supplied alongside a NON-iTunes cover (the URL decides the tag)', () => {
-		expect(coverToken(REAL_DZ_500, '446760418')).toBe('d:fe1082c5ef54876802146897e76b592e');
-	});
-
-	it('returns null for hosts on NO tier allow-list (netease / qq / joox) — the set never widens', () => {
-		for (const url of [
-			'https://p1.music.126.net/abcdefghijklmnopqrstuv==/109951165.jpg',
-			'https://y.qq.com/music/photo_new/T002R500x500M000004Z8ZlG3Zwvbk.jpg',
-			'https://p.qpic.cn/music_cover/abc/300.jpg',
-			'https://api.joox.com/cover/abc.jpg'
-		])
-			expect(coverToken(url)).toBeNull();
-	});
-
-	// quick-260920-kn4 — YouTube Music artwork hosts are OUT of the grammar, ON PURPOSE.
-	//
-	// quick-260919-0mw put YouTube Music at the FRONT of resolveTrackChain, so the cover the app
-	// displays is now usually a googleusercontent / ytimg URL — which tokenizes to null, so a share
-	// link carries no `?ci=` and /api/og falls back to its branded image on a text-resolve miss.
-	//
-	// The fix is NOT to widen this grammar. A googleusercontent artwork URL is an opaque irregular
-	// path with `=w120-h120-s-l90-rj` suffixes — there is nothing structural to close a grammar over
-	// (the same reason iTunes is carried by ID, not by path). Widening would also add hosts /api/og
-	// fetches, which T-3uo-02 forbids. TrackMenu instead prewarms the iTunes cover for the same song
-	// and carries THAT (`i:<id>`), leaving the displayed art untouched.
-	//
-	// This case passes against current code: it is a guard against a later "fix", not a RED test.
-	it('returns null for YouTube Music artwork hosts, with or without an iTunes id', () => {
-		for (const url of [
-			'https://lh3.googleusercontent.com/sVqjAhFWUsQV6c4hVZ5cVqJZ9Qo0m3n=w544-h544-l90-rj',
-			'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
-			'https://yt3.googleusercontent.com/ytc/AIdro_kQ9xV2=s176-c-k-c0x00ffffff-no-rj'
-		]) {
-			expect(coverToken(url)).toBeNull();
-			// An id in hand must not promote an out-of-grammar host: the URL decides the tag.
-			expect(coverToken(url, '446760418')).toBeNull();
-		}
-	});
-
-	it('returns null for non-https, relative, garbage and empty input, and never throws', () => {
-		for (const bad of [
-			REAL_DZ_500.replace('https:', 'http:'),
-			'data:image/png;base64,AAAA',
-			'/images/cover/fe1082c5ef54876802146897e76b592e/500x500-000000-80-0-0.jpg',
-			'not a url',
-			'',
-			'   ',
-			null,
-			undefined
-		])
-			expect(coverToken(bad)).toBeNull();
-	});
-
-	it('rejects a look-alike host that merely CONTAINS an allow-listed one', () => {
-		for (const bad of [
-			'https://cdn-images.dzcdn.net.evil.example/images/cover/fe1082c5ef54876802146897e76b592e/500x500-000000-80-0-0.jpg',
-			'https://evil.example/cdn-images.dzcdn.net/images/cover/fe1082c5ef54876802146897e76b592e/500x500-000000-80-0-0.jpg',
-			'https://notlastfm.freetls.fastly.net.evil/i/u/300x300/95f31bcdc1e942d3c24daa08dbf0e654.png',
-			'https://img4.kuwo.cn.evil.example/star/albumcover/600/s4s27/11/1502064321.jpg'
-		])
-			expect(coverToken(bad)).toBeNull();
+	it('rejects junk tokens whole (unknown tag, bad shape, over cap, grey star)', async () => {
+		expect(await coverUrlFromToken('x:fe1082c5ef54876802146897e76b592e')).toBeNull();
+		expect(await coverUrlFromToken('d:nothex')).toBeNull();
+		expect(await coverUrlFromToken('l:2a96cbd8b46e442fc41c2b86b821562f.png')).toBeNull();
+		expect(await coverUrlFromToken('d:' + 'a'.repeat(200))).toBeNull();
+		expect(await coverUrlFromToken('')).toBeNull();
+		expect(await coverUrlFromToken(null)).toBeNull();
 	});
 });
 
-// ---------------------------------------------------------------------------------------------
-// D6 — THE ANTI-DRIFT TEST. Imports BOTH directions.
-// ---------------------------------------------------------------------------------------------
-// coverToken (client, share.ts) and coverUrlFromToken (edge, og-cover.ts) are deliberately NOT
-// imported into each other — client/edge split, and og-cover pulls in proxy code. THIS is what pins
-// them: a one-sided grammar edit fails here instead of silently blanking every card.
-describe('coverToken ⇄ coverUrlFromToken — both-directions round-trip (D6 / T-3uo-08)', () => {
-	it('every covered tier rebuilds to the canonical CARD url, and re-tokenizes to the SAME token', async () => {
-		for (const real of [REAL_DZ_1000, REAL_DZ_500, REAL_LF_300, REAL_LF_ALIAS, REAL_KW_600, REAL_KW_150]) {
-			const token = coverToken(real);
-			expect(token).not.toBeNull();
-			const rebuilt = await coverUrlFromToken(token);
-			expect(rebuilt).not.toBeNull();
-			// Token-level identity: size is normalized by design, so the URL need not round-trip.
-			expect(coverToken(rebuilt)).toBe(token);
-		}
-	});
-
-	it('EVERY token coverToken can emit is ACCEPTED by coverUrlFromToken (no silent blanking)', async () => {
-		const emitted = [
-			coverToken(REAL_DZ_1000),
-			coverToken(REAL_LF_300),
-			coverToken(REAL_LF_300.replace('.png', '.jpg')),
-			coverToken(REAL_KW_600),
-			coverToken(REAL_IT_1200, '446760418')
-		];
-		expect(emitted.every((t) => typeof t === 'string' && t.length > 0)).toBe(true);
-		for (const token of emitted) {
-			// `i` is the one tag that costs a lookup — stub it, this test is about GRAMMAR agreement.
-			vi.stubGlobal(
-				'fetch',
-				vi.fn(async () =>
-					new Response(
-						JSON.stringify({
-							results: [
-								{
-									artworkUrl100:
-										'https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/44/ab/f4/x/886443102378.jpg/100x100bb.jpg'
-								}
-							]
-						}),
-						{ status: 200, headers: { 'content-type': 'application/json' } }
-					)
-				)
-			);
-			expect(await coverUrlFromToken(token)).not.toBeNull();
-			vi.unstubAllGlobals();
-		}
-	});
-
-	it('the rebuilt Deezer/kuwo/Last.fm urls are exactly the probed canonical templates', async () => {
-		expect(await coverUrlFromToken(coverToken(REAL_DZ_1000))).toBe(REAL_DZ_500);
-		expect(await coverUrlFromToken(coverToken(REAL_LF_ALIAS))).toBe(REAL_LF_300);
-		expect(await coverUrlFromToken(coverToken(REAL_KW_600))).toBe(REAL_KW_600);
-	});
-});
-
-describe('songShareUrl + ogImageUrl carry the token (quick-260809-3uo)', () => {
-	it('with NO cover argument it is byte-identical to today — still ZERO query params', () => {
-		const url = songShareUrl({ title: '你瞞我瞞', artist: '陳柏宇' });
-		expect(url).not.toContain('?');
-		expect(url.endsWith('/song/陳柏宇/你瞞我瞞')).toBe(true);
-	});
-
-	it('a cover that tokenizes to NULL adds no param at all (never an empty or junk `ci=`)', () => {
-		for (const cover of [null, undefined, '', 'https://p1.music.126.net/x/1.jpg', REAL_LF_GREY])
-			expect(songShareUrl({ title: 'A', artist: 'B' }, cover)).not.toContain('?');
-	});
-
-	it('a tokenizable cover appends exactly one encoded ci, leaving the raw-CJK path intact', () => {
-		const url = songShareUrl({ title: '你瞞我瞞', artist: '陳柏宇' }, REAL_DZ_1000);
-		expect(url).toBe(
-			'/song/陳柏宇/你瞞我瞞?ci=d%3Afe1082c5ef54876802146897e76b592e'.replace(/^/, url.split('/song/')[0])
-		);
-		expect(url).toContain('/song/陳柏宇/你瞞我瞞?ci=');
-		expect(url.match(/\?/g) ?? []).toHaveLength(1);
-	});
-
-	it('carries the iTunes id through when the caller supplies it (the reported case)', () => {
-		const url = songShareUrl({ title: '你瞞我瞞', artist: '陳柏宇' }, REAL_IT_1200, '446760418');
-		expect(url).toContain('?ci=i%3A446760418');
-		// Without the retained id it degrades to today's carrier-free link.
-		expect(songShareUrl({ title: '你瞞我瞞', artist: '陳柏宇' }, REAL_IT_1200)).not.toContain('?');
-	});
-
-	it('ogImageUrl is byte-identical without a token and appends &ci= after title with one', () => {
-		expect(ogImageUrl('https://openmusic.lol', 'song', 'Nirvana', 'Come As You Are')).toBe(
-			'https://openmusic.lol/api/og?type=song&artist=Nirvana&title=Come%20As%20You%20Are'
-		);
-		expect(ogImageUrl('https://openmusic.lol', 'song', 'Nirvana', 'Come As You Are', 'd:abc')).toBe(
-			'https://openmusic.lol/api/og?type=song&artist=Nirvana&title=Come%20As%20You%20Are&ci=d%3Aabc'
-		);
-	});
-
-	it('ogImageUrl drops an empty or over-cap token rather than emitting a pathological param', () => {
-		const base = 'https://openmusic.lol/api/og?type=song&artist=Nirvana&title=Come%20As%20You%20Are';
-		expect(ogImageUrl('https://openmusic.lol', 'song', 'Nirvana', 'Come As You Are', '')).toBe(base);
-		expect(
-			ogImageUrl('https://openmusic.lol', 'song', 'Nirvana', 'Come As You Are', 'd:' + 'a'.repeat(200))
-		).toBe(base);
-	});
-});
-
-// ---------------------------------------------------------------------------------------------
-// THE `?u=` UID CARRIER (38-D-08 / D-09 / D-30)
-// ---------------------------------------------------------------------------------------------
-// The recipient of a share link should hear the SAME version the sender did, resolved by identity
-// instead of a name search. The carrier is the separator-less `{source}{songid}` form so the
-// recipient reuses `parseEntityParam` verbatim — zero new validation code, and the closed source
-// enum IS the V5 input-validation allowlist (T-38-01).
-//
-// The identity is an OPTIONAL 4th argument precisely so every assertion above stays green: a
-// carrier-free call must remain BYTE-IDENTICAL to today.
-describe('songShareUrl uid carrier — ?u= (38-D-08/D-09/D-30)', () => {
-	const KUWO = { uid: 'kuwo:123', source: 'kuwo', songid: '123' };
-
-	it('without an identity the URL is byte-identical to today — no `u`, no `?` at all', () => {
-		const url = songShareUrl({ title: 'Dao Xiang', artist: 'Jay Chou' });
-		expect(url.endsWith('/song/Jay-Chou/Dao-Xiang')).toBe(true);
-		expect(url).not.toContain('?');
-	});
-
-	it('appends `?u={source}{songid}` when handed an identity and no cover', () => {
-		const url = songShareUrl({ title: 'Dao Xiang', artist: 'Jay Chou' }, null, null, KUWO);
-		expect(url.endsWith('/song/Jay-Chou/Dao-Xiang?u=kuwo123')).toBe(true);
-		expect(url.match(/\?/g) ?? []).toHaveLength(1);
-	});
-
-	it('keeps `?ci=` FIRST and appends `&u=` second when both are present', () => {
-		const url = songShareUrl({ title: '你瞞我瞞', artist: '陳柏宇' }, REAL_DZ_1000, null, KUWO);
-		// The existing `/song/{artist}/{title}?ci=` prefix contract is unchanged (quick-260809-3uo).
-		expect(url).toContain('/song/陳柏宇/你瞞我瞞?ci=');
-		expect(url).toContain('&u=kuwo123');
-		expect(url.match(/\?/g) ?? []).toHaveLength(1);
-	});
-
-	it('a `device:` uid carries NOTHING — a local file must never share as a foreign kuwo song', () => {
-		// 34-D-01: a device track's `source` is a PLACEHOLDER. A carrier built from it would resolve
-		// a completely different song under the local file's title.
-		const url = songShareUrl({ title: 'A', artist: 'B' }, null, null, {
-			uid: 'device:abc',
-			source: 'kuwo',
-			songid: 'abc'
-		});
-		expect(url).not.toContain('?');
-	});
-
-	it('an identity that does not round-trip through parseEntityParam adds NO param', () => {
-		// quick-260809-3uo applied to `u`: never an empty carrier, never a junk one.
-		for (const id of [
-			{ uid: 'kuwo:', source: 'kuwo', songid: '' },
-			{ uid: 'ytmusic:dQw4w9-gXcQ', source: 'ytmusic', songid: 'dQw4w9-gXcQ' }
-		])
-			expect(songShareUrl({ title: 'A', artist: 'B' }, null, null, id)).not.toContain('?');
-	});
-
-	it('the source enum covers audius + ytmusic (D-30) and still rejects everything else', () => {
-		expect(parseEntityParam('audius123')).toEqual({ source: 'audius', id: '123', uid: 'audius:123' });
-		expect(parseEntityParam('ytmusicAbC1')?.uid).toBe('ytmusic:AbC1');
-		expect(parseEntityParam('kugou1')).toBeNull();
-		expect(parseEntityParam('evil123')).toBeNull();
-		expect(parseEntityParam('')).toBeNull();
-	});
-
-	it('round-trips: the emitted carrier decodes back to the exact uid for every live source', () => {
-		for (const source of [
-			'netease',
-			'qq',
-			'kuwo',
-			'joox',
-			'fivesing',
-			'jamendo',
-			'audius'
-		] as const) {
-			const id = { uid: `${source}:42`, source, songid: '42' };
-			const url = songShareUrl({ title: 'A', artist: 'B' }, null, null, id);
-			// `location` is undefined under node so the origin is '' — prefix a host to parse it.
-			const u = new URL(`https://x${url}`).searchParams.get('u');
-			expect(parseEntityParam(u ?? '')?.uid).toBe(id.uid);
-		}
-	});
-});
-
-// ---------------------------------------------------------------------------------------------
 // SOURCE GUARD — the TrackMenu share call site (quick-260809-3uo)
 // ---------------------------------------------------------------------------------------------
 // doShare() is a component handler, not an export, and there is no jsdom project (vite.config.ts
 // declares a single node project), so the SOURCE is the honest thing to guard. Each assertion below
 // names the exact RED mutation it pins, and each was PROVEN to fail under that mutation before this
 // was committed — a structural assertion that cannot fail is worse than none.
-describe('TrackMenu share call site — source guard (quick-260809-3uo)', () => {
+describe('TrackMenu share call site — source guard (quick-260809-3uo, amended quick-261120-mediacard)', () => {
 	const src = readFileSync(
 		new URL('../components/TrackMenu.svelte', import.meta.url),
 		'utf8'
@@ -934,11 +672,12 @@ describe('TrackMenu share call site — source guard (quick-260809-3uo)', () => 
 		expect(src).not.toMatch(/readCoverByUidOrName\(track\.uid, dTitle/);
 	});
 
-	it('still passes a cover argument to songShareUrl', () => {
-		// RED under: dropping the 2nd argument — the exact regression that restores the blank card.
-		// Anchored on the call HEAD with its TRAILING COMMA, single-line: a regex spanning the
-		// multi-line body would be unfalsifiable (nested braces match almost anything).
-		expect(src).toMatch(/songShareUrl\(\{ title: dTitle, artist: dArtist \}, /);
+	it('quick-261120-mediacard: passes NO carrier argument to songShareUrl (keyword-only)', () => {
+		// RED under: re-adding a 2nd argument (a cover or identity carrier) — the retired
+		// emission. Anchored on the whole single-line call: the closing paren must follow the
+		// names object directly.
+		expect(src).toMatch(/songShareUrl\(\{ title: dTitle, artist: dArtist \}\)/);
+		expect(src).not.toMatch(/songShareUrl\(\{ title: dTitle, artist: dArtist \}, /);
 	});
 
 	it('prefers the hero cover only when the menu is on the PLAYING song', () => {
@@ -1070,14 +809,14 @@ describe('share builders use shareOrigin (quick-260919-0mw)', () => {
 
 	const track = { title: '愛得太遲', artist: '古巨基' };
 
-	it('songShareUrl: the reported https://localhost link becomes the public one, path + ci byte-identical', () => {
+	it('songShareUrl: the reported https://localhost link becomes the public one, path byte-identical', () => {
 		vi.stubGlobal('location', { origin: 'https://openmusic.lol' });
-		const web = songShareUrl(track, 'https://is1-ssl.mzstatic.com/image/thumb/a/b/100x100bb.jpg');
+		const web = songShareUrl(track);
 		vi.stubGlobal('location', { origin: 'https://localhost' });
-		const apk = songShareUrl(track, 'https://is1-ssl.mzstatic.com/image/thumb/a/b/100x100bb.jpg');
+		const apk = songShareUrl(track);
 
 		expect(web.startsWith('https://openmusic.lol/song/')).toBe(true);
-		expect(apk).toBe(web); // ONLY the origin differed — path segments, raw CJK and ?ci= are unchanged
+		expect(apk).toBe(web); // ONLY the origin differed — path segments and raw CJK are unchanged
 		// The reported broken shape, now repaired end to end (raw CJK preserved, quick-260807-vl1).
 		expect(apk).toBe('https://openmusic.lol/song/古巨基/愛得太遲');
 	});

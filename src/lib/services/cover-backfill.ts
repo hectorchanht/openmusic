@@ -193,27 +193,6 @@ export function __resetCoverMissCache(): void {
 }
 
 // ── SHARE-CARD COVER MEMO (quick-260920-kn4, relocated here by quick-260920-l82) ────────────────
-// SESSION MEMO for the share-card carrier chain: track.uid → the resolved https cover URL.
-//
-// MODULE scope, not instance scope: every list page mounts its OWN <TrackMenu>, so an instance
-// field would re-issue the same iTunes GET each time the user crosses pages. The retained
-// `itunes:<artworkKey>` ID family already persists 14 days in the cover cache, but the mzstatic
-// URL that KEYS it is stored nowhere the UI is allowed to read (see resolveShareCover — writing it
-// into the shared cover cache would change the art every row renders), so the URL itself is
-// memoised here for the session.
-//
-// quick-260920-l82: it moved out of TrackMenu's `<script module>` because a service module is the
-// natural cross-instance home — the memo belongs beside the chain it memoises, and every future
-// share surface gets it for free instead of re-declaring a second Map.
-//
-// HITS ONLY. A miss or an abort is never memoised, so a transient iTunes failure does not stick
-// for the rest of the session (CLAUDE.md: never cache a failure).
-const shareCoverMemo = new Map<string, string>();
-/** TEST-ONLY: clear the session-scoped share-cover memo so a hit cannot leak across tests. */
-export function __resetShareCoverMemo(): void {
-	shareCoverMemo.clear();
-}
-
 
 /**
  * Per-tier never-throw wrapper: a THROW in one tier falls through to the NEXT tier (returns null on
@@ -336,9 +315,8 @@ async function qqSongCover(
  * writes track.artist/title verbatim) — plus cover-cache's alias key bridges the two scripts on
  * the read side. Folds with zh-convert foldScriptReady — the one identity fold
  * (quick-261102-sdm: per character, kana/hangul fields untouched, never throws).
- * Deliberately scoped to resolveTrackChain: resolveShareCover's subset must NOT follow (its
- * documented divergence), and the artist chain is name-keyed by the artist layer instead.
- * Exported for a direct unit test of the fold + per-field gate.
+ * Deliberately scoped to resolveTrackChain; the artist chain is name-keyed by the artist layer
+ * instead. Exported for a direct unit test of the fold + per-field gate.
  */
 export async function coverSearchTerms(artist: string, title: string): Promise<[string, string]> {
 	return [await foldScriptReady(artist), await foldScriptReady(title)];
@@ -388,7 +366,6 @@ async function resolveTrackChain(
 			{ key: 'deezer', fn: () => tier(() => deezerSongCover(qArtist, qTitle, signal, 'big')) },
 			{ key: 'ytmusic', fn: () => tier(() => ytmusicSongCover(qArtist, qTitle, signal)) },
 		];
-
 
 		await new Promise<void>((resolve) => {
 			let remaining = tasks.length;
@@ -477,88 +454,6 @@ export async function resolveCoverForTrack(
 	return null;
 }
 
-/**
- * SHARE-CARD CARRIER chain (quick-260920-l82, generalises quick-260920-kn4) — the sibling of
- * resolveCoverForTrack (miss-recovery chain, WRITES the cache). It used to sit beside an HQ upgrade
- * as well; that upgrade was removed in Phase 40 D-11a — inline covers are never replaced
- * automatically. Same `tier()` never-throw wrapper and
- * the same `hasHttpsScheme` guard (T-0bb-01) — this is NOT a new fetch ladder, only a different
- * tier subset for a different question: "which cover can the share link actually CARRY?"
- *
- * WHY A DIFFERENT SUBSET. `coverToken` (share.ts) is a CLOSED grammar — `d:` Deezer, `l:` Last.fm,
- * `k:` kuwo, `i:` iTunes-by-retained-id. YouTube Music (lh3.googleusercontent.com / i.ytimg.com) is
- * EXCLUDED because it is not in that grammar: its artwork URLs are opaque irregular paths, and
- * widening the host set /api/og fetches is forbidden by T-3uo-02. That exclusion is the whole reason
- * this function exists — calling resolveTrackChain here would hand back the untokenizable YTM cover
- * and regress the card to the branded OpenMusic fallback. CN is excluded too: netease/qq/joox hosts
- * are on no /api/og allow-list, and a 7-source searchAll is far too expensive for a menu-open prewarm.
- *
- * WHY iTUNES FIRST: `itunesSongCover → fetchTopArtwork → rememberItunesId` retains the numeric id
- * against that URL in the DISJOINT `itunes:` cache family, so `recallItunesId` yields it at share
- * time and `coverToken` emits `i:<id>`. DEEZER SECOND is the quick-260920-l82 addition over kn4
- * (which issued iTunes only): a song iTunes does not carry now yields `d:<32hex>` instead of the
- * branded card. `deezerSongCover` returns `album.cover_*` only (`/images/cover/<32hex>/…` — artist
- * pictures live on a separate field), so its output always tokenizes; Deezer's art-less placeholder
- * has an empty md5, fails DZ_COVER_PATH and simply yields no carrier — the carrier is advisory and
- * the card falls through to today's server chain.
- *
- * quick-260920-nyq: the nyq reorder deliberately does NOT reach this function — `coverToken`
- * (share.ts) is a CLOSED `?ci=` host grammar and reordering the display chain silently killed
- * share-card art once already (YTM-first). Its iTunes → Deezer subset now happens to match the HEAD
- * of the display chain; that is COINCIDENCE, not coupling, so do not "deduplicate" the two later —
- * the display chain may be reranked again and this subset must not follow it. Pinned by a unit test
- * asserting zero `searchAll` calls from here.
- *
- * 🔴 THE ONE DIVERGENCE FROM ITS TWO SIBLINGS: this function MUST NOT write the uid or name layer of
- * the cover cache (no setCachedCoverByUid / setCachedCover / writeCoverBoth), and must not touch the
- * `missAt` negative cache (that one keys the DISPLAY chain by name and must not be poisoned by a
- * share-only probe). `activeCover` in TrackMenu reads readCoverByUidOrName, so caching this URL would
- * flip the art the app DISPLAYS — every list row and the hero — from the YTM cover to this one. The
- * ask was about the share card ONLY. The result lives in the caller's `$state` and the session memo
- * above, nowhere else. The `itunes:` id-family write inside itunesSongCover is fine: disjoint key
- * family, no display surface reads it. Pinned by the "NO cover-cache write on a hit" unit test.
- *
- * COST: at most 2 requests per menu open, 0 on a memo hit, 0 when the displayed cover already
- * tokenizes (the caller's guard). iTunes is a direct CORS-open GET; Deezer goes through the
- * own-origin proxy and inherits the apiFetch governor. Never throws; honors an AbortSignal.
- */
-export async function resolveShareCover(
-	track: Track,
-	signal?: AbortSignal
-): Promise<string | null> {
-	if (signal?.aborted) return null;
-	// HITS-ONLY memo, keyed by uid. An EMPTY uid is never memoised — that would collapse every
-	// distinct stub onto one slot (the same posture the siblings take with the uid cache layer).
-	if (track.uid) {
-		const hit = shareCoverMemo.get(track.uid);
-		if (hit) return hit;
-	}
-	// quick-261006-o9t: the carrier DELIBERATELY keeps the historic sizes (1200px iTunes /
-	// cover_xl Deezer) — a carrier URL is only ever id/md5-tokenized into `i:<id>` / `d:<md5>`,
-	// never rendered as bytes, so the display-size saving does not apply and byte-identical
-	// URLs keep the token pipeline untouched.
-	let cover = await tier(() => itunesSongCover(track.artist ?? '', track.title ?? '', signal));
-	if (signal?.aborted) return null;
-	if (!cover) {
-		cover = await tier(() => deezerSongCover(track.artist ?? '', track.title ?? '', signal));
-		if (signal?.aborted) return null;
-	}
-	if (hasHttpsScheme(cover)) {
-		if (track.uid) shareCoverMemo.set(track.uid, cover);
-		return cover;
-	}
-	return null;
-}
-
-/**
- * Lazily resolve + cache real covers (track chain iTunes → QQ → Deezer → other CN → YTM, Phase 40
- * D-08) for
- * the given {artist,title} rows.
- *
- * Skips any row already in the cover-cache (never re-searches a cached cover), slices the
- * remaining work to `max`, then resolves it through a concurrency-capped pool. Each SOLID (https,
- * non-empty) cover is written to the cache and surfaced via `onResolved`. Best-effort: never throws.
- */
 export async function backfillCovers(items: CoverNeed[], opts: BackfillOpts = {}): Promise<void> {
 	const { signal, onResolved, max = DEFAULT_MAX } = opts;
 

@@ -3,15 +3,12 @@ import {
 	backfillCovers,
 	backfillArtistCovers,
 	resolveCoverForTrack,
-	resolveShareCover,
 	coverSearchTerms,
 	collectCoverCandidates,
 	__clearCoverCandidatesCache,
 	__resetCoverMissCache,
-	__resetQqCoverGate,
-	__resetShareCoverMemo
+	__resetQqCoverGate
 } from './cover-backfill';
-import { coverToken } from './share';
 import * as catalog from './catalog';
 import * as deezer from './deezer';
 import * as itunes from './itunes-cover';
@@ -136,9 +133,6 @@ beforeEach(() => {
 	// 40-WR-06: the QQ cover tier's health gate is module-scoped too — a failure streak in one test
 	// must not gate the tier in the next.
 	__resetQqCoverGate();
-	// Same reasoning for the share-card memo: module-scoped + session-lived, so a hit recorded in one
-	// test would otherwise short-circuit the tier calls another test expects to observe.
-	__resetShareCoverMemo();
 	// quick-261021-cache1: collectCoverCandidates memoizes by uid across calls — reset it too,
 	// or one test's candidates leak into every later test reusing a fixture uid.
 	__clearCoverCandidatesCache();
@@ -992,133 +986,6 @@ describe('collectCoverCandidates (quick-260915-w4f)', () => {
 	});
 });
 
-describe('resolveShareCover — share-card carrier chain (quick-260920-l82)', () => {
-	const ITUNES = 'https://is1-ssl.mzstatic.com/image/thumb/X/600x600bb.jpg';
-	const DZ = 'https://cdn-images.dzcdn.net/images/cover/fe1082c5ef54876802146897e76b592e/1000x1000-000000-80-0-0.jpg';
-
-	it('returns the iTunes cover and issues NO Deezer, NO YTM and NO CN searchAll', async () => {
-		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(ITUNES);
-		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover');
-		mockSearch({ ytm: [mk('ytmusic', 'y', { cover: 'https://lh3.googleusercontent.com/x.jpg' })] });
-
-		expect(await resolveShareCover(mk('kuwo', 's1', { artist: 'Drake', title: 'Hotline Bling' }))).toBe(ITUNES);
-		expect(itunesSpy).toHaveBeenCalledTimes(1);
-		expect(deezerSpy).not.toHaveBeenCalled();
-		// YTM and CN are excluded BY CONSTRUCTION — neither host is in coverToken's closed grammar
-		// (YTM) or on any /api/og allow-list (CN), so no searchAll is issued at all.
-		// quick-260920-nyq: the nyq reorder must never reach this chain — no CN, no YTM searchAll.
-		// The iTunes → Deezer subset now matching the display chain's HEAD is coincidence, not
-		// coupling: reordering the display chain silently killed share-card art once already.
-		expect(catalog.searchAll).not.toHaveBeenCalled();
-		expect(ytmCalls()).toHaveLength(0);
-		expect(cnCalls()).toHaveLength(0);
-		// Phase 40 D-12: the QQ tier (D-08) must not reach the share carrier either — qq hosts are
-		// on no /api/og allow-list, so a qq cover would regress the card to the branded fallback.
-		expect(qqCalls()).toHaveLength(0);
-		expect(qqResolve()).not.toHaveBeenCalled();
-	});
-
-	it('Phase 40 D-12: an iTunes + Deezer miss issues ZERO searchAll and ZERO qq detail calls', async () => {
-		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
-		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
-		mockQqDetail('https://y.gtimg.cn/music/photo_new/x.jpg');
-		mockSearch({ qq: [mk('qq', 'q1')] });
-
-		expect(await resolveShareCover(mk('kuwo', 's12', { artist: 'A', title: 'B' }))).toBeNull();
-		expect(catalog.searchAll).not.toHaveBeenCalled();
-		expect(qqResolve()).not.toHaveBeenCalled();
-	});
-
-	it('falls back to Deezer on an iTunes miss, and that URL TOKENIZES (closes the kn4 residual gap)', async () => {
-		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
-		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(DZ);
-
-		const out = await resolveShareCover(mk('kuwo', 's2', { artist: 'Drake', title: 'Hotline Bling' }));
-		expect(out).toBe(DZ);
-		expect(deezerSpy).toHaveBeenCalledWith('Drake', 'Hotline Bling', undefined);
-		// The point of the Deezer tier: its output is a carrier, so a song iTunes lacks gets a `d:`
-		// token on the share link instead of falling to the branded OpenMusic card.
-		expect(coverToken(out)).toBe('d:fe1082c5ef54876802146897e76b592e');
-	});
-
-	it('returns null (no throw) and caches nothing when both tiers miss', async () => {
-		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
-		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
-		const t = mk('kuwo', 's3', { artist: 'A', title: 'B' });
-		await expect(resolveShareCover(t)).resolves.toBeNull();
-		expect(getCachedCover('A', 'B')).toBeNull();
-	});
-
-	it('writes NEITHER cover-cache layer on a hit (the ONE divergence from its sibling)', async () => {
-		// resolveCoverForTrack WRITES the uid + name layers. This one must not:
-		// TrackMenu's activeCover reads readCoverByUidOrName, so a write here would flip the art the
-		// app DISPLAYS (every list row + the hero) from the YTM cover to this share-only probe result.
-		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(ITUNES);
-		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
-		const t = mk('kuwo', 'share1', { artist: 'Drake', title: 'Hotline Bling' });
-		expect(await resolveShareCover(t)).toBe(ITUNES);
-		expect(getCachedCoverByUid('kuwo:share1')).toBeNull();
-		expect(getCachedCover('Drake', 'Hotline Bling')).toBeNull();
-	});
-
-	it('memoises a hit by uid — a second call for the same track issues zero tier calls', async () => {
-		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(ITUNES);
-		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
-		const t = mk('kuwo', 's5', { artist: 'Drake', title: 'Hotline Bling' });
-		expect(await resolveShareCover(t)).toBe(ITUNES);
-		expect(await resolveShareCover(t)).toBe(ITUNES);
-		expect(itunesSpy).toHaveBeenCalledTimes(1);
-	});
-
-	it('memoises HITS ONLY — a miss retries on the next call (never cache a failure)', async () => {
-		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(null);
-		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
-		const t = mk('kuwo', 's6', { artist: 'Drake', title: 'Hotline Bling' });
-		expect(await resolveShareCover(t)).toBeNull();
-		itunesSpy.mockResolvedValue(ITUNES);
-		expect(await resolveShareCover(t)).toBe(ITUNES);
-		expect(itunesSpy).toHaveBeenCalledTimes(2);
-	});
-
-	it('never throws when a tier throws — iTunes rejecting falls through to Deezer', async () => {
-		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockRejectedValue(new Error('itunes down'));
-		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(DZ);
-		expect(await resolveShareCover(mk('kuwo', 's7', { artist: 'A', title: 'B' }))).toBe(DZ);
-
-		deezerSpy.mockRejectedValue(new Error('deezer down'));
-		itunesSpy.mockRejectedValue(new Error('itunes down'));
-		await expect(resolveShareCover(mk('kuwo', 's7b', { artist: 'A', title: 'B' }))).resolves.toBeNull();
-	});
-
-	it('treats a non-https iTunes result as a miss and falls through to Deezer', async () => {
-		vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue('http://insecure.example/x.jpg');
-		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(DZ);
-		expect(await resolveShareCover(mk('kuwo', 's8', { artist: 'A', title: 'B' }))).toBe(DZ);
-	});
-
-	it('returns null immediately when the signal is already aborted (issues NO call at all)', async () => {
-		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(ITUNES);
-		const deezerSpy = vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(DZ);
-		const ac = new AbortController();
-		ac.abort();
-		await expect(resolveShareCover(mk('kuwo', 's9', { artist: 'A', title: 'B' }), ac.signal)).resolves.toBeNull();
-		expect(itunesSpy).not.toHaveBeenCalled();
-		expect(deezerSpy).not.toHaveBeenCalled();
-	});
-
-	it('never memoises an EMPTY uid — unrelated stubs cannot share one slot', async () => {
-		const itunesSpy = vi.spyOn(itunes, 'itunesSongCover').mockResolvedValue(ITUNES);
-		vi.spyOn(deezer, 'deezerSongCover').mockResolvedValue(null);
-		const stub = mk('netease', 'ignored', { uid: '', artist: 'Foo Fighters', title: 'Everlong' });
-		expect(await resolveShareCover(stub)).toBe(ITUNES);
-		expect(await resolveShareCover(stub)).toBe(ITUNES);
-		expect(itunesSpy).toHaveBeenCalledTimes(2);
-	});
-});
-
-// quick-261020-covsync — the chain SEARCHES in Simplified (the CN catalogs' script) while the
-// cache keeps the caller's identity. The tiers are mocked; only the query terms + the cache key
-// are under test. The tongwen dict loads natively under Vitest (as in zh-convert.test.ts).
 describe('cover chain script fold (quick-261020-covsync)', () => {
 	const ITUNES = 'https://is1-ssl.mzstatic.com/image/thumb/X/600x600bb.jpg';
 
