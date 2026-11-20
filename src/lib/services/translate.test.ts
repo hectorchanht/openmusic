@@ -310,6 +310,130 @@ describe('translateLinesEx — zh-Hant lyrics cache heals pre-merge batches offl
 	});
 });
 
+// quick-261120-segmix — SEGMENT routing for MIXED lines (Hector 2026-11-20: under a
+// zh-Hant target the English inside a Chinese line never translated, because the
+// whole line took the offline path). With { segments: true } (NpLyrics opts in),
+// Han runs convert offline, non-Han runs reach the API, skip is honoured per
+// segment, and the stitch preserves order/spacing/punctuation. Without the opt-in
+// (names and every other caller) the whole-line routing is byte-identical.
+describe('translateLinesEx — segment routing for mixed lines (quick-261120-segmix)', () => {
+	const sentLines = (call: number): string[] =>
+		JSON.parse((fetchMock.mock.calls[call][1] as { body: string }).body).lines;
+	const allSent = (): string[] =>
+		fetchMock.mock.calls.flatMap(
+			(c: unknown[]) => (JSON.parse((c[1] as { body: string }).body).lines as string[])
+		);
+
+	/** The API stub translates whatever it is sent, prefixing each line. */
+	function wirePrefixApi() {
+		fetchMock.mockImplementation(async (_url: unknown, init: { body: string }) => {
+			const body = JSON.parse(init.body) as { lines: string[] };
+			return jsonRes({
+				translated: body.lines.map((l) => '譯:' + l),
+				flags: body.lines.map(() => true)
+			});
+		});
+	}
+
+	it('translates the English segment of a mixed line; the Han segment is only script-converted', async () => {
+		const { translateLinesEx } = await import('./translate');
+		wirePrefixApi();
+		const r = await translateLinesEx(['我爱你 love you'], 'zh-Hant', { segments: true, skip: [] });
+		expect(fetchMock.mock.calls.length).toBe(1);
+		expect(sentLines(0)).toEqual(['love you']); // ONLY the English segment reached the API
+		// 爱→愛 offline (NOT an MT paraphrase — the API never saw the Han text);
+		// the segment result stitches back after it.
+		expect(r.out).toEqual(['我愛你 譯:love you']);
+		expect(r.flags).toEqual([true]);
+		expect(r.complete).toBe(true);
+	});
+
+	it('without the segments opt-in a mixed line keeps the old whole-line offline routing', async () => {
+		const { translateLinesEx } = await import('./translate');
+		const r = await translateLinesEx(['我爱你 love you'], 'zh-Hant');
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(r.out).toEqual(['我愛你 love you']); // converted Han, untouched English
+	});
+
+	it('honours the skip list per segment: skipped English stays English, Han still converts', async () => {
+		const { translateLinesEx } = await import('./translate');
+		const r = await translateLinesEx(['我爱你 love you'], 'zh-Hant', { segments: true, skip: ['en'] });
+		expect(fetchMock).not.toHaveBeenCalled(); // the segment never reached the API
+		expect(r.out).toEqual(['我愛你 love you']);
+		expect(r.flags).toEqual([true]); // a deliberate pass counts as resolved
+		expect(r.complete).toBe(true);
+		// Segment batches key on the skip set, so this stitch can never serve an
+		// un-skipped run (or vice versa).
+		expect(lsKeys().some((k) => k.startsWith('openmusic:lyrics-tr:v3:') && k.includes(':seg'))).toBe(true);
+	});
+
+	it('stitching preserves order, spacing and punctuation around translated segments', async () => {
+		const { translateLinesEx } = await import('./translate');
+		wirePrefixApi();
+		const r = await translateLinesEx(['我爱你, love you 一起走'], 'zh-Hant', { segments: true, skip: [] });
+		expect(sentLines(0)).toEqual(['love you']); // sent trimmed — spacing lives in the stitch
+		expect(r.out).toEqual(['我愛你, 譯:love you 一起走']);
+	});
+
+	it('pure lines keep their exact current routing under segment mode', async () => {
+		const { translateLinesEx } = await import('./translate');
+		wirePrefixApi();
+		const r = await translateLinesEx(['简体中文', 'hello world'], 'zh-Hant', { segments: true, skip: [] });
+		expect(sentLines(0)).toEqual(['hello world']); // whole pure-English line, as before
+		expect(r.out).toEqual(['簡體中文', '譯:hello world']);
+		expect(r.complete).toBe(true);
+	});
+
+	it('mixed and pure-API lines in one batch stay positionally aligned', async () => {
+		const { translateLinesEx } = await import('./translate');
+		wirePrefixApi();
+		const r = await translateLinesEx(['我爱你 love you', 'hello'], 'zh-Hant', { segments: true, skip: [] });
+		expect(allSent().sort()).toEqual(['hello', 'love you']);
+		expect(r.out).toEqual(['我愛你 譯:love you', '譯:hello']);
+		expect(r.flags).toEqual([true, true]);
+	});
+
+	it('a translated segment is cached at segment level — a new mixed line reusing it makes NO API call', async () => {
+		const { translateLinesEx } = await import('./translate');
+		wirePrefixApi();
+		await translateLinesEx(['我爱你 love you'], 'zh-Hant', { segments: true, skip: [] });
+		expect(fetchMock.mock.calls.length).toBe(1);
+		fetchMock.mockClear();
+		// A different line (different batch key) whose English segment is already known.
+		const r = await translateLinesEx(['他说 love you 好'], 'zh-Hant', { segments: true, skip: [] });
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(r.out).toEqual(['他說 譯:love you 好']);
+		expect(r.complete).toBe(true);
+	});
+
+	it('an echoed segment leaves the line incomplete and uncached (segment poison rule)', async () => {
+		const { translateLinesEx } = await import('./translate');
+		vi.useFakeTimers();
+		try {
+			fetchMock.mockResolvedValue(jsonRes({ translated: ['love you'], flags: [false] }));
+			const p = translateLinesEx(['我爱你 love you'], 'zh-Hant', { segments: true, skip: [] });
+			let settled = false;
+			const wrapped = p.then((v) => {
+				settled = true;
+				return v;
+			});
+			while (!settled) {
+				await Promise.resolve();
+				await Promise.resolve();
+				await vi.advanceTimersByTimeAsync(2000); // flush the retry backoff
+			}
+			const r = await wrapped;
+			expect(r.out).toEqual(['我愛你 love you']); // Han converted, echoed segment untouched
+			expect(r.flags).toEqual([false]);
+			expect(r.complete).toBe(false);
+			expect(lsKeys().filter((k) => k.startsWith('openmusic:lyrics-tr:'))).toEqual([]);
+			expect(lsKeys().filter((k) => k.startsWith('openmusic:line-tr:'))).toEqual([]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
 // quick-261116-lyrux (Task 4) — LINE-LEVEL cache. Hector's toggle scenario: the Korean
 // lines are translated with English skipped; he then un-skips English, which changes
 // the batch composition (and every batch-level key) — the already-translated lines

@@ -519,7 +519,12 @@
 				const range = ranges[nextRange++];
 				let stale = false;
 				try {
-					const res = await translateLinesEx(sendText.slice(range.start, range.end), lang);
+					// quick-261120-segmix: segment routing ON for lyrics — a MIXED line's
+					// Han runs convert offline while its English runs finally reach MT
+					// (previously the whole line took the offline path and the English
+					// stayed English). `skip` is this run's lyricsSkip snapshot, honoured
+					// per segment inside the pipeline.
+					const res = await translateLinesEx(sendText.slice(range.start, range.end), lang, { segments: true, skip });
 					if (trKey !== key) stale = true; // a newer song/lang/skip owns the pane now
 					else {
 						// An incomplete chunk still renders its genuinely-translated lines

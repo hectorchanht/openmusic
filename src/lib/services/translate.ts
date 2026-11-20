@@ -15,6 +15,8 @@
 //       every caller relies on is preserved.
 import { browser } from '$app/environment';
 import { apiFetch } from './api-base';
+import { detectLang } from '$lib/i18n/detect';
+import { splitLyricSegments, isMixedLyricLine } from './lyric-segments';
 
 // Bump to abandon all previously-cached (possibly poisoned) lyrics translations.
 // v2→v3 (D-02/D-04): zh-Hant output is now produced deterministically OFFLINE (client-side s2t),
@@ -96,6 +98,19 @@ export interface TranslateResult {
 	flags: boolean[];
 	/** True if every non-empty line was genuinely translated (safe to persist). */
 	complete: boolean;
+}
+
+/**
+ * quick-261120-segmix: opt-in SEGMENT routing for MIXED lines (see
+ * resolveMixedSegments). Only the lyrics path (NpLyrics) opts in — it owns the
+ * user's lyricsSkip list, which the segment path honours per segment. Every
+ * other caller (names) passes nothing and keeps the whole-line routing exactly.
+ */
+export interface TranslateOptions {
+	/** Split mixed Han+non-Han lines into runs: Han converts offline, non-Han goes to MT. */
+	segments?: boolean;
+	/** Source languages whose segments pass through untranslated (NpLyrics' lyricsSkip). */
+	skip?: readonly string[];
 }
 
 // Drop every persisted lyrics translation from BEFORE the current cache version, so poisoned
@@ -193,7 +208,7 @@ async function runApiLoop(lines: string[], to: string): Promise<TranslateResult>
 // NOT offline-converted — it lands in the API-bound subset like any other non-Chinese line.
 // quick-260926-kvz: the dynamic import now also pulls the ~22 KB gzip t2s dict, because
 // s2tConvertLines is the idempotent s2t↔t2s merge (already-Traditional input keeps its spelling).
-async function resolveZhHant(lines: string[]): Promise<TranslateResult> {
+async function resolveZhHant(lines: string[], opts?: TranslateOptions): Promise<TranslateResult> {
 	let mod: typeof import('./zh-convert');
 	try {
 		mod = await import('./zh-convert');
@@ -208,13 +223,19 @@ async function resolveZhHant(lines: string[]): Promise<TranslateResult> {
 	// positional alignment the callers depend on). Blank lines are trivially complete (nothing to
 	// translate) — they belong to NEITHER bucket, so Chinese lyrics with blank separator lines
 	// still make ZERO network calls.
+	// quick-261120-segmix: with segment routing ON (lyrics only — the caller opts in),
+	// a MIXED line (Han + translatable non-Han runs) leaves the Chinese bucket for
+	// the segment path below; without the opt-in it converts whole, exactly as before.
 	const chineseIdx: number[] = [];
 	const apiIdx: number[] = [];
+	const mixedIdx: number[] = [];
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
 		if (!line) continue; // blank: leave out[i]='' / flag false (non-blocking), no request
-		if (isChineseLine(line)) chineseIdx.push(i);
-		else apiIdx.push(i);
+		if (isChineseLine(line)) {
+			if (opts?.segments && isMixedLyricLine(line)) mixedIdx.push(i);
+			else chineseIdx.push(i);
+		} else apiIdx.push(i);
 	}
 
 	const out = lines.slice();
@@ -251,11 +272,139 @@ async function resolveZhHant(lines: string[]): Promise<TranslateResult> {
 		}
 	}
 
+	// quick-261120-segmix: MIXED lines resolve per segment (see resolveMixedSegments)
+	// and scatter back positionally like every other bucket.
+	if (mixedIdx.length) {
+		const seg = await resolveMixedSegments(
+			mixedIdx.map((i) => lines[i]),
+			opts?.skip ?? [],
+			s2tConvertLines
+		);
+		mixedIdx.forEach((orig, j) => {
+			out[orig] = seg.out[j];
+			flags[orig] = seg.flags[j];
+		});
+	}
+
 	// Same completeness rule as the API path: every NON-BLANK line must be flagged. An incomplete
 	// API remainder keeps complete=false (so it stays uncached/retryable) even though the offline
 	// lines are correct.
 	const complete = lines.every((line, i) => !line || flags[i]);
 	return { out, flags, complete };
+}
+
+/**
+ * quick-261120-segmix: resolve MIXED lines (Han + non-Han in one line) at SEGMENT
+ * granularity — the fix for Hector's 2026-11-20 report that the English inside a
+ * Chinese lyric line never translated under a zh-Hant target (the whole line took
+ * the offline path, which only converts script). Per line (services/lyric-segments):
+ *   - 'cjk' runs convert OFFLINE via the caller's s2tConvertLines — batched across
+ *     every mixed line in the batch, never sent to MT (script control, not paraphrase);
+ *   - 'mt' runs go through the EXISTING API retry loop, batched into ONE call across
+ *     all mixed lines, behind the per-line cache (keyed on the segment's trimmed
+ *     core text, so a hook repeated across songs/lines costs nothing — the same
+ *     key space whole lines use, since identical text wants identical translation);
+ *   - 'raw' runs (punctuation/digits/spacing) pass through untouched.
+ * Skip list: an mt run whose detected language is in `skip` passes through
+ * untranslated and counts as RESOLVED (a deliberate pass, not a failure) — the
+ * segment-level mirror of NpLyrics' per-line whitelist, so skipping English also
+ * leaves the English inside mixed lines alone. Genuinely-translated API output is
+ * s2t-normalized before stitching, the same Workers-AI Simplified-lean rule the
+ * whole-line API bucket applies. A line's flag is true only when EVERY mt run
+ * resolved (translated / skipped / cached); an echoed run keeps the line — and
+ * therefore the batch — incomplete and uncached, exactly like a whole-line echo.
+ * Whitespace around an mt run is never sent (providers trim anyway): the run's
+ * lead/trail spacing is re-attached verbatim at stitch time, so the joined line
+ * preserves the original spacing/punctuation exactly.
+ */
+async function resolveMixedSegments(
+	lines: string[],
+	skip: readonly string[],
+	s2tConvertLines: (lines: string[]) => Promise<string[]>
+): Promise<{ out: string[]; flags: boolean[] }> {
+	const split = lines.map((l) => splitLyricSegments(l));
+	// Segment results start as the ORIGINAL text; resolved segments overwrite.
+	const segOut: string[][] = split.map((segs) => segs.map((s) => s.text));
+	const segDone: boolean[][] = split.map((segs) => segs.map((s) => s.kind !== 'mt'));
+
+	// CJK runs → ONE offline batch across all mixed lines.
+	const cjkTexts: string[] = [];
+	const cjkSlots: Array<{ li: number; si: number }> = [];
+	split.forEach((segs, li) =>
+		segs.forEach((s, si) => {
+			if (s.kind === 'cjk') {
+				cjkSlots.push({ li, si });
+				cjkTexts.push(s.text);
+			}
+		})
+	);
+	if (cjkTexts.length) {
+		const converted = await s2tConvertLines(cjkTexts);
+		cjkSlots.forEach((slot, j) => {
+			segOut[slot.li][slot.si] = converted[j];
+			segDone[slot.li][slot.si] = true;
+		});
+	}
+
+	// MT runs → skip gate, then the segment cache, then ONE grouped API call.
+	interface MtJob {
+		li: number;
+		si: number;
+		core: string;
+		lead: string;
+		trail: string;
+	}
+	const jobs: MtJob[] = [];
+	split.forEach((segs, li) =>
+		segs.forEach((s, si) => {
+			if (s.kind !== 'mt') return;
+			if (skip.includes(detectLang(s.text))) {
+				segDone[li][si] = true; // deliberate pass-through — resolved, original kept
+				return;
+			}
+			const m = /^(\s*)([\s\S]*?)(\s*)$/.exec(s.text);
+			const lead = m?.[1] ?? '';
+			const core = m?.[2] ?? s.text;
+			const trail = m?.[3] ?? '';
+			if (!core) {
+				segDone[li][si] = true;
+				return;
+			}
+			const hit = lineCacheGet(core, 'zh-Hant');
+			if (hit !== null) {
+				segOut[li][si] = lead + hit + trail;
+				segDone[li][si] = true;
+				return;
+			}
+			jobs.push({ li, si, core, lead, trail });
+		})
+	);
+	if (jobs.length) {
+		const api = await runApiLoop(
+			jobs.map((j) => j.core),
+			'zh-Hant'
+		);
+		// Normalize genuinely-translated output to Traditional (same rule as the
+		// whole-line API bucket); echoes/fallbacks stay untouched.
+		const okPos = jobs.map((_, k) => k).filter((k) => api.flags[k]);
+		if (okPos.length) {
+			const normalized = await s2tConvertLines(okPos.map((k) => api.out[k]));
+			okPos.forEach((k, n) => {
+				api.out[k] = normalized[n];
+			});
+		}
+		jobs.forEach((j, k) => {
+			if (!api.flags[k]) return; // echo/failure: original segment stays, line incomplete
+			segOut[j.li][j.si] = j.lead + api.out[k] + j.trail;
+			segDone[j.li][j.si] = true;
+			lineCacheSet(j.core, 'zh-Hant', api.out[k]); // genuine only — an echo never enters
+		});
+	}
+
+	return {
+		out: segOut.map((segs) => segs.join('')),
+		flags: segDone.map((line) => line.every(Boolean))
+	};
 }
 
 /**
@@ -274,7 +423,7 @@ async function resolveZhHant(lines: string[]): Promise<TranslateResult> {
  * every line is API-bound and the line cache applies to all of them — the
  * classification below mirrors that fallback.
  */
-async function resolveWithLineCache(lines: string[], to: string): Promise<TranslateResult> {
+async function resolveWithLineCache(lines: string[], to: string, opts?: TranslateOptions): Promise<TranslateResult> {
 	let isChinese: ((line: string) => boolean) | null = null;
 	if (to === 'zh-Hant') {
 		try {
@@ -304,7 +453,7 @@ async function resolveWithLineCache(lines: string[], to: string): Promise<Transl
 	}
 	if (missIdx.length) {
 		const subLines = missIdx.map((i) => lines[i]);
-		const sub = to === 'zh-Hant' ? await resolveZhHant(subLines) : await runApiLoop(subLines, to);
+		const sub = to === 'zh-Hant' ? await resolveZhHant(subLines, opts) : await runApiLoop(subLines, to);
 		missIdx.forEach((orig, j) => {
 			out[orig] = sub.out[j];
 			flags[orig] = sub.flags[j];
@@ -329,10 +478,15 @@ async function resolveWithLineCache(lines: string[], to: string): Promise<Transl
  * network) and only the non-Chinese remainder hits the API. Every other target is byte-identical
  * to before (full `lines[]` → the API retry loop, no offline branch, no zh-convert import).
  */
-export async function translateLinesEx(lines: string[], to: string): Promise<TranslateResult> {
+export async function translateLinesEx(lines: string[], to: string, opts?: TranslateOptions): Promise<TranslateResult> {
 	if (to === 'off' || !lines.length) return { out: lines, flags: lines.map(() => false), complete: false };
 	purgeStaleLyricsCache();
-	const key = `openmusic:lyrics-tr:${CACHE_VER}:${to}:${hash(lines.join('|'))}`;
+	// quick-261120-segmix: a segment-routed run's output depends on the skip set
+	// (a skipped segment stays in its source language), so segment batches key on
+	// it — the same lines under a different skip set must never serve each other's
+	// cached stitch. Non-segment keys are byte-identical to before.
+	const segKey = opts?.segments ? `:seg${hash([...(opts.skip ?? [])].sort().join(','))}` : '';
+	const key = `openmusic:lyrics-tr:${CACHE_VER}:${to}:${hash(lines.join('|'))}${segKey}`;
 	if (mem.has(key)) {
 		const out = mem.get(key) as string[];
 		return { out, flags: out.map(() => true), complete: true };
@@ -354,7 +508,7 @@ export async function translateLinesEx(lines: string[], to: string): Promise<Tra
 	// D-02 choke-point interception: offline-first for zh-Hant, unchanged API path otherwise.
 	// quick-261116-lyrux (Task 4): the pipeline now runs behind the LINE-LEVEL cache —
 	// known lines resolve per-line, only misses reach resolveZhHant / runApiLoop.
-	const best = await resolveWithLineCache(lines, to);
+	const best = await resolveWithLineCache(lines, to, opts);
 
 	if (best.complete) {
 		mem.set(key, best.out);
@@ -392,7 +546,14 @@ async function healZhHantBatch(key: string, lines: string[], v: string[]): Promi
 	}
 	const { isChineseLine, s2tConvertLineSync, warmScript } = mod;
 	const idx: number[] = [];
-	for (let i = 0; i < lines.length; i++) if (lines[i] && isChineseLine(lines[i])) idx.push(i);
+	// quick-261120-segmix: MIXED lines are excluded — a segment-stitched value is
+	// NOT a pure offline result, so re-deriving it whole-line here would erase the
+	// MT-translated segments. Pure-Chinese positions heal exactly as before (for a
+	// non-segment batch a mixed line's stored value IS the whole-line conversion,
+	// which this same sync converter reproduces identically, so skipping it is a
+	// no-op there too).
+	for (let i = 0; i < lines.length; i++)
+		if (lines[i] && isChineseLine(lines[i]) && !isMixedLyricLine(lines[i])) idx.push(i);
 	if (!idx.length) return v;
 	await warmScript('zh-Hant'); // never rejects; loads both dicts for the merge
 	const healed = v.slice();
@@ -417,6 +578,6 @@ async function healZhHantBatch(key: string, lines: string[], v: string[]): Promi
  * Back-compat wrapper preserving the original `string[]` contract (out.length === lines.length).
  * Callers that need the per-line genuine-translation signal use `translateLinesEx`.
  */
-export async function translateLines(lines: string[], to: string): Promise<string[]> {
-	return (await translateLinesEx(lines, to)).out;
+export async function translateLines(lines: string[], to: string, opts?: TranslateOptions): Promise<string[]> {
+	return (await translateLinesEx(lines, to, opts)).out;
 }
