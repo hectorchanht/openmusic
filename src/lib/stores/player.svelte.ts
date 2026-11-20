@@ -28,6 +28,15 @@ import { hasFreshAudioUrl, isTrackReady } from '$lib/services/track-ready';
 import { watchAudioRouteLoss } from '$lib/services/audio-route';
 import type { AudioRouteWatcher } from '$lib/services/audio-route';
 import { preconnectForSource, noteAudioOrigin } from '$lib/services/preconnect';
+// NEVER-STOP buffer gate (Hector 2026-11-19): a fresh China-CDN play waits for a
+// real head start before starting — see $lib/services/buffer-gate for the doctrine.
+import {
+	shouldBufferGate,
+	waitForBufferGate,
+	bufferedAheadSec,
+	SLOW_RESUME_TARGET_SEC,
+	SLOW_RESUME_TIMEOUT_MS
+} from '$lib/services/buffer-gate';
 import { tryFallback } from '$lib/services/fallback';
 import { onApiPipelineIdle } from '$lib/services/api-base';
 import { reportDeadUrl } from '$lib/services/resolve-cache-client';
@@ -1823,6 +1832,17 @@ class Player {
 	private autoplayRetryArmed = false;
 
 	/**
+	 * NEVER-STOP resume hysteresis (Hector 2026-11-19): true while a mid-song
+	 * `waiting` stall on a slow (China-CDN) source is being HELD — the element
+	 * was paused by holdForRebuffer() at the stall point and must not resume
+	 * until buffered-ahead is healthy again (see buffer-gate's
+	 * SLOW_RESUME_TARGET_SEC). Any sanctioned pause (pauseAudio — user /
+	 * MediaSession / sleep timer / route loss) cancels the hold: a human's
+	 * pause always outranks a machine's resume. Plain field — internal.
+	 */
+	private stallHold = false;
+
+	/**
 	 * EXTERNAL-PAUSE SELF-HEAL (autoadvance-pauses-after-1s). On Android Chrome a genuinely-playable
 	 * track — typically right after an auto-advance src swap — plays ~1s then gets PAUSED by an
 	 * external event (audio-focus loss to a transient notification sound, background/lock-screen power
@@ -2491,6 +2511,78 @@ class Player {
 		});
 	}
 
+	/**
+	 * NEVER-STOP RESUME HYSTERESIS (Hector 2026-11-19): a mid-song `waiting`
+	 * stall on a slow (China-CDN) source must not sliver-resume. The browser
+	 * restarts the instant ~1s of data lands and starves again seconds later —
+	 * the "停下播下停下播下" loop Hector named as the worst listening
+	 * experience (immersed listening, and Car Mode: a sudden stop makes a
+	 * driver reach for the phone). So on `waiting` — MID-SONG only
+	 * (hasPlayedSinceSrc; the initial load is owned by the play() buffer gate
+	 * + stall watchdog) — we pause the element ourselves and hold the resume
+	 * until buffered-ahead is back above SLOW_RESUME_TARGET_SEC (15s), with a
+	 * SLOW_RESUME_TIMEOUT_MS (10s) hard cap: on timeout we resume with
+	 * whatever has arrived, so a dying CDN is never trapped by the hold and
+	 * the never-stop failover/interlude logic keeps owning total failure.
+	 * This is NOT the removed external-pause self-heal: that fought USER/OS
+	 * pauses; this acts only on a network starvation event while the element
+	 * was playing, and any sanctioned pause during the hold cancels it
+	 * (pauseAudio clears stallHold). Fast sources and blob kinds never hold.
+	 */
+	private onMidSongStall() {
+		if (this.stallHold) return; // already holding — one hold per stall
+		if (!this.hasPlayedSinceSrc) return; // initial load — gate + watchdog own it
+		if (this.deliberatePause) return;
+		const el = this.audio;
+		const cur = this.current;
+		if (!el || !cur || el.paused) return;
+		if (!shouldBufferGate({ source: cur.source, kind: this.lastSrcKind, src: el.src })) return;
+		void this.holdForRebuffer(this.playGen, cur.uid);
+	}
+
+	private async holdForRebuffer(gen: number, uid: string) {
+		const el = this.audio;
+		if (!el) return;
+		this.stallHold = true;
+		this.loading = true; // existing loading state — no new UI
+		logAction('buffer.hold', { uid, ahead: Math.round(bufferedAheadSec(el) * 10) / 10 });
+		// Pause WITHOUT pauseAudio(): that is the sanctioned USER pause (it
+		// would cancel this very hold + release the keep-alive we want during
+		// the refill). Set the deliberate flag manually so the pause listener
+		// consumes this stop as intentional, exactly like a sanctioned pause.
+		this.deliberatePause = true;
+		try {
+			el.pause();
+		} catch {
+			/* a partial/test element — the hold poll below still governs the resume */
+		}
+		let outcome: string = 'superseded';
+		try {
+			outcome = await waitForBufferGate(el, {
+				targetSec: SLOW_RESUME_TARGET_SEC,
+				timeoutMs: SLOW_RESUME_TIMEOUT_MS,
+				isSuperseded: () =>
+					gen !== this.playGen || !this.stallHold || this.current?.uid !== uid
+			});
+		} finally {
+			const stillMine = gen === this.playGen && this.current?.uid === uid;
+			this.stallHold = false;
+			if (stillMine) this.loading = false;
+		}
+		if (gen !== this.playGen || this.current?.uid !== uid) return; // superseded — newer play owns the element
+		if (outcome === 'superseded') return; // cancelled in place (sanctioned pause) — a human's pause outranks the resume
+		logAction('buffer.resume', { uid, outcome, ahead: Math.round(bufferedAheadSec(el) * 10) / 10 });
+		// Resume on EVERY outcome (ready / timeout / error): ready is the
+		// hysteresis win; timeout/error hand the element back to the existing
+		// stall/error/never-stop chains rather than trapping it paused.
+		if (el.paused) {
+			this.keepAliveOn();
+			void el.play().catch(() => {
+				/* rejected (activation lost in bg) — leave paused; existing seams own it */
+			});
+		}
+	}
+
 	/** Disarm the stall watchdog (a real playing/timeupdate, an error, or end-of-track). */
 	private disarmStall() {
 		if (this.stallTimer) {
@@ -2589,6 +2681,7 @@ class Player {
 	 * path that pauses on purpose calls this instead of `audio.pause()` directly.
 	 */
 	private pauseAudio() {
+		this.stallHold = false; // NEVER-STOP hold: a sanctioned pause cancels any pending hysteresis resume
 		this.deliberatePause = true;
 		this.disarmResume(); // an intentional pause cancels any pending external-pause resume
 		this.keepAliveOff(); // a deliberate stop releases the background keep-alive (bg-resolve-gap-stall)
@@ -3013,6 +3106,14 @@ class Player {
 			// backgrounded, and never on foreground return.
 			this.deliberatePause = false;
 			this.disarmResume();
+		});
+		el.addEventListener('waiting', () => {
+			// NEVER-STOP resume hysteresis (Hector 2026-11-19): a mid-song starvation
+			// stall on a slow source holds its own resume until the buffer is healthy
+			// again — see onMidSongStall. (logMedia's one-shot `waiting` line above is
+			// observability only; this listener is the actor, and it self-guards to
+			// mid-song slow-source stalls.)
+			this.onMidSongStall();
 		});
 		el.addEventListener('canplay', () => {
 			// Next-song-current-but-paused fix: the canplay event is the readyState-ready signal — if a
@@ -5043,6 +5144,39 @@ class Player {
 				// `playing` between (a reactive re-entry / recovery ping-pong — the "api loop hell"), the
 				// brake STOPS with a logged trigger and we bail this play() rather than re-driving again.
 				if (!this.driveSrc(resolved.uid, src, kind)) return;
+				// NEVER-STOP BUFFER GATE (Hector 2026-11-19): a FRESH remote play of a
+				// China-CDN source (kuwo/qq/netease/gdnetease/joox/kugou/migu) does NOT
+				// start at canplay — it waits here, still under play()'s existing
+				// `loading` state, until the element holds a real head start
+				// (buffer-gate: 30s target / buffered-to-end / HAVE_ENOUGH_DATA, 12s
+				// hard timeout, then play anyway). Hector's doctrine: an initial wait
+				// is expected and free; a MID-SONG stall is the sin. Blobs never reach
+				// here as a gated kind (download/prebuffer branches set blob kinds),
+				// a repeat served from the media cache satisfies the gate on its
+				// first poll, and resume/seek/re-resolve paths never call this — only
+				// this fresh attach does. preload='auto' + load() is the nudge that
+				// makes the element actually fetch while play() is still withheld
+				// (a bare src attach may only pull metadata). The stall watchdog is
+				// armed AFTER the gate so its 15s window measures the post-start
+				// load, not the deliberate buffer wait.
+				if (shouldBufferGate({ source: resolved.source, kind, src })) {
+					try {
+						this.audio.preload = 'auto';
+						this.audio.load();
+					} catch {
+						/* a partial/test element without load() — the poll still judges its buffer */
+					}
+					const gateOutcome = await waitForBufferGate(this.audio, {
+						isSuperseded: () => myGen !== this.playGen
+					});
+					if (myGen !== this.playGen) return; // superseded mid-gate — the newer play owns the element
+					logAction('buffer.gate', {
+						uid: resolved.uid,
+						source: resolved.source,
+						outcome: gateOutcome,
+						ahead: Math.round(bufferedAheadSec(this.audio) * 10) / 10
+					});
+				}
 				this.armStall();
 				// IDLE-PREFETCH (quick-261102-idle1, superseding the RELAX-PREFETCH ~5s timeupdate
 				// gate AND the eager-fire removal of debug-song-click-lrc-flood-noplay): arm the

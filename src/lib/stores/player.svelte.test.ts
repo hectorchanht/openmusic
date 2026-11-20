@@ -10347,3 +10347,160 @@ describe('43-D-08 — version-mismatch notice: play it, surface it once per uid'
 		expect(player.notice).toBeNull();
 	});
 });
+
+describe('NEVER-STOP buffer gate — China source waits for a head start (Hector 2026-11-19)', () => {
+	// A fake audio WITH an observable buffer: `ranges` is mutated by the test to
+	// simulate the CDN filling the element while play() is gated.
+	function makeBufferedAudio(initial: Array<[number, number]>) {
+		const base = makeFakeAudio();
+		const state = { ranges: initial };
+		const el = {
+			...base,
+			preload: '',
+			load: vi.fn(),
+			removeEventListener() {},
+			get buffered() {
+				const list = state.ranges;
+				return {
+					length: list.length,
+					start: (i: number) => list[i][0],
+					end: (i: number) => list[i][1]
+				};
+			},
+			setRanges(r: Array<[number, number]>) {
+				state.ranges = r;
+			}
+		};
+		return el;
+	}
+	const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockImplementation(async (t: Track) => t);
+		mockCoverResolve.mockReset().mockResolvedValue(null);
+		player.current = null;
+		player.queue = [];
+		player.resolvedCover = null;
+	});
+
+	it('a kuwo fresh play does NOT call audio.play() until ~30s is buffered, then starts', async () => {
+		const el = makeBufferedAudio([[0, 2]]);
+		player.attach(el as unknown as HTMLAudioElement);
+		const t = mk('kuwo', 'BG1', 'A', 'Slow Song');
+		const p = player.play(t, { fresh: true });
+		await tick(350); // several gate polls at a thin 2s buffer
+		expect(el.play).not.toHaveBeenCalled();
+		expect(el.load).toHaveBeenCalled(); // preload nudge fired
+		el.setRanges([[0, 45]]); // CDN catches up — head start reached
+		await p;
+		expect(el.play).toHaveBeenCalled();
+		expect(player.current?.uid).toBe(t.uid);
+	});
+
+	it('a ytmusic fresh play is NOT gated — starts immediately even with a thin buffer', async () => {
+		const el = makeBufferedAudio([[0, 2]]);
+		player.attach(el as unknown as HTMLAudioElement);
+		const t = mk('ytmusic', 'BG2', 'A', 'Fast Song');
+		await player.play(t, { fresh: true });
+		expect(el.play).toHaveBeenCalled();
+	});
+
+	it('a kuwo play already buffered (repeat / media-cache hit) starts with no wait', async () => {
+		const el = makeBufferedAudio([[0, 300]]);
+		player.attach(el as unknown as HTMLAudioElement);
+		const t = mk('kuwo', 'BG3', 'A', 'Cached Song');
+		const started = Date.now();
+		await player.play(t, { fresh: true });
+		expect(el.play).toHaveBeenCalled();
+		expect(Date.now() - started).toBeLessThan(2000); // gate satisfied on first poll, not the 12s cap
+	});
+});
+
+describe('NEVER-STOP resume hysteresis — mid-song stall holds the resume (Hector 2026-11-19)', () => {
+	function makeBufferedAudio(initial: Array<[number, number]>) {
+		const base = makeFakeAudio();
+		const state = { ranges: initial };
+		const el = {
+			...base,
+			preload: '',
+			load: vi.fn(),
+			removeEventListener() {},
+			get buffered() {
+				const list = state.ranges;
+				return {
+					length: list.length,
+					start: (i: number) => list[i][0],
+					end: (i: number) => list[i][1]
+				};
+			},
+			setRanges(r: Array<[number, number]>) {
+				state.ranges = r;
+			}
+		};
+		// Realistic transport: play()/pause() flip `paused` like a real element.
+		el.play = vi.fn(() => {
+			el.paused = false;
+			return Promise.resolve();
+		});
+		el.pause = vi.fn(() => {
+			el.paused = true;
+		});
+		return el;
+	}
+	const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
+	const internals = () => player as unknown as { hasPlayedSinceSrc: boolean };
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockImplementation(async (t: Track) => t);
+		mockCoverResolve.mockReset().mockResolvedValue(null);
+		player.current = null;
+		player.queue = [];
+		player.resolvedCover = null;
+	});
+
+	async function startPlaying(source: SourceId, id: string) {
+		const el = makeBufferedAudio([[0, 300]]);
+		player.attach(el as unknown as HTMLAudioElement);
+		const t = mk(source, id, 'A', 'Song');
+		await player.play(t, { fresh: true });
+		expect(el.play).toHaveBeenCalled();
+		internals().hasPlayedSinceSrc = true; // mid-song now
+		el.play.mockClear();
+		el.pause.mockClear();
+		// The playhead sits at 100s with the buffer drained to a sliver ahead.
+		el.currentTime = 100;
+		el.setRanges([[0, 101]]);
+		return { el, t };
+	}
+
+	it('a kuwo mid-song `waiting` pauses the element and does NOT resume on a sliver — only at the healthy threshold', async () => {
+		const { el } = await startPlaying('kuwo', 'BGH1');
+		el.fire('waiting');
+		await tick(250); // several hold polls at ahead=1s
+		expect(el.pause).toHaveBeenCalled(); // the hold took the element
+		expect(el.play).not.toHaveBeenCalled(); // no sliver-resume — the loop is broken
+		el.setRanges([[0, 120]]); // ahead back to 20s ≥ 15s resume threshold
+		await tick(300);
+		expect(el.play).toHaveBeenCalledTimes(1);
+	});
+
+	it('a ytmusic mid-song `waiting` is NOT held (fast source — browser resume stands)', async () => {
+		const { el } = await startPlaying('ytmusic', 'BGH2');
+		el.fire('waiting');
+		await tick(200);
+		expect(el.pause).not.toHaveBeenCalled();
+	});
+
+	it('a sanctioned pause during the hold cancels the resume (user outranks the machine)', async () => {
+		const { el } = await startPlaying('kuwo', 'BGH3');
+		el.fire('waiting');
+		await tick(150);
+		expect(el.pause).toHaveBeenCalled();
+		(player as unknown as { pauseAudio(): void }).pauseAudio(); // user / MediaSession pause
+		el.setRanges([[0, 200]]); // buffer refills fully…
+		await tick(300);
+		expect(el.play).not.toHaveBeenCalled(); // …but the hold stays cancelled
+	});
+});
