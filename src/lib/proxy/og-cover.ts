@@ -494,7 +494,8 @@ function safeMetingPicUrl(raw: string | null | undefined): string | null {
  * the branded fallback even when the seam resolved the song. Dereferencing ONCE here means
  * the resolve cache stores the direct URL and every later fetch is a single CDN hop. The
  * redirector's default size is param=300y300; the same asset serves at card grade by
- * changing only the param (1200y1200, live-verified 2026-11-20). The Location is validated
+ * changing only the param — 600y600 (~390 KB live-measured 2026-11-20; 1200y1200 is
+ * 1.67 MB and its transfer alone blows the image budget from overseas PoPs). The Location is validated
  * against the netease allow-list like any other seam cover (T-wv8-05). Never throws.
  */
 async function derefMetingPic(url: string, signal: AbortSignal): Promise<string | null> {
@@ -504,7 +505,7 @@ async function derefMetingPic(url: string, signal: AbortSignal): Promise<string 
 		const loc = res.headers.get('location');
 		await res.body?.cancel().catch(() => {});
 		if (!loc) return null;
-		return safeNeteaseImageUrl(loc.replace(/([?&]param=)[0-9]+y[0-9]+/, '$11200y1200'));
+		return safeNeteaseImageUrl(loc.replace(/([?&]param=)[0-9]+y[0-9]+/, '$1600y600'));
 	} catch {
 		return null;
 	}
@@ -684,10 +685,15 @@ export async function resolveCoverViaSeam(
 		// (the app's netease cover form) — dereference it like any seam cover; a failed
 		// deref falls through to the fan-out rather than handing the image fetch a
 		// redirector it cannot afford (see derefMetingPic).
-		const crowd = await crowdPickCover(origin, artist, title, signal);
+		// PER-LEG budgets under the stage deadline (tierSignal, the tier chain's own shape):
+		// the fan-out is a Promise.all, so ONE hanging upstream would otherwise discard
+		// every fast leg's rows when the stage signal fires — live 2026-11-20, BIGBANG/LOSER
+		// burned the full 8 s stage budget and fell back although kuwo/qq answer in ~2 s.
+		// A leg that outlives its own cap fails ALONE; its siblings' results survive.
+		const crowd = await crowdPickCover(origin, artist, title, tierSignal(2500, signal));
 		if (crowd) {
 			if (!isMetingPicUrl(crowd)) return crowd;
-			const direct = await derefMetingPic(crowd, signal);
+			const direct = await derefMetingPic(crowd, tierSignal(3000, signal));
 			if (direct) return direct;
 			if (signal.aborted) return null;
 		}
@@ -701,9 +707,9 @@ export async function resolveCoverViaSeam(
 		if (!keyword) return null;
 		const rows = (
 			await Promise.all([
-				neteaseSeamRows(keyword, signal),
-				qqSeamRows(keyword, signal),
-				kuwoSeamRows(keyword, signal)
+				neteaseSeamRows(keyword, tierSignal(3500, signal)),
+				qqSeamRows(keyword, tierSignal(3500, signal)),
+				kuwoSeamRows(keyword, tierSignal(3500, signal))
 			])
 		).flat();
 		if (signal.aborted) return null;
@@ -728,7 +734,7 @@ export async function resolveCoverViaSeam(
 			const hit = best(gated.filter((r) => r.source === src && r.cover));
 			if (!hit?.cover) continue;
 			if (!isMetingPicUrl(hit.cover)) return hit.cover;
-			const direct = await derefMetingPic(hit.cover, signal);
+			const direct = await derefMetingPic(hit.cover, tierSignal(3000, signal));
 			if (direct) return direct;
 			if (signal.aborted) return null;
 		}
@@ -737,7 +743,7 @@ export async function resolveCoverViaSeam(
 		// itself identity-gated (a detail naming NEITHER field is drift, not a candidate).
 		const qqRow = best(gated.filter((r) => r.source === 'qq' && r.mid));
 		if (qqRow?.mid) {
-			const detail = await qqDetailByMid(qqRow.mid, signal);
+			const detail = await qqDetailByMid(qqRow.mid, tierSignal(3000, signal));
 			if (
 				detail?.cover &&
 				(detail.title || detail.artist) &&

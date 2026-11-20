@@ -1553,8 +1553,8 @@ describe('og-cover — resolveCoverViaSeam, the single seam driven edge-side (qu
 		const { seamCalls } = stubRoute({ seamNe: SEAM_NE_HIT_REDIRECTOR });
 		const out = await resolveCoverViaSeam('https://openmusic.lol', '茉ひる/Billy Choi', 'ロストライン', fresh());
 		// The redirector itself is never returned: its hop blows the card's image budget
-		// (live-measured 2026-11-20). The seam returns the 302 target, sized 1200y1200.
-		expect(out).toBe(`${SEAM_NE_PIC}?param=1200y1200`);
+		// (live-measured 2026-11-20). The seam returns the 302 target, sized 600y600.
+		expect(out).toBe(`${SEAM_NE_PIC}?param=600y600`);
 		expect(seamCalls.some((c) => c.includes('type=pic'))).toBe(true);
 	});
 

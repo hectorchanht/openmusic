@@ -74,8 +74,15 @@ import { ensureFoldReady } from '$lib/services/zh-convert';
 const TTL = 86400;
 const CACHE_CONTROL = `public, max-age=${TTL}, immutable`;
 
-/** The image fetch is the last hop and gets its own budget, outside the resolve deadline. */
-const IMAGE_MS = 2500;
+/**
+ * The image fetch is the last hop and gets its own budget, outside the resolve deadline.
+ * 4000 (raised from 2500 at quick-261120-mediacard's live fix): the seam's CN CDN covers
+ * (music.126.net / kuwo / gtimg) transfer slowly to overseas PoPs on a cold hit — a
+ * 600×600 netease cover is ~390 KB and measured multiple seconds from North America —
+ * and 2500 killed resolved covers at the last hop. A hit is bytes-cached for the TTL,
+ * so the cost is once per song per PoP.
+ */
+const IMAGE_MS = 4000;
 
 /**
  * quick-261120-mediacard: the seam stage's own budget — a crowd-pick read plus a 3-source
@@ -337,8 +344,8 @@ export async function handleOgImage(input: OgImageInput): Promise<Response> {
 		//
 		// D1 — a token that rebuilt and passed its allow-list but whose IMAGE fetch then fails lands on
 		// the branded card (streamImage's own failure path), it does NOT fall through to the tier chain.
-		// The arithmetic: falling through would cost IMAGE_MS (2500) + OG_RESOLVE_MS (5000) + a second
-		// image fetch (2500) ≈ 10 s, past the 3–10 s crawler budget 30-RESEARCH §D records — trading a
+		// The arithmetic: falling through would cost IMAGE_MS (4000) + OG_RESOLVE_MS (5000) + a second
+		// image fetch (4000) ≈ 13 s, past the 3–10 s crawler budget 30-RESEARCH §D records — trading a
 		// rare better card for a routinely-timed-out one.
 		const carried = await coverUrlFromToken(ci);
 		if (carried) return await streamImage(carried, cache, bytesKey, origin);
