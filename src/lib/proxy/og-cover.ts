@@ -746,13 +746,15 @@ export async function resolveCoverViaSeam(
 		// PER-LEG budgets under the stage deadline (tierSignal, the tier chain's own shape):
 		// one hanging upstream fails ALONE — its siblings' results survive (the earlier
 		// single-signal Promise.all discarded every fast leg when the stage signal fired).
+		// Worst-case arithmetic: max(crowd 2.0 + its deref 1.5, fan-out 3.5) + one hop 2.5
+		// = 6.0 s, inside the handler's 8 s stage ceiling with slack for the gate itself.
 		// A crowd cover can be a Meting redirector (the app's netease cover form) — it is
 		// dereferenced inside its own leg (see derefMetingPic).
 		const crowdP = (async (): Promise<string | null> => {
-			const c = await crowdPickCover(origin, artist, title, tierSignal(2500, signal), trace);
+			const c = await crowdPickCover(origin, artist, title, tierSignal(2000, signal), trace);
 			if (!c) return null;
 			if (!isMetingPicUrl(c)) return c;
-			return derefMetingPic(c, tierSignal(3000, signal), trace);
+			return derefMetingPic(c, tierSignal(1500, signal), trace);
 		})();
 		// The fan-out replays resolveStub's search through the dispatch builders on the
 		// cover chain's folded search terms (coverSearchTerms: the CN catalogs index the
@@ -793,7 +795,7 @@ export async function resolveCoverViaSeam(
 			const hit = best(gated.filter((r) => r.source === src && r.cover));
 			if (!hit?.cover) continue;
 			if (!isMetingPicUrl(hit.cover)) return hit.cover;
-			const direct = await derefMetingPic(hit.cover, tierSignal(3000, signal), trace);
+			const direct = await derefMetingPic(hit.cover, tierSignal(2500, signal), trace);
 			if (direct) return direct;
 			if (signal.aborted) return null;
 		}
@@ -802,7 +804,7 @@ export async function resolveCoverViaSeam(
 		// itself identity-gated (a detail naming NEITHER field is drift, not a candidate).
 		const qqRow = best(gated.filter((r) => r.source === 'qq' && r.mid));
 		if (qqRow?.mid) {
-			const detail = await qqDetailByMid(qqRow.mid, tierSignal(3000, signal), trace);
+			const detail = await qqDetailByMid(qqRow.mid, tierSignal(2500, signal), trace);
 			if (
 				detail?.cover &&
 				(detail.title || detail.artist) &&
