@@ -294,6 +294,19 @@ export interface OgImageInput {
 export async function handleOgImage(input: OgImageInput): Promise<Response> {
 	const { url, request, platform } = input;
 	const origin = request.headers.get('origin');
+	// TEMP DIAGNOSTIC (quick-261120-mediacard live debug): ?dbg=1 on the legacy spelling
+	// collects a stage trace into the x-og-debug response header. Remove after diagnosis.
+	const trace: string[] | undefined = url.searchParams.get('dbg') === '1' ? [] : undefined;
+	const done = (res: Response): Response => {
+		if (trace) {
+			try {
+				res.headers.set('x-og-debug', trace.join(' '));
+			} catch {
+				/* guarded headers — diagnostic only */
+			}
+		}
+		return res;
+	};
 	try {
 		// Closed-set `type`, COERCED rather than rejected — this route never fails (a 404 here means
 		// no card at all).
@@ -373,15 +386,21 @@ export async function handleOgImage(input: OgImageInput): Promise<Response> {
 				url.origin,
 				artist,
 				title,
-				AbortSignal.timeout(SEAM_MS)
+				AbortSignal.timeout(SEAM_MS),
+				trace
 			);
 			if (seamCover) {
+				trace?.push(`seam:hit:${new URL(seamCover).hostname}`);
 				await writeResolveCache(cache, resolveKey, seamCover);
-				return await streamImage(seamCover, cache, bytesKey, origin);
+				const res = await streamImage(seamCover, cache, bytesKey, origin);
+				trace?.push(res.headers.get('x-og-fallback') ? 'img:fallback' : 'img:ok');
+				return done(res);
 			}
+			trace?.push('seam:miss');
 		}
 
 		let cover = await readResolveCache(cache, resolveKey);
+		trace?.push(cover === undefined ? 'rcache:miss' : cover === null ? 'rcache:neg' : 'rcache:hit');
 		if (cover === undefined) {
 			const resolved = await resolveCoverTiered(
 				type,
@@ -390,6 +409,7 @@ export async function handleOgImage(input: OgImageInput): Promise<Response> {
 				AbortSignal.timeout(OG_RESOLVE_MS),
 				(platform as { env?: Env } | undefined)?.env?.LASTFM_KEY
 			);
+			trace?.push(resolved === 'ERROR' ? 'tier:error' : resolved === null ? 'tier:miss' : 'tier:hit');
 			if (resolved === 'ERROR') {
 				cover = null; // fall back now, but write NOTHING — the next request retries.
 			} else {
@@ -397,9 +417,11 @@ export async function handleOgImage(input: OgImageInput): Promise<Response> {
 				await writeResolveCache(cache, resolveKey, resolved);
 			}
 		}
-		if (!cover) return ogFallback(origin);
+		if (!cover) return done(ogFallback(origin));
 
-		return await streamImage(cover, cache, bytesKey, origin);
+		const res2 = await streamImage(cover, cache, bytesKey, origin);
+		trace?.push(res2.headers.get('x-og-fallback') ? 'img:fallback' : 'img:ok');
+		return done(res2);
 	} catch {
 		// Outermost never-500 guard: whatever happened, the crawler still gets a card.
 		return ogFallback(origin);

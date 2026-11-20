@@ -498,15 +498,25 @@ function safeMetingPicUrl(raw: string | null | undefined): string | null {
  * 1.67 MB and its transfer alone blows the image budget from overseas PoPs). The Location is validated
  * against the netease allow-list like any other seam cover (T-wv8-05). Never throws.
  */
-async function derefMetingPic(url: string, signal: AbortSignal): Promise<string | null> {
+async function derefMetingPic(
+	url: string,
+	signal: AbortSignal,
+	trace?: string[]
+): Promise<string | null> {
 	try {
 		const res = await fetchWithRetry(url, { signal, redirect: 'manual' }, 0);
-		if (res.status < 300 || res.status >= 400) return null;
+		if (res.status < 300 || res.status >= 400) {
+			trace?.push(`deref:http${res.status}`);
+			return null;
+		}
 		const loc = res.headers.get('location');
 		await res.body?.cancel().catch(() => {});
 		if (!loc) return null;
-		return safeNeteaseImageUrl(loc.replace(/([?&]param=)[0-9]+y[0-9]+/, '$1600y600'));
-	} catch {
+		const direct = safeNeteaseImageUrl(loc.replace(/([?&]param=)[0-9]+y[0-9]+/, '$1600y600'));
+		trace?.push(direct ? 'deref:ok' : `deref:badloc:${loc.slice(0, 60)}`);
+		return direct;
+	} catch (e) {
+		trace?.push(`deref:err:${e instanceof Error ? e.name : '?'}`);
 		return null;
 	}
 }
@@ -521,12 +531,16 @@ async function crowdPickCover(
 	origin: string,
 	artist: string,
 	title: string,
-	signal: AbortSignal
+	signal: AbortSignal,
+	trace?: string[]
 ): Promise<string | null> {
 	if (!origin) return null;
 	try {
 		const keys = await coverPickKeys('', artist, title);
-		if (!keys?.n) return null;
+		if (!keys?.n) {
+			trace?.push('crowd:nokeys');
+			return null;
+		}
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): edge-side fetch of an absolute
 		// own-origin URL. apiFetch is the CLIENT seam and must never run edge-side.
 		const res = await fetchWithRetry(
@@ -534,10 +548,16 @@ async function crowdPickCover(
 			{ signal },
 			0
 		);
-		if (!res.ok) return null;
+		if (!res.ok) {
+			trace?.push(`crowd:http${res.status}`);
+			return null;
+		}
 		const body = (await res.json()) as { n?: unknown } | null;
-		return safeImageUrl(typeof body?.n === 'string' ? body.n : null, COVER_PICK_IMAGE_HOSTS);
-	} catch {
+		const pick = safeImageUrl(typeof body?.n === 'string' ? body.n : null, COVER_PICK_IMAGE_HOSTS);
+		trace?.push(pick ? 'crowd:hit' : 'crowd:miss');
+		return pick;
+	} catch (e) {
+		trace?.push(`crowd:err:${e instanceof Error ? e.name : '?'}`);
 		return null;
 	}
 }
@@ -545,23 +565,35 @@ async function crowdPickCover(
 /** netease rows — replays the netease adapter's own search (sources/netease.ts): the Meting
  *  pipe it hits browser-direct; /api/netease is the retained non-browser dispatch of the same
  *  template. Rows: { name, artist, pic } with pic the album art (see safeMetingPicUrl). */
-async function neteaseSeamRows(keyword: string, signal: AbortSignal): Promise<SeamCandidate[]> {
+async function neteaseSeamRows(
+	keyword: string,
+	signal: AbortSignal,
+	trace?: string[]
+): Promise<SeamCandidate[]> {
 	try {
 		const upstream =
 			`https://api.qijieya.cn/meting/?server=netease&type=search&id=${encodeURIComponent(keyword)}` +
 			`&limit=10`;
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): edge-side fetch of an absolute upstream.
 		const res = await fetchWithRetry(upstream, { signal }, 0);
-		if (!res.ok) return [];
+		if (!res.ok) {
+			trace?.push(`ne:http${res.status}`);
+			return [];
+		}
 		const body = (await res.json()) as { name?: string; artist?: string; pic?: string }[] | null;
-		if (!Array.isArray(body)) return [];
+		if (!Array.isArray(body)) {
+			trace?.push('ne:badbody');
+			return [];
+		}
+		trace?.push(`ne:${body.length}rows`);
 		return body.map((r) => ({
 			source: 'netease' as const,
 			artist: (r.artist ?? '').trim(),
 			title: (r.name ?? '').trim(),
 			cover: safeMetingPicUrl(r.pic ?? null)
 		}));
-	} catch {
+	} catch (e) {
+		trace?.push(`ne:err:${e instanceof Error ? e.name : '?'}`);
 		return [];
 	}
 }
@@ -569,12 +601,19 @@ async function neteaseSeamRows(keyword: string, signal: AbortSignal): Promise<Se
 /** qq rows — replays the qq adapter's search through qqProxy (the /api/qq/search dispatch
  *  core). Body is the tang list: a bare array or { data: [...] } (sources/qq.ts). Rows carry
  *  NO cover by design — `mid` is kept for the detail hop. */
-async function qqSeamRows(keyword: string, signal: AbortSignal): Promise<SeamCandidate[]> {
+async function qqSeamRows(
+	keyword: string,
+	signal: AbortSignal,
+	trace?: string[]
+): Promise<SeamCandidate[]> {
 	try {
 		const upstream = qqProxy.buildUrl('search', new URLSearchParams({ msg: keyword }), undefined);
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): edge-side fetch of an absolute upstream.
 		const res = await fetchWithRetry(upstream, { signal }, 0);
-		if (!res.ok) return [];
+		if (!res.ok) {
+			trace?.push(`qq:http${res.status}`);
+			return [];
+		}
 		const body = (await res.json()) as unknown;
 		const list = Array.isArray(body)
 			? body
@@ -597,13 +636,24 @@ async function qqSeamRows(keyword: string, signal: AbortSignal): Promise<SeamCan
 
 /** kuwo rows — the shared search builder + mapper, the kuwoTier's own calls, at seam depth
  *  (10 rows: the gate needs a pool, not a first hit). pic is the row's albumpic. */
-async function kuwoSeamRows(keyword: string, signal: AbortSignal): Promise<SeamCandidate[]> {
+async function kuwoSeamRows(
+	keyword: string,
+	signal: AbortSignal,
+	trace?: string[]
+): Promise<SeamCandidate[]> {
 	try {
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): edge-side fetch of the upstream kuwo API.
 		const res = await fetchWithRetry(buildKuwoSearchUrl(keyword, 10, 1), { signal }, 0);
-		if (!res.ok) return [];
+		if (!res.ok) {
+			trace?.push(`kw:http${res.status}`);
+			return [];
+		}
 		const rows = mapSearch(await res.json());
-		if (!rows) return [];
+		if (!rows) {
+			trace?.push('kw:badbody');
+			return [];
+		}
+		trace?.push(`kw:${rows.length}rows`);
 		return rows.map((r) => ({
 			source: 'kuwo' as const,
 			artist: r.artist,
@@ -638,13 +688,17 @@ function qqAlbumCover(albumPic: string | null | undefined): string | null {
  *  sources/qq.ts's discriminator). One subrequest; never throws. */
 async function qqDetailByMid(
 	mid: string,
-	signal: AbortSignal
+	signal: AbortSignal,
+	trace?: string[]
 ): Promise<{ artist: string; title: string; cover: string | null } | null> {
 	try {
 		const upstream = qqProxy.buildUrl('detail', new URLSearchParams({ mid }), undefined);
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): edge-side fetch of an absolute upstream.
 		const res = await fetchWithRetry(upstream, { signal }, 0);
-		if (!res.ok) return null;
+		if (!res.ok) {
+			trace?.push(`qqd:http${res.status}`);
+			return null;
+		}
 		const d = (await res.json()) as {
 			song_mid?: string | null;
 			song_title?: string | null;
@@ -674,7 +728,8 @@ export async function resolveCoverViaSeam(
 	origin: string,
 	artist: string,
 	title: string,
-	signal: AbortSignal
+	signal: AbortSignal,
+	trace?: string[]
 ): Promise<string | null> {
 	try {
 		if (!`${artist}${title}`.trim() || signal.aborted) return null;
@@ -690,10 +745,10 @@ export async function resolveCoverViaSeam(
 		// every fast leg's rows when the stage signal fires — live 2026-11-20, BIGBANG/LOSER
 		// burned the full 8 s stage budget and fell back although kuwo/qq answer in ~2 s.
 		// A leg that outlives its own cap fails ALONE; its siblings' results survive.
-		const crowd = await crowdPickCover(origin, artist, title, tierSignal(2500, signal));
+		const crowd = await crowdPickCover(origin, artist, title, tierSignal(2500, signal), trace);
 		if (crowd) {
 			if (!isMetingPicUrl(crowd)) return crowd;
-			const direct = await derefMetingPic(crowd, tierSignal(3000, signal));
+			const direct = await derefMetingPic(crowd, tierSignal(3000, signal), trace);
 			if (direct) return direct;
 			if (signal.aborted) return null;
 		}
@@ -707,9 +762,9 @@ export async function resolveCoverViaSeam(
 		if (!keyword) return null;
 		const rows = (
 			await Promise.all([
-				neteaseSeamRows(keyword, tierSignal(3500, signal)),
-				qqSeamRows(keyword, tierSignal(3500, signal)),
-				kuwoSeamRows(keyword, tierSignal(3500, signal))
+				neteaseSeamRows(keyword, tierSignal(3500, signal), trace),
+				qqSeamRows(keyword, tierSignal(3500, signal), trace),
+				kuwoSeamRows(keyword, tierSignal(3500, signal), trace)
 			])
 		).flat();
 		if (signal.aborted) return null;
@@ -717,6 +772,7 @@ export async function resolveCoverViaSeam(
 		// THE seam's own identity gate — the same predicate every in-app cover rung asks.
 		const wants: readonly OgIdentity[] = [{ artist, title }];
 		const gated = rows.filter((r) => ogIdentityMatches(wants, r.artist, r.title));
+		trace?.push(`rows:${rows.length} gated:${gated.length}`);
 		// resolveStub's re-rank, applied within a source's gated pool.
 		const query = { artist, title };
 		const best = (list: SeamCandidate[]): SeamCandidate | null =>
@@ -734,7 +790,7 @@ export async function resolveCoverViaSeam(
 			const hit = best(gated.filter((r) => r.source === src && r.cover));
 			if (!hit?.cover) continue;
 			if (!isMetingPicUrl(hit.cover)) return hit.cover;
-			const direct = await derefMetingPic(hit.cover, tierSignal(3000, signal));
+			const direct = await derefMetingPic(hit.cover, tierSignal(3000, signal), trace);
 			if (direct) return direct;
 			if (signal.aborted) return null;
 		}
@@ -743,7 +799,7 @@ export async function resolveCoverViaSeam(
 		// itself identity-gated (a detail naming NEITHER field is drift, not a candidate).
 		const qqRow = best(gated.filter((r) => r.source === 'qq' && r.mid));
 		if (qqRow?.mid) {
-			const detail = await qqDetailByMid(qqRow.mid, tierSignal(3000, signal));
+			const detail = await qqDetailByMid(qqRow.mid, tierSignal(3000, signal), trace);
 			if (
 				detail?.cover &&
 				(detail.title || detail.artist) &&
