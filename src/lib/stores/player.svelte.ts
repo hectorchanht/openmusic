@@ -41,6 +41,7 @@ import { tryFallback } from '$lib/services/fallback';
 import { onApiPipelineIdle } from '$lib/services/api-base';
 import { reportDeadUrl } from '$lib/services/resolve-cache-client';
 import { reportDeadDirectUrl } from '$lib/services/direct-url-cache';
+import { reportDeadAudioUrl } from '$lib/services/audio-url-cache';
 import { buildDiversePicks } from '$lib/services/picks';
 import { buildSimilarQueue } from '$lib/services/similar';
 import { buildOfflineQueue } from '$lib/services/downloads-queue';
@@ -3414,6 +3415,10 @@ class Player {
 			// unconditional and self-gating — a src the cache never served is a no-op — so a dead
 			// direct URL can never be re-served by a later re-resolve of the same track.
 			reportDeadDirectUrl(this.audio?.src ?? '');
+			// quick-261119-mcache: same repair for the PERSISTED audio-url cache (audio-url-cache.ts).
+			// Also unconditional and self-gating — a src that cache never served is a no-op — so a
+			// dead persisted kuwo url is evicted here and the re-resolve below mints a fresh one.
+			reportDeadAudioUrl(this.audio?.src ?? '');
 
 			// lw9-followup: if the error fires WITHIN the seek window, the user just clicked the
 			// progress bar — but the audio element may not be able to honor the seek because the

@@ -16,6 +16,7 @@ import { makeUid } from './types';
 import { inferQualityFromUrl } from '../services/lrc';
 import { apiFetch } from '../services/api-base';
 import { kuwoHealth } from '../services/kuwo-health';
+import { getCachedAudioUrl, setCachedAudioUrl } from '../services/audio-url-cache';
 import { settings, type DefaultQuality } from '$lib/stores/settings.svelte';
 import { effectiveQuality } from './quality';
 
@@ -142,6 +143,29 @@ export const kuwo: SourceAdapter = {
 		// must never reach a tier pick, or a metered connection silently gets the top rung.
 		const eq = effectiveQuality(quality ?? settings.defaultQuality);
 		const level = eq === '128' ? '128k' : eq === '320' ? '320k' : 'zp';
+
+		// quick-261119-mcache: serve a still-fresh PERSISTED url instead of re-resolving. Kuwo's
+		// resolver mints a fresh signed url on EVERY detail call, and the browser media cache is
+		// keyed by url — so an un-cached re-resolve can never hit it, and every replay re-downloads
+		// the whole file from the China CDN (the first-play-stutter asymmetry). The persisted url
+		// (audio-url-cache, TTL inside the probed signed-url lifetime) makes a replay attach the
+		// IDENTICAL url, so the media cache + ETag revalidation finally apply and the ~2.5 s
+		// resolver leg is skipped. The trade is the detail body's lyric/metadata, handled exactly
+		// as catalog's 32-D-20 url-hit handles it: lrcUnresolved marks the lyric for the player's
+		// off-critical-path back-fill; search already supplied title/artist/album/cover. A dead
+		// persisted url self-heals via reportDeadAudioUrl on the player's error path.
+		const cachedUrl = getCachedAudioUrl(track.uid, level);
+		if (cachedUrl) {
+			track.audioUrl = cachedUrl;
+			track.lrcUrl = null;
+			track.detailsLoaded = true;
+			if (!track.lrc) track.lrcUnresolved = true;
+			const q = inferQualityFromUrl(cachedUrl);
+			track.quality = q.tag;
+			track.qualityLabel = q.label;
+			return track;
+		}
+
 		const path = `/api/kuwo/detail?id=${encodeURIComponent(track.songid)}&type=song&level=${encodeURIComponent(level)}&format=json`;
 
 		// Deliberately NOT gated: `resolve` is only reached for a track the user (or the queue) has
@@ -178,6 +202,10 @@ export const kuwo: SourceAdapter = {
 			const q = inferQualityFromUrl(track.audioUrl);
 			track.quality = q.tag;
 			track.qualityLabel = q.label;
+			// quick-261119-mcache: persist the fresh url so the NEXT resolve of this uid+tier
+			// serves it instead of minting a new signed url (see the cache-hit branch above).
+			// Successes only — this line sits past the code!==200 throw, so failures never pin.
+			setCachedAudioUrl(track.uid, level, track.audioUrl);
 		}
 
 		return track;

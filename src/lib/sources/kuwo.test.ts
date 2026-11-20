@@ -6,6 +6,7 @@ import searchFixture from './__fixtures__/kuwo.search.json';
 import detailFixture from './__fixtures__/kuwo.detail.json';
 import { kuwoHealth } from '$lib/services/kuwo-health';
 import { DEFAULT_THRESHOLD } from '$lib/services/source-health';
+import { __resetAudioUrlCache, reportDeadAudioUrl } from '$lib/services/audio-url-cache';
 
 const ac = new AbortController();
 
@@ -42,10 +43,25 @@ function mockFetchOnce(body: unknown, contentType = 'application/json') {
 beforeEach(() => {
 	vi.restoreAllMocks();
 	kuwoHealth.__reset(); // the gate is module-scope — never let a trip leak between tests
+	// quick-261119-mcache: the persisted audio-url cache is module-scope + localStorage-backed —
+	// stub storage in-memory and reset it, or one test's resolve would serve the next test's.
+	const map = new Map<string, string>();
+	(globalThis as { localStorage?: Storage }).localStorage = {
+		getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+		setItem: (k: string, v: string) => void map.set(k, String(v)),
+		removeItem: (k: string) => void map.delete(k),
+		clear: () => map.clear(),
+		key: (i: number) => [...map.keys()][i] ?? null,
+		get length() {
+			return map.size;
+		}
+	} as Storage;
+	__resetAudioUrlCache();
 });
 afterEach(() => {
 	vi.restoreAllMocks();
 	kuwoHealth.__reset();
+	__resetAudioUrlCache();
 });
 
 describe('kuwo.search (fixture-backed)', () => {
@@ -183,6 +199,60 @@ describe('kuwo.resolve', () => {
 	it('THROWS on code!==200 detail body (legacy throw model)', async () => {
 		vi.stubGlobal('fetch', mockFetchOnce({ code: 404, data: null }));
 		await expect(kuwo.resolve(stubTrack(), ac.signal)).rejects.toThrow(/detail failed/);
+	});
+});
+
+// quick-261119-mcache: the persisted audio-url cache wiring. A second resolve of the same
+// uid+tier must serve the persisted url with NO detail fetch (that is the whole point — the
+// browser media cache is keyed by url, and kuwo mints a fresh signed url per resolve), and a
+// dead-url report must restore the re-resolve path.
+describe('kuwo.resolve audio-url cache (quick-261119-mcache)', () => {
+	let prevQuality: typeof settings.defaultQuality;
+	beforeEach(() => {
+		prevQuality = settings.defaultQuality;
+		settings.defaultQuality = '320';
+	});
+	afterEach(() => {
+		settings.defaultQuality = prevQuality;
+	});
+
+	it('persists a fresh resolve, then serves the SAME url with no fetch', async () => {
+		const spy = mockFetchOnce(detailFixture);
+		vi.stubGlobal('fetch', spy);
+
+		const first = await kuwo.resolve(stubTrack(), ac.signal);
+		expect(first.audioUrl).toBe(detailFixture.data.url);
+		expect(spy).toHaveBeenCalledTimes(1);
+
+		const second = await kuwo.resolve(stubTrack(), ac.signal);
+		expect(second.audioUrl).toBe(detailFixture.data.url); // identical url → media cache can hit
+		expect(second.detailsLoaded).toBe(true);
+		expect(second.lrcUnresolved).toBe(true); // lyric back-filled off the critical path (32-D-20 shape)
+		expect(spy).toHaveBeenCalledTimes(1); // NO second detail call
+	});
+
+	it('re-resolves after the persisted url is reported dead', async () => {
+		const spy = mockFetchOnce(detailFixture);
+		vi.stubGlobal('fetch', spy);
+
+		await kuwo.resolve(stubTrack(), ac.signal);
+		reportDeadAudioUrl(detailFixture.data.url); // the player's error-path repair
+
+		const again = await kuwo.resolve(stubTrack(), ac.signal);
+		expect(again.audioUrl).toBe(detailFixture.data.url);
+		expect(spy).toHaveBeenCalledTimes(2); // eviction restored the cold path
+	});
+
+	it('does not serve a persisted lossless url to a 320k caller (tier key)', async () => {
+		settings.defaultQuality = 'lossless';
+		const spy = mockFetchOnce(detailFixture);
+		vi.stubGlobal('fetch', spy);
+		await kuwo.resolve(stubTrack(), ac.signal);
+		expect(spy).toHaveBeenCalledTimes(1);
+
+		settings.defaultQuality = '320';
+		await kuwo.resolve(stubTrack(), ac.signal);
+		expect(spy).toHaveBeenCalledTimes(2); // different tier → cold resolve, no cross-serve
 	});
 });
 
