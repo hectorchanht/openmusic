@@ -13,6 +13,7 @@ import {
 } from '$lib/proxy/og-cover';
 import { OG_FALLBACK_BYTES, OG_FALLBACK_TYPE } from '$lib/proxy/og-fallback';
 import { upgradeArtwork } from '$lib/services/itunes-cover';
+import { matchKey } from '$lib/services/dedupe';
 import { t2sConvertLines } from '$lib/services/zh-convert';
 import { GET, OPTIONS } from './+server';
 
@@ -716,7 +717,7 @@ describe('og-cover — closed type set + branded fallback constant', () => {
 
 const JPEG_BODY = 'JPEG-BYTES';
 
-type ImageReply = 'jpeg' | 'png' | 'html' | 'nolength' | 'THROW' | 'NOTOK';
+type ImageReply = 'jpeg' | 'png' | 'html' | 'nolength' | 'fallbackbytes' | 'THROW' | 'NOTOK';
 
 /**
  * Stub fetch for the WHOLE route: the three tier hosts plus the image-bytes fetch (any other
@@ -790,6 +791,17 @@ function stubRoute(replies: {
 			if (reply === undefined || reply === 'THROW') throw new Error('network down');
 			if (reply === 'NOTOK') return new Response('upstream error', { status: 500 });
 			return new Response(reply, { status: 200, headers: { 'content-type': 'application/json' } });
+		}
+		if (replies.image === 'fallbackbytes') {
+			// An upstream body byte-identical to the branded fallback card (the poisoning
+			// shape: a self-referential cover entry fetching our own og image).
+			return new Response(OG_FALLBACK_BYTES, {
+				status: 200,
+				headers: {
+					'content-type': 'image/jpeg',
+					'content-length': String(OG_FALLBACK_BYTES.length)
+				}
+			});
 		}
 		const img = replies.image ?? 'jpeg';
 		if (img === 'THROW') throw new Error('cdn down');
@@ -1005,6 +1017,45 @@ describe('/api/og — two caches.default layers, both keyed own-origin', () => {
 			expect(key).not.toContain('search.kuwo.cn');
 			expect(key).not.toContain('cdn-images.dzcdn.net');
 		}
+	});
+
+	it('an own-origin cover URL in the RESOLVE layer is REFUSED, never fetched (self-reference guard)', async () => {
+		// A resolve entry pointing back at this very endpoint: its "image" would be another
+		// card, possibly the branded fallback. streamImage must refuse it outright — the
+		// crowd layer's host allow-list cannot be the only line of defence, because the
+		// resolve layer is fed by upstream-shaped data too.
+		const SELF = 'https://openmusic.lol/api/og?type=song&artist=Loop&title=Loop';
+		const { calls, seamCalls } = stubRoute({ dz: DZ_HIT });
+		const { store } = stubCache();
+		const key = `https://openmusic.lol/api/og/_resolve?k=${encodeURIComponent(matchKey(SONG.artist, SONG.title))}&t=song`;
+		store.set(
+			new Request(key).url,
+			new Response(JSON.stringify({ cover: SELF }), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+		);
+		const res = await callGET(fakeEvent(SONG));
+		expect(res.headers.get('x-og-fallback')).toBe('1');
+		expect(res.headers.get('Cache-Control')).toBe('no-store');
+		expect([...calls, ...seamCalls].some((c) => c === SELF)).toBe(false);
+	});
+
+	it('fallback-identical upstream bytes are served but NEVER bytes-cached (put guard)', async () => {
+		const { calls } = stubRoute({ dz: DZ_HIT, image: 'fallbackbytes' });
+		const { putKeys } = stubCache();
+		const res1 = await callGET(fakeEvent(SONG));
+		expect(res1.status).toBe(200);
+		expect(new Uint8Array(await res1.arrayBuffer())).toEqual(OG_FALLBACK_BYTES);
+		// The resolve layer may memo the URL, but the BYTES layer must hold no entry —
+		// a stored copy would be served AHEAD of the seam as "the cover" for its TTL.
+		expect(putKeys.some((k) => k.includes('_bytes'))).toBe(false);
+		const imageFetches = () => calls.filter((c) => c.includes('cdn-images.dzcdn.net')).length;
+		expect(imageFetches()).toBe(1);
+		const res2 = await callGET(fakeEvent(SONG));
+		expect(res2.status).toBe(200);
+		// No bytes hit: the image is fetched AGAIN rather than served from a poisoned entry.
+		expect(imageFetches()).toBe(2);
 	});
 
 	it('param-order variants share ONE resolve entry (matchKey-normalized layer-1 key)', async () => {

@@ -221,8 +221,23 @@ async function streamImage(
 	coverUrl: string,
 	cache: EdgeCache | null,
 	bytesKey: Request,
-	origin: string | null
+	origin: string | null,
+	ownOrigin: string
 ): Promise<Response> {
+	// SELF-REFERENCE GUARD (quick-261120-mediacard live fix): a cover URL on our OWN origin
+	// can only be this endpoint itself — a self-referential crowd/resolve entry whose
+	// "image" is another card, possibly the branded fallback. Covers live on external
+	// CDNs; an own-origin cover is never genuine. Refuse it WITHOUT fetching: fetching
+	// it once let the fallback's bytes be stored as a song's cover (see the put guard).
+	try {
+		if (new URL(coverUrl).origin !== ownOrigin) {
+			// external — the normal case, fall through to the fetch
+		} else {
+			return ogFallback(origin);
+		}
+	} catch {
+		return ogFallback(origin);
+	}
 	try {
 		// RAW fetch (not apiFetch — fetch→apiFetch audit): SERVER-SIDE (Cloudflare edge) fetch of an
 		// absolute upstream CDN URL. apiFetch is the CLIENT seam and must not run edge-side. retries=0
@@ -256,6 +271,20 @@ async function streamImage(
 		const streamed = new Response(upstream.body, { status: 200, headers });
 
 		if (cache && sized && len <= CACHE_BYTES_CAP) {
+			// FALLBACK-BYTES GUARD (quick-261120-mediacard live fix): the branded card's own
+			// bytes must never enter the bytes layer AS a cover — live 2026-11-20, a fetched
+			// body identical to OG_FALLBACK_BYTES was stored under song URLs and the bytes
+			// layer then served the placeholder as the cover for its whole TTL, ahead of the
+			// resolver seam. Length-equal bodies are byte-compared; a match skips the put
+			// (the response itself still streams — only the caching is refused).
+			if (len === OG_FALLBACK_BYTES.length) {
+				const buf = new Uint8Array(await streamed.clone().arrayBuffer());
+				let identical = buf.length === OG_FALLBACK_BYTES.length;
+				for (let i = 0; identical && i < buf.length; i++) {
+					if (buf[i] !== OG_FALLBACK_BYTES[i]) identical = false;
+				}
+				if (identical) return streamed;
+			}
 			// clone() buffers `len` bytes (bounded above, T-og-02); the CLONE goes to the cache and the
 			// ORIGINAL streams to the crawler. The cached copy is CORS-FREE (WR-01) — withCors()
 			// re-applies the requesting origin on a hit.
@@ -300,19 +329,7 @@ export interface OgImageInput {
 export async function handleOgImage(input: OgImageInput): Promise<Response> {
 	const { url, request, platform } = input;
 	const origin = request.headers.get('origin');
-	// TEMP DIAGNOSTIC (quick-261120-mediacard live debug): ?dbg=1 on the legacy spelling
-	// collects a stage trace into the x-og-debug response header. Remove after diagnosis.
-	const trace: string[] | undefined = url.searchParams.get('dbg') === '1' ? [] : undefined;
-	const done = (res: Response): Response => {
-		if (trace) {
-			try {
-				res.headers.set('x-og-debug', trace.join(' '));
-			} catch {
-				/* guarded headers — diagnostic only */
-			}
-		}
-		return res;
-	};
+	const done = (res: Response): Response => res;
 	try {
 		// Closed-set `type`, COERCED rather than rejected — this route never fails (a 404 here means
 		// no card at all).
@@ -339,8 +356,15 @@ export async function handleOgImage(input: OgImageInput): Promise<Response> {
 
 		const cache = edgeCache();
 
-		// LAYER 2 (bytes) — keyed on this own-origin /api/og URL as-is.
-		const bytesKey = ownOriginCacheKey(url);
+		// LAYER 2 (bytes) — keyed on this own-origin /api/og URL as-is, under a VERSIONED
+		// synthetic path: v2 (quick-261120-mediacard) orphans every v1 entry, because v1
+		// entries written before the fallback-bytes put guard can hold the branded card's
+		// bytes AS a cover (live 2026-11-20) and the bytes layer sits AHEAD of the seam —
+		// a poisoned entry would shadow resolution for its whole TTL. Orphaned entries
+		// are simply never read again; they age out on their own TTL.
+		const bytesKey = ownOriginCacheKey(
+			`${url.origin}/api/og/_bytes/v2${url.pathname}${url.search}`
+		);
 		if (cache) {
 			try {
 				const hit = await cache.match(bytesKey);
@@ -367,7 +391,7 @@ export async function handleOgImage(input: OgImageInput): Promise<Response> {
 		// image fetch (4000) ≈ 13 s, past the 3–10 s crawler budget 30-RESEARCH §D records — trading a
 		// rare better card for a routinely-timed-out one.
 		const carried = await coverUrlFromToken(ci);
-		if (carried) return await streamImage(carried, cache, bytesKey, origin);
+		if (carried) return await streamImage(carried, cache, bytesKey, origin, url.origin);
 
 		// LAYER 1 (resolve) KEY — NORMALIZED synthetic own-origin key: matchKey() strips case, spaces
 		// and punctuation, so query-order variants, both URL spellings AND the hyphen-for-space share
@@ -392,21 +416,16 @@ export async function handleOgImage(input: OgImageInput): Promise<Response> {
 				url.origin,
 				artist,
 				title,
-				AbortSignal.timeout(SEAM_MS),
-				trace
+				AbortSignal.timeout(SEAM_MS)
 			);
 			if (seamCover) {
-				trace?.push(`seam:hit:${new URL(seamCover).hostname}`);
 				await writeResolveCache(cache, resolveKey, seamCover);
-				const res = await streamImage(seamCover, cache, bytesKey, origin);
-				trace?.push(res.headers.get('x-og-fallback') ? 'img:fallback' : 'img:ok');
+				const res = await streamImage(seamCover, cache, bytesKey, origin, url.origin);
 				return done(res);
 			}
-			trace?.push('seam:miss');
 		}
 
 		let cover = await readResolveCache(cache, resolveKey);
-		trace?.push(cover === undefined ? 'rcache:miss' : cover === null ? 'rcache:neg' : 'rcache:hit');
 		if (cover === undefined) {
 			const resolved = await resolveCoverTiered(
 				type,
@@ -415,7 +434,6 @@ export async function handleOgImage(input: OgImageInput): Promise<Response> {
 				AbortSignal.timeout(OG_RESOLVE_MS),
 				(platform as { env?: Env } | undefined)?.env?.LASTFM_KEY
 			);
-			trace?.push(resolved === 'ERROR' ? 'tier:error' : resolved === null ? 'tier:miss' : 'tier:hit');
 			if (resolved === 'ERROR') {
 				cover = null; // fall back now, but write NOTHING — the next request retries.
 			} else {
@@ -425,8 +443,7 @@ export async function handleOgImage(input: OgImageInput): Promise<Response> {
 		}
 		if (!cover) return done(ogFallback(origin));
 
-		const res2 = await streamImage(cover, cache, bytesKey, origin);
-		trace?.push(res2.headers.get('x-og-fallback') ? 'img:fallback' : 'img:ok');
+		const res2 = await streamImage(cover, cache, bytesKey, origin, url.origin);
 		return done(res2);
 	} catch {
 		// Outermost never-500 guard: whatever happened, the crawler still gets a card.
