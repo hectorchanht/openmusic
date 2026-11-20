@@ -21,6 +21,7 @@
 	import { marquee } from '$lib/actions/marquee';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
+	import CoverArt from '$lib/components/CoverArt.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import TagChips from '$lib/components/TagChips.svelte';
 	import { enrichArtist, type EnrichResult } from '$lib/services/lastfm';
@@ -604,9 +605,12 @@
 		<div class="albumrow" use:dragScroll>
 			{#each shelfAlbums as al (al.mbid ?? al.id ?? al.name)}
 				<!-- quick-260926-hze: album title + artist follow the script lock.
-				     quick-261103-hdn: use:lazyBg defers the cover URL until the tile nears view. -->
+				     Hector 2026-11-20: CoverArt renders the cover (Apple no-crop); its native
+				     lazy <img> replaces use:lazyBg's deferral here (the home-tile precedent). -->
 				<button class="album" onclick={() => goto(names.lockUrl(albumHref(al, name)))} use:tapBounce>
-					<span class="al-cover" use:lazyBg={{ image: al.image ? `url(${al.image}), ${fallbackCoverSeed(al.name)}` : fallbackCoverSeed(al.name), fallback: fallbackCoverSeed(al.name) }}></span>
+					<span class="al-cover" style:background-image={fallbackCoverSeed(al.name)}>
+						<CoverArt src={al.image} />
+					</span>
 					<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(al.name)}</span></span>
 					<span class="al-count" use:marquee><span class="marquee-inner">
 						{#if typeLabelKey(al.type)}{t(typeLabelKey(al.type) as TranslationKey)}{:else}{t('artist.albumLabel')}{/if}{#if releaseYear(al.releaseDate)}{' · ' + releaseYear(al.releaseDate)}{/if}
@@ -747,7 +751,7 @@
 	   detects the overflow and bounce-scrolls the text (instead of a static ellipsis). Same
 	   pattern as home .album. */
 	.album { flex: 0 0 130px; min-width: 0; max-width: 130px; background: none; border: none; padding: 0; cursor: pointer; text-align: start; display: flex; flex-direction: column; gap: 4px; }
-	.al-cover { width: 130px; height: 130px; border-radius: 10px; /* rounded.tile */ background-size: cover; background-position: center; }
+	.al-cover { position: relative; overflow: hidden; width: 130px; height: 130px; border-radius: 10px; /* rounded.tile */ background-size: cover; background-position: center; }
 	.al-cover.round { border-radius: 50%; }
 	.al-name { font-size: calc(0.75rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.al-name.center { text-align: center; }

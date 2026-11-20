@@ -28,6 +28,7 @@
 	import { t } from '$lib/i18n';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
+	import CoverArt from '$lib/components/CoverArt.svelte';
 	import SwipeReveal from '$lib/components/SwipeReveal.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import type { Track } from '$lib/sources/types';
@@ -211,7 +212,9 @@
 		{#each visibleAlbums as a (a.artist + ' ' + a.name)}
 			<li>
 				<button class="row" use:tapBounce onclick={() => goto(names.lockUrl(chartAlbumHref(a)))}>
-					<span class="art" style:background-image={a.image ? `url(${a.image})` : coverGradient(a.artist + a.name)}></span>
+					<span class="art" style:background-image={coverGradient(a.artist + a.name)}>
+						<CoverArt src={a.image} />
+					</span>
 					<span class="meta">
 						<span class="r-title" use:marquee><span class="marquee-inner">{names.dnTitle(a.name)}</span></span>
 						<span class="r-sub">{names.dnArtist(a.artist)}</span>
@@ -242,7 +245,7 @@
 	}
 	/* hover-capable devices only — touch otherwise latches :hover under a held finger. */
 	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
-	.art { width: 48px; height: 48px; border-radius: 8px; background-size: cover; background-position: center; flex: none; }
+	.art { position: relative; overflow: hidden; width: 48px; height: 48px; border-radius: 8px; background-size: cover; background-position: center; flex: none; }
 	.art.round { border-radius: var(--radius-full); }
 	.meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 	.r-title { font-size: calc(0.875rem * var(--fs-title, 1)); font-weight: 600; min-width: 0; max-width: 100%; }

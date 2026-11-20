@@ -32,6 +32,7 @@
 	import { sameSongKey } from '$lib/services/dedupe';
 	import { t, type TranslationKey } from '$lib/i18n';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import CoverArt from '$lib/components/CoverArt.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { marquee } from '$lib/actions/marquee';
 	import { loadDiscography } from '$lib/services/discography-source';
@@ -369,7 +370,9 @@
 			<li>
 				<!-- quick-260926-hze: album title + artist follow the script lock -->
 				<button class="row" onclick={() => goto(names.lockUrl(albumHref(al, name)))} use:tapBounce>
-					<span class="cover" style:background-image={al.image ? `url(${al.image}), ${fallbackCoverSeed(al.name)}` : fallbackCoverSeed(al.name)}></span>
+					<span class="cover" style:background-image={fallbackCoverSeed(al.name)}>
+						<CoverArt src={al.image} />
+					</span>
 					<span class="meta">
 						<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(al.name)}</span></span>
 						<span class="al-sub">
@@ -412,7 +415,7 @@
 
 	.list { list-style: none; margin: 8px 0 0; padding: 0 0 32px; }
 	.row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 4px; background: none; border: none; color: var(--color-text); text-align: start; cursor: pointer; }
-	.cover { flex: 0 0 auto; width: 56px; height: 56px; border-radius: 6px; background-size: cover; background-position: center; }
+	.cover { position: relative; overflow: hidden; flex: 0 0 auto; width: 56px; height: 56px; border-radius: 6px; }
 	.meta { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
 	.al-name { font-size: calc(0.95rem * var(--fs-title, 1)); font-weight: 600; white-space: nowrap; overflow: hidden; }
 	.al-sub { font-size: 0.78rem; color: var(--color-text-muted); }

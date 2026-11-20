@@ -33,7 +33,7 @@
 	// quick-260910-q5a: `bumpCoverVersion` joins this import — the Up-Next fill below repaints every
 	// mounted tile through the same one global signal as the home backfill.
 	// quick-260915-w4f: readPinnedCover is pickRowCover's new leading rung, and also the pin read the
-	// cellBg carousel needs (it puts tk.cover ahead of everything, so a pin would otherwise lose).
+	// cellUrl carousel needs (it puts tk.cover ahead of everything, so a pin would otherwise lose).
 	// quick-260920-nyq: readCoverByUidOrName dropped — the hero's cache read moved into the store's
 	// displayCover getter, so this file no longer reads the cache for the CURRENT track directly.
 	// Phase 40 D-14: readChosenCover (pin, then crowd pick) replaces readPinnedCover as the display rung.
@@ -56,6 +56,7 @@
 	import { CHART_GENRE_LABEL } from '$lib/services/home-charts';
 	import { playerSwipe } from '$lib/components/swipe-act';
 import VideoStage from '$lib/components/VideoStage.svelte';
+import CoverArt from '$lib/components/CoverArt.svelte';
 import NpAbout from '$lib/components/NpAbout.svelte';
 	import { scrub } from '$lib/actions/scrub';
 	import { seekTargetFraction, SEEK_STEP_SECONDS } from '$lib/services/transport-keys';
@@ -447,13 +448,14 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	// Resolved url wins over the raw track.cover; gradient fallback only on a true miss. null → 'none'.
 	// quick-260915-w4f: the user's pin leads here too — computed ONCE so the truthiness test and the
 	// url() use the same value (they previously restated the same expression twice).
-	const cellBg = (tk: Track | null) => {
-		if (!tk) return 'none';
+	// CoverArt (Hector 2026-11-20, Apple no-crop display) takes the resolved URL and the
+	// gradient separately — the URL half of the old cellBg pair. Gradient-under-image
+	// (quick-260920-nyq) is now CoverArt's fallback layer.
+	const cellUrl = (tk: Track | null) => {
+		if (!tk) return null;
 		// quick-261102-tdc (DECISIONS.md §6): the shared reader (chosen → name → uid), not the pin alone —
 		// a neighbour cell skipped the cache every other surface reads.
-		const u = readCoverByUidOrName(tk.uid, tk.artist, tk.title) ?? resolvedCovers[tk.uid] ?? tk.cover;
-		// quick-260920-nyq: gradient UNDER the image here too — see the hero comment below.
-		return u ? `url(${u}), ${fallbackCover(tk)}` : fallbackCover(tk);
+		return readCoverByUidOrName(tk.uid, tk.artist, tk.title) ?? resolvedCovers[tk.uid] ?? tk.cover ?? null;
 	};
 
 	// ---- Meta crossfade (NP-TEXT-XFADE) ----
@@ -1211,12 +1213,14 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		>
 			<!-- quick-260629-nyl Task 1: the prev/next neighbor cells resolve their cover via the SAME
 			     use:lazyCover chain (Deezer→iTunes→CN) the Up-Next rows use, repainting through the shared
-			     resolvedCovers map (cellBg reads it first). Attach the action ONLY when the neighbor is
+			     resolvedCovers map (cellUrl reads it first). Attach the action ONLY when the neighbor is
 			     non-null (an empty cell stays 'none'); the CURRENT cell is untouched (effectiveCover). -->
 			{#if prevCover}
-				<div class="cover-cell prev" use:lazyCover={{ track: prevCover, onResolved: onCoverResolved }} style:background-image={cellBg(prevCover)}></div>
+				<div class="cover-cell prev" use:lazyCover={{ track: prevCover, onResolved: onCoverResolved }}>
+					<CoverArt src={cellUrl(prevCover)} fallback={fallbackCover(prevCover)} loading="eager" />
+				</div>
 			{:else}
-				<div class="cover-cell prev" style:background-image="none"></div>
+				<div class="cover-cell prev"></div>
 			{/if}
 			<!-- quick-261116-dtap: use:doubleTap on the CURRENT cell only (Q6). It claims
 			     the cell's clicks in the capture phase: a single tap runs tapCoverCollapse
@@ -1246,22 +1250,22 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 					<!-- quick-260920-nyq: DEAD ≠ MISSING. A CSS background-image has no error event and
 					     nothing painted underneath it, so a truthy-but-unloadable url (blocked host,
 					     404, expired CDN signature) painted the void — the reported "blank black
-					     block". D-12's gradient only fired on a NULL cover. The placeholder is now a
-					     LAYER, not a branch: the gradient sits under the image, so a failed load
-					     reveals the normal per-uid placeholder. `background-size`/`-position` are
-					     single values and already apply to both layers. -->
-					<div
-						class="cover-img"
-						in:fade={{ duration: xfadeMs }}
-						out:fade={{ duration: xfadeMs }}
-						style:background-image={effectiveCover ? `url(${effectiveCover}), ${fallbackCover(player.current)}` : fallbackCover(player.current)}
-					></div>
+					     block". D-12's gradient only fired on a NULL cover. The placeholder is a
+					     LAYER, not a branch: CoverArt paints the gradient as its base and drops
+					     its image layers on error, so a failed load reveals the normal per-uid
+					     placeholder. Hector 2026-11-20: the art itself is CoverArt's Apple
+					     treatment — whole image, natural aspect, ambient backdrop, no crop. -->
+					<div class="cover-img" in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}>
+						<CoverArt src={effectiveCover} fallback={fallbackCover(player.current)} loading="eager" />
+					</div>
 				{/key}
 			</div>
 			{#if nextCover}
-				<div class="cover-cell next" use:lazyCover={{ track: nextCover, onResolved: onCoverResolved }} style:background-image={cellBg(nextCover)}></div>
+				<div class="cover-cell next" use:lazyCover={{ track: nextCover, onResolved: onCoverResolved }}>
+					<CoverArt src={cellUrl(nextCover)} fallback={fallbackCover(nextCover)} loading="eager" />
+				</div>
 			{:else}
-				<div class="cover-cell next" style:background-image="none"></div>
+				<div class="cover-cell next"></div>
 			{/if}
 		</div>
 	</div>
@@ -1655,7 +1659,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	   fire). touch-action: pan-x leaves horizontal scrolling intact (none here, but
 	   defensive) while letting our pointer handlers own vertical motion. */
 	.np-top { touch-action: pan-x; }
-	.cover { position: relative; z-index: 1; width: min(72vw, 320px); height: auto; aspect-ratio: 1/1; margin: 4px auto; border-radius: 16px; overflow: hidden; background-size: cover; background-position: center; box-shadow: 0 18px 50px rgba(0,0,0,0.5); cursor: grab; transition: width 0.32s cubic-bezier(.22,1,.36,1), height 0.32s cubic-bezier(.22,1,.36,1), margin 0.32s cubic-bezier(.22,1,.36,1), border-radius 0.32s cubic-bezier(.22,1,.36,1); }
+	.cover { position: relative; z-index: 1; width: min(72vw, 320px); height: auto; aspect-ratio: 1/1; margin: 4px auto; border-radius: 16px; overflow: hidden; box-shadow: 0 18px 50px rgba(0,0,0,0.5); cursor: grab; transition: width 0.32s cubic-bezier(.22,1,.36,1), height 0.32s cubic-bezier(.22,1,.36,1), margin 0.32s cubic-bezier(.22,1,.36,1), border-radius 0.32s cubic-bezier(.22,1,.36,1); }
 	.cover:active { cursor: grabbing; }
 	/* quick-261024-vid1: the video stage takes the cover box (black letterbox inside);
 	   the toggle pill sits centred under the meta block. */
@@ -1682,9 +1686,9 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	   The gutter is purely positional — it is revealed as the strip slides under the 1:1 finger-follow
 	   (coverSwipe writes raw translateX(dx)); it never displaces the resting current cell at left:0, so
 	   a committed neighbor still lands perfectly centered after the store re-derives the cells. No
-	   parallax, no scale, no fade, no accent (UI-SPEC §1/§3). An absent neighbor → background-image
-	   'none' (a blank edge during the rubber-band, which never commits anyway). */
-	.cover-cell { position: absolute; top: 0; width: 100%; height: 100%; background-size: cover; background-position: center; }
+	   parallax, no scale, no fade, no accent (UI-SPEC §1/§3). An absent neighbor → an empty
+	   cell (a blank edge during the rubber-band, which never commits anyway). */
+	.cover-cell { position: absolute; top: 0; width: 100%; height: 100%; overflow: hidden; }
 	.cover-cell.prev { left: -100%; }
 	.cover-cell.cur { left: 0; }
 	.cover-cell.next { left: 100%; }
@@ -1692,7 +1696,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	   Two keyed .cover-img layers stack at inset:0 and dissolve; overflow:hidden clips them to
 	   the cell so a mid-fade layer never bleeds over a neighbor. */
 	.cover-cell.cur { overflow: hidden; }
-	.cover-img { position: absolute; inset: 0; background-size: cover; background-position: center; }
+	.cover-img { position: absolute; inset: 0; }
 	/* Reduced motion (OS pref OR the app's :root[data-reduce-motion] setting, app.css): the carousel
 	   commit-settle / spring-back collapses to instant — the track still changes, only the slide
 	   animation is removed (UI-SPEC §1 reduced-motion row). The action restores `transition` inline on

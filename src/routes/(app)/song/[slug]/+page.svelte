@@ -26,6 +26,7 @@
 	import { onMount } from 'svelte';
 	import PageOg from '$lib/components/PageOg.svelte';
 	import SettingsGear from '$lib/components/SettingsGear.svelte';
+	import CoverArt from '$lib/components/CoverArt.svelte';
 	import type { PageData } from './$types';
 	// `import type` is ERASED at compile time, so this pulls nothing from share-arrival (and its
 	// player-store graph) into SSR. The VALUE import stays lazy inside onMount.
@@ -238,13 +239,9 @@
 	{#if heroSrc && !heroFailed}
 		<!-- Decorative: the title + artist are rendered as text immediately below. no-referrer matches
 		     the app's <audio> posture for third-party CDN media. -->
-		<img
-			class="cover"
-			src={heroSrc}
-			alt=""
-			referrerpolicy="no-referrer"
-			onerror={() => (failedFor = heroSrc)}
-		/>
+		<div class="cover">
+			<CoverArt src={heroSrc} referrerpolicy="no-referrer" onerror={() => (failedFor = heroSrc)} />
+		</div>
 	{:else}
 		<div class="cover cover--placeholder" aria-hidden="true"></div>
 	{/if}
@@ -288,7 +285,8 @@
 		max-width: 70vw;
 		max-height: 70vw;
 		border-radius: 16px;
-		object-fit: cover;
+		position: relative;
+		overflow: hidden;
 		/* quick-261103-pga: no shadow — Flat-Until-It-Floats (the cover sits on the page). */
 	}
 	.cover--placeholder {

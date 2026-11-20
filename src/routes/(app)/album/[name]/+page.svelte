@@ -37,6 +37,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import DownloadRing from '$lib/components/DownloadRing.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
+	import CoverArt from '$lib/components/CoverArt.svelte';
 	import SwipeReveal from '$lib/components/SwipeReveal.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import PageOg from '$lib/components/PageOg.svelte';
@@ -642,7 +643,7 @@
 	<!-- quick-261102-w2q: the art paints OVER the seeded placeholder, so a dead cover URL shows the
 	     gradient rather than an empty square (was a hard-coded purple that ignored the theme). -->
 	{#if heroImg}
-		<div class="cover" style:background-image={`url(${heroImg}), ${coverGradient(name)}`}></div>
+		<div class="cover"><CoverArt src={heroImg} fallback={coverGradient(name)} /></div>
 	{:else if loading || enrichLoading}
 		<div class="cover sk" aria-hidden="true"></div>
 	{:else}
@@ -784,7 +785,7 @@
 	/* `position: relative` went with the absolutely-positioned .back (quick-260919-hdr) — the
 	   chevron is in-flow above the hero now, like every other page. */
 	.hero { padding: 0 0 12px; text-align: center; }
-	.cover { width: 160px; height: 160px; border-radius: 12px; margin: 4px auto; background-size: cover; background-position: center; } /* quick-261102-w2q: no shadow — Flat-Until-It-Floats */
+	.cover { position: relative; overflow: hidden; width: 160px; height: 160px; border-radius: 12px; margin: 4px auto; } /* quick-261102-w2q: no shadow — Flat-Until-It-Floats */
 	/* quick-261103-2xk: a long unbroken title (German compound, URL-ish name) wraps instead of
 	   pushing the page sideways. */
 	.hero h1 { font-size: calc(1.5rem * var(--fs-title, 1)); margin: 0; overflow-wrap: anywhere; }

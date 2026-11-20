@@ -90,6 +90,7 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 	import { rowActionTarget, hasRealIdentity } from '$lib/components/row-action-target';
 	import { rowSwipe } from '$lib/components/swipe-act';
 	import RowBadges from '$lib/components/RowBadges.svelte';
+import CoverArt from '$lib/components/CoverArt.svelte';
 	import DownloadControl from '$lib/components/DownloadControl.svelte';
 	import DownloadRing from '$lib/components/DownloadRing.svelte';
 	import { splitArtists } from '$lib/util/artist-split';
@@ -431,8 +432,10 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 	<span
 		class="art"
 		use:lazyCover={{ track, enabled: lazy, onResolved: (_uid, url) => (resolvedCover = url) }}
-		style:background-image={art ? `url(${art})` : coverGradient(gradientSeed)}
-	></span>
+		style:background-image={coverGradient(gradientSeed)}
+	>
+		<CoverArt src={art} />
+	</span>
 	<span class="meta">
 		<span class="r-title" use:marquee><span class="marquee-inner">{names.dnTitle(track.title, track.artist)}</span></span>
 		<span class="r-sub" use:marquee><span class="marquee-inner">{sub}{#if albumTag}<span class="album-tag">{albumTag}</span>{/if}{#if mvTag}<span class="mv-tag">MV</span>{/if}</span></span>
@@ -578,8 +581,7 @@ import { videoAvailability } from '$lib/services/video-availability.svelte';
 		width: calc(44px * var(--cover-scale, 1));
 		height: calc(44px * var(--cover-scale, 1));
 		border-radius: 6px;
-		background-size: cover;
-		background-position: center;
+		overflow: hidden;
 		background-color: var(--color-surface-2);
 		flex: none;
 	}

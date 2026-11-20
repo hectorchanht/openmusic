@@ -55,6 +55,7 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import CoverArt from '$lib/components/CoverArt.svelte';
 
 	let msg = $state('');
 	let eligible = $state<RetagEntry[]>([]);
@@ -493,7 +494,7 @@
 			<ul class="retag-list">
 				{#each eligible as e (e.uid)}
 					<li>
-						{#if e.cover}<img src={e.cover} alt="" loading="lazy" width="40" height="40" />{/if}
+						{#if e.cover}<span class="retag-art"><CoverArt src={e.cover} /></span>{/if}
 						<span class="t">
 							<!-- quick-261102-tlo (DECISIONS.md §8): display names via the names layer (were raw catalog text) -->
 							<strong>{names.dnTitle(e.title, e.artist)}</strong>
@@ -610,7 +611,7 @@
 	/* 2026-10-06: the retag song preview list — cover + title/artist, scrollable. */
 	.retag-list { list-style: none; margin: 8px 0 0; padding: 0; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 	.retag-list li { display: flex; align-items: center; gap: 10px; padding: 6px 4px; }
-	.retag-list img { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; flex: none; background: var(--color-surface-2); }
+	.retag-art { position: relative; overflow: hidden; display: block; width: 40px; height: 40px; border-radius: 6px; flex: none; background: var(--color-surface-2); }
 	.retag-list .t { min-width: 0; display: flex; flex-direction: column; }
 	.retag-list .t strong { font-size: 0.875rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 	.retag-list .t .a { font-size: 0.75rem; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

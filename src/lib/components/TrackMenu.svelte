@@ -46,6 +46,7 @@
 	import DownloadRing from '$lib/components/DownloadRing.svelte';
 	import LyricsTimingToggle from '$lib/components/LyricsTimingToggle.svelte';
 	import MenuActionButton from '$lib/components/MenuActionButton.svelte';
+import CoverArt from '$lib/components/CoverArt.svelte';
 	// quick-260919-1eh: the tag-edit sheet. Same co-mount arrangement as VersionPicker above — it
 	// owns its own overlay lifecycle under a DISTINCT overlayId.
 	import MetadataEditor from '$lib/components/MetadataEditor.svelte';
@@ -2148,7 +2149,7 @@
 			<div class="cover-grid">
 				{#each coverCandidates as c (c.url)}
 					<button class="cand" class:on={c.url === activeCover} aria-pressed={c.url === activeCover} onclick={() => pickCover(c.url)} use:tapBounce>
-						<img src={sizedCover(c.url, ROW_COVER_PX) ?? ''} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
+						<CoverArt src={sizedCover(c.url, ROW_COVER_PX)} referrerpolicy="no-referrer" />
 						<span class="src">{c.source === 'deezer' ? 'Deezer' : c.source === 'itunes' ? 'iTunes' : c.source}</span>
 						{#if c.url === activeCover}<span class="tick"><Check size={14} /></span>{/if}
 					</button>
@@ -2524,7 +2525,7 @@
 	   (~105px tiles), four rows deep for the 12-candidate cap. */
 	.cover-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 4px 8px 12px; }
 	.cand { position: relative; padding: 0; border: 2px solid transparent; border-radius: 10px; overflow: hidden; background: var(--color-surface); cursor: pointer; aspect-ratio: 1; }
-	.cand img { width: 100%; height: 100%; object-fit: cover; display: block; }
+	/* CoverArt fills the .cand box (position:relative + overflow:hidden above). */
 	.cand.on { border-color: var(--color-primary); }
 	.cand .src { position: absolute; left: 0; right: 0; bottom: 0; font-size: 0.6875rem; padding: 2px 4px; background: rgba(0, 0, 0, 0.55); color: #fff; text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.cand .tick { position: absolute; top: 4px; inset-inline-end: 4px; display: grid; place-items: center; color: #fff; filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.8)); }

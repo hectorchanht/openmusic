@@ -106,6 +106,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	import { marquee } from '$lib/actions/marquee';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import CompactRow from '$lib/components/CompactRow.svelte';
+	import CoverArt from '$lib/components/CoverArt.svelte';
 	import CompactPager from '$lib/components/CompactPager.svelte';
 	import HomeGridPager from '$lib/components/HomeGridPager.svelte';
 	// quick-261102-syk: the placeholder grid uses the same column/row maths as HomeGridPager.
@@ -1289,7 +1290,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 					     hideOnError's dead-URL marking). Inserted before .q/.scrim so DOM paint order keeps the
 					     badge and scrim above it. -->
 					<div class="art" style:background-image={fallbackCover(track.uid)}></div>
-					{#if art}<img class="al-cover-img" src={art} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
+					{#if art}<CoverArt src={art} onerror={hideOnError} />{/if}
 					<!-- quick-261102-to0 (DECISIONS.md §7): the ONE quality derivation (download record > stamps)
 					     and the Now Playing tag toggle, like every other quality pill -->
 					{#if settings.showQualityTag && displayQualityLabel(track, homeDlQuality(track))}<span class="q">{displayQualityLabel(track, homeDlQuality(track))}</span>{/if}
@@ -1515,7 +1516,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 				<div class="tilewrap">
 				<button class="tile" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playDiscovery(item, coverOnPlay ? item.image : null)}>
 					<div class="art" style:background-image={fallbackCover(item.artist + item.title)}></div>
-					{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
+					{#if tileCover(item)}<CoverArt src={tileCover(item)} onerror={hideOnError} />{/if}
 					<div class="scrim"></div>
 					<div class="label">
 						<div class="t-title">{names.dnTitle(item.title, item.artist)}</div>
@@ -1535,7 +1536,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 				<div class="tilewrap">
 				<button class="album" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); tileMenu(item); }} onclick={() => playDiscovery(item, coverOnPlay ? item.image : null)}>
 					<span class="al-cover" style:background-image={fallbackCover(item.artist + item.title)}>
-						{#if tileCover(item)}<img class="al-cover-img" src={tileCover(item)} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
+						{#if tileCover(item)}<CoverArt src={tileCover(item)} onerror={hideOnError} />{/if}
 					</span>
 					<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(item.title, item.artist)}</span></span>
 					<span class="al-count" use:marquee><span class="marquee-inner">{names.dnArtist(item.artist)}</span></span>
@@ -1647,7 +1648,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 			{#snippet row(a: ChartAlbum)}
 				<button class="tile" use:tapBounce onclick={() => goto(names.lockUrl(chartAlbumHref(a)))}>
 					<div class="art" style:background-image={fallbackCover(a.artist + a.name)}></div>
-					{#if a.image}<img class="al-cover-img" src={a.image} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
+					{#if a.image}<CoverArt src={a.image} onerror={hideOnError} />{/if}
 					<div class="scrim"></div>
 					<div class="label">
 						<div class="t-title">{names.dnTitle(a.name)}</div>
@@ -1661,7 +1662,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 			{#each items as a (a.artist + ' ' + a.name)}
 				<button class="album" use:tapBounce onclick={() => goto(names.lockUrl(chartAlbumHref(a)))}>
 					<span class="al-cover" style:background-image={fallbackCover(a.artist + a.name)}>
-						{#if a.image}<img class="al-cover-img" src={a.image} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
+						{#if a.image}<CoverArt src={a.image} onerror={hideOnError} />{/if}
 					</span>
 					<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(a.name)}</span></span>
 					<span class="al-count" use:marquee><span class="marquee-inner">{names.dnArtist(a.artist)}</span></span>
@@ -1721,7 +1722,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 		<!-- psi-home-163mb-payload-lcp follow-up: gradient-only background; the lazy <img> paints the
 		     cover (a CSS url() background is never lazy, so every off-screen pile cover loaded eagerly). -->
 		<span class="al-cover" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={fallbackCover(track.uid)}>
-			{#if rowCover}<img class="al-cover-img" src={rowCover} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
+			{#if rowCover}<CoverArt src={rowCover} onerror={hideOnError} />{/if}
 		</span>
 		<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(track.title, track.artist)}</span></span>
 		<span class="al-count" use:marquee><span class="marquee-inner">{names.dnArtist(track.artist)}</span></span>
@@ -1759,7 +1760,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 					<!-- quick-261102-sfc: same lazy <img> + onerror as the pile row above — a CSS url()
 					     background was eager and a dead URL left a blank tile instead of the gradient. -->
 					<div class="art" use:lazyCover={{ track, onResolved: () => bumpCoverVersion() }} style:background-image={fallbackCover(track.uid)}></div>
-					{#if rowCover}<img class="al-cover-img" src={rowCover} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
+					{#if rowCover}<CoverArt src={rowCover} onerror={hideOnError} />{/if}
 					<div class="scrim"></div>
 					<div class="label">
 						<div class="t-title">{names.dnTitle(track.title, track.artist)}</div>
@@ -1997,7 +1998,9 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	.section.compact .al-cover { width: calc(96px * var(--cover-scale, 1)); height: calc(96px * var(--cover-scale, 1)); }
 	.section.compact .grid { gap: 8px; }
 	/* FIX-B: real cover (Last.fm or CAA) layered over the gradient span; onerror hides it
-	   (a 404 → the gradient shows). inherit border-radius so the round variant clips it. */
+	   (a 404 → the gradient shows). inherit border-radius so the round variant clips it.
+	   Hector 2026-11-20: SQUARE covers now render through CoverArt (Apple no-crop); this
+	   rule remains ONLY for the round artist tiles (a filled circle has no letterbox). */
 	.al-cover-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
 	.al-name { font-size: calc(0.75rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.al-name.center { text-align: center; }

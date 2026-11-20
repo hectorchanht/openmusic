@@ -34,6 +34,7 @@
     import { playRandomDiscovery } from "$lib/services/random-discovery";
     import { CHART_GENRE_LABEL } from "$lib/services/home-charts";
     import { playerSwipe } from "$lib/components/swipe-act";
+    import CoverArt from "$lib/components/CoverArt.svelte";
     import { tapBounce } from "$lib/actions/tapBounce";
     import KeyTip from "$lib/components/KeyTip.svelte";
     import { t, tMaybeKey } from "$lib/i18n";
@@ -425,10 +426,10 @@
                         ondoubletap: coverRandom,
                         enabled: !resolving,
                     }}
-                    style:background-image={npCover
-                        ? `url(${npCover}), ${fallbackCover()}`
-                        : fallbackCover()}
-                ></span>
+                    style:background-image={fallbackCover()}
+                >
+                    <CoverArt src={npCover} />
+                </span>
                 <span
                     class="np-meta"
                     in:fade={{ duration: xfadeMs }}
@@ -709,11 +710,11 @@
         }
     }
     .np-art {
+        position: relative;
+        overflow: hidden;
         width: 44px;
         height: 44px;
         border-radius: 8px;
-        background-size: cover;
-        background-position: center;
         flex: none;
     }
     .np-meta {

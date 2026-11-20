@@ -21,6 +21,7 @@
 	import { coverGradient } from '$lib/services/cover-gradient';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import RowBadges from '$lib/components/RowBadges.svelte';
+import CoverArt from '$lib/components/CoverArt.svelte';
 	import type { Track } from '$lib/sources/types';
 
 	// quick-260919-np3: the Related pane, lifted OUT of NowPlaying.svelte. The rows, the swipe
@@ -165,7 +166,7 @@
 				     next. aria-hidden (the same actions stay reachable via the long-press menu). -->
 				<li class="swipe-wrap related-swipe">
 					<SwipeReveal />
-					<button class="row rel-row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); onMenu(track); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); onMenu(track); }} onclick={() => relatedTapPlay(track)} use:swipeAction={rowSwipe(settings.swipeRow, () => track, track.uid)}><span class="q-art" style:background-image={rArt ? `url(${rArt})` : coverGradient(track.uid)}></span><span class="r-meta"><span class="r-title">{names.dnTitle(track.title, track.artist)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></span><RowBadges uid={track.uid} {track} /></button>
+					<button class="row rel-row" use:tapBounce use:longpress onlongpress={(e) => { (e.currentTarget as HTMLElement)?.blur(); onMenu(track); }} oncontextmenu={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement)?.blur(); onMenu(track); }} onclick={() => relatedTapPlay(track)} use:swipeAction={rowSwipe(settings.swipeRow, () => track, track.uid)}><span class="q-art" style:background-image={coverGradient(track.uid)}><CoverArt src={rArt} /></span><span class="r-meta"><span class="r-title">{names.dnTitle(track.title, track.artist)}</span><span class="r-artist">{names.dnArtist(track.artist)}</span></span><RowBadges uid={track.uid} {track} /></button>
 				</li>
 			{/each}
 		</ul>
@@ -203,7 +204,7 @@
 	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
 	   background on a related row under a held finger while the track menu opens. */
 	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
-	.q-art { width: 36px; height: 36px; border-radius: 6px; background-size: cover; background-position: center; background-color: rgba(255,255,255,0.04); flex: none; }
+	.q-art { position: relative; overflow: hidden; width: 36px; height: 36px; border-radius: 6px; background-color: rgba(255,255,255,0.04); flex: none; }
 	.r-title { font-size: calc(0.875rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text);}
 	.r-artist { font-size: calc(0.75rem * var(--fs-artist, 1)); color: var(--color-text-muted); }
 	/* quick-260723: Related list rows go row-direction so RowBadges sit at the trailing edge; the

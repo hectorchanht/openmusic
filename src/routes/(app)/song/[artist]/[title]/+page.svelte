@@ -24,6 +24,7 @@
 	import { onMount } from 'svelte';
 	import PageOg from '$lib/components/PageOg.svelte';
 	import SettingsGear from '$lib/components/SettingsGear.svelte';
+	import CoverArt from '$lib/components/CoverArt.svelte';
 	import { apiUrl } from '$lib/services/api-base';
 	import type { PageData } from './$types';
 	// `import type` is ERASED at compile time, so this pulls nothing from share-arrival (and its
@@ -244,7 +245,9 @@
 		<div class="cover cover--placeholder" aria-hidden="true"></div>
 	{:else}
 		<!-- Decorative: the title + artist are rendered as text immediately below. -->
-		<img class="cover" src={heroSrc} alt="" onerror={() => (failedFor = heroSrc)} />
+		<div class="cover">
+			<CoverArt src={heroSrc} onerror={() => (failedFor = heroSrc)} />
+		</div>
 	{/if}
 	<h1 class="title">{shownTitle}</h1>
 	{#if shownArtist}
@@ -286,7 +289,8 @@
 		max-width: 70vw;
 		max-height: 70vw;
 		border-radius: 16px;
-		object-fit: cover;
+		position: relative;
+		overflow: hidden;
 		/* quick-261103-pga: no shadow — Flat-Until-It-Floats (the cover sits on the page). */
 	}
 	.cover--placeholder {

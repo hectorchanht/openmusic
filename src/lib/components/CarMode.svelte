@@ -29,6 +29,7 @@
 	import { marquee } from '$lib/actions/marquee';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { playRandomDiscovery } from '$lib/services/random-discovery';
+	import CoverArt from '$lib/components/CoverArt.svelte';
 	import { CHART_GENRE_LABEL } from '$lib/services/home-charts';
 	import { progressFraction, reliabilityDot } from '$lib/services/car-mode';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -92,8 +93,10 @@
 					ondoubletap: coverRandom,
 					enabled: !resolving
 				}}
-				style:background-image={cover ? `url(${cover}), ${fallbackCover()}` : fallbackCover()}
-			></span>
+				style:background-image={fallbackCover()}
+			>
+				<CoverArt src={cover} />
+			</span>
 			<span class="cm-meta">
 				<span class="cm-title" use:marquee>
 					<span class="marquee-inner">{np ? names.dnTitle(np.title ?? '', np.artist ?? '') : 'OpenMusic'}</span>
@@ -236,12 +239,12 @@
 		min-width: 0;
 	}
 	.cm-art {
+		position: relative;
+		overflow: hidden;
 		flex: none;
 		width: 56px;
 		height: 56px;
 		border-radius: var(--radius-md);
-		background-size: cover;
-		background-position: center;
 	}
 	.cm-meta {
 		flex: 1;

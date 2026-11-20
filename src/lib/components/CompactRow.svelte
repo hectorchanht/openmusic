@@ -29,6 +29,7 @@ import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 	import { marquee } from '$lib/actions/marquee';
 	import { player } from '$lib/stores/player.svelte';
 	import RowBadges from '$lib/components/RowBadges.svelte';
+	import CoverArt from '$lib/components/CoverArt.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import { t } from '$lib/i18n';
 
@@ -125,7 +126,14 @@ import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 </script>
 
 {#snippet artImg()}
-	{#if effectiveCover}<img class="art-img" src={effectiveCover} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
+	{#if variant === 'artist'}
+		<!-- Round artist avatar: a filled circle is the platform treatment (Apple Music's
+		     artist circles crop too) — a circle has no letterbox, so this one variant keeps
+		     the cover-fit <img>. Everywhere else covers render through CoverArt. -->
+		{#if effectiveCover}<img class="art-img" src={effectiveCover} loading="lazy" decoding="async" alt="" onerror={hideOnError} />{/if}
+	{:else}
+		<CoverArt src={effectiveCover} />
+	{/if}
 {/snippet}
 
 {#if variant === 'artist'}
@@ -259,11 +267,10 @@ import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 		width: calc(40px * var(--cover-scale, 1));
 		height: calc(40px * var(--cover-scale, 1));
 		border-radius: 6px;
-		background-size: cover;
-		background-position: center;
 		background-color: var(--color-surface-2);
 		flex: none;
-		/* psi-home-163mb-payload-lcp: the lazy .art-img overlay is positioned against this box. */
+		/* psi-home-163mb-payload-lcp: the lazy cover overlay (CoverArt / .art-img) is
+		   positioned against this box. */
 		position: relative;
 		overflow: hidden;
 	}

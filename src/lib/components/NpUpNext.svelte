@@ -18,6 +18,7 @@
 	import { coverGradient } from '$lib/services/cover-gradient';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import RowBadges from '$lib/components/RowBadges.svelte';
+import CoverArt from '$lib/components/CoverArt.svelte';
 	import type { Track } from '$lib/sources/types';
 
 	// quick-260919-np3: the Up-Next pane, lifted OUT of NowPlaying.svelte verbatim. Nothing about the
@@ -290,7 +291,9 @@
 					     the gated $effect above is the ONLY network path. Same asymmetry class the hero fixed in
 					     cover-hero-mediacard-missing. `track.cover` stays AHEAD of the cache so a quick-260910-piz
 					     attached album cover always wins over a per-track image. -->
-					<span class="q-art" style:background-image={qArt ? `url(${qArt})` : coverGradient(track.uid)}></span>
+					<span class="q-art" style:background-image={coverGradient(track.uid)}>
+						<CoverArt src={qArt} />
+					</span>
 					<span class="q-text">
 						<!-- quick-260926-l69: glyph stays aria-hidden; the reason text is read by screen readers. -->
 						{#if skipped}<span class="r-skip"><span aria-hidden="true">✗</span>{#if reason}<span class="r-why">{t(SKIP_REASON_KEY[reason])}</span>{/if}</span>{/if}
@@ -374,7 +377,7 @@
 	   min-width:0 text column so the title/artist still stack and ellipsis as before. The art dims
 	   with the row via `.q-row.skipped` (child). */
 	.q-row { flex-direction: row; align-items: center; gap: 0; }
-	.q-art { width: 36px; height: 36px; border-radius: 6px; background-size: cover; background-position: center; background-color: rgba(255,255,255,0.04); flex: none; margin-inline-end: 8px; }
+	.q-art { position: relative; overflow: hidden; width: 36px; height: 36px; border-radius: 6px; background-color: rgba(255,255,255,0.04); flex: none; margin-inline-end: 8px; }
 	.q-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 	/* quick-261102-s5t: padding-sized (~30x34) -> a 44px box, the DESIGN.md hit minimum. */
 	.grip-handle { flex: 0 0 auto; background: none; border: none; color: var(--color-text-muted); opacity: 0.55; cursor: grab; touch-action: none; display: grid; place-items: center; min-width: 44px; min-height: 44px; padding: 0; border-radius: 8px; }
