@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 
 // 34-D-12 / D-13 / D-16 — the filename-parsing half of device import. Everything under test is a
 // PURE function (no store, no runes, no DOM), so this file drives it directly under the single
@@ -239,6 +239,26 @@ describe('D-16 fallback', () => {
 // the ONE untrusted input in this module; it gets compiled, group-checked and time-probed before it
 // is ever allowed near a 3000-file scan on the single-threaded WebView.
 describe('validateCustomPattern (Pitfall 8 layer 1)', () => {
+	// The probe budget reads performance.now() — a WALL clock. Under a parallel full-suite run a
+	// worker can be preempted mid-battery for longer than the 25 ms budget, which once made even
+	// the benign pattern '(?<track>\d+)' come back 'too-slow' and flaked this block. So the clock
+	// is SCRIPTED for the whole block: frozen at 0 by default (budget gate inert, so the verdicts
+	// below test compile/group logic only), and re-scripted per-test by the two gate tests that
+	// exercise the budget itself. No test in this block reads real elapsed time, ever.
+	let nowSpy: MockInstance<() => number>;
+	beforeEach(() => {
+		nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => 0);
+	});
+	afterEach(() => {
+		nowSpy.mockRestore();
+	});
+	/** Re-script the clock: the t0 read is 0, every later read is already past the budget, so
+	 *  the gate must fire after the FIRST battery string — whatever the pattern, whatever the load. */
+	const scriptClockPastBudget = () => {
+		let calls = 0;
+		nowSpy.mockImplementation(() => (calls++ === 0 ? 0 : PATTERN_PROBE_BUDGET_MS + 1));
+	};
+
 	it('accepts a well-formed named-group pattern and returns a usable RegExp', () => {
 		const out = validateCustomPattern('^(?<artist>.+?) - (?<title>.+)$');
 		expect(out.ok).toBe(true);
@@ -259,14 +279,29 @@ describe('validateCustomPattern (Pitfall 8 layer 1)', () => {
 		expect(validateCustomPattern('(?<track>\\d+)').ok).toBe(true);
 	});
 
-	it('rejects a catastrophically-backtracking pattern, and the probe itself stays bounded', () => {
-		const t0 = Date.now();
-		const out = validateCustomPattern('^(?<title>(a+)+)$');
-		const elapsed = Date.now() - t0;
-		expect(out).toEqual({ ok: false, reason: 'too-slow' });
-		// The battery is capped at PATTERN_PROBE_LEN chars precisely so a pathological pattern is
-		// MEASURABLE rather than a hang. If this ever fails, the probe has become the DoS.
-		expect(elapsed).toBeLessThan(2000);
+	it('rejects a catastrophically-backtracking pattern as too-slow', () => {
+		// '(b+)+$' is a genuine ReDoS shape (nested quantifier), but no battery string is a b-run,
+		// so this test never EXECUTES an exponential match — the too-slow verdict is delivered by
+		// the budget gate under the scripted clock. Executing the real thing in a test (the old
+		// '(a+)+$' version) was load-fragile in BOTH directions and is deliberately gone: its first
+		// battery string is a single uninterruptible ~2^24-step `re.test()`, which under parallel
+		// full-suite load measured 3368 ms against a 2000 ms wall-clock assertion, and past the
+		// 5000 ms test timeout under heavier load. What protects the WebView is not how fast a
+		// machine runs backtracking — it is the gate (refuse the moment probe time exceeds
+		// PATTERN_PROBE_BUDGET_MS) plus the structural cap (battery strings bounded by
+		// PATTERN_PROBE_LEN, pinned by the constants test below). Both are pinned here
+		// deterministically; the exponential itself is V8 physics, not this module's logic.
+		scriptClockPastBudget();
+		expect(validateCustomPattern('^(?<title>(b+)+)$')).toEqual({ ok: false, reason: 'too-slow' });
+	});
+
+	it('rejects any pattern once the probe clock passes the budget, however benign', () => {
+		// The gate is purely temporal: the same scripted clock refuses a pattern whose real probe
+		// cost is microseconds. Together with the frozen-clock accepts above (same gate, elapsed
+		// always 0, patterns accepted), this brackets the mechanism — verdict follows the clock,
+		// never the machine's load.
+		scriptClockPastBudget();
+		expect(validateCustomPattern('^(?<title>.+)$')).toEqual({ ok: false, reason: 'too-slow' });
 	});
 
 	it('rejects an empty or whitespace-only pattern as invalid', () => {
