@@ -79,11 +79,14 @@ const IMAGE_MS = 2500;
 
 /**
  * quick-261120-mediacard: the seam stage's own budget — a crowd-pick read plus a 3-source
- * search fan-out (plus at most one qq detail hop), all parallel where the seam parallelises.
- * Sized under the crawler ceiling together with IMAGE_MS; a hit is bytes-cached for the TTL
- * and written to the resolve layer, so the cost is paid once per song per PoP.
+ * search fan-out (plus at most one qq detail hop / one Meting-redirector deref), all
+ * parallel where the seam parallelises. Sized from LIVE measurements (2026-11-20): the
+ * CN upstreams answer in ~1.5–2.6 s EACH from the edge and the fan-out's slowest leg sets
+ * the stage — the first cut (4000) aborted the fan-out mid-flight and every seam-resolved
+ * song fell back to the branded card, so the budget is 8000. A hit is bytes-cached for the
+ * TTL and written to the resolve layer, so the cost is paid once per song per PoP.
  */
-const SEAM_MS = 4000;
+const SEAM_MS = 8000;
 
 /** T-og-02: clone() BUFFERS the whole body (Cloudflare docs), so never buffer an unbounded one. */
 const CACHE_BYTES_CAP = 3_000_000;

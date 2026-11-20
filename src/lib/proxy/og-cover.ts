@@ -465,18 +465,46 @@ interface SeamCandidate {
  * cover (sources/gdnetease.ts coverUrl) — accepted ONLY in its exact template shape
  * (host + path + server/type/id params, digits-only id), never as a free-form URL.
  */
-function safeMetingPicUrl(raw: string | null | undefined): string | null {
-	const direct = safeNeteaseImageUrl(raw);
-	if (direct) return direct;
-	if (!raw) return null;
+/** The closed shape of a Meting pic redirector URL (see safeMetingPicUrl). Never throws. */
+function isMetingPicUrl(raw: string | null | undefined): boolean {
+	if (!raw) return false;
 	try {
 		const u = new URL(raw);
 		if (u.protocol !== 'https:' || u.hostname !== 'api.qijieya.cn' || u.pathname !== '/meting/')
-			return null;
+			return false;
 		if (u.searchParams.get('server') !== 'netease' || u.searchParams.get('type') !== 'pic')
-			return null;
-		if (!/^[0-9]+$/.test(u.searchParams.get('id') ?? '')) return null;
-		return raw;
+			return false;
+		return /^[0-9]+$/.test(u.searchParams.get('id') ?? '');
+	} catch {
+		return false;
+	}
+}
+
+function safeMetingPicUrl(raw: string | null | undefined): string | null {
+	const direct = safeNeteaseImageUrl(raw);
+	if (direct) return direct;
+	return isMetingPicUrl(raw) ? (raw as string) : null;
+}
+
+/**
+ * quick-261120-mediacard (live-fix): dereference a Meting pic redirector to the DIRECT
+ * netease CDN URL it 302s to. The app's netease cover IS the redirector (gdnetease.ts) and
+ * a browser follows it happily — but the card's image fetch has a 2.5 s budget and the
+ * redirector hop alone measured 1.5–2.6 s live (2026-11-20), so a redirector cover reached
+ * the branded fallback even when the seam resolved the song. Dereferencing ONCE here means
+ * the resolve cache stores the direct URL and every later fetch is a single CDN hop. The
+ * redirector's default size is param=300y300; the same asset serves at card grade by
+ * changing only the param (1200y1200, live-verified 2026-11-20). The Location is validated
+ * against the netease allow-list like any other seam cover (T-wv8-05). Never throws.
+ */
+async function derefMetingPic(url: string, signal: AbortSignal): Promise<string | null> {
+	try {
+		const res = await fetchWithRetry(url, { signal, redirect: 'manual' }, 0);
+		if (res.status < 300 || res.status >= 400) return null;
+		const loc = res.headers.get('location');
+		await res.body?.cancel().catch(() => {});
+		if (!loc) return null;
+		return safeNeteaseImageUrl(loc.replace(/([?&]param=)[0-9]+y[0-9]+/, '$11200y1200'));
 	} catch {
 		return null;
 	}
@@ -652,10 +680,17 @@ export async function resolveCoverViaSeam(
 		// isCoverOf compares script-folded identity keys — never gate cold.
 		await ensureFoldReady();
 
-		// Stage 1 — the cover chain's crowd layer.
+		// Stage 1 — the cover chain's crowd layer. A crowd cover can be a Meting redirector
+		// (the app's netease cover form) — dereference it like any seam cover; a failed
+		// deref falls through to the fan-out rather than handing the image fetch a
+		// redirector it cannot afford (see derefMetingPic).
 		const crowd = await crowdPickCover(origin, artist, title, signal);
-		if (crowd) return crowd;
-		if (signal.aborted) return null;
+		if (crowd) {
+			if (!isMetingPicUrl(crowd)) return crowd;
+			const direct = await derefMetingPic(crowd, signal);
+			if (direct) return direct;
+			if (signal.aborted) return null;
+		}
 
 		// Stage 2 — resolveStub's search fan-out, replayed through the dispatch builders on
 		// the cover chain's folded search terms (coverSearchTerms: the CN catalogs index the
@@ -686,9 +721,16 @@ export async function resolveCoverViaSeam(
 
 		// Stage 3a — a cover the resolved song already carries, in the cover chain's CN
 		// source order (COVER_ORDER; joox/migu carry none at search, so netease precedes kuwo).
+		// A netease hit can carry the Meting redirector form — dereference it to the direct
+		// CDN URL before returning (see derefMetingPic); a failed deref moves on to the
+		// next source / the qq detail hop instead of returning an unaffordable URL.
 		for (const src of COVER_ORDER) {
 			const hit = best(gated.filter((r) => r.source === src && r.cover));
-			if (hit?.cover) return hit.cover;
+			if (!hit?.cover) continue;
+			if (!isMetingPicUrl(hit.cover)) return hit.cover;
+			const direct = await derefMetingPic(hit.cover, signal);
+			if (direct) return direct;
+			if (signal.aborted) return null;
 		}
 
 		// Stage 3b — the cover chain's qq tier: the gated qq winner's detail album_pic,

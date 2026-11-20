@@ -748,8 +748,10 @@ function stubRoute(replies: {
 		// kuwo search is rn=10; the kuwo TIER's is rn=1 — that is the discriminator.
 		const seamReply = u.includes('/api/cover-pick')
 			? (replies.pick ?? PICK_MISS)
-			: u.includes('api.qijieya.cn')
-				? (replies.seamNe ?? '[]')
+			: u.includes('api.qijieya.cn') && u.includes('type=pic')
+				? 'REDIRECT'
+				: u.includes('api.qijieya.cn')
+					? (replies.seamNe ?? '[]')
 				: u.includes('tang.api.s01s.cn')
 					? u.includes('mid=')
 						? (replies.seamQqDetail ?? '[]')
@@ -761,6 +763,12 @@ function stubRoute(replies: {
 			seamCalls.push(u);
 			if (seamReply === 'THROW') throw new Error('network down');
 			if (seamReply === 'NOTOK') return new Response('upstream error', { status: 500 });
+			// The Meting pic redirector's real shape: a 302 to the netease CDN at 300y300.
+			if (seamReply === 'REDIRECT')
+				return new Response(null, {
+					status: 302,
+					headers: { location: `${SEAM_NE_PIC}?param=300y300` }
+				});
 			return new Response(seamReply, { status: 200, headers: { 'content-type': 'application/json' } });
 		}
 		calls.push(u);
@@ -1541,10 +1549,13 @@ describe('og-cover — resolveCoverViaSeam, the single seam driven edge-side (qu
 		expect(meting).toContain(encodeURIComponent('茉ひる/Billy Choi ロストライン'));
 	});
 
-	it('netease: a Meting pic REDIRECTOR cover (the gdnetease shape) is accepted in template form', async () => {
-		stubRoute({ seamNe: SEAM_NE_HIT_REDIRECTOR });
+	it('netease: a Meting pic REDIRECTOR cover (the gdnetease shape) is DEREFERENCED to the direct CDN URL at card size', async () => {
+		const { seamCalls } = stubRoute({ seamNe: SEAM_NE_HIT_REDIRECTOR });
 		const out = await resolveCoverViaSeam('https://openmusic.lol', '茉ひる/Billy Choi', 'ロストライン', fresh());
-		expect(out).toBe(SEAM_NE_REDIRECTOR);
+		// The redirector itself is never returned: its hop blows the card's image budget
+		// (live-measured 2026-11-20). The seam returns the 302 target, sized 1200y1200.
+		expect(out).toBe(`${SEAM_NE_PIC}?param=1200y1200`);
+		expect(seamCalls.some((c) => c.includes('type=pic'))).toBe(true);
 	});
 
 	it('the crowd pick wins FIRST — a pick hit costs ONE subrequest and no fan-out', async () => {
