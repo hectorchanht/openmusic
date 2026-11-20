@@ -38,6 +38,7 @@ import {
 	SLOW_RESUME_TIMEOUT_MS
 } from '$lib/services/buffer-gate';
 import { tryFallback } from '$lib/services/fallback';
+import { findFullVersion } from '$lib/services/preview-rescue';
 import { onApiPipelineIdle } from '$lib/services/api-base';
 import { reportDeadUrl } from '$lib/services/resolve-cache-client';
 import { reportDeadDirectUrl } from '$lib/services/direct-url-cache';
@@ -1086,6 +1087,28 @@ class Player {
 				if (gen !== this.armGen || playGenAtStart !== this.playGen) {
 					superseded = true;
 					return null;
+				}
+				// PREVIEW RESCUE (Hector 2026-11-19): the cold share arrival arms the element
+				// WITHOUT a later play() call — the CTA tap merely resumes the armed src — so
+				// play()'s rescue can never fire for the exact path the incident arrived on
+				// (a pinned `?u=` carrier resolving to a 60s QQ preview). Ask the same
+				// question here, before the src is armed: a confirmed full version takes the
+				// seat instead, queue entry included (the sync below writes `resolved`).
+				if (resolved.audioUrl && !track.explicitVersion) {
+					const full = await findFullVersion(resolved).catch(() => null);
+					if (gen !== this.armGen || playGenAtStart !== this.playGen) {
+						superseded = true;
+						return null;
+					}
+					if (full) {
+						logAction('preview.rescue', {
+							from: resolved.uid,
+							to: full.uid,
+							fromSec: resolved.duration,
+							toSec: full.duration
+						});
+						resolved = full;
+					}
 				}
 				this.current = resolved;
 				const i = this.indexOf(track);
@@ -4978,6 +5001,31 @@ class Player {
 				clearTimeout(resolveTimer); // fast resolve → no dangling timer / spurious late abort
 			}
 			if (myGen !== this.playGen) return; // CR-02: superseded mid-resolve — discard
+			// PREVIEW RESCUE (Hector 2026-11-19): the resolve just stamped the chosen track's
+			// TRUE duration, and for a preview-band file (≤65s known — QQ's paywall 試聽 is
+			// exactly 60.0s, which the `<60` short clause waved through) that is the earliest
+			// moment ANY play path can know the file is not the whole song. The arbitration
+			// chains never see a concrete tapped/pinned track, so the question is asked HERE,
+			// once, before the src attaches: if a full version of the same song by the
+			// original artist exists on any source, IT becomes the resolved track and the
+			// user simply hears the whole song (the source pill shows the source actually
+			// playing, because `resolved` is what every surface below reads). An explicit
+			// VersionPicker pick (`explicitVersion`) is exempt — the user chose that exact
+			// version, preview or not. A null answer (genuine short track, or no full
+			// version can be confirmed) plays the chosen track untouched. Never throws.
+			if (resolved.audioUrl && !track.explicitVersion) {
+				const full = await findFullVersion(resolved, ac.signal).catch(() => null);
+				if (myGen !== this.playGen) return; // superseded mid-rescue — the newer play owns the element
+				if (full) {
+					logAction('preview.rescue', {
+						from: resolved.uid,
+						to: full.uid,
+						fromSec: resolved.duration,
+						toSec: full.duration
+					});
+					resolved = full;
+				}
+			}
 			// 43-D-08: PLAY the auto-picked substitute but say it may not be the original. Emitted here
 			// (after resolve + gen-check), never gated on `playing` (unreliable on iOS). Names the resolved
 			// track — for a fallback swap `track` IS the swap, so both agree. Once per uid.

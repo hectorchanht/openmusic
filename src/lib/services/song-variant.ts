@@ -151,17 +151,19 @@ export function isAcceptableSubstitute(originalTitle: string, candidateTitle: st
  */
 // quick-261102-t7i: the variant marker list is score-match's VARIANT_KEYWORDS (one list).
 
-function hasVariantKeyword(text: string): boolean {
+/** One keyword against a title: CJK keywords match as substrings, Latin as whole words. */
+function matchesKeyword(text: string, kw: string): boolean {
 	const t = (text || '').toLowerCase();
+	if (/[\u4e00-\u9fff]/.test(kw)) return t.includes(kw.toLowerCase());
+	return new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text || '');
+}
+
+function hasVariantKeyword(text: string): boolean {
 	// quick-261020-dj1: DJ versions with a DJ name between DJ and 版 — e.g. "DJ 阿樂版",
 	// "DJ LUX 煜版", "1.1x DJ 慢搖版" — slip past the literal 'DJ版' substring. Match DJ
 	// followed by optional spaces/CJK chars then 版.
 	if (/dj[\s\w\u4e00-\u9fff]*版/i.test(text || '')) return true;
-	return VARIANT_KEYWORDS.some((kw) => {
-		// CJK keywords: substring match. Latin: word-boundary match.
-		if (/[\u4e00-\u9fff]/.test(kw)) return t.includes(kw.toLowerCase());
-		return new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text || '');
-	});
+	return VARIANT_KEYWORDS.some((kw) => matchesKeyword(text, kw));
 }
 
 /**
@@ -280,6 +282,167 @@ export function isImplausiblyShort(
 	return expectedSec !== undefined && expectedSec > 0 && d < expectedSec * 0.5;
 }
 
+// --- PREVIEW-LENGTH (Hector 2026-11-19) ---------------------------------------------------------
+// The direct-play hole the plausibility axis above never covered: it only ever runs INSIDE an
+// arbitration (fallback race, auto-pick, dedupe collapse). A concrete track the user tapped —
+// or a share link's pinned uid — is resolved and played VERBATIM, so nothing ever asked whether
+// the file behind it is the whole song. QQ's paywall preview is the incident: mid 003b8p2c1T2JPF
+// （永不失聯的愛 · 周興哲） reports `song_play_time: 60` and serves a 737,512-byte file — exactly
+// 60.0s at its 98kbps tier — while the full 258s studio cut sits on kuwo AND on QQ itself under
+// a different mid. Two properties of that shape drive the rules below:
+//   - EXACTLY 60s escapes `isImplausiblyShort`'s absolute clause (`60 < 60` is false), so a
+//     boundary-safe band is needed: previews cluster at ≤65s (60s nominal + container slop).
+//   - The band alone is only a SUSPECT trigger, never a verdict — a genuine 60s interlude sits
+//     in the same band. The verdict (`isPreviewLength`) requires the song's expected full
+//     length, from the longest duration the acceptable pool reports (preview-rescue.ts).
+
+/** A KNOWN duration at or under this sits in the preview band （試聽 cluster: 60s nominal). */
+export const PREVIEW_BAND_SEC = 65;
+
+/**
+ * Is this track a preview SUSPECT — worth one cross-source lookup before it may play?
+ * True only for a KNOWN duration inside the preview band. Unknown duration is never a
+ * suspect (D-03 neutrality: a source that omits durations must not pay a lookup per play),
+ * and anything past the band is a full-length file by the only evidence available.
+ */
+export function isPreviewSuspect(c: { duration?: number }): boolean {
+	const d = c.duration;
+	return typeof d === 'number' && isFinite(d) && d > 0 && d <= PREVIEW_BAND_SEC;
+}
+
+// --- JUNK-TITLE GATE (Hector 2026-11-19) ---------------------------------------------------------
+// The preview rule generalised to the whole junk class, per Hector's no-leak doctrine:
+// 「user can search for trash they like if they want to; OpenMusic just makes sure things are
+// 整理好」 — junk stays in the catalog, classified and findable, but a SIMPLE CLICK must never
+// play it when the canonical version exists. Duration is only one junk signal; the other is
+// the title itself. These markers are the junk drawer of the ONE shared VARIANT_KEYWORDS
+// list (score-match): carrier ringtones （鈴聲/彩鈴）, excerpt + preview cuts （片段/試聽）,
+// pseudo-surround re-encodes （環繞）, edits （剪輯）, pitch-shifted cuts （升調/降調） and the
+// sped/slowed family （加速版/減速版/慢速版/sped up/slowed/nightcore). Legitimate renditions
+// (Live, Acoustic, Remix, Demo, Remaster, 純音樂…) are deliberately NOT in this gate: they
+// are versions a user may mean, already demoted below the studio cut by the official/variant
+// partition — the click gate is only for degraded cuts that impersonate the song itself.
+// Like the preview band, a marker is a SUSPECT trigger, never a verdict: preview-rescue only
+// substitutes when a canonical full version is confirmed in the pool, so a false positive
+// costs one search and the tapped row still plays.
+const JUNK_TITLE_MARKERS: readonly string[] = [
+	'鈴聲',
+	'铃声',
+	'彩鈴',
+	'彩铃',
+	'ringtone',
+	'片段',
+	'試聽',
+	'试听',
+	'環繞',
+	'环绕',
+	'剪輯',
+	'剪辑',
+	'升調',
+	'升调',
+	'降調',
+	'降调',
+	'加速版',
+	'減速版',
+	'减速版',
+	'慢速版',
+	'sped up',
+	'speed up',
+	'slowed',
+	'nightcore'
+];
+
+/** Does this title advertise a junk-drawer cut (ringtone / fragment / preview / edit)? */
+export function isJunkTitle(title: string): boolean {
+	return JUNK_TITLE_MARKERS.some((kw) => matchesKeyword(title, kw));
+}
+
+/**
+ * The title with its junk dressing stripped — bracketed qualifiers removed wholesale and
+ * bare junk markers cut — for searching the CANONICAL pool ("晴天（48秒鈴聲版）" → "晴天",
+ * "晴天 加速版" → "晴天"). Falls back to the original title when stripping would empty it.
+ * Only ever a search query: identity is still judged against the un-stripped track.
+ */
+export function junklessTitle(title: string): string {
+	let t = (title || '').replace(/[（(【\[][^)）\]】]*[)）\]】]/g, ' ');
+	for (const kw of JUNK_TITLE_MARKERS) {
+		if (/[\u4e00-\u9fff]/.test(kw)) t = t.split(kw).join(' ');
+	}
+	t = t.replace(/\b(sped up|speed up|slowed|nightcore|ringtone)\b/gi, ' ');
+	t = t.replace(/\s+/g, ' ').trim();
+	return t || (title || '').trim();
+}
+
+/**
+ * Is this track PREVIEW-LENGTH for a song whose full length is `expectedSec` (the longest
+ * duration the acceptable same-song pool reports)? The verdict needs BOTH sides: without a
+ * known expectation there is nothing to be short AGAINST, so an unknown/short pool can never
+ * convict — which is exactly what keeps a genuine ~1-minute song (every source agrees it is
+ * ~1 minute) playing as-is. True when the track is implausibly short in the existing sense
+ * (<60s, or <50% of expected), or runs ≤65% of the expected length, or sits in the preview
+ * band while the song is known to run at least 30s longer.
+ */
+export function isPreviewLength(
+	c: { duration?: number },
+	expectedSec?: number
+): boolean {
+	const d = c.duration;
+	if (typeof d !== 'number' || !isFinite(d) || d <= 0) return false;
+	if (expectedSec === undefined || !isFinite(expectedSec) || expectedSec <= 0) return false;
+	// The song ITSELF is band-length: every source agrees it runs ~1 minute, so nothing
+	// can be a preview OF it. This guard is what keeps isImplausiblyShort's bare `<60`
+	// clause from convicting a genuine 58s interlude against its own 62s pool.
+	if (expectedSec <= PREVIEW_BAND_SEC) return false;
+	if (isImplausiblyShort(c, expectedSec)) return true;
+	if (d <= expectedSec * 0.65) return true;
+	return d <= PREVIEW_BAND_SEC && expectedSec >= d + 30;
+}
+
+/**
+ * The song's KNOWN FULL LENGTH for ranking (Hector 2026-11-19): the longest duration the
+ * pool's OFFICIAL rows report. Official-only on purpose — a variant's length (a 12-minute
+ * DJ extended mix, a long live take) must not become the yardstick the studio cut is
+ * measured against; the plain original defines how long the song is. undefined when no
+ * official row reports a duration (nothing can be judged preview-length against silence).
+ */
+export function poolFullDuration(
+	candidates: readonly { title?: string; duration?: number }[],
+	queryTitle: string
+): number | undefined {
+	const { official } = partitionOfficial(
+		candidates.map((c) => ({ title: c.title ?? '', duration: c.duration })),
+		queryTitle
+	);
+	let max: number | undefined;
+	for (const c of official) {
+		const d = c.duration;
+		if (typeof d === 'number' && isFinite(d) && d > 0 && (max === undefined || d > max)) {
+			max = d;
+		}
+	}
+	return max;
+}
+
+/**
+ * THE shared short judgement for ranking (quick-261101-ring1 + Hector 2026-11-19): a
+ * candidate is SHORT for its pool when it is implausibly short against the pool
+ * expectation (median / caller-supplied) OR preview-length against the pool's known full
+ * length. The preview clause is the down-weight doctrine: a 試聽 version is never deleted
+ * and never blocked, but it sorts BELOW every full version in every ranking this module
+ * feeds — dedupe's canonical slot, search order, the VersionPicker, auto-pick and the
+ * fallback race all read poolsInOrder / candidateTier, so the penalty lives exactly here
+ * and nowhere else. The median alone could not do this: a pool of [60s preview, 62s, 258s]
+ * medians to 62, under which the 60s preview judged "plausible" and could win its slot on
+ * quality — against the longest (258) it is unmistakably a preview.
+ */
+function isShortInPool(
+	c: { duration?: number },
+	expected: number | undefined,
+	full: number | undefined
+): boolean {
+	return isImplausiblyShort(c, expected) || isPreviewLength(c, full);
+}
+
 /**
  * Pool order behind rankPool (quick-261101-ring1):
  * official-plausible → variant-plausible → official-short → variant-short.
@@ -294,27 +457,31 @@ function poolsInOrder<T extends { title: string; duration?: number }>(
 ): T[][] {
 	const { official, variants } = partitionOfficial(candidates, queryTitle);
 	const expected = expectedSec ?? poolExpectedDuration(candidates);
-	const plausible = (pool: T[]) => pool.filter((c) => !isImplausiblyShort(c, expected));
-	const short = (pool: T[]) => pool.filter((c) => isImplausiblyShort(c, expected));
+	const full = poolFullDuration(candidates, queryTitle);
+	const plausible = (pool: T[]) => pool.filter((c) => !isShortInPool(c, expected, full));
+	const short = (pool: T[]) => pool.filter((c) => isShortInPool(c, expected, full));
 	return [plausible(official), plausible(variants), short(official), short(variants)];
 }
 
 /**
  * Playback-candidate tier for cross-source arbitration (quick-261101-ring1): 0 when the
  * candidate is an official, plausible-length pick for the target title; 1 when it is a
- * variant and/or implausibly short. fallback's race uses it so a fast degraded hit cannot
- * beat a slower clean one merely by arriving first.
+ * variant and/or short for the pool (implausibly short, or preview-length against the
+ * pool's known full length — Hector 2026-11-19). fallback's race uses it so a fast
+ * degraded hit cannot beat a slower clean one merely by arriving first, and dedupeBest
+ * uses it so a preview can never take a song's canonical slot from a full version.
  */
 export function candidateTier(
 	candidate: { title: string; duration?: number },
 	queryTitle: string,
-	pool: readonly { duration?: number }[],
+	pool: readonly { title?: string; duration?: number }[],
 	expectedSec?: number
 ): 0 | 1 {
 	const { official } = partitionOfficial([candidate], queryTitle);
 	if (official.length === 0) return 1;
 	const expected = expectedSec ?? poolExpectedDuration(pool);
-	return isImplausiblyShort(candidate, expected) ? 1 : 0;
+	const full = poolFullDuration(pool, queryTitle);
+	return isShortInPool(candidate, expected, full) ? 1 : 0;
 }
 
 /**

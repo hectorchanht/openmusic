@@ -2363,7 +2363,7 @@
 	loading={versionsLoading}
 	overlayId="versionpicker-menu"
 	onclose={closeVersions}
-	onpick={(v) => { player.tapPlay(v); close(); }} // quick-261103-tapsplice (Hector 2026-11-03): a version pick is a song tap — queue + history survive
+	onpick={(v) => { player.tapPlay({ ...v, explicitVersion: true }); close(); }} // quick-261103-tapsplice (Hector 2026-11-03): a version pick is a song tap — queue + history survive. Hector 2026-11-19: explicitVersion marks the deliberate pick so the preview rescue never overrides it
 />
 
 <!-- quick-260919-1eh: the metadata editor. Mounted OUTSIDE the {#if open && track} menu block, like

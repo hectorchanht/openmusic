@@ -75,6 +75,13 @@ export interface Track {
 	 *  delta) AND its source carries `noticeOnAutoPick`. Read once by `player.play()` to emit the
 	 *  "may not be the original" notice. `undefined` = no notice. */
 	versionMismatch?: boolean;
+	/** Hector 2026-11-19: set ONLY by a VersionPicker pick — the user explicitly chose THIS
+	 *  version in the "Play from source" sheet. The preview rescue (preview-rescue.ts, consulted
+	 *  by player.play()/armTrack()) must never override an explicit choice: a preview the user
+	 *  deliberately picked plays as picked. Transient by design — deliberately NOT in the
+	 *  serializeTrack whitelist, so a restored queue entry returns to the default (rescued)
+	 *  behaviour; only the live pick object carries the exemption. */
+	explicitVersion?: boolean;
 	quality: string | null;
 	qualityLabel: string | null;
 	/** Search keyword — QQ/JOOX detail calls need it. */

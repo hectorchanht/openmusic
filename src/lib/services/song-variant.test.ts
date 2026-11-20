@@ -9,6 +9,13 @@ import {
 	bracketQualifier,
 	poolExpectedDuration,
 	isImplausiblyShort,
+	isPreviewSuspect,
+	isPreviewLength,
+	PREVIEW_BAND_SEC,
+	isJunkTitle,
+	junklessTitle,
+	poolFullDuration,
+	rankAutoCandidates,
 	candidateTier,
 	isNotableVersionMismatch,
 	isAutoAcceptableArtist,
@@ -458,5 +465,155 @@ describe('43-D-08 — isNotableVersionMismatch', () => {
 
 	it('flags an implausibly short clip', () => {
 		expect(isNotableVersionMismatch({ title: 'Song', duration: 20 }, { title: 'Song', duration: 240 })).toBe(true);
+	});
+});
+
+// Hector 2026-11-19 — the preview band + verdict behind preview-rescue.ts. The incident
+// shape: QQ mid 003b8p2c1T2JPF reports EXACTLY 60s (a paywall 試聽） for a song whose full
+// studio cut runs 258s. `isImplausiblyShort`'s absolute clause (`d < 60`) waves exactly-60
+// through — pinned above at line ~321 — so the preview judgement needs the band + an
+// expectation, and the expectation is what keeps genuine ~1-minute songs innocent.
+describe('preview band + verdict (Hector 2026-11-19)', () => {
+	const mkD = (duration?: number) => ({ title: '永不失聯的愛', artist: '周興哲', duration });
+
+	it('the band is 65s: 60s nominal preview + container slop', () => {
+		expect(PREVIEW_BAND_SEC).toBe(65);
+	});
+
+	it('isPreviewSuspect: known duration inside the band only; unknown/past-band never', () => {
+		expect(isPreviewSuspect(mkD(60))).toBe(true); // the incident's exact length
+		expect(isPreviewSuspect(mkD(65))).toBe(true);
+		expect(isPreviewSuspect(mkD(66))).toBe(false);
+		expect(isPreviewSuspect(mkD(258))).toBe(false);
+		expect(isPreviewSuspect(mkD())).toBe(false); // unknown is never a suspect (D-03)
+		expect(isPreviewSuspect(mkD(0))).toBe(false);
+	});
+
+	it('isPreviewLength: the incident — exactly-60 IS a preview against the 258s full length', () => {
+		expect(isPreviewLength(mkD(60), 258)).toBe(true);
+		expect(isPreviewLength(mkD(45), 258)).toBe(true);
+		expect(isPreviewLength(mkD(150), 258)).toBe(true); // ≤65% of the full length
+		expect(isPreviewLength(mkD(200), 258)).toBe(false); // a real cut of the song
+		expect(isPreviewLength(mkD(258), 258)).toBe(false);
+	});
+
+	it('isPreviewLength: no expectation, no verdict — the band alone never convicts', () => {
+		expect(isPreviewLength(mkD(60))).toBe(false);
+		expect(isPreviewLength(mkD(60), 0)).toBe(false);
+	});
+
+	it('isPreviewLength: a genuine ~1-minute song is innocent against its own pool', () => {
+		expect(isPreviewLength(mkD(60), 60)).toBe(false); // every source agrees: ~60s song
+		expect(isPreviewLength(mkD(58), 62)).toBe(false);
+		expect(isPreviewLength(mkD(60), 70)).toBe(false); // marginally longer ≠ a preview
+	});
+
+	it('isPreviewLength: band + a song known ≥30s longer convicts even past the ratios', () => {
+		expect(isPreviewLength(mkD(64), 95)).toBe(true);
+	});
+
+	it('isPreviewLength: unknown duration is never preview-length', () => {
+		expect(isPreviewLength(mkD(), 258)).toBe(false);
+		expect(isPreviewLength(mkD(0), 258)).toBe(false);
+	});
+});
+
+// Hector 2026-11-19 — the DOWN-WEIGHT: the preview verdict feeds the shared ranking, not
+// just the play-start rescue. A preview must sort below every full version in rankPool
+// (search order / VersionPicker), in candidateTier (dedupe's canonical slot + fallback's
+// race) and in rankAutoCandidates (auto-pick / generated queues) — while remaining in the
+// pool, reachable as the last resort and by an explicit picker choice. The regression
+// shape: pool [60, 62, 258] medians to 62, under which the median-only judgement called
+// the 60s preview "plausible" and let it win on quality.
+describe('preview down-weight in the shared ranking (Hector 2026-11-19)', () => {
+	const mkP = (title: string, duration?: number) => ({ title, artist: '周興哲', duration });
+	const pool = () => [
+		mkP('永不失聯的愛', 60), // the preview (kugou/migu rows report durations)
+		mkP('永不失聯的愛', 62),
+		mkP('永不失聯的愛', 258) // the full studio cut
+	];
+
+	it('poolFullDuration: the yardstick is the longest OFFICIAL row — variant lengths never set it', () => {
+		expect(poolFullDuration(pool(), '永不失聯的愛')).toBe(258);
+		const withVariants = [
+			...pool(),
+			mkP('永不失聯的愛 (DJ版)', 720),
+			mkP('永不失聯的愛 (Live)', 400)
+		];
+		expect(poolFullDuration(withVariants, '永不失聯的愛')).toBe(258);
+		expect(poolFullDuration([mkP('永不失聯的愛')], '永不失聯的愛')).toBeUndefined();
+	});
+
+	it('candidateTier: the preview is tier 1 and the full cut tier 0 in a median-trap pool', () => {
+		const p = pool();
+		expect(candidateTier(p[0], '永不失聯的愛', p)).toBe(1);
+		expect(candidateTier(p[2], '永不失聯的愛', p)).toBe(0);
+	});
+
+	it('rankPool (search order): the full version leads, previews trail — but stay listed', () => {
+		const ranked = rankPool(pool(), '永不失聯的愛');
+		expect(ranked.map((c) => c.duration)).toEqual([258, 60, 62]);
+	});
+
+	it('rankAutoCandidates (auto-pick / generated queues): the full version is the pick', () => {
+		const ranked = rankAutoCandidates(pool(), { artist: '周興哲', title: '永不失聯的愛' });
+		expect(ranked[0].duration).toBe(258);
+		expect(ranked).toHaveLength(3); // down-weighted, never removed
+	});
+
+	it('a preview-only pool keeps the preview as the pick (last resort, never blocked)', () => {
+		const only = [mkP('Intro', 60), mkP('Intro', 58)];
+		const ranked = rankAutoCandidates(only, { artist: '周興哲', title: 'Intro' });
+		expect(ranked).toHaveLength(2);
+		expect(candidateTier(only[0], 'Intro', only)).toBe(0);
+	});
+});
+
+// Hector 2026-11-19 — the junk-title gate: the title itself as junk evidence. The marker
+// set is Hector's junk drawer （試聽/鈴聲/彩鈴/片段/sped/slowed/剪輯/環繞/升降調）; legitimate
+// renditions (Live / Acoustic / 純音樂 / Remix) are NOT click-gate junk — they are demoted
+// by the partition, never click-rescued.
+describe('junk title gate (Hector 2026-11-19)', () => {
+	it.each([
+		'晴天（48秒鈴聲版）',
+		'晴天（彩鈴版）',
+		'晴天 片段',
+		'晴天（試聽版）',
+		'晴天 加速版',
+		'晴天（減速版）',
+		'晴天（環繞版）',
+		'晴天 剪輯版',
+		'Song (Sped Up)',
+		'Song (Slowed + Reverb)',
+		'Song Nightcore'
+	])('isJunkTitle: %s is junk', (title) => {
+		expect(isJunkTitle(title)).toBe(true);
+	});
+
+	it.each([
+		'晴天',
+		'晴天 (Live)',
+		'晴天（純音樂）',
+		'晴天 (Acoustic)',
+		'告白氣球',
+		'Live While We’re Young'
+	])('isJunkTitle: %s is NOT click-gate junk', (title) => {
+		expect(isJunkTitle(title)).toBe(false);
+	});
+
+	it('junklessTitle strips the dressing for the canonical search', () => {
+		expect(junklessTitle('晴天（48秒鈴聲版）')).toBe('晴天');
+		expect(junklessTitle('晴天 加速版')).toBe('晴天');
+		expect(junklessTitle('Song (Sped Up)')).toBe('Song');
+		expect(junklessTitle('晴天')).toBe('晴天');
+	});
+
+	it('rankAutoCandidates: a ringtone-titled row ranks below the studio cut', () => {
+		const pool = [
+			{ title: '晴天（48秒鈴聲版）', artist: '周杰倫', duration: 48 },
+			{ title: '晴天', artist: '周杰倫', duration: 258 }
+		];
+		const ranked = rankAutoCandidates(pool, { artist: '周杰倫', title: '晴天' });
+		expect(ranked[0].title).toBe('晴天');
 	});
 });

@@ -89,6 +89,32 @@ describe('resolveStub — errored source retried before the pick (quick-261115-o
 	});
 });
 
+describe('resolveStub — preview down-weight in generated queues (Hector 2026-11-19)', () => {
+	it('the generated-queue pick is the FULL version, never the higher-quality preview', async () => {
+		// resolveStub's common path returns the dedupe winner; the pool's median duration
+		// (62, from [60, 62, 258]) acquitted the 60s preview under the old judgement, and
+		// its FLAC label would have won the slot on quality. The shared preview penalty
+		// (song-variant candidateTier via dedupeBest) is what the queue inherits.
+		const preview = mk('kugou', 'p1', '周杰伦', {
+			title: '晴天',
+			duration: 60,
+			qualityLabel: 'FLAC'
+		});
+		const nearPreview = mk('migu', 'p2', '周杰伦', {
+			title: '晴天',
+			duration: 62,
+			qualityLabel: '320'
+		});
+		const full = mk('kuwo', 'f1', '周杰伦', {
+			title: '晴天',
+			duration: 258,
+			qualityLabel: '128'
+		});
+		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([preview, nearPreview, full]));
+		expect((await resolveStub('周杰伦', '晴天'))?.uid).toBe(full.uid);
+	});
+});
+
 describe('resolveStub — exhaustive walk before giving up (quick-261115-uex)', () => {
 	it('a search-pass miss walks every credible source before returning null', async () => {
 		vi.spyOn(catalog, 'searchAll').mockResolvedValue(result([]));

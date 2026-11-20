@@ -33,6 +33,10 @@ vi.mock('$lib/services/local-tags', () => ({
 // Mock the cross-source fallback so the resilience tests drive runFallback's total-failure exit
 // (null = all sources exhausted) without real network.
 vi.mock('$lib/services/fallback', () => ({ tryFallback: vi.fn(), fallbackOrder: vi.fn(() => []) }));
+// Hector 2026-11-19: the preview rescue is consulted by play()/armTrack() after the resolve.
+// Default null (no full version — the chosen track plays as-is) so every pre-existing suite
+// is untouched; the preview-rescue suite below drives the substitution cases.
+vi.mock('$lib/services/preview-rescue', () => ({ findFullVersion: vi.fn(async () => null) }));
 // PLAY-10: restore()/persist() early-return under !browser. Flip browser ON so the restore
 // migration path (persisted repeatMode → 'off'|'one') actually executes in node, and provide a
 // minimal in-memory localStorage so persist()/restore() have a backing store to read/write.
@@ -152,6 +156,7 @@ import { localEnrichment } from '$lib/services/local-tags';
 import type { LocalEnrichment } from '$lib/services/local-tags';
 import { deviceUid } from '$lib/services/device-track';
 import { tryFallback } from '$lib/services/fallback';
+import { findFullVersion } from '$lib/services/preview-rescue';
 import { apiPipelineBusyCount, __resetGovernor } from '$lib/services/api-base';
 import { blobStore } from '$lib/services/blob-store';
 import { downloadTrack } from '$lib/services/download-track';
@@ -196,6 +201,7 @@ import {
 const mockResolve = vi.mocked(resolveStub);
 const mockEnsure = vi.mocked(ensureTrackDetails);
 const mockTryFallback = vi.mocked(tryFallback);
+const mockFindFull = vi.mocked(findFullVersion);
 const mockBlobGet = vi.mocked(blobStore.get);
 const mockBlobPut = vi.mocked(blobStore.put);
 const mockBlobDel = vi.mocked(blobStore.del);
@@ -359,6 +365,11 @@ function makeFakeAudio() {
 beforeEach(() => {
 	mockResolve.mockReset();
 	mockEnsure.mockReset();
+	// Preview rescue (Hector 2026-11-19): the factory mock's implementation survives
+	// restoreAllMocks, so a suite that arms a full-version answer would leak the
+	// substitution into every later real-play() suite. Reset to the null default HERE,
+	// with the other shared mocks — "no rescue" is every suite's baseline.
+	mockFindFull.mockReset().mockResolvedValue(null);
 	memStore.clear();
 	player.queue = [];
 	// play() touches the real <audio>/Media Session — stub it so playStub's success handoff
@@ -1364,6 +1375,155 @@ describe('player.armTrack — cold seat: resolved + armed + paused, never plays 
 
 		await expect(player.armTrack(s)).resolves.toBeNull();
 		expect(player.loading).toBe(false);
+	});
+});
+
+// Hector 2026-11-19 — PREVIEW RESCUE at the two play-start seams. The incident: a share
+// link pinned QQ mid 003b8p2c1T2JPF, whose resolve stamps duration 60 (a paywall preview)
+// with a playable URL, so it played as "the song" and ended at 1:00. play() and armTrack()
+// now consult findFullVersion (preview-rescue.ts — its own suite pins the judgement) the
+// moment the resolve lands, and substitute a confirmed full version before the src is
+// attached/armed. The service is mocked here; these tests pin the PLAYER's side of the
+// contract: substitution happens, the explicit VersionPicker pick is exempt, and a null
+// answer leaves the chosen track untouched.
+describe('player preview rescue — a preview-length default play is substituted (Hector 2026-11-19)', () => {
+	const PREVIEW_URL = 'https://isure6.stream.qqmusic.qq.com/C400003b8p2c1T2JPF.m4a';
+	const FULL_URL = 'https://car-er.kuwo.cn/full.mflac';
+	const previewStub = () => stub('qq', '003b8p2c1T2JPF', '周興哲', '永不失聯的愛');
+	const previewResolved = (t: Track): Track => ({
+		...t,
+		audioUrl: PREVIEW_URL,
+		detailsLoaded: true,
+		duration: 60
+	});
+	const fullTrack = (): Track => ({
+		...mk('kuwo', '37428520', 'Eric周兴哲', '永不失聯的愛'),
+		audioUrl: FULL_URL,
+		duration: 258
+	});
+	let fake: ReturnType<typeof makeFakeAudio>;
+
+	beforeEach(() => {
+		// The REAL play() is under test — restore the suite-wide spy (spliceAndPlay idiom).
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockImplementation(async (t: Track) => previewResolved(t));
+		mockFindFull.mockReset().mockResolvedValue(null);
+		mockSimilar.mockReset().mockResolvedValue([]);
+		mockPicks.mockReset().mockResolvedValue([]);
+		player.current = null;
+		player.queue = [];
+		player.loading = false;
+		fake = makeFakeAudio();
+		player.attach(fake as unknown as HTMLAudioElement);
+	});
+
+	it('play(): a resolved 60s QQ preview is replaced by the full version before the src attaches', async () => {
+		const full = fullTrack();
+		mockFindFull.mockResolvedValue(full);
+		const tapped = previewStub();
+
+		await player.play(tapped);
+		await flush();
+
+		expect(mockFindFull).toHaveBeenCalledTimes(1);
+		expect(mockFindFull.mock.calls[0][0].uid).toBe(tapped.uid); // judged on the RESOLVED preview
+		expect(mockFindFull.mock.calls[0][0].duration).toBe(60);
+		expect(player.current?.uid).toBe(full.uid);
+		expect(fake.src).toBe(FULL_URL);
+	});
+
+	it('play(): no confirmed full version → the chosen track plays as-is (genuine short / dry pool)', async () => {
+		const tapped = previewStub();
+
+		await player.play(tapped);
+		await flush();
+
+		expect(mockFindFull).toHaveBeenCalledTimes(1);
+		expect(player.current?.uid).toBe(tapped.uid);
+		expect(fake.src).toBe(PREVIEW_URL);
+	});
+
+	it('play(): an explicit VersionPicker pick is exempt — the rescue is never consulted', async () => {
+		mockFindFull.mockResolvedValue(fullTrack());
+		const tapped = { ...previewStub(), explicitVersion: true };
+
+		await player.play(tapped);
+		await flush();
+
+		expect(mockFindFull).not.toHaveBeenCalled();
+		expect(player.current?.uid).toBe(tapped.uid);
+		expect(fake.src).toBe(PREVIEW_URL);
+	});
+
+	it('armTrack(): the cold share seat arms the FULL version, not the pinned preview', async () => {
+		const full = fullTrack();
+		mockFindFull.mockResolvedValue(full);
+		const s = previewStub();
+
+		const armed = await player.armTrack(s);
+
+		expect(armed?.uid).toBe(full.uid);
+		expect(player.current?.uid).toBe(full.uid);
+		expect(fake.src).toBe(FULL_URL);
+		expect(fake.play).not.toHaveBeenCalled(); // still a cold seat — D-06 untouched
+		expect(player.queue.map((t) => t.uid)).toEqual([full.uid]);
+	});
+
+	it('armTrack(): no full version → the pinned track arms as-is', async () => {
+		const s = previewStub();
+
+		const armed = await player.armTrack(s);
+
+		expect(armed?.uid).toBe(s.uid);
+		expect(fake.src).toBe(PREVIEW_URL);
+	});
+
+	// Hector 2026-11-19 generalisation: the junk class, not just previews. A simple tap on
+	// a junk-class row (here a ringtone cut) plays the CANONICAL version; the junk cut
+	// itself plays ONLY on an explicit VersionPicker pick (explicitVersion). The gate
+	// itself (title markers) is unit-tested in preview-rescue.test.ts / song-variant.test.ts;
+	// these pin that the player's one play seam consults it for junk rows too.
+	it('play(): a tapped ringtone row is replaced by the canonical version', async () => {
+		const RING_URL = 'https://car-er.kuwo.cn/ringtone.mp3';
+		const ringtone = stub('kugou', 'ring1', '周興哲', '永不失聯的愛（48秒鈴聲版）');
+		mockEnsure.mockImplementation(async (t: Track) => ({
+			...t,
+			audioUrl: RING_URL,
+			detailsLoaded: true,
+			duration: 48
+		}));
+		const full = fullTrack();
+		mockFindFull.mockResolvedValue(full);
+
+		await player.play(ringtone);
+		await flush();
+
+		expect(mockFindFull).toHaveBeenCalledTimes(1);
+		expect(mockFindFull.mock.calls[0][0].uid).toBe(ringtone.uid);
+		expect(player.current?.uid).toBe(full.uid);
+		expect(fake.src).toBe(FULL_URL);
+	});
+
+	it('play(): an explicit picker pick of the junk cut plays the junk cut', async () => {
+		const RING_URL = 'https://car-er.kuwo.cn/ringtone.mp3';
+		const picked = {
+			...stub('kugou', 'ring1', '周興哲', '永不失聯的愛（48秒鈴聲版）'),
+			explicitVersion: true
+		};
+		mockEnsure.mockImplementation(async (t: Track) => ({
+			...t,
+			audioUrl: RING_URL,
+			detailsLoaded: true,
+			duration: 48
+		}));
+		mockFindFull.mockResolvedValue(fullTrack());
+
+		await player.play(picked);
+		await flush();
+
+		expect(mockFindFull).not.toHaveBeenCalled();
+		expect(player.current?.uid).toBe(picked.uid);
+		expect(fake.src).toBe(RING_URL);
 	});
 });
 

@@ -215,6 +215,56 @@ describe('dedupeBest — SOURCE_RANK tie-break (32-D-08)', () => {
 	});
 });
 
+// Hector 2026-11-19 — PREVIEW DOWN-WEIGHT at the canonical slot. A preview-length row
+// （試聽） must never represent the song when a full version is in the group — even when
+// the preview carries the BEST quality label and the group's median duration (62s, from
+// [60, 62, 258]) would have acquitted it under the median-only judgement. The preview is
+// NOT removed: it stays in groupVariants, which is the VersionPicker's data source.
+describe('dedupeBest — preview never takes the canonical slot (Hector 2026-11-19)', () => {
+	const preview = () =>
+		mk('kugou', 'p1', '晴天', '周杰倫', { duration: 60, qualityLabel: 'FLAC' });
+	const nearPreview = () =>
+		mk('migu', 'p2', '晴天', '周杰倫', { duration: 62, qualityLabel: '320' });
+	const full = () =>
+		mk('kuwo', 'f1', '晴天', '周杰倫', { duration: 258, qualityLabel: '128' });
+
+	it('the full version wins the slot over a higher-quality preview (median-trap pool)', () => {
+		const winners = dedupeBest([preview(), nearPreview(), full()]);
+		expect(winners).toHaveLength(1);
+		expect(winners[0].uid).toBe(full().uid);
+		// Input order does not save the preview either.
+		expect(dedupeBest([full(), preview(), nearPreview()])[0].uid).toBe(full().uid);
+	});
+
+	it('the preview stays in the variant group — down-weighted, never deleted (picker reachability)', () => {
+		const rows = [preview(), nearPreview(), full()];
+		const groups = groupVariants(rows);
+		expect(groups.size).toBe(1);
+		const [variants] = [...groups.values()];
+		expect(variants.map((t) => t.uid)).toEqual(rows.map((t) => t.uid));
+	});
+
+	it('a preview-only group still surfaces the preview (no full version exists to prefer)', () => {
+		const winners = dedupeBest([preview(), nearPreview()]);
+		expect(winners).toHaveLength(1);
+		expect(winners[0].uid).toBe(preview().uid); // best quality takes the slot it can have
+	});
+
+	it('the whole junk class, not just previews: a ringtone row never takes the slot', () => {
+		const ringtone = mk('kugou', 'r1', '晴天（48秒鈴聲版）', '周杰倫', {
+			duration: 48,
+			qualityLabel: 'FLAC'
+		});
+		const studio = mk('kuwo', 'f1', '晴天', '周杰倫', { duration: 258, qualityLabel: '128' });
+		const winners = dedupeBest([ringtone, studio]);
+		expect(winners).toHaveLength(1);
+		expect(winners[0].uid).toBe(studio.uid);
+		// …and the ringtone stays in the group — classified, picker-reachable, never deleted.
+		const [variants] = [...groupVariants([ringtone, studio]).values()];
+		expect(variants).toHaveLength(2);
+	});
+});
+
 // quick-260926-n0r: the same song kept showing twice in the NowPlaying Related tab and Up Next.
 // Every row below is a REAL Gareth.T search row (qq / joox / ytmusic). Three identity classes the
 // old key() missed: Simplified vs Traditional twins, ytmusic's "<CJK> - <english>" titles, and
