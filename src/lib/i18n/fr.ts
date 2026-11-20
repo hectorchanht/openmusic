@@ -891,7 +891,7 @@ const fr: Dict = {
 	"free.accountNote": "La reprise entre appareils se met à jour à l'ouverture de l'app ou à son retour à l'écran, jamais pendant la lecture, et c'est l'appareil le plus récemment utilisé qui l'emporte. Tu peux la désactiver dans les réglages du Compte.",
 	"free.honestTitle": "Le coin honnête",
 	"free.honestBody": "Une seule personne garde OpenMusic gratuit pour tous. Une seule commodité est soutenue par les supporters : les téléchargements groupés en ZIP d'albums et de discographies se débloquent avec un petit pourboire. Les gros téléchargements groupés sont la seule chose à laquelle les supporters contribuent.",
-	"free.honestRail": "La ligne Sponsorisé, bien identifiée sur l'Accueil (une cagnotte et quelques liens de parrainage), est notre seul canal de soutien.",
+	"free.honestRail": "Le bouton de la cagnotte dans l'en-tête de l'Accueil est notre seul canal de soutien.",
 	"free.honestThemes": "Deux thèmes esthétiques, Gold et Sakura, sont un petit merci pour les supporters.",
 	"free.honestPlain": "Tout ce qu'il faut pour écouter reste gratuit. Toujours.",
 	"free.flexTitle": "Créé par une personne + l'IA",

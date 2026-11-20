@@ -1222,13 +1222,16 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 
 <header class="topnav">
 	<div class="brand"><Logo size={26} /> openmusic</div>
-	<button class="gear" aria-label={t('home.settings')} use:tapBounce onclick={() => goto('/settings')}><Settings size={20} /></button>
+	<div class="top-actions">
+		<!-- quick-261119-tiponly: SponsoredStrip is now ONLY the ☕ Tip jar pill (all
+		     referral sponsors cancelled, Hector 2026-11-19) and lives HERE in the
+		     header row, right of the brand and left of the gear — Home's top is
+		     one row tall, with no separate strip row below the header. Hiding is
+		     still the supporter's choice via Settings → Supporter. -->
+		<SponsoredStrip />
+		<button class="gear" aria-label={t('home.settings')} use:tapBounce onclick={() => goto('/settings')}><Settings size={20} /></button>
+	</div>
 </header>
-
-<!-- quick-261010-spon: the Dawn "Sponsored" strip — first content block under the
-     app header. Tip jar + referral links. Hiding is earned via Settings →
-     Sponsored strip (Gumroad license-key verification, V2). -->
-<SponsoredStrip />
 
 {#if settings.homeShowSearchPill}
 	<button class="searchpill" use:tapBounce onclick={() => goto('/search')}>
@@ -1866,6 +1869,8 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	.home-footer a { color: var(--color-text-muted); text-decoration: none; font-weight: 600; display: inline-block; padding: 12px 8px; }
 	.home-footer a:hover { color: var(--color-text); }
 	.topnav { display: flex; align-items: center; justify-content: space-between; padding: 14px 0 10px; }
+	/* quick-261119-tiponly: the header's right-side cluster — tip-jar pill + gear, one row. */
+	.top-actions { display: flex; align-items: center; gap: 8px; }
 	.brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1.35rem; }
 	.gear { position: relative; background: none; border: none; color: var(--color-text); cursor: pointer; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; transition: opacity 0.15s ease; }
 	/* quick-261102-sfc: Android 48dp touch floor (PRODUCT.md: APK is first-class); hit box only,

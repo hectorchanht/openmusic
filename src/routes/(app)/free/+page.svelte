@@ -11,8 +11,9 @@
 	//    PLAYER state (song + queue + position) travels too — the "Now playing" sync family (default
 	//    ON, deselectable in Settings → Account), replace-wins by updatedAt, and syncOnce defers the
 	//    pull while audio plays. The copy says exactly that: on open / return, never mid-song, newest wins.
-	//  - gold + sakura are SUPPORTER_THEMES (settings.svelte.ts); the Sponsored strip (tip jar +
-	//    Wise/Coinbase/Binance referrals, config/sponsored.ts) is the only support rail
+	//  - gold + sakura are SUPPORTER_THEMES (settings.svelte.ts); the ☕ Tip jar button in the
+	//    Home header (config/sponsored.ts) is the only support rail — quick-261119-tiponly:
+	//    Hector cancelled every referral sponsor on 2026-11-19, tip jar only
 	// Deliberately absent: any community-chat server link (Hector standing rule until a volunteer mod exists) and every
 	// public-social share button — WhatsApp only. Comparison rows stay qualitative (no prices).
 	import { onMount } from 'svelte';

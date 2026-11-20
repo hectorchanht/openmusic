@@ -891,7 +891,7 @@ const id: Dict = {
 	"free.accountNote": "Lanjutan antarperangkat disinkronkan saat aplikasi dibuka atau kembali ke layar, tidak pernah saat musik diputar, dan perangkat yang terakhir memutar yang dipakai. Kamu bisa mematikannya di pengaturan Akun.",
 	"free.honestTitle": "Pojok jujur",
 	"free.honestBody": "Satu orang menjaga OpenMusic tetap gratis untuk semua. Hanya satu kemudahan yang didukung pendukung: unduhan massal ZIP album dan diskografi terbuka dengan tip kecil. Unduhan massal yang berat adalah satu-satunya hal yang dibantu para pendukung.",
-	"free.honestRail": "Baris Bersponsor yang diberi label jelas di Beranda (toples tip dan beberapa tautan referal) adalah satu-satunya jalur dukungan kami.",
+	"free.honestRail": "Tombol toples tip di header Beranda adalah satu-satunya jalur dukungan kami.",
 	"free.honestThemes": "Dua tema kosmetik, Gold dan Sakura, adalah hadiah terima kasih untuk pendukung.",
 	"free.honestPlain": "Semua yang kamu butuhkan untuk mendengarkan tetap gratis. Selalu.",
 	"free.flexTitle": "Dibuat oleh satu orang + AI",

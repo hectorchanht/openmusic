@@ -105,7 +105,7 @@ describe('Home "Free forever" band', () => {
 		expect(home).toMatch(/const firstShelf = \$derived\(\s*firstShelfId\(/);
 	});
 
-	it('is not at the top of Home: the Sponsored strip, search pill and Top picks header all come first', () => {
+	it('is not at the top of Home: the tip-jar pill in the header, search pill and Top picks header all come first', () => {
 		const firstBand = home.indexOf('<FreeBand />');
 		expect(home.indexOf('<SponsoredStrip />')).toBeLessThan(firstBand);
 		expect(home.indexOf("t('home.topPicks')")).toBeLessThan(firstBand);

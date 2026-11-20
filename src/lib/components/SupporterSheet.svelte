@@ -5,7 +5,8 @@
 	// tip-ONLY now. The supporter perk tiers are gone (no monthly-fee language anywhere).
 	// The old /settings/sponsored page is FOLDED IN HERE — its two functions live as
 	// sections below the tip CTAs: "Already tipped?" (Gumroad license-key verify, the one
-	// REAL backend leg: POST /api/sponsored/verify) and the "Hide sponsored strip" toggle.
+	// REAL backend leg: POST /api/sponsored/verify) and the "Hide tip jar button" toggle
+	// (quick-261119-tiponly: renamed from "Hide sponsored strip" — the strip is gone).
 	// The Ko-fi / GitHub "coming soon" CTAs are GONE (2026-10-24, NO-EMPTY-ANCHORS
 	// standing rule: no dead/placeholder links ship). The one real tip rail is the
 	// Gumroad tip jar anchor below; Ko-fi/GitHub return only when real URLs exist.
@@ -16,7 +17,7 @@
 	// overlays.dismiss).
 	//
 	// Labels in the verify section are English literals — same as the old sponsored page
-	// (the sponsored strip itself is English-only too).
+	// (the tip-jar button itself is English-only too).
 	import { untrack } from 'svelte';
 	import { onMount } from 'svelte';
 	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
@@ -167,7 +168,8 @@
 		}
 	}
 
-	// The supporter's explicit choice: hide (or re-show) the sponsored strip.
+	// The supporter's explicit choice: hide (or re-show) the tip-jar button
+	// (quick-261119-tiponly: this toggle hid the sponsored strip before it).
 	function toggleHideStrip(checked: boolean) {
 		try {
 			if (checked) {
@@ -225,7 +227,7 @@
 		<p class="tip-note">{t('support.tipNote')}</p>
 
 		<!-- The one real tip rail: the Gumroad tip jar (same destination as the
-		     home strip's ☕ Tip jar). Ko-fi / GitHub Sponsors buttons were removed
+		     home header's ☕ Tip jar). Ko-fi / GitHub Sponsors buttons were removed
 		     2026-10-24 — their URLs were empty "coming soon" placeholders. -->
 		<a
 			class="cta"
@@ -250,9 +252,9 @@
 							onchange={(e) => toggleHideStrip(e.currentTarget.checked)}
 						/>
 						<span class="track"><span class="thumb"></span></span>
-						<span class="switch-label">Hide sponsored strip</span>
+						<span class="switch-label">Hide tip jar button</span>
 					</label>
-					<p class="vhint">Supporters can hide the strip anytime.</p>
+					<p class="vhint">Supporters can hide the tip jar button anytime.</p>
 					<label class="vlbl" for="sheet-key-saved">Your license key</label>
 					<div class="keyrow">
 						<input id="sheet-key-saved" class="vtxt mono" type="text" value={key} readonly aria-readonly="true" tabindex={-1} />

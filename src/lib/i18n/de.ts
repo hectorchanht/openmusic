@@ -891,7 +891,7 @@ const de: Dict = {
 	"free.accountNote": "Die geräteübergreifende Fortsetzung gleicht beim Öffnen der App oder bei der Rückkehr zu ihr ab, nie während Musik läuft, und das zuletzt abspielende Gerät gewinnt. Du kannst sie in den Konto-Einstellungen ausschalten.",
 	"free.honestTitle": "Die ehrliche Ecke",
 	"free.honestBody": "Eine einzelne Person hält OpenMusic für alle kostenlos. Genau eine Komfortfunktion wird von Unterstützern getragen: Album- und Diskografie-Downloads als ZIP werden mit einem kleinen Trinkgeld freigeschaltet. Große Sammel-Downloads sind das Einzige, wofür Unterstützer etwas beisteuern.",
-	"free.honestRail": "Die klar gekennzeichnete Gesponsert-Zeile auf der Startseite (eine Trinkgeldkasse und ein paar Empfehlungslinks) ist unser einziger Unterstützungsweg.",
+	"free.honestRail": "Der Tip-jar-Button in der Kopfzeile auf der Startseite ist unser einziger Unterstützungsweg.",
 	"free.honestThemes": "Zwei kosmetische Designs, Gold und Sakura, sind ein Dankeschön für Unterstützer.",
 	"free.honestPlain": "Alles, was du zum Hören brauchst, bleibt kostenlos. Immer.",
 	"free.flexTitle": "Gebaut von einer Person + KI",

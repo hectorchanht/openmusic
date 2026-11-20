@@ -891,7 +891,7 @@ const es: Dict = {
 	"free.accountNote": "La continuación entre dispositivos se actualiza al abrir la app o al volver a ella, nunca mientras suena música, y gana el dispositivo que reprodujo más recientemente. Puedes desactivarla en los ajustes de Cuenta.",
 	"free.honestTitle": "El rincón honesto",
 	"free.honestBody": "Una sola persona mantiene OpenMusic gratis para todos. Solo una comodidad la sostienen los colaboradores: las descargas masivas en ZIP de álbumes y discografías se desbloquean con una pequeña propina. Las descargas masivas son lo único en lo que aportan los colaboradores.",
-	"free.honestRail": "La fila Patrocinado, claramente etiquetada en Inicio (un bote de propinas y algunos enlaces de referidos), es nuestro único canal de apoyo.",
+	"free.honestRail": "El botón del bote de propinas en el encabezado de Inicio es nuestro único canal de apoyo.",
 	"free.honestThemes": "Dos temas estéticos, Gold y Sakura, son un detalle de agradecimiento para los colaboradores.",
 	"free.honestPlain": "Todo lo que necesitas para escuchar sigue siendo gratis. Siempre.",
 	"free.flexTitle": "Hecho por una persona + IA",

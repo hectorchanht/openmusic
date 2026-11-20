@@ -891,7 +891,7 @@ const tr: Dict = {
 	"free.accountNote": "Cihazlar arası devam, uygulama açıldığında ya da ekrana geri döndüğünde eşitlenir, müzik çalarken asla araya girmez ve en son çalan cihaz kazanır. Hesap ayarlarından kapatabilirsin.",
 	"free.honestTitle": "Dürüst köşe",
 	"free.honestBody": "Tek bir kişi OpenMusic'i herkes için ücretsiz tutuyor. Yalnızca bir kolaylık destekçilerle ayakta: albüm ve diskografi toplu ZIP indirmeleri küçük bir bahşişle açılır. Ağır toplu indirmeler, destekçilerin katkı verdiği tek şey.",
-	"free.honestRail": "Ana sayfadaki açıkça etiketli Sponsorlu satırı (bir bahşiş kavanozu ve birkaç davet bağlantısı) tek destek kanalımızdır.",
+	"free.honestRail": "Ana sayfa üstbilgisindeki bahşiş kavanozu düğmesi tek destek kanalımızdır.",
 	"free.honestThemes": "İki görsel tema, Gold ve Sakura, destekçilere küçük bir teşekkürdür.",
 	"free.honestPlain": "Dinlemek için gereken her şey ücretsiz kalır. Her zaman.",
 	"free.flexTitle": "Bir kişi + yapay zekâ tarafından yapıldı",
