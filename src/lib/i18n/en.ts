@@ -939,7 +939,7 @@ const en = {
 	"free.accountNote": "Cross-device resume catches up when the app opens or comes back to the screen, never while music is playing, and the most recently played device wins. You can switch it off in Account settings.",
 	"free.honestTitle": "The honest corner",
 	"free.honestBody": "One person keeps OpenMusic free for everyone. Exactly one convenience is supporter-backed: album and discography bulk ZIP downloads unlock with a small tip. Heavy bulk downloads are the one thing supporters chip in for.",
-	"free.honestRail": "The labelled Sponsored row on Home (a tip jar and a few referral links) is our only support rail.",
+	"free.honestRail": "The Tip jar button in the Home header is our only support rail.",
 	"free.honestThemes": "Two cosmetic themes, Gold and Sakura, are a thank-you extra for supporters.",
 	"free.honestPlain": "Everything you need to listen stays free. Always.",
 	"free.flexTitle": "Built by one person + AI",

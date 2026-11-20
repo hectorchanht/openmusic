@@ -891,7 +891,7 @@ const pt: Dict = {
 	"free.accountNote": "A continuação entre dispositivos se atualiza quando o app abre ou volta à tela, nunca enquanto a música toca, e vence o dispositivo que tocou mais recentemente. Você pode desativá-la nas configurações da Conta.",
 	"free.honestTitle": "O cantinho honesto",
 	"free.honestBody": "Uma única pessoa mantém o OpenMusic grátis para todos. Só uma conveniência é bancada por apoiadores: downloads em lote em ZIP de álbuns e discografias são liberados com uma pequena gorjeta. Downloads em lote pesados são a única coisa para a qual os apoiadores contribuem.",
-	"free.honestRail": "A linha Patrocinado, bem identificada no Início (um pote de gorjetas e alguns links de indicação), é nosso único canal de apoio.",
+	"free.honestRail": "O botão do pote de gorjetas no cabeçalho do Início é nosso único canal de apoio.",
 	"free.honestThemes": "Dois temas visuais, Gold e Sakura, são um mimo de agradecimento para apoiadores.",
 	"free.honestPlain": "Tudo o que você precisa para ouvir continua grátis. Sempre.",
 	"free.flexTitle": "Feito por uma pessoa + IA",

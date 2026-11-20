@@ -891,7 +891,7 @@ const vi: Dict = {
 	"free.accountNote": "Nghe tiếp giữa các thiết bị được đồng bộ khi mở ứng dụng hoặc quay lại màn hình, không bao giờ trong lúc đang phát nhạc, và thiết bị phát gần nhất sẽ được ưu tiên. Bạn có thể tắt trong cài đặt Tài khoản.",
 	"free.honestTitle": "Góc thật lòng",
 	"free.honestBody": "Một người duy trì OpenMusic miễn phí cho tất cả. Chỉ đúng một tiện ích do người ủng hộ góp sức: tải hàng loạt album và toàn bộ discography dạng ZIP được mở khóa bằng một khoản tip nhỏ. Tải hàng loạt nặng là điều duy nhất người ủng hộ chung tay.",
-	"free.honestRail": "Hàng Được tài trợ được ghi rõ trên Trang chủ (một hũ tip và vài liên kết giới thiệu) là kênh hỗ trợ duy nhất của chúng tôi.",
+	"free.honestRail": "Nút hũ tip ở đầu Trang chủ là kênh hỗ trợ duy nhất của chúng tôi.",
 	"free.honestThemes": "Hai giao diện trang trí, Gold và Sakura, là món quà cảm ơn dành cho người ủng hộ.",
 	"free.honestPlain": "Mọi thứ bạn cần để nghe nhạc đều miễn phí. Luôn luôn.",
 	"free.flexTitle": "Một người + AI làm nên",

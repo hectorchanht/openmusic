@@ -923,7 +923,7 @@ const zhHant: Dict = {
 	"free.accountNote": "跨裝置接續會在 App 開啟或回到前景時同步,播放中絕不會打斷,並以最近播放的裝置為準。你可以在帳號設定中關閉。",
 	"free.honestTitle": "坦白角落",
 	"free.honestBody": "一個人讓 OpenMusic 對所有人保持免費。只有一項便利功能靠支持者贊助:專輯及全集 ZIP 批量下載,打賞一點點即可解鎖。大量批量下載,就是支持者幫忙分擔的那一件事。",
-	"free.honestRail": "首頁上標明「贊助」的那一行(打賞罐加幾個推薦連結)是我們唯一的支持渠道。",
+	"free.honestRail": "首頁頂部那個打賞罐按鈕是我們唯一的支持渠道。",
 	"free.honestThemes": "金色和櫻色兩款外觀主題,是送給支持者的小謝禮。",
 	"free.honestPlain": "聽歌需要的一切都保持免費。永遠如此。",
 	"free.flexTitle": "一個人 + AI 打造",

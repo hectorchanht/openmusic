@@ -891,7 +891,7 @@ const it: Dict = {
 	"free.accountNote": "La ripresa tra dispositivi si aggiorna quando apri l'app o ci torni, mai mentre la musica suona, e vince il dispositivo che ha riprodotto più di recente. Puoi disattivarla nelle impostazioni Account.",
 	"free.honestTitle": "L'angolo onesto",
 	"free.honestBody": "Una sola persona mantiene OpenMusic gratis per tutti. Solo una comodità è sostenuta dai sostenitori: i download in blocco in ZIP di album e discografie si sbloccano con una piccola mancia. I grandi download in blocco sono l'unica cosa per cui i sostenitori contribuiscono.",
-	"free.honestRail": "La riga Sponsorizzato, ben indicata nella Home (un barattolo delle mance e qualche link di invito), è il nostro unico canale di sostegno.",
+	"free.honestRail": "Il pulsante del barattolo delle mance nell'intestazione della Home è il nostro unico canale di sostegno.",
 	"free.honestThemes": "Due temi estetici, Gold e Sakura, sono un piccolo grazie per i sostenitori.",
 	"free.honestPlain": "Tutto ciò che serve per ascoltare resta gratis. Sempre.",
 	"free.flexTitle": "Creato da una persona + IA",
