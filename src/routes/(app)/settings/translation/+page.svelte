@@ -1,0 +1,447 @@
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { ChevronDown, Languages, Replace, RotateCcw } from '@lucide/svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import SettingToggle from '$lib/components/SettingToggle.svelte';
+	import SettingPicker from '$lib/components/SettingPicker.svelte';
+	import SettingHint from '$lib/components/SettingHint.svelte';
+	import { settings, type LyricsLang, type SourceLang, type TranslateMode, type ZhScriptSetting } from '$lib/stores/settings.svelte';
+	import { tapBounce } from '$lib/actions/tapBounce';
+	import { t, type TranslationKey } from '$lib/i18n';
+	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
+
+	onMount(() => settings.load());
+
+	// User call 2026-10-06: the reset button opens an in-app confirm modal (not the
+	// native window.confirm).
+	let resetOpen = $state(false);
+	// quick-261020-lyr6: active tab for TRANSLATION TARGETS (all | lyrics | artist | title | bio).
+	let tabState = $state<'all' | PartKey>('all');
+
+	// `off` + 'auto' are chrome (label resolved in template via t()); language endonyms literal.
+	// ju0: 'auto' added as a 17th option in all per-part pickers (was bio-only). At resolve
+	// time, names.dn*/lyrics-translate effect maps it to settings.appLang.
+	const langs: { v: 'auto' | LyricsLang; label: string }[] = [
+		{ v: 'off', label: 'Off' },
+		{ v: 'auto', label: 'Auto' },
+		{ v: 'zh-Hant', label: '繁體中文' },
+		{ v: 'zh-Hans', label: '简体中文' },
+		{ v: 'en', label: 'English' },
+		{ v: 'ja', label: '日本語' },
+		{ v: 'ko', label: '한국어' },
+		{ v: 'es', label: 'Español' },
+		{ v: 'fr', label: 'Français' },
+		{ v: 'de', label: 'Deutsch' },
+		{ v: 'pt', label: 'Português' },
+		{ v: 'it', label: 'Italiano' },
+		{ v: 'ru', label: 'Русский' },
+		{ v: 'tr', label: 'Türkçe' },
+		{ v: 'ar', label: 'العربية' },
+		{ v: 'hi', label: 'हिन्दी' },
+		{ v: 'id', label: 'Bahasa Indonesia' },
+		{ v: 'vi', label: 'Tiếng Việt' },
+		{ v: 'th', label: 'ไทย' }
+	];
+	// Source-language tags for the skip whitelist (no 'off' — endonym labels are literal).
+	const sources: { v: SourceLang; label: string }[] = [
+		{ v: 'zh-Hant', label: '繁體中文' },
+		{ v: 'zh-Hans', label: '简体中文' },
+		{ v: 'en', label: 'English' },
+		{ v: 'ja', label: '日本語' },
+		{ v: 'ko', label: '한국어' },
+		{ v: 'es', label: 'Español' },
+		{ v: 'fr', label: 'Français' },
+		{ v: 'de', label: 'Deutsch' },
+		{ v: 'pt', label: 'Português' },
+		{ v: 'it', label: 'Italiano' },
+		{ v: 'ru', label: 'Русский' },
+		{ v: 'tr', label: 'Türkçe' },
+		{ v: 'ar', label: 'العربية' },
+		{ v: 'hi', label: 'हिन्दी' },
+		{ v: 'id', label: 'Bahasa Indonesia' },
+		{ v: 'vi', label: 'Tiếng Việt' },
+		{ v: 'th', label: 'ไทย' }
+	];
+	const modes: { v: TranslateMode; key: string }[] = [
+		{ v: 'replace', key: 'settings.optReplace' },
+		{ v: 'below', key: 'settings.optShowBelow' }
+	];
+
+	// quick-260919-hm2: 'bio' joins the per-part model. It used to be its own hand-rolled section
+	// with its own option array and its own setter, purely because it is the one part with no
+	// skip-language list — which the `skip` flag on `parts` below now expresses in one boolean.
+	// bioLang's declared type is `'auto' | LyricsLang`, and LyricsLang ALREADY contains 'auto'
+	// (see the ju0 note on the union), so the two are the same type and the map below is exact.
+	type PartKey = 'artist' | 'title' | 'lyrics' | 'bio';
+	const TARGET: Record<PartKey, () => LyricsLang> = {
+		artist: () => settings.artistLang,
+		title: () => settings.titleLang,
+		lyrics: () => settings.lyricsLang,
+		bio: () => settings.bioLang
+	};
+	const SKIP: Record<PartKey, () => SourceLang[]> = {
+		artist: () => settings.artistSkip,
+		title: () => settings.titleSkip,
+		lyrics: () => settings.lyricsSkip,
+		// Bio has no skip whitelist — names.dnBio() passes `[]` literally. Kept in the map so the
+		// record stays total; the `skip: false` flag on `parts` is what hides the UI.
+		bio: () => []
+	};
+
+	function setTarget(part: PartKey, v: LyricsLang) {
+		if (part === 'artist') settings.artistLang = v;
+		else if (part === 'title') settings.titleLang = v;
+		else if (part === 'bio') settings.bioLang = v;
+		else settings.lyricsLang = v;
+		settings.save();
+	}
+
+	// --- the shared "apply to all" target (quick-260919-hm2) ---------------------------------
+	//
+	// DELIBERATELY DERIVED, NOT STORED. There is no fifth persisted field: the shared control
+	// simply reports whether the four real targets agree, and writing it writes all four. That
+	// means no new localStorage key, no migration, and no way for a stored "shared" value to
+	// drift out of sync with the parts it claims to describe.
+	//
+	// WHAT HAPPENS WHEN THE FOUR DISAGREE (the decision this feature turns on): the shared
+	// control reads as MIXED and no chip is selected. It does NOT adopt one part's value and it
+	// does NOT write anything on render — a user who already set lyrics=繁體中文 and left the rest
+	// Off opens this page and finds both facts intact. Mixed is a display state only; the four
+	// parts collapse to one value exactly when the user taps a chip here, never before.
+	//
+	// SCOPE: these are the four parts the page has always exposed. `settings.lastfmLang` is NOT
+	// swept in — despite looking like a sibling field, it targets Last.fm TAG chips (names.dnLastfm
+	// → TagChips), has no control on this page, and "apply to all" must not silently change a
+	// setting the user cannot see.
+	const PART_KEYS = ['lyrics', 'artist', 'title', 'bio'] as const;
+	const sharedTarget = $derived.by<LyricsLang | null>(() => {
+		const first = TARGET.lyrics();
+		return PART_KEYS.every((k) => TARGET[k]() === first) ? first : null;
+	});
+	function applyAll(v: LyricsLang) {
+		settings.lyricsLang = v;
+		settings.artistLang = v;
+		settings.titleLang = v;
+		settings.bioLang = v;
+		settings.save();
+	}
+	/** One language value → its chip/summary label. 'off' and 'auto' are chrome (translated);
+	 *  every other label is the language's own endonym, which is the same in every UI language. */
+	function langLabel(v: LyricsLang): string {
+		if (v === 'off') return t('settings.optOff');
+		if (v === 'auto') return t('settings.bioAuto');
+		return langs.find((l) => l.v === v)?.label ?? v;
+	}
+	function toggleSkip(part: PartKey, v: SourceLang) {
+		const cur = SKIP[part]();
+		const next = cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v];
+		if (part === 'artist') settings.artistSkip = next;
+		else if (part === 'title') settings.titleSkip = next;
+		else settings.lyricsSkip = next;
+		settings.save();
+	}
+	function setMode(v: TranslateMode) { settings.translateMode = v; settings.save(); }
+	// quick-260919-2jo: the Chinese SCRIPT lock. Endonyms are LITERAL here, exactly like `langs`
+	// and `sources` above — a script's own name is the same in every UI language, so the pills
+	// need no dictionary entry and only the heading + note are translated (2 new keys, not 5).
+	const ZH_SCRIPTS: { v: ZhScriptSetting; label: string }[] = [
+		{ v: 'off', label: '' },
+		{ v: 'zh-Hant', label: '繁體中文' },
+		{ v: 'zh-Hans', label: '简体中文' }
+	];
+	function setZhScript(v: ZhScriptSetting) { settings.zhScript = v; settings.save(); }
+
+	// quick-260607-fnp: Lyrics lifted to the TOP (below the lyrics translate-mode control),
+	// then artist + title.
+	// quick-260919-hm2: bio joins the list instead of hand-rolling its own section below. Its
+	// old `bioOptions` array existed only to float Auto above Off; it now shares `langs` with the
+	// other three, so the four accordions are chip-for-chip identical (Off, Auto, then endonyms).
+	// `skip` marks which parts have a source-language whitelist — bio does not.
+	const parts: { key: PartKey; headingKey: TranslationKey; noteKey: TranslationKey; skip: boolean }[] = [
+		{ key: 'lyrics', headingKey: 'settings.lyricsTranslation', noteKey: 'settings.translateLyricsNote', skip: true },
+		{ key: 'artist', headingKey: 'settings.translateArtist', noteKey: 'settings.translateArtistNote', skip: true },
+		{ key: 'title', headingKey: 'settings.translateTitle', noteKey: 'settings.translateTitleNote', skip: true },
+		{ key: 'bio', headingKey: 'settings.translateLastfm', noteKey: 'settings.translateLastfmNote', skip: false }
+	];
+
+	// quick-260919-ebi: both labelled controls on this page now come from the ONE SettingPicker.
+	// zhScript gets NO preview — the endonym labels 繁體中文 / 简体中文 already ARE the difference,
+	// so a mockup could only redraw the same two words.
+	const zhOptions = $derived(
+		ZH_SCRIPTS.map((z) => ({ v: z.v, label: z.v === 'off' ? t('settings.optOff') : z.label }))
+	);
+	const modeOptions = $derived(modes.map((m) => ({ v: m.v, label: t(m.key as TranslationKey) })));
+
+</script>
+
+<svelte:head><title>{t('settings.title')}</title></svelte:head>
+
+<PageHeader title={t('settings.groupTranslation')} backLabel={t('settings.backToSettings')} onback={() => goto('/settings')}>
+	{#snippet trailing()}
+		<!-- quick-261006-ico: icon-only reset (icon-first UI pass) — resetGroup doubles as aria-label + title. -->
+		<button class="reset" onclick={() => (resetOpen = true)} use:tapBounce aria-label={t('settings.resetGroup')} title={t('settings.resetGroup')}><RotateCcw size={16} /></button>
+	{/snippet}
+</PageHeader>
+
+<ConfirmModal
+	open={resetOpen}
+	title={t('settings.resetGroup')}
+	body={t('settings.resetConfirm')}
+	confirmLabel={t('settings.resetGroup')}
+	onconfirm={() => settings.resetTranslation()}
+	onclose={() => (resetOpen = false)}
+/>
+
+<!-- quick-260919-ebi (F3): the translate-mode mocks use NEUTRAL BLOCK TEXT, not a real bilingual
+     pair, and that is a deliberate call. Any real sample would have to pick an original language
+     and a target language — which is itself a translation problem, and would need 15 versions of
+     the mock to stay honest in every UI language. Dots stand for the original line, dashes for
+     its translation, so the SHAPE (one line replaced vs two lines stacked) is the whole message
+     and nothing needs translating. -->
+{#snippet modeReplace()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-col" style:gap="6px">
+			{#each [0, 1, 2] as r (r)}
+				<span class="mock-text dim">&#8212; &#8212; &#8212;</span>
+			{/each}
+		</span>
+	</span>
+{/snippet}
+{#snippet modeBelow()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-col" style:gap="6px">
+			{#each [0, 1] as r (r)}
+				<span class="mock-col" style:gap="1px">
+					<span class="mock-text">&#8226;&#8226;&#8226; &#8226;&#8226;&#8226;</span>
+					<span class="mock-text dim">&#8212; &#8212; &#8212;</span>
+				</span>
+			{/each}
+		</span>
+	</span>
+{/snippet}
+<!-- quick-261020-lyr10 (user): visual previews for the Hide toggles. -->
+{#snippet hideLinesShow()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-col" style:gap="4px">
+			<span class="mock-text">Already folding it for you</span>
+			<span class="mock-text dim">早已為你準備好一切</span>
+		</span>
+	</span>
+{/snippet}
+{#snippet hideLinesHide()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-col" style:gap="4px">
+			<span class="mock-text">Already folding it for you</span>
+			<span class="mock-text strike">早已為你準備好一切</span>
+		</span>
+	</span>
+{/snippet}
+{#snippet hideParenShow()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-text">Already folding it for you <span class="mock-text dim">(早已為你準備好一切)</span></span>
+	</span>
+{/snippet}
+{#snippet hideParenHide()}
+	<span class="mock-chrome" style:justify-content="center">
+		<span class="mock-text">Already folding it for you <span class="mock-text strike">(早已為你準備好一切)</span></span>
+	</span>
+{/snippet}
+
+<!-- 0. Chinese script lock (quick-260919-2jo) — sits ABOVE everything else because it governs the
+     names and titles the sections below then translate: the lock is applied LAST and has the last
+     word (D-6), so a contradictory pair (titleLang zh-Hant + lock Simplified) resolves to the
+     lock. Chinese-only by construction; see lockScriptSync's isChineseLine gate. -->
+<section>
+	<h2><Languages size={15} /> {t('settings.zhScript')}<SettingHint label={t('settings.zhScript')} text={t('settings.zhScriptNote')} /></h2>
+	<SettingPicker label={t('settings.zhScript')} options={zhOptions} value={settings.zhScript} onpick={setZhScript} />
+</section>
+
+<hr class="div" />
+
+<!-- 1. Lyrics translate mode — how translated lyrics display (replace vs show below). -->
+<!-- 2. TRANSLATION TARGETS (quick-261020-lyr6, user): the MAIN translation control.
+     Compacted from 5 stacked accordions into TABS — one tab bar, content below.
+     Tabs: All | Lyrics | Artist | Title | Bio. -->
+<section>
+	<h2><Languages size={15} /> {t('settings.translateTargets')}</h2>
+
+	<div class="tabs" role="tablist">
+		<button role="tab" aria-selected={tabState === 'all'} class="tab" class:on={tabState === 'all'} onclick={() => (tabState = 'all')} use:tapBounce>{t('settings.translateApplyAll')}</button>
+		{#each parts as part (part.key)}
+			<button role="tab" aria-selected={tabState === part.key} class="tab" class:on={tabState === part.key} onclick={() => (tabState = part.key)} use:tapBounce>{t(part.headingKey)}</button>
+		{/each}
+	</div>
+
+	<div class="tabpane" role="tabpanel">
+		{#if tabState === 'all'}
+			<p class="sublabel">{t('settings.translateApplyAllNote')}</p>
+			<div class="chips">
+				{#each langs as l (l.v)}
+					<button class="chip" class:on={sharedTarget === l.v} onclick={() => applyAll(l.v)} use:tapBounce>{langLabel(l.v)}</button>
+				{/each}
+			</div>
+			{#if sharedTarget === null}<p class="muted">{t('settings.translateMixed')}</p>{/if}
+		{:else}
+			{@const part = parts.find((p) => p.key === tabState)}
+			{#if part}
+				<p class="sublabel">{t(part.noteKey)}</p>
+				<div class="chips">
+					{#each langs as l (l.v)}
+						<button class="chip" class:on={TARGET[part.key]() === l.v} onclick={() => setTarget(part.key, l.v)} use:tapBounce>{langLabel(l.v)}</button>
+					{/each}
+				</div>
+				{#if part.skip}
+					<div class="skip" class:disabled={TARGET[part.key]() === 'off'}>
+						<p class="sublabel">{t('settings.skipLanguages')}<SettingHint label={t('settings.skipLanguages')} text={t('settings.skipLanguagesNote')} /></p>
+						<div class="chips">
+							{#each sources as s (s.v)}
+								<button class="chip skipchip" class:on={SKIP[part.key]().includes(s.v)} disabled={TARGET[part.key]() === 'off'} onclick={() => toggleSkip(part.key, s.v)} use:tapBounce>{s.label}</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
+			{/if}
+		{/if}
+	</div>
+</section>
+
+<!-- quick-261020-lyr8 (user): LYRICS TRANSLATE MODE sits BELOW the TRANSLATION TARGETS
+     section (tied to the Lyrics translation tab). Shows only when Lyrics target is ON. -->
+{#if settings.lyricsLang !== 'off'}
+<hr class="div" />
+
+<section>
+	<h2><Replace size={15} /> {t('settings.lyricsTranslateMode')}<SettingHint label={t('settings.lyricsTranslateMode')} text={t('settings.translateModeNote')} /></h2>
+	<SettingPicker
+		variant="preview"
+		label={t('settings.lyricsTranslateMode')}
+		options={[
+			{ ...modeOptions[0], preview: modeReplace },
+			{ ...modeOptions[1], preview: modeBelow }
+		]}
+		value={settings.translateMode}
+		onpick={setMode}
+	/>
+</section>
+{/if}
+
+<!-- quick-261020-lyr9 (user): the two Hide parenthesised toggles are ALWAYS visible,
+     not gated on Lyrics translation.
+     quick-261020-lyr10 (user): visual pickers with mockup previews, better names. -->
+<hr class="div" />
+
+<section>
+	<h2><Languages size={15} /> {t('settings.embeddedTranslations')}</h2>
+	<SettingPicker
+		variant="preview"
+		label={t('settings.embeddedTranslations')}
+		options={[
+			{ v: 'show', label: t('settings.optShow'), preview: hideLinesShow },
+			{ v: 'hide', label: t('settings.optHide'), preview: hideLinesHide }
+		]}
+		value={settings.lyricsHideParenLines ? 'hide' : 'show'}
+		onpick={(v) => { settings.lyricsHideParenLines = v === 'hide'; settings.save(); }}
+	/>
+	<p class="muted">{t('settings.embeddedTranslationsNote')}</p>
+
+	<h2 style="margin-top: 16px"><Languages size={15} /> {t('settings.inlineTranslations')}</h2>
+	<SettingPicker
+		variant="preview"
+		label={t('settings.inlineTranslations')}
+		options={[
+			{ v: 'show', label: t('settings.optShow'), preview: hideParenShow },
+			{ v: 'hide', label: t('settings.optHide'), preview: hideParenHide }
+		]}
+		value={settings.lyricsHideParenTranslation ? 'hide' : 'show'}
+		onpick={(v) => { settings.lyricsHideParenTranslation = v === 'hide'; settings.save(); }}
+	/>
+	<p class="muted">{t('settings.inlineTranslationsNote')}</p>
+</section>
+
+<hr class="div" />
+
+<section>
+	<h2><Languages size={15} /> {t('settings.appLanguage')}</h2>
+	<button class="link" onclick={() => goto('/settings')}>{t('settings.appLanguage')} →</button>
+	<p class="muted">{t('settings.groupGeneralDesc')}</p>
+</section>
+
+<style>
+	/* quick-261006-ico: icon-only reset — 40px ghost circle. */
+	.reset { background: none; border: 1px solid var(--color-border); color: var(--color-text-muted); width: 40px; height: 40px; padding: 0; border-radius: 50%; cursor: pointer; display: inline-grid; place-items: center; flex: none; }
+	.reset:hover { color: var(--color-text); }
+	section { margin: 18px 0; }
+	/* quick-260919-ebi: `position: relative` on every title that carries an inline (i) — it anchors
+	   SettingHint's description panel, which is scoped and cannot set this on its host. */
+	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; position: relative; }
+	.muted { color: var(--color-text-muted); font-size: 0.75rem; margin: 8px 0 0; }
+	/* quick-261007-hscroll: chip strips scroll horizontally (never wrap, never clip) —
+	   same pattern as the realufo.org chip rows: overflow-x + hidden scrollbar. */
+	.chips {
+		display: flex;
+		gap: 8px;
+		overflow-x: auto;
+		scrollbar-width: none;
+		-ms-overflow-style: none;
+		padding-bottom: 4px;
+	}
+	.chips::-webkit-scrollbar {
+		display: none;
+		width: 0;
+	}
+	.chips > .chip {
+		flex: none;
+		white-space: nowrap;
+	}
+	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
+	.chip.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
+	.chip:disabled { cursor: default; }
+	.skip { margin-top: 12px; }
+	.skip.disabled { opacity: 0.45; pointer-events: none; }
+	.sublabel { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 8px; position: relative; }
+	.skipchip.on { background: var(--color-surface); color: var(--color-primary); border-color: var(--color-primary); }
+	/* quick-260919-hm2: the collapsed language lists. Lifted verbatim from the Playback page's
+	   `.advanced` Advanced > Sources accordion so the two read as the same control. */
+	.advanced { margin: 10px 0; padding: 10px 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; }
+	/* The summary is a settings ROW, not a section heading, so it takes the app's row type (14px
+	   sentence case, like .rlabel on the Home page and SettingToggle's label) rather than the
+	   uppercase + letter-spaced heading type the Playback `.advanced` summary uses for its single
+	   "Advanced > Sources" disclosure. That is also what makes "Lyrics translation · Auto (app
+	   language)" fit on one 375px line — uppercase + 0.5px tracking did not. */
+	.advanced summary { position: relative; display: flex; align-items: center; gap: 6px; font-size: 0.875rem; color: var(--color-text); cursor: pointer; padding: 4px 0; }
+	.advanced .chips { margin-top: 12px; }
+	/* The row's CURRENT value, right-aligned — it is what makes a CLOSED page still readable:
+	   five collapsed rows that each say what they are set to. */
+	.cur { margin-inline-start: auto; color: var(--color-text-muted); font-size: 0.8125rem; text-align: end; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	/* `display: flex` on a <summary> removes the UA disclosure marker, so the accordion would have
+	   no affordance at all — fine for one "Advanced" footer, not for five rows that ARE the page.
+	   This is that marker, put back explicitly and rotated on open. */
+	.advanced .chev { display: inline-flex; flex: none; color: var(--color-text-muted); transition: transform 0.15s ease; }
+	.advanced[open] .chev { transform: rotate(180deg); }
+	@media (prefers-reduced-motion: reduce) {
+		.advanced .chev { transition: none; }
+	}
+	/* An unselected .chip is --color-surface-2, and it now sits ON a --color-surface-2 panel, so
+	   drop it a step to keep the fill visible. The selected states are restated at the higher
+	   specificity the descendant selector creates. */
+	.advanced .chip { background: var(--color-bg); }
+	.advanced .chip.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
+	.advanced .skipchip.on { background: var(--color-surface); color: var(--color-primary); border-color: var(--color-primary); }
+	/* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte — the quick-260919-2jo Chinese
+	   script control is pixel-identical there, because the rules were lifted verbatim. */
+	.link { background: none; border: none; color: var(--color-primary); cursor: pointer; font-size: 0.875rem; padding: 0; }
+	.div { border: none; border-top: 1px solid var(--color-border); margin: 4px 0; }
+	/* quick-260919-ebi: the toggle-row CSS moved into SettingToggle.svelte. */
+	/* quick-261020-lyr6: tab bar for TRANSLATION TARGETS. */
+	.tabs { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 12px; scrollbar-width: none; }
+	.tabs::-webkit-scrollbar { display: none; }
+	.tab {
+		flex: none; padding: 8px 14px; border-radius: 999px; font-size: 0.85rem;
+		background: var(--color-surface-2); color: var(--color-text-muted);
+		border: 1px solid var(--color-border); cursor: pointer; white-space: nowrap;
+	}
+	.tab.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
+	.tabpane { padding: 4px 0; }
+	.tabpane .sublabel { margin: 0 0 10px; color: var(--color-text-muted); font-size: 0.85rem; }
+</style>

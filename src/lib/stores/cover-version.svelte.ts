@@ -1,0 +1,248 @@
+// cover-version — the REACTIVE wrapper for the pure cover-cache (quick-260615-hep, LOCKED decision #2).
+//
+// WHY: cover-cache.ts MUST stay a plain `.ts` of pure localStorage functions so cover-cache.test.ts /
+// cover-backfill.test.ts remain node-runnable (no rune-compiled `$state` pulled into node vitest). This
+// `.svelte.ts` adds the ONE global reactive cache-version signal on top, without touching the pure store
+// — "wrap, don't rewrite". Every cover WRITE bumps the signal; every mounted tile that READS through the
+// helpers here re-evaluates the instant any cover lands anywhere (now-playing, lazyCover, backfill), so a
+// cover "resolved once → shown everywhere, live."
+//
+// The normalized name key (matchKey, via getCachedCover) is the cross-surface bridge: a homepage stub and
+// the now-playing track can carry different uids for the same song, so the name layer is what makes reuse
+// work. Read order is name-first → uid → null (quick-261020-latest): EVERY writer persists the same URL to
+// both layers, so the name layer always holds the LATEST cover written for the song — Hector's 2026-10-20
+// directive ("same song, same cover everywhere, showing the latest one"). The uid layer survives only as
+// the fallback for entries written before the name layer existed. This completes quick-261008-cov1's
+// intent (a fetched-and-shown cover shows everywhere the song appears), which the old uid-first read
+// defeated whenever a uid carried an older entry than the name.
+// writeCoverBoth writes both layers for every cover — quick-261008-cov1 retired the Phase 40 D-11b
+// YT Music uid-only carve-out per Hector's 2026-10-08 directive (shown cover shows everywhere).
+//
+// Phase 40 D-14: the CHOSEN cover (readChosenCover) sits above all of that — the user's own pin, then
+// the crowd-shared pick other listeners voted for. Crowd picks live in their own `crowd:` cache family
+// and are written only by writeCrowdCover, never by the auto writers. Nothing in this module talks to
+// the network; evicting a crowd pick is local only (D-19).
+//
+// SSR-safety: this module imports only pure functions + runes; it touches NO browser globals at module
+// top level (the underlying cover-cache setters already guard localStorage in try/catch). No $effect, no
+// DOM access here — the runes compile fine under SvelteKit SSR because this is a `.svelte.ts` file.
+
+import {
+	getCachedCover,
+	getCachedCoverByUid,
+	getCachedArtistCover,
+	setCachedCover,
+	setCachedCoverByUid,
+	removeCachedCoverByUid,
+	removeCachedCover,
+	getPinnedCover,
+	setPinnedCover,
+	removePinnedCover,
+	getCrowdCover,
+	setCrowdCoverByUid,
+	setCrowdCoverByName,
+	removeCrowdCoverByUid,
+	removeCrowdCoverByName
+} from '$lib/services/cover-cache';
+import { hasHttpsScheme } from '$lib/services/url-safety';
+
+// Module-scoped reactive counter. Held in a small object because top-level `$state` reassignment must be
+// on a `$state` rune target; callers CALL coverVersion() inside a $derived/template to take the dependency
+// (mirrors the old homepage `void coverVer` idiom, but GLOBAL).
+const _v = $state({ n: 0 });
+
+// Coalescing latch (quick-260704-45c, optimization backlog #5): true while a rAF-batched bump is
+// pending for the current frame, so any further bumps this frame are dropped (they'd land in the
+// same repaint anyway). Reset to false inside the rAF callback BEFORE the increment, so the flag
+// only stays set for the duration of one frame — a leaked latch (T-45c-01) is impossible.
+let bumpScheduled = false;
+
+/** Read the current cover cache-version. CALL this inside a $derived/template to depend on cover writes. */
+export function coverVersion(): number {
+	return _v.n;
+}
+
+/**
+ * Bump the global cover cache-version — called after EVERY cover write so all mounted tiles repaint.
+ *
+ * COALESCING (quick-260704-45c): a burst of N bumps within a single animation frame collapses to ONE
+ * `_v.n` increment via requestAnimationFrame. On a cold home visit, backfillCovers / backfillArtistCovers
+ * resolve up to N covers and each fires this synchronously → without batching that is N full grid
+ * re-evaluations; batched, it is one grid re-render per frame.
+ *
+ * RATIONALE (why deferring the bump is safe): the reactive READS (readCoverByUidOrName /
+ * readArtistCover) pull the cover URL DIRECTLY from the cache via getCachedCover*, and only call
+ * coverVersion() to TAKE the dependency — so a one-frame-deferred bump merely defers the repaint
+ * (imperceptible), it never serves stale or missing data. rAF naturally pauses while the tab is hidden,
+ * so the single pending bump fires once on foreground (intended).
+ *
+ * SYNC FALLBACK: where requestAnimationFrame is undefined (node/vitest — no jsdom — and SSR) we increment
+ * synchronously, preserving the exact prior behavior so the real player suite + SSR keep working. This is
+ * non-negotiable: player.svelte.test.ts drives the real bumpCoverVersion through this fallback.
+ *
+ * DEFERRED ALTERNATIVE: a per-key SvelteMap version signal (repaint only the tiles whose cover actually
+ * changed) is a bigger/riskier rewrite — out of scope for this quick task.
+ */
+export function bumpCoverVersion(): void {
+	if (typeof requestAnimationFrame === 'undefined') {
+		// node/vitest + SSR: no rAF — increment synchronously (preserves exact prior behavior).
+		_v.n++;
+		return;
+	}
+	if (bumpScheduled) return; // a bump is already pending this frame — coalesce into it.
+	bumpScheduled = true;
+	requestAnimationFrame(() => {
+		bumpScheduled = false;
+		_v.n++;
+	});
+}
+
+/**
+ * Reactive read of a Track cover, name-first then uid. Depends on coverVersion() so it
+ * recomputes the instant any cover lands anywhere. Returns null on a total miss (caller falls back to gradient).
+ *
+ * quick-261020-latest: the name layer is read FIRST because every writer persists the same URL to
+ * both layers — so the name entry is always the LATEST cover written for the song, whatever the
+ * uid. Hector's 2026-10-20 directive: the same song shows the same cover everywhere, the latest
+ * one. (The old uid-first order let a stale per-uid entry shadow the newer name art: the "row
+ * shows A while the nowbar shows B" report.) The uid layer remains as the fallback.
+ */
+export function readCoverByUidOrName(uid: string, artist: string, title: string): string | null {
+	coverVersion(); // reactive dependency — recompute when any cover lands
+	// EMPTY-UID GUARD (quick-260910-qwt): an empty stub uid must NOT read the SHARED `'uid:'` slot —
+	// the uid layer is a flat record keyed by `'uid:' + uid`, so every distinct discovery stub row
+	// (charts/tags, charts/countries) collapses onto that one slot and the first row's cover reads
+	// back for ALL of them (the "same cover for every song" bug). writeCoverBoth / removeCoverBoth /
+	// lazyCover / resolveCoverForTrack all already apply this guard on their side; now that this read
+	// is the rung-3 authority on EVERY row surface (row-cover.ts `pickRowCover`), it must hold on the
+	// read side too. An empty uid reads only the per-song {artist,title} name layer.
+	//
+	// quick-260915-w4f: read order is now PIN → name → uid → null. A pin is the user's explicit
+	// choice in the TrackMenu cover picker, so it outranks anything a resolver cached. It lives in
+	// its own storage key (see cover-cache.ts PIN_KEY) and getPinnedCover already no-ops an empty uid.
+	// Phase 40 D-14: rung 0 is now readChosenCover (pin → crowd pick), still ahead of the auto layers.
+	// quick-261020-latest: name before uid — the name layer holds the latest write for the song.
+	return readChosenCover(uid, artist, title) ?? getCachedCover(artist, title) ?? (uid ? getCachedCoverByUid(uid) : null);
+}
+
+/**
+ * Phase 40 D-14: the reactive CHOSEN cover — my pin, else the crowd pick (exact uid, then name), else
+ * null. The full ladder is my pin > crowd pick > inline cover > auto chain; this is rung 0 for every
+ * surface. Use it where a cover is DISPLAYED; keep readPinnedCover where the UI asks "is this pinned?".
+ */
+export function readChosenCover(uid: string, artist: string, title: string): string | null {
+	coverVersion(); // reactive dependency — recompute when a pin or crowd pick lands
+	return getPinnedCover(uid) ?? getCrowdCover(uid, artist, title);
+}
+
+/**
+ * Phase 40 D-14: cache a crowd pick fetched from the server — `u` under the exact uid, `n` under the
+ * name key — then bump. Non-https values are ignored (the fetch already re-screened them against the
+ * vote host allowlist). Never writes the auto uid/name layers: chosen art must not leak into the cache
+ * the resolvers own, for the same reason pins never do.
+ */
+export function writeCrowdCover(
+	uid: string,
+	artist: string,
+	title: string,
+	pick: { u: string | null; n: string | null }
+): void {
+	let wrote = false;
+	if (uid && hasHttpsScheme(pick.u)) {
+		setCrowdCoverByUid(uid, pick.u);
+		wrote = true;
+	}
+	if (hasHttpsScheme(pick.n)) {
+		setCrowdCoverByName(artist, title, pick.n);
+		wrote = true;
+	}
+	if (wrote) bumpCoverVersion();
+}
+
+/**
+ * Phase 40 D-19: evict the cached crowd pick (both keys) + bump. LOCAL ONLY — resetting a pin or
+ * healing a dead URL never withdraws anyone's vote on the server.
+ */
+export function removeCrowdCover(uid: string, artist: string, title: string): void {
+	removeCrowdCoverByUid(uid);
+	removeCrowdCoverByName(artist, title);
+	bumpCoverVersion();
+}
+
+/**
+ * quick-260915-w4f: reactive read of the USER'S PINNED cover for a uid (null when unpinned).
+ * Depends on coverVersion() exactly like the readers above, so pinning repaints every bound surface.
+ *
+ * Exposed SEPARATELY from readCoverByUidOrName because `pickRowCover` needs the pin as its own
+ * leading rung: rows put `track.cover` AHEAD of the cache (rung 2 — an attached album cover must beat
+ * a per-track image), so a pin folded only into the cache read would silently lose to track.cover on
+ * every list surface.
+ */
+export function readPinnedCover(uid: string): string | null {
+	coverVersion(); // reactive dependency — recompute when a pin (or any cover) lands
+	return getPinnedCover(uid);
+}
+
+/**
+ * The ONLY sanctioned pin WRITER (mirrors writeCoverBoth's role): persist the user's choice and bump
+ * the global signal so every mounted surface repaints. Deliberately does NOT touch the cover cache —
+ * writing the pin into the shared name layer would push this one song's art onto every same-named uid.
+ */
+export function pinCover(uid: string, url: string): void {
+	setPinnedCover(uid, url);
+	bumpCoverVersion();
+}
+
+/**
+ * Drop a pin + bump. The ONLY caller is player.healCover, on a pinned URL that genuinely FAILED to
+ * load (quick-260915-w4f Q2): a pin names a URL, not an image, so once the URL is dead it can no
+ * longer deliver what the user chose and keeping it would repaint a black hero on every replay.
+ * A resolver merely PREFERRING a different image never reaches here.
+ */
+export function unpinCover(uid: string): void {
+	removePinnedCover(uid);
+	bumpCoverVersion();
+}
+
+/** Reactive read of an ARTIST-only cover. Depends on coverVersion(). */
+export function readArtistCover(artist: string): string | null {
+	coverVersion();
+	return getCachedArtistCover(artist);
+}
+
+/**
+ * The canonical BOTH-layers writer (LOCKED decision #1): write the uid layer AND the name layer, then bump
+ * the global signal so the pair-with-write invariant lives in ONE place. Callers use this instead of two
+ * separate setters + a manual bump. The underlying setters no-op on empty/whitespace and never throw.
+ *
+ * quick-261008-cov1: Hector's 2026-10-08 directive — a fetched-and-shown cover shows EVERYWHERE the
+ * song appears — RETIRES the Phase 40 D-11b YT Music uid-only carve-out. A YTM thumbnail now writes
+ * the shared {artist,title} name layer like every other cover, so every source's copy of the song
+ * shows the same art the player is showing. The user's pin (rung 0, readChosenCover) remains the
+ * escape hatch when that art is wrong for a copy.
+ *
+ * quick-261008-audit: the uid layer is written ONLY for a truthy uid — the charts-tags-same-cover
+ * guard (an empty stub uid would otherwise write the SHARED `'uid:'` slot, one slot for every
+ * distinct charts/tags/countries stub row). Mirrors removeCoverBoth.
+ */
+export function writeCoverBoth(uid: string, artist: string, title: string, url: string): void {
+	if (uid) setCachedCoverByUid(uid, url);
+	setCachedCover(artist, title, url);
+	bumpCoverVersion();
+}
+
+/**
+ * The canonical BOTH-layers EVICTOR (quick-260630-ey2) — mirrors writeCoverBoth: evict the uid layer
+ * AND the name layer, then bump so the affected tile repaints once a fresh cover lands. Keeps the bump
+ * in this reactive wrapper so cover-cache stays pure (LOCKED decision #2). Used by lazyCover when a
+ * cache-HIT url probes dead, so the stale cover is dropped before the re-resolve chain re-caches.
+ *
+ * The uid layer is evicted ONLY for a truthy uid — the same charts-tags-same-cover guard writeCoverBoth
+ * honors: an empty stub uid would otherwise touch the SHARED `'uid:'` slot (one slot for every distinct
+ * stub row), so an empty uid evicts ONLY the per-song {artist,title} name layer. Never throws.
+ */
+export function removeCoverBoth(uid: string, artist: string, title: string): void {
+	if (uid) removeCachedCoverByUid(uid);
+	removeCachedCover(artist, title);
+	bumpCoverVersion();
+}

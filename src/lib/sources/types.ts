@@ -1,0 +1,195 @@
+// Canonical data-layer contracts for the source-adapter registry (Phase 1, DATA-04).
+//
+// These interfaces are the load-bearing design: a `SourceAdapter` runs CLIENT-side
+// (calls /api/<source>/..., normalizes upstream JSON → Track) and a `ProxyAdapter`
+// (see ../proxy/proxy-types.ts) runs on the Cloudflare edge. Both are keyed by the
+// same `SourceId`. Adding a source = one client file + one proxy file + one line in
+// each registry; aggregation/dispatch code NEVER names a source.
+//
+// Field shape reconciles RESEARCH.md (lines 225-256) with the legacy serializeTrack
+// whitelist (legacy/index.html:1764-1768) so QQ/JOOX detail calls keep the extra
+// fields they read.
+
+// Type-only import (erased at compile time — no runtime cycle; settings.svelte.ts imports
+// SourceId from here, mirroring the existing defaults.ts ↔ settings type-cycle pattern).
+import type { DefaultQuality } from '$lib/stores/settings.svelte';
+
+export type SourceId =
+	| 'netease'
+	| 'gdnetease'
+	| 'qq'
+	| 'kuwo'
+	| 'suyin'
+	| 'joox'
+	| 'kugou'
+	| 'migu'
+	| 'fivesing'
+	| 'jamendo'
+	| 'audius'
+	| 'archive'
+	| 'bilibili'
+	| 'ccmixter'
+	| 'bandcamp' // 43: own-audio Western indie source
+	| 'ytmusic';
+
+export interface Track {
+	/** Canonical id = `${source}:${songid}` (D-10, COLON form). Stable across reorder/paginate. */
+	uid: string;
+	source: SourceId;
+	songid: string;
+	title: string;
+	artist: string;
+	album: string;
+	cover: string | null;
+	/** null until resolve() populates it (Netease provides it at search time). */
+	audioUrl: string | null;
+	/** Direct-first playback fallback: the own-origin PROXIED playback URL
+	 *  (e.g. /api/netease/url?id=…, /api/audius/stream/<id>), kept for the client's
+	 *  proxy-fallback step when the direct CDN URL in `audioUrl` fails. Set only by
+	 *  adapters whose primary `audioUrl` is a direct upstream URL (netease, audius);
+	 *  undefined elsewhere. Signed/expiring like `audioUrl`, so deliberately ABSENT
+	 *  from the serializeTrack whitelist — a restored track re-resolves regardless. */
+	proxyUrl?: string | null;
+	/** null until resolved (JOOX has it at search time; Netease resolves via lrcUrl). */
+	lrc: string | null;
+	/** Netease only — separate URL fetched in resolve(). */
+	lrcUrl: string | null;
+	detailsLoaded: boolean;
+	/** `Date.now()` when `audioUrl` was last filled by a resolve (stamped at the ONE
+	 *  `ensureTrackDetails` seam). Drives the readiness guard's freshness check: CN audio urls are
+	 *  SIGNED and short-lived, so a track prefetched minutes ago holds a url that is already dead.
+	 *  `undefined` = never stamped = treat as STALE (the safe default — a re-resolve costs ~100ms,
+	 *  a dead url costs ~8.4s of strike/stall before the player routes past it).
+	 *  NOT in the serializeTrack whitelist: persist already nulls `audioUrl` + resets
+	 *  `detailsLoaded`, so a restored track re-resolves regardless. */
+	resolvedAt?: number;
+	/** 43-D-09 (Pitfall 3): absolute `Date.now()`-epoch ms after which `audioUrl` is dead upstream.
+	 *  Stamped only by an adapter whose URL TTL is shorter than RESOLVE_URL_TTL_S (the 15-min client
+	 *  trust window) — otherwise a signed URL that dies after a few minutes still passes the
+	 *  `resolvedAt` age check and is handed to `<audio>` already 403. `undefined` = no extra bound.
+	 *  Deliberately NOT in the serializeTrack whitelist (like `proxyUrl`): a restored track
+	 *  re-resolves anyway. */
+	urlExpiresAt?: number;
+	/** 43-D-08: set ONLY by `fallback.ts walkSource` when an auto-picked substitute (failover or
+	 *  name-stub resolve) notably differs from the requested song (live/remix tag or a big duration
+	 *  delta) AND its source carries `noticeOnAutoPick`. Read once by `player.play()` to emit the
+	 *  "may not be the original" notice. `undefined` = no notice. */
+	versionMismatch?: boolean;
+	quality: string | null;
+	qualityLabel: string | null;
+	/** Search keyword — QQ/JOOX detail calls need it. */
+	keyword: string;
+	/** 1-based, ORDERING ONLY (interleave). NEVER used for identity (Pitfall 4). */
+	displayIndex: number;
+
+	// --- source-specific extras (from the serializeTrack whitelist) — optional ---
+	songMid?: string; // QQ/JOOX
+	qqId?: string; // QQ
+	qqSearchKey?: string; // QQ detail needs it
+	qqIndex?: number; // QQ ordering
+	jooxIndex?: number; // JOOX positional fallback ONLY — see Pitfall 4
+	jooxSongId?: string; // JOOX
+	jooxSongMid?: string; // JOOX
+	qqQualityText?: string | null;
+	jooxQualityText?: string | null;
+	pay?: string | null; // QQ paywall signal
+	pageUrl?: string; // QQ
+	/** Track length in SECONDS. `undefined` means the source did NOT report a duration —
+	 *  NEVER penalized by scoreMatch (D-03 unknown-neutrality). Additive/optional like the
+	 *  Last.fm fields below; NOT in any serialize whitelist. QQ populates it from the detail
+	 *  body's `song_play_time` (search rows carry no duration). */
+	duration?: number;
+	/** 5sing — `fc` (翻唱/cover) | `bz` (伴奏/karaoke) | `yc` (原创/original).
+	 *  Identity-critical: songid is NOT unique across songtypes, so the uid folds songtype
+	 *  into the songid via `${songtype}-${songid}` (hvu Pitfall, mirrors JOOX Pitfall 4). */
+	fivesingSongType?: 'fc' | 'bz' | 'yc';
+	/** Kugou (quick-261020-kugo) — OPTIONAL quality-ladder extras. Identity is the 128k
+	 *  FileHash in `songid` alone (serializeTrack drops extras, so a restored track must
+	 *  resolve from songid only); these hashes merely widen the resolve ladder, and
+	 *  `kugouAlbumId` disambiguates the getSongInfo call. */
+	kugouAlbumId?: string;
+	kugouHqHash?: string; // 320k mp3 file hash
+	kugouSqHash?: string; // FLAC file hash
+	kugouResHash?: string; // hi-res file hash
+
+	// --- Last.fm enrichment (Phase 8, additive/optional) — never overwrites source data ---
+	tags?: string[]; // top-5 display tags
+	bio?: string; // English bio snippet, HTML-stripped (D-07)
+	bioUrl?: string; // Last.fm attribution link, REQUIRED when bio shown (D-08)
+	lastfmArt?: string; // hi-res cover candidate, placeholder-filtered (D-04)
+
+	// --- Phase 26 lazy name-stub marker (RESOLVE-02), additive/optional ---
+	/** A sourceless / songid-less name-only stub (the shape Plan 26-03's Last.fm `track.getSimilar`
+	 *  Up-Next emits). When true, `ensureTrackDetails` resolves it kuwo-first through ONE source at a
+	 *  time via `resolveNameStub` (never a fan-out) instead of dispatching to `SOURCES[source].resolve`.
+	 *  Additive/optional so no existing construction or serialize path changes (mirrors the Last.fm
+	 *  fields above). `source`/`songid` on such a stub are placeholders, never dispatched. */
+	resolveByName?: boolean;
+
+	// --- Phase 31 edge-resolve-cache marker (31-D-08), additive/optional ---
+	/** True when this track carries a PLAYABLE audioUrl whose LYRIC layer was never resolved — the
+	 *  edge resolve cache stores a url only, so a cache hit short-circuits the source walk that would
+	 *  normally produce `lrc` (the offline-blob / persisted shapes have the same hole). The readiness
+	 *  guard judges such a track complete (`detailsLoaded && audioUrl && !lrcUrl`), so WITHOUT this
+	 *  marker a warm play renders an EMPTY lyrics pane where a cold play shows lyrics — and 31-D-08
+	 *  says a cache hit must never be worse than a miss. Two consumers: `player.backfillLyrics` fires
+	 *  a best-effort off-critical-path re-resolve when it sees it, and `ensureTrackDetails` SKIPS the
+	 *  cache read for such a re-resolve (the cache cannot supply what is being asked for). Inert once
+	 *  `lrc` lands. Additive/optional — no existing construction or serialize path changes. */
+	lrcUnresolved?: boolean;
+}
+
+export interface SourceAdapter {
+	id: SourceId;
+	label: string;
+	enabledByDefault: boolean;
+	/** Whether this source may be AUTO-SELECTED to resolve a track it did NOT originate — i.e. become
+	 *  a cross-source-failover TARGET (fallback.ts) or the kuwo-first name-stub resolver
+	 *  (catalog.ts `resolveNameStub`). `undefined`/`true` = eligible (every mainstream source stays
+	 *  undefined). `false` = searchable + explicit-pick ONLY, NEVER an auto-resolve target — used by
+	 *  YTMusic, whose upstream is adversarial + IP-locked, so it is kept OFF the kuwo→qq→netease→joox
+	 *  resolve floor (27-CONTEXT). A FAILED ytmusic track still falls FORWARD to that floor like any
+	 *  other; only the reverse (a mainstream track failing over TO ytmusic) is barred. The flag is
+	 *  DECLARED here in Plan 27-01; the failover / name-stub code that HONORS it lands in Plan 27-04. */
+	autoResolveEligible?: boolean;
+	/** How many times the player re-attaches a FRESH src when this source's track errors BEFORE
+	 *  producing audio, before handing it to cross-source fallback. `undefined` = 0 (fail over at once —
+	 *  right for region locks, where a retry just re-fetches the same refusal). Set only for a source
+	 *  whose failures are per-REQUEST, not per-song (ytmusic: the edge is bot-gated per invocation). */
+	loadRetries?: number;
+	/** quick-261102-sy0: the adapter's health gate, when it has one. While `isGated()` is true the
+	 *  adapter's search short-circuits to [] without asking upstream, so an empty pool from it is
+	 *  "never tried" (inconclusive), not "the source has nothing" — the fallback walker reads this. */
+	health?: { isGated(): boolean };
+	/** 43-D-08 registry FLAG: when this source is AUTO-picked as a failover / name-stub target, the
+	 *  pick is still played but `walkSource` stamps `Track.versionMismatch` on a notable mismatch so
+	 *  the player surfaces a notice instead of silently playing a different version. `undefined` =
+	 *  no notice (every existing source). */
+	noticeOnAutoPick?: boolean;
+	search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]>;
+	/** Lazy resolution: audioUrl + lrc + quality + detailsLoaded.
+	 *  `quality` (WR-07): an explicit per-call quality tier — used by the download path to
+	 *  request settings.downloadQuality WITHOUT mutating the global streaming default (the old
+	 *  temporary-swap pattern raced concurrent playback resolves and could be persisted by any
+	 *  mid-window save()). Absent → the adapter reads settings.defaultQuality as before. */
+	resolve(track: Track, signal: AbortSignal, quality?: DefaultQuality): Promise<Track>;
+}
+
+export interface SettledSourceResult {
+	source: SourceId;
+	status: 'ok' | 'error';
+	tracks: Track[];
+	/** Typed per-source error message for Phase-4 status UI (DATA-03). */
+	error?: string;
+}
+
+/**
+ * Build the canonical track uid. D-10 COLON form, e.g. makeUid('netease','123') === 'netease:123'.
+ * Every adapter's search() MUST emit uids via this helper so identity is uniform.
+ */
+// 34-D-01: 'device' is an identity NAMESPACE for imported files, not a SourceId — the registry
+// (SOURCES: Record<SourceId, …>) is deliberately NOT widened; only the uid helper accepts it so
+// device uids keep the colon-form contract without a cast.
+export function makeUid(source: SourceId | 'device', songid: string): string {
+	return `${source}:${songid}`;
+}

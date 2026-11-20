@@ -1,0 +1,185 @@
+import type { Action } from 'svelte/action';
+import { createVelocityTracker } from '$lib/gestures/velocity';
+import { createSpringSnap } from '$lib/gestures/springSnap';
+import { shouldCommitOnEnd } from '$lib/gestures/swipeCommit';
+
+// use:dragClose — finger-drag-DOWN to dismiss any sheet/modal element.
+// Mirrors NowPlaying's coverDown/coverMove/coverUp live-drag idiom.
+//
+// Contract:
+//  - While the finger is down the node follows it via inline translateY (transition
+//    off) — a live, finger-following drag, never a tap-then-snap.
+//  - On release: dragged DOWN past `threshold` (default 120px, matching the cover's
+//    existing 120px) OR a fast downward flick (velocity > V with dy > 8) → call onclose()
+//    immediately so the host's existing {#if} transition:fly plays the close animation (we
+//    reset our inline transform first so the fly-out starts clean). Below threshold and no
+//    flick → animate back to 0 (snap-back).
+//  - TAP-PRESERVING: we never preventDefault on pointerdown and only dismiss when the
+//    release distance exceeds `threshold` OR a deliberate flick is detected; a tap (dy<8,
+//    low velocity) NEVER dismisses, so child onclick handlers (e.g. `.mi` menu buttons)
+//    keep firing normally.
+//  - SCROLL-AWARE (quick-260712-4xg): the node is often BOTH the drag target AND an
+//    overflow-y:auto scroller (a full-height sheet — the VersionPicker/TrackMenu list).
+//    touch-action is `pan-y` (not `none`) so the browser can scroll that content, and a
+//    close-drag only begins from the TOP of the node's own scroll (scrollTop<=0) while pulling
+//    DOWN — otherwise the gesture is left to the browser to scroll the list. With `none` the
+//    sheet could never be scrolled: every vertical swipe was eaten as a drag-to-close.
+//    overscroll-behavior:contain stops the scroll from chaining to the page behind.
+//  - OPT-OUT (quick-260926-vdp): a pointerdown inside any `[data-no-drag]` descendant never starts a
+//    drag — for inner scrollers whose own scroll must win over the sheet's close gesture.
+//  - Reactive `update(opts)` swaps onclose / toggles `enabled`. `enabled:false` makes
+//    the action inert (no drag). destroy() removes listeners + resets inline styles.
+export interface DragCloseOpts {
+	onclose: () => void;
+	threshold?: number;
+	enabled?: boolean;
+}
+
+export const dragClose: Action<HTMLElement, DragCloseOpts> = (node, opts) => {
+	let onclose = opts.onclose;
+	let threshold = opts.threshold ?? 120;
+	let enabled = opts.enabled ?? true;
+
+	let dragging = false;
+	let captured = false;
+	let startY = 0;
+	let dy = 0;
+	const DRAG_START = 8; // px before a press becomes a drag (and we capture the pointer)
+	const vel = createVelocityTracker();
+
+	// `pan-y` (not `none`) so the browser can natively scroll a full-height sheet; the close-drag
+	// is gated on scrollTop<=0 in move() so it never competes with that scroll. overscroll-behavior
+	// keeps a sheet scroll from chaining to the page behind. user-select:none stops a drag selecting
+	// text. (quick-260712-4xg)
+	node.style.touchAction = 'pan-y';
+	node.style.overscrollBehavior = 'contain';
+	node.style.userSelect = 'none';
+	(node.style as CSSStyleDeclaration & { webkitUserSelect?: string }).webkitUserSelect = 'none';
+
+	function resetTransform() {
+		node.style.transform = '';
+		node.style.transition = '';
+	}
+
+	// quick-261022-spring: the snap-back settles with a real damped spring (slight overshoot,
+	// Apple-like) instead of the old fixed 0.28s ease-out. The pump drives the inline transform
+	// every frame while transition stays 'none' (set in down()); onSettled clears the inline
+	// styles so the host's CSS resting state is restored.
+	const snap = createSpringSnap(
+		(v) => {
+			node.style.transform = v === 0 ? '' : `translateY(${v}px)`;
+		},
+		{ onSettled: resetTransform }
+	);
+
+	function down(e: PointerEvent) {
+		if (!enabled) return;
+		// quick-260926-vdp: an INNER scroller (the lyrics picker's full-lyrics box) opts out with
+		// `data-no-drag`, so pulling down inside it scrolls the box instead of dragging the sheet shut.
+		// Checked HERE rather than via stopPropagation in the child: Svelte 5 delegates `onpointerdown`
+		// to the app root, so a child handler runs AFTER this native listener — too late to stop it.
+		if ((e.target as Element | null)?.closest?.('[data-no-drag]')) return;
+		// quick-261022-spring: a new press interrupts an in-flight spring settle — otherwise the
+		// pump would keep writing the transform and fight the finger.
+		snap.cancel();
+		dragging = true;
+		captured = false;
+		startY = e.clientY;
+		dy = 0;
+		vel.reset();
+		vel.sample(e.clientY, e.timeStamp);
+		// Do NOT setPointerCapture here: capturing on pointerdown retargets the trailing click
+		// to THIS node, so a tap on a child .mi button never reaches its onclick (the menu
+		// actions "did nothing"). Capture only once an actual drag begins (in move()).
+		node.style.transition = 'none';
+	}
+	function move(e: PointerEvent) {
+		if (!dragging) return;
+		vel.sample(e.clientY, e.timeStamp);
+		const rawDy = e.clientY - startY;
+		// Begin a close-drag ONLY from the top of the node's own scroll (scrollTop<=0) and only
+		// when pulling DOWN past DRAG_START. If the sheet is scrolled (scrollTop>0) or the finger
+		// moves up, return early and leave the gesture to the browser so the content scrolls
+		// natively (touch-action:pan-y) — this is what lets a full-height sheet scroll instead of
+		// the drag-to-close eating every vertical swipe (quick-260712-4xg). Capturing here also
+		// keeps pointer events flowing past the node edge; a tap (never reaching DRAG_START) leaves
+		// the click to the child (tap-preserving contract).
+		if (!captured) {
+			if (rawDy > DRAG_START && node.scrollTop <= 0) {
+				// quick-261114-su7: capture can throw for an already-inactive pointer — don't abort.
+				try {
+					node.setPointerCapture(e.pointerId);
+				} catch {
+					/* non-fatal */
+				}
+				captured = true;
+			} else {
+				return;
+			}
+		}
+		dy = Math.max(0, rawDy);
+		node.style.transform = `translateY(${dy}px)`;
+	}
+	function up(released = true) {
+		if (!dragging) return;
+		dragging = false;
+		captured = false;
+		// Dismiss on a far drag OR a fast downward flick (v > 0 = moving DOWN). The slop guard
+		// keeps the tap contract intact: a tap (dy < 8, low velocity) never dismisses.
+		// quick-261114-su7 "out = done": dragged past the threshold dismisses on ANY end —
+		// pointercancel / lost capture included; only a release back above it cancels.
+		const v = vel.velocity();
+		if (shouldCommitOnEnd(dy, v, threshold, released)) {
+			// Hand off to the host's transition:fly — reset our inline transform first
+			// so the fly-out animates from the resting position, not the dragged one.
+			resetTransform();
+			onclose();
+		} else {
+			// quick-261022-spring: spring snap-back from the live release point. transition
+			// stays 'none' (from down()) while the pump drives frames; onSettled clears it.
+			snap.snap(dy, 0);
+		}
+		dy = 0;
+	}
+
+	node.addEventListener('pointerdown', down);
+	node.addEventListener('pointermove', move);
+	node.addEventListener('pointerup', release);
+	function release() {
+		up(true);
+	}
+	// An abandoned end dismisses only if still dragged past the threshold (quick-261114-su7).
+	function cancel() {
+		up(false);
+	}
+	node.addEventListener('pointercancel', cancel);
+	// quick-261108-swp: `lostpointercapture` BUBBLES. On touch the finger's implicit capture sits on
+	// the CHILD under it (a cover <img>, a title span); our setPointerCapture moves it to this node,
+	// so the child fires lostpointercapture, it bubbles here and was read as OUR capture being lost
+	// — every touch swipe cancelled itself one frame after it began and sprang back (Hector,
+	// 2026-11-08, Android Chrome + APK). Only the node's own loss counts.
+	const lostCapture = (e: PointerEvent) => {
+		if (e.target === node) cancel();
+	};
+	node.addEventListener('lostpointercapture', lostCapture);
+
+	return {
+		update(next: DragCloseOpts) {
+			onclose = next.onclose;
+			threshold = next.threshold ?? 120;
+			enabled = next.enabled ?? true;
+		},
+		destroy() {
+			snap.cancel(); // quick-261022-spring: never leave the pump writing to a dead node
+			node.removeEventListener('pointerdown', down);
+			node.removeEventListener('pointermove', move);
+			node.removeEventListener('pointerup', release);
+			node.removeEventListener('pointercancel', cancel);
+			node.removeEventListener('lostpointercapture', lostCapture);
+			resetTransform();
+			node.style.touchAction = '';
+			node.style.overscrollBehavior = '';
+			node.style.userSelect = '';
+		}
+	};
+};

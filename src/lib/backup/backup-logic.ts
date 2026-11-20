@@ -1,0 +1,623 @@
+// PURE backup/restore codec — NO runes, no app-environment import, no i18n import, NEVER throws.
+//
+// This module is the node-Vitest-testable core of Settings → Data's Export / Import buttons.
+// The page merely WRAPS it: it reads the file text, calls `validateEnvelope`, and — on ok —
+// hands the two Web Storage objects to `applyEnvelope` before reloading (35-D-13). That is the
+// established "extract a pure helper module the runes caller thinly wraps" precedent already
+// used by player-persist.ts, history-logic.ts and search-history-logic.ts.
+//
+// Nothing here reaches for a global. Every entry point takes its inputs as parameters — a
+// `read` closure, a key list, Storage objects — so the unit tests drive it from plain Maps with
+// zero global stubbing, and the same code serves both the web and the native build.
+//
+// 35-D-11: failures come back as a typed `reason`, never as a throw and never as English. The
+// caller maps a reason to an i18n key; `t()` reads runes state and would break the single node
+// Vitest project, exactly as download-track.ts declines to localize (D-17 there).
+import { HISTORY_KEY } from '$lib/history/history-logic';
+import { SEARCH_HISTORY_KEY } from '$lib/search/search-history-logic';
+
+/** Magic marker in every file we write. 35-D-11 message 1: absent/different → "not ours". */
+export const BACKUP_MAGIC = 'openmusic-backup';
+
+/**
+ * 35-D-03: ENVELOPE format version — the single gate for 35-D-11's "made by a newer version"
+ * message. Bump ONLY when the envelope STRUCTURE changes, never when a payload's inner shape
+ * drifts (each store's own `load()` tolerance already absorbs that).
+ *
+ * There is deliberately no app-version field: the client has no version to report
+ * (`package.json` sits at a never-bumped 0.0.1), so a hardcoded integer is the honest gate.
+ */
+export const BACKUP_FORMAT = 1;
+
+// The three keys below are owned by runes singletons (library.svelte.ts:10,
+// settings.svelte.ts:56, names.svelte.ts:47). Importing those files would drag runes state —
+// plus settings/translate/zh-convert — into this pure module and its node test, so we own local
+// copies and PIN them with equality assertions in backup-logic.test.ts instead. HISTORY_KEY and
+// SEARCH_HISTORY_KEY need no copy: their owners are already pure modules.
+
+/** Owner: src/lib/stores/library.svelte.ts:10. */
+export const LIBRARY_KEY = 'openmusic:library:v1';
+
+/** Owner: src/lib/stores/settings.svelte.ts:56. */
+export const SETTINGS_KEY = 'openmusic:settings:v1';
+
+/**
+ * Owner: src/lib/stores/names.svelte.ts:47 — a PREFIX FAMILY, one key per target language
+ * (`openmusic:name-tr:<ver>:<lang>`). A single read of one key name would silently ship an
+ * empty cache, so both the export and the wipe enumerate by prefix. No version knowledge is
+ * needed here: a future `STORE_VER` bump requires no change to this module.
+ */
+export const NAME_TR_PREFIX = 'openmusic:name-tr:';
+
+/**
+ * Owner: src/lib/stores/player-persist.ts (STATE_KEY) — the persisted now-playing state.
+ * quick-261118-xdresume: a local copy (not an import) for symmetry with LIBRARY_KEY — every
+ * owned key name sits in this one block so the travel set is auditable at a glance. PINNED to
+ * STATE_KEY by an equality assertion in backup-logic.test.ts, so the two can never drift.
+ */
+export const PLAYER_KEY = 'openmusic:player:v1';
+
+/** Where the 35-D-09 rollback snapshot lives. The page passes the per-tab Storage, never the
+ *  persistent one — the live keys already occupy ~740 KB of a ~5 MB origin budget shared with
+ *  the cover cache, and library.save()'s quota catch is silent. */
+export const UNDO_KEY = 'openmusic:import-undo:v1';
+
+/** 35-D-01: the exactly-named keys that travel. Everything else is derivable, machine-local,
+ *  or a secret: the player queue (35-D-02), the cover cache (stale URLs are worse than none),
+ *  the diag upload token, and the device-local `openmusic-blob-uri:` content URIs.
+ *
+ *  35-D-02 SUPERSEDED FOR PLAYER STATE (2026-11-18, Hector — quick-261118-xdresume): the player
+ *  key now travels so a user can resume on another device. It is slimmed + validated by
+ *  cleanPlayerPayload below (identity/display fields only — never a resolved audio URL, lyrics,
+ *  a `data:` cover or a device-local blob URI). The OTHER exclusions in this comment stand
+ *  unchanged: the cover cache, the diag token and the device-local blob URIs never travel, and
+ *  downloads' local files never sync. */
+export const BACKUP_EXACT_KEYS: readonly string[] = [
+	LIBRARY_KEY,
+	HISTORY_KEY,
+	SEARCH_HISTORY_KEY,
+	SETTINGS_KEY,
+	PLAYER_KEY
+];
+
+/**
+ * 35-D-12: old key name → upgrade function. EMPTY TODAY and that is correct: no exported key has
+ * ever changed its version segment (library:v1 absorbed `favArtists` additively instead). Add an
+ * entry the DAY a version is bumped, not before — a migration framework for an empty table is
+ * the abstraction this comment exists to prevent.
+ */
+export const MIGRATIONS: Record<string, (payload: unknown) => unknown> = {};
+
+/** Known key DOMAINS → the current key name in that domain. A file carrying an unknown version
+ *  segment of a known domain is refused per-key and named (35-D-12); an entirely unknown domain
+ *  is dropped silently so a future app's 6th key cannot break today's import. */
+const DOMAINS: ReadonlyArray<readonly [string, string]> = [
+	['openmusic:library:', LIBRARY_KEY],
+	['openmusic:search-history:', SEARCH_HISTORY_KEY],
+	['openmusic:history:', HISTORY_KEY],
+	['openmusic:settings:', SETTINGS_KEY],
+	// quick-261118-xdresume (35-D-02 superseded for player state, 2026-11-18): a future
+	// `openmusic:player:v2` in a file is refused per-key and named, like every other domain.
+	['openmusic:player:', PLAYER_KEY]
+];
+
+export interface BackupEnvelope {
+	/** 35-D-11 message 1. */
+	app: typeof BACKUP_MAGIC;
+	/** 35-D-11 message 2. */
+	format: number;
+	/** ISO 8601. Informational only — nothing branches on it. */
+	exportedAt: string;
+	/** Key = the LITERAL storage key name, version segment included (so the per-key version is
+	 *  implicit and exact). Value = the parsed payload, written back verbatim on import. */
+	keys: Record<string, unknown>;
+}
+
+/** 35-D-11: three distinguishable refusals, each mapping 1:1 to an i18n key at the UI layer. */
+export type BackupReject =
+	| { ok: false; reason: 'not-ours' }
+	| { ok: false; reason: 'newer'; format: number }
+	| { ok: false; reason: 'damaged' };
+
+export type ValidateResult = { ok: true; envelope: BackupEnvelope; skipped: string[] } | BackupReject;
+
+/** `no-snapshot` = refused before touching anything; `write-failed` = rolled back. */
+export type ApplyResult = 'ok' | 'no-snapshot' | 'write-failed';
+
+/** 35-D-04: dated so multiple backups coexist and sort naturally. */
+export function backupFilename(now: Date): string {
+	return `openmusic-backup-${now.toISOString().slice(0, 10)}.json`;
+}
+
+/**
+ * Enumerate a Storage by index — the `for (let i = 0; i < length; i++) key(i)` loop from
+ * names.svelte.ts:285-288, which is the only way to discover a prefix family. Returns whatever
+ * it collected if the store throws mid-scan.
+ */
+export function storageKeys(store: Pick<Storage, 'length' | 'key'>): string[] {
+	const out: string[] = [];
+	try {
+		for (let i = 0; i < store.length; i++) {
+			const k = store.key(i);
+			if (k) out.push(k);
+		}
+	} catch {
+		/* unavailable — return what we have */
+	}
+	return out;
+}
+
+/**
+ * quick-261020-slimsync — the synced library ballooned to ~1.7MB because every track
+ * carried its full resolved payload: `lrc` (whole lyrics text) alone was 75% of it, plus
+ * ephemeral/derivable fields (`audioUrl`/`proxyUrl` expire, `lrc`/`lrcUrl` re-fetch on
+ * demand, `keyword`/`songMid`/per-source ids are resolve inputs, not state). Uploading
+ * that every 30s over a marginal uplink 504'd ~1 in 3 sync pushes.
+ *
+ * The sync keeps IDENTITY + display fields + the tiny per-source resolve extras (qq's
+ * resolve reads qqId/songMid — catalog.ts:433; joox/qq search keys are the same class).
+ * A restored library is just stubs — the player already re-resolves stubs on demand
+ * (ensureTrackDetails) and covers via the cover chain, so it behaves exactly like fresh
+ * search results. `cover` stays (tiny, and library rows render it immediately);
+ * everything heavy or ephemeral is dropped.
+ */
+const SYNC_TRACK_FIELDS = [
+	'uid',
+	'source',
+	'songid',
+	'title',
+	'artist',
+	'album',
+	'cover',
+	'quality',
+	'duration',
+	// Resolve extras (a few KB total; dropping them would force a cold re-lookup per track).
+	'songMid',
+	'qqId',
+	'qqSearchKey',
+	'jooxSongMid',
+	'jooxSongId'
+] as const;
+
+export function slimTrackForSync(t: unknown): unknown {
+	if (!isPlainObject(t)) return t;
+	const out: Record<string, unknown> = {};
+	for (const f of SYNC_TRACK_FIELDS) {
+		if (t[f] !== undefined) out[f] = t[f];
+	}
+	return out;
+}
+
+/**
+ * PURE: slim every track array inside a library payload (liked + tracks nested in playlists).
+ *
+ * `stripDeviceLocal` (quick-261023-syncmerge) ALSO drops `downloads` + `unavailable`: they
+ * are DEVICE-LOCAL — they describe this device's files ("real and authentic to device
+ * files") and must never travel in a SYNC push. It defaults OFF so the manual
+ * export/import path and the 35-D-09 undo snapshot stay byte-faithful backups (an undo
+ * snapshot that silently dropped downloads could never restore them). The tombstone
+ * `deleted` array is never stripped — it MUST travel, or deletes stop propagating.
+ */
+export function slimLibraryForSync(lib: unknown, stripDeviceLocal = false): unknown {
+	if (!isPlainObject(lib)) return lib;
+	const out: Record<string, unknown> = { ...lib };
+	if (Array.isArray(out['liked'])) out['liked'] = (out['liked'] as unknown[]).map(slimTrackForSync);
+	if (Array.isArray(out['playlists'])) {
+		out['playlists'] = (out['playlists'] as unknown[]).map((p) => {
+			if (!isPlainObject(p) || !Array.isArray(p['tracks'])) return p;
+			return { ...p, tracks: (p['tracks'] as unknown[]).map(slimTrackForSync) };
+		});
+	}
+	if (stripDeviceLocal) {
+		delete out['downloads'];
+		delete out['unavailable'];
+	}
+	return out;
+}
+
+/**
+ * quick-261118-xdresume — cross-device resume (35-D-02 superseded for player state,
+ * 2026-11-18). The player blob (player-persist.ts serializePlayerState) is ALREADY slimmed to
+ * serializeTrack's 11-field whitelist on write, but a synced/imported payload is external data:
+ * re-apply that exact whitelist here so nothing else (audioUrl, lrc, a blob: URI smuggled in an
+ * extra field, Last.fm extras) can ever reach another device.
+ */
+/** In serializeTrack's EXACT field order, so a cleaned blob re-serializes byte-identically (the
+ *  35-D-09 undo snapshot and a keep-local merge then write back the bytes that were there).
+ *  'str' = string only; 'strOrNull' = string | null. uid is handled separately (required). */
+const PLAYER_TRACK_FIELDS = [
+	['source', 'str'],
+	['songid', 'str'],
+	['title', 'str'],
+	['artist', 'str'],
+	['album', 'str'],
+	['cover', 'strOrNull'],
+	['quality', 'strOrNull'],
+	['qualityLabel', 'strOrNull'],
+	['keyword', 'str']
+] as const;
+
+/** Queue cap for a synced player payload — a radio auto-grow queue can run long, and the
+ *  whole blob rides every push of this key. */
+export const PLAYER_QUEUE_CAP = 500;
+
+/**
+ * PURE: slim one persisted track to the serializeTrack whitelist (uid, source, songid, title,
+ * artist, album, cover, quality, qualityLabel, keyword, displayIndex). Returns null when the
+ * entry has no usable identity (not an object / no non-empty string uid) — the caller refuses
+ * the whole payload. A whitelisted field of the WRONG TYPE is dropped (cleaned), not fatal:
+ * parsePlayerState's reshape() already defaults every missing field. A `data:` cover is
+ * dropped to null exactly as serializeTrack does (quick-261008-audit).
+ */
+function slimPlayerTrack(t: unknown): Record<string, unknown> | null {
+	if (!isPlainObject(t)) return null;
+	if (typeof t['uid'] !== 'string' || !t['uid']) return null;
+	const out: Record<string, unknown> = { uid: t['uid'] };
+	for (const [f, kind] of PLAYER_TRACK_FIELDS) {
+		const v = t[f];
+		if (typeof v === 'string') out[f] = f === 'cover' && v.startsWith('data:') ? null : v;
+		else if (v === null && kind === 'strOrNull') out[f] = null;
+	}
+	const di = t['displayIndex'];
+	if (typeof di === 'number' && Number.isFinite(di)) out['displayIndex'] = di;
+	return out;
+}
+
+/**
+ * PURE + NEVER THROWS: validate + clean a player payload (`openmusic:player:v1`). Returns the
+ * cleaned payload, or null when the shape is not one we know — the caller then applies this
+ * module's per-key posture: buildEnvelope SKIPS the key (a local mess never aborts an export),
+ * validateEnvelope rejects the file as damaged (35-D-10), validateSyncKey refuses the push.
+ *
+ * Accepted shape: v === 1; current = slim track or null; queue = array of slim tracks (capped
+ * at PLAYER_QUEUE_CAP); currentTime finite >= 0; shuffle boolean; repeatMode 'off' | 'one'
+ * (a legacy tri-state 'all' collapses to 'off' — the same D-11 migration parsePlayerState
+ * applies); upNextAnchorUid string | null (absent → null: pre-hm9 blobs); updatedAt finite
+ * >= 0 (absent → 0: every blob written before quick-261118-xdresume). Unknown fields dropped.
+ *
+ * Queue cap: a plain truncate to the first PLAYER_QUEUE_CAP entries — UNLESS the current track
+ * sits beyond the cap, in which case the kept window slides forward so the current (and the
+ * songs after it) survive; a restored queue that lost its own current would resume nowhere.
+ */
+export function cleanPlayerPayload(v: unknown): Record<string, unknown> | null {
+	if (!isPlainObject(v)) return null;
+	if (v['v'] !== 1) return null;
+	let current: Record<string, unknown> | null = null;
+	if (v['current'] !== null) {
+		current = slimPlayerTrack(v['current']);
+		if (!current) return null;
+	}
+	if (!Array.isArray(v['queue'])) return null;
+	let queue: Record<string, unknown>[] = [];
+	for (const t of v['queue'] as unknown[]) {
+		const slim = slimPlayerTrack(t);
+		if (!slim) return null;
+		queue.push(slim);
+	}
+	if (queue.length > PLAYER_QUEUE_CAP) {
+		const curUid = current ? current['uid'] : undefined;
+		const ci = curUid === undefined ? -1 : queue.findIndex((t) => t['uid'] === curUid);
+		const start =
+			ci < PLAYER_QUEUE_CAP
+				? 0
+				: Math.min(ci - Math.floor(PLAYER_QUEUE_CAP / 2), queue.length - PLAYER_QUEUE_CAP);
+		queue = queue.slice(start, start + PLAYER_QUEUE_CAP);
+	}
+	const ct = v['currentTime'];
+	if (typeof ct !== 'number' || !Number.isFinite(ct) || ct < 0) return null;
+	if (typeof v['shuffle'] !== 'boolean') return null;
+	const rm = v['repeatMode'];
+	if (rm !== 'off' && rm !== 'one' && rm !== 'all') return null;
+	const anchor = v['upNextAnchorUid'];
+	if (anchor !== undefined && anchor !== null && typeof anchor !== 'string') return null;
+	const at = v['updatedAt'];
+	if (at !== undefined && (typeof at !== 'number' || !Number.isFinite(at) || at < 0)) return null;
+	return {
+		v: 1,
+		current,
+		queue,
+		currentTime: ct,
+		shuffle: v['shuffle'],
+		repeatMode: rm === 'one' ? 'one' : 'off',
+		upNextAnchorUid: typeof anchor === 'string' ? anchor : null,
+		updatedAt: typeof at === 'number' ? at : 0
+	};
+}
+
+/**
+ * Build the export payload. SYNCHRONOUS on purpose: the web export runs inside the click
+ * handler, and iOS Safari discards the user gesture across an await (35-RESEARCH Pitfall 5).
+ *
+ * `read` is injected (the page passes a getItem closure over the live store, the test passes a Map
+ * lookup) — the saveBlobToDisk(doc) precedent. A key that is absent is omitted entirely, and a
+ * key whose stored value is corrupt is SKIPPED: a local mess must never abort an export.
+ */
+export function buildEnvelope(
+	read: (k: string) => string | null,
+	allKeys: readonly string[],
+	now: Date = new Date(),
+	opts?: { stripDeviceLocal?: boolean }
+): BackupEnvelope {
+	const keys: Record<string, unknown> = {};
+	// 35-D-01: the exact keys, then the name-tr PREFIX FAMILY enumerated from the store.
+	const wanted = [...BACKUP_EXACT_KEYS, ...allKeys.filter((k) => k.startsWith(NAME_TR_PREFIX))];
+	for (const k of wanted) {
+		let raw: string | null = null;
+		try {
+			raw = read(k);
+		} catch {
+			/* unavailable — treat as absent */
+		}
+		if (raw == null) continue;
+		try {
+			let parsed: unknown = JSON.parse(raw);
+			// quick-261020-slimsync: the library key carries full resolved tracks (lrc text
+			// was 75% of a 1.7MB payload); slim to identity+display fields before export so
+			// neither sync pushes nor manual backups haul lyrics/ephemeral URLs.
+			if (k === LIBRARY_KEY) parsed = slimLibraryForSync(parsed, opts?.stripDeviceLocal ?? false);
+			// quick-261118-xdresume: the player blob is cleaned through the same validator the
+			// pull/import path uses; an unrecognisable local blob is SKIPPED (a local mess must
+			// never abort an export, nor wedge every sync push on a server 400).
+			if (k === PLAYER_KEY) {
+				parsed = cleanPlayerPayload(parsed);
+				if (parsed === null) continue;
+			}
+			keys[k] = parsed;
+		} catch {
+			/* corrupt local value — skip this key, never abort the export */
+		}
+	}
+	return { app: BACKUP_MAGIC, format: BACKUP_FORMAT, exportedAt: now.toISOString(), keys };
+}
+
+/** 35-D-03: pretty-printed. Measured worst case ~1.4 MB — one in-memory string, no streaming. */
+export function serializeEnvelope(env: BackupEnvelope): string {
+	return JSON.stringify(env, null, 2);
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+	return v != null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** Every value must be a string — a name-tr payload is a flat Record<original, translated>. */
+function isStringRecord(v: unknown): boolean {
+	return isPlainObject(v) && Object.values(v).every((x) => typeof x === 'string');
+}
+
+/**
+ * Per-key shape check for the exact keys. Deliberately asymmetric, because each owning
+ * `load()` already defends a different amount:
+ *  - library: liked/playlists/downloads/favArtists must each be an array or absent. library.load()
+ *    casts the first three with only a `?? []` fallback (Pitfall 7 / T-35-02), so a hostile
+ *    `{"liked": 5}` would land in the store and the home shelves would `.map()` over a number.
+ *    THIS is the last line of defence for that key.
+ *    quick-261023-syncmerge: `deleted` (the tombstone set) must be an array of strings when
+ *    present — the merge trusts it to suppress, so non-strings are refused outright.
+ *  - history / search-history: a bare array, matching parseHistory / parseSearchHistory.
+ *  - settings: a non-null, non-array object AND NOTHING MORE. Every field is individually guarded
+ *    by settings.load() (WR-10 / T-vzu-01); duplicating ~150 lines of per-field defence here
+ *    would go stale.
+ */
+function shapeOk(key: string, v: unknown): boolean {
+	if (key === LIBRARY_KEY) {
+		if (!isPlainObject(v)) return false;
+		for (const field of ['liked', 'playlists', 'downloads', 'favArtists']) {
+			const got = v[field];
+			if (got !== undefined && !Array.isArray(got)) return false;
+		}
+		const deleted = v['deleted'];
+		if (deleted !== undefined && (!Array.isArray(deleted) || !deleted.every((x) => typeof x === 'string')))
+			return false;
+		return true;
+	}
+	if (key === HISTORY_KEY || key === SEARCH_HISTORY_KEY) return Array.isArray(v);
+	if (key === SETTINGS_KEY) return isPlainObject(v);
+	// quick-261118-xdresume: the player key's shape gate IS the cleaner (null = refused).
+	if (key === PLAYER_KEY) return cleanPlayerPayload(v) !== null;
+	return false;
+}
+
+/**
+ * quick-261020-incsync — per-key incremental sync. The server accepts PARTIAL key sets
+ * (only what changed) and can no longer run validateEnvelope over a whole envelope, so
+ * each pushed key is validated on its own. The accept set mirrors validateEnvelope
+ * exactly: the exact keys via shapeOk, the name-tr prefix family via isStringRecord.
+ * Anything else (diag tokens, unknown domains) is refused.
+ * quick-261118-xdresume (35-D-02 superseded for player state, 2026-11-18 — Hector): the player
+ * key is now an exact key — accepted when cleanPlayerPayload recognises its shape, else refused.
+ */
+export function validateSyncKey(key: string, value: unknown): boolean {
+	if ((BACKUP_EXACT_KEYS as readonly string[]).includes(key)) return shapeOk(key, value);
+	if (key.startsWith(NAME_TR_PREFIX)) return isStringRecord(value);
+	return false;
+}
+
+/**
+ * PURE + NEVER THROWS. Takes the raw file TEXT (the page does `await file.text()`), so the node
+ * test drives it with a string and needs no File/FileReader stub.
+ *
+ * Order matters for 35-D-11's message accuracy: parse → is-an-object → magic → format → keys map
+ * → per-key shape. The magic is checked BEFORE the format so a random `{"format":99}` reads "not
+ * an OpenMusic backup" rather than "made by a newer version".
+ *
+ * DIVERGENCE from parseSearchHistory (search-history-logic.ts:58), which FILTERS bad entries and
+ * keeps going: here any shape failure rejects the WHOLE file (35-D-10 atomicity). Same guard
+ * style, opposite disposition — do not "fix" one to match the other.
+ */
+export function validateEnvelope(raw: string): ValidateResult {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		return { ok: false, reason: 'damaged' };
+	}
+	if (!isPlainObject(parsed)) return { ok: false, reason: 'not-ours' };
+	if (parsed.app !== BACKUP_MAGIC) return { ok: false, reason: 'not-ours' };
+	const format = parsed.format;
+	if (typeof format !== 'number') return { ok: false, reason: 'damaged' };
+	if (format > BACKUP_FORMAT) return { ok: false, reason: 'newer', format };
+	if (!isPlainObject(parsed.keys)) return { ok: false, reason: 'damaged' };
+
+	// Build a NEW map holding only what will actually be written — the caller never sees a key
+	// it is not allowed to restore.
+	const keys: Record<string, unknown> = {};
+	const skipped: string[] = [];
+	for (const [k, v] of Object.entries(parsed.keys)) {
+		if (BACKUP_EXACT_KEYS.includes(k)) {
+			if (!shapeOk(k, v)) return { ok: false, reason: 'damaged' };
+			// quick-261118-xdresume: the player payload is CLEANED, not kept verbatim — only the
+			// whitelisted, slimmed shape is ever written to localStorage.
+			keys[k] = k === PLAYER_KEY ? cleanPlayerPayload(v) : v;
+			continue;
+		}
+		if (k.startsWith(NAME_TR_PREFIX)) {
+			if (!isStringRecord(v)) return { ok: false, reason: 'damaged' };
+			// Kept verbatim regardless of the version segment: names.purgeStale()
+			// (names.svelte.ts:69-85) deletes stale versions on next boot, so a v1 key costs one
+			// wasted write and needs no migration entry.
+			keys[k] = v;
+			continue;
+		}
+		const domain = DOMAINS.find(([prefix]) => k.startsWith(prefix));
+		if (domain) {
+			const migrate = MIGRATIONS[k];
+			if (!migrate) {
+				// 35-D-12: refused per-key, and say so — the page names the skipped keys.
+				skipped.push(k);
+				continue;
+			}
+			let upgraded: unknown;
+			try {
+				upgraded = migrate(v);
+			} catch {
+				return { ok: false, reason: 'damaged' };
+			}
+			const current = domain[1];
+			if (!shapeOk(current, upgraded)) return { ok: false, reason: 'damaged' };
+			keys[current] = current === PLAYER_KEY ? cleanPlayerPayload(upgraded) : upgraded;
+			continue;
+		}
+		// Unknown domain — e.g. the diag token. Dropped silently and NOT reported: these are not
+		// failures, they are keys we refuse to restore. (This once also covered
+		// `openmusic:player:v1` under 35-D-02; that decision was SUPERSEDED for player state on
+		// 2026-11-18 by Hector — quick-261118-xdresume — and the player key is now an exact key.)
+	}
+
+	return {
+		ok: true,
+		envelope: {
+			app: BACKUP_MAGIC,
+			format,
+			exportedAt: typeof parsed.exportedAt === 'string' ? parsed.exportedAt : '',
+			keys
+		},
+		skipped
+	};
+}
+
+/**
+ * 35-D-08 Replace, not merge: drop every restorable key (including name-tr languages the file
+ * does NOT carry), then write the file's payloads. The ONLY function in this module that may
+ * throw — a quota failure mid-write is exactly what applyEnvelope's rollback catches — and it is
+ * private so that contract never leaks.
+ *
+ * 35-D-08: the library wipe is a plain removeItem, NOT library.clearAll(). clearAll() mutates the
+ * live runes fields and fires save(), which could write an empty blob back over our setItem if any
+ * reactive path ran before the reload. A plain remove leaves every singleton untouched until the
+ * 35-D-13 reload re-runs load() cold.
+ *
+ * Collect-then-mutate, two passes: indices shift during removal, so the prefix scan can never be
+ * interleaved with removeItem (names.svelte.ts:282-293).
+ */
+function wipeAndWrite(env: BackupEnvelope, live: Storage): void {
+	const doomed: string[] = [...BACKUP_EXACT_KEYS];
+	for (const k of storageKeys(live)) if (k.startsWith(NAME_TR_PREFIX)) doomed.push(k);
+	for (const k of doomed) live.removeItem(k);
+	for (const [k, v] of Object.entries(env.keys)) live.setItem(k, JSON.stringify(v));
+}
+
+/**
+ * Snapshot → wipe → write, all-or-nothing (35-D-08 / 35-D-09 / 35-D-10).
+ *
+ * Both stores are PARAMETERS: the page passes the persistent store as `live` and the per-tab one
+ * as `undo`. That single call-site argument is the whole platform seam — if the per-tab store ever
+ * turns out not to survive a reload in the native WebView, the fallback is one different argument,
+ * not a change in here.
+ *
+ * 35-D-09: if the snapshot cannot be stored we refuse rather than proceed. A destructive one-tap
+ * button with no undo is precisely the thing this decision exists to prevent, and nothing has been
+ * written at that point, so the live store is byte-identical.
+ *
+ * The reload (35-D-13) belongs to the page — this module has no window.
+ */
+export function applyEnvelope(env: BackupEnvelope, live: Storage, undo: Storage): ApplyResult {
+	const snapshot = serializeEnvelope(buildEnvelope((k) => live.getItem(k), storageKeys(live)));
+	try {
+		undo.setItem(UNDO_KEY, snapshot);
+	} catch {
+		return 'no-snapshot';
+	}
+	try {
+		wipeAndWrite(env, live);
+	} catch {
+		// Quota (or a hostile store) mid-write. Best-effort rollback through the SAME validator the
+		// import path uses — one code path in both directions. The snapshot deliberately STAYS so
+		// the user can retry the undo by hand if even this fails.
+		const back = validateEnvelope(snapshot);
+		if (back.ok) {
+			try {
+				wipeAndWrite(back.envelope, live);
+			} catch {
+				/* nothing further we can do from here — the snapshot is still on disk */
+			}
+		}
+		return 'write-failed';
+	}
+	return 'ok';
+}
+
+/**
+ * Put the pre-import bytes back and drop the snapshot. An unreadable snapshot is discarded rather
+ * than written back, so a corrupt undo can never damage the live store.
+ *
+ * ponytail: one level of undo — a redo stack is unrequested, and the snapshot is intentionally NOT
+ * re-snapshotted before the restore.
+ */
+export function undoImport(live: Storage, undo: Storage): ApplyResult {
+	let raw: string | null = null;
+	try {
+		raw = undo.getItem(UNDO_KEY);
+	} catch {
+		/* unavailable — treat as no snapshot */
+	}
+	if (raw == null) return 'no-snapshot';
+	const res = validateEnvelope(raw);
+	if (!res.ok) {
+		try {
+			undo.removeItem(UNDO_KEY);
+		} catch {
+			/* ignore */
+		}
+		return 'no-snapshot';
+	}
+	try {
+		wipeAndWrite(res.envelope, live);
+	} catch {
+		return 'write-failed';
+	}
+	try {
+		undo.removeItem(UNDO_KEY);
+	} catch {
+		/* ignore */
+	}
+	return 'ok';
+}
+
+/** Does an Undo import affordance have anything to offer? Read by the page after the reload. */
+export function hasUndoSnapshot(undo: Pick<Storage, 'getItem'>): boolean {
+	try {
+		return undo.getItem(UNDO_KEY) != null;
+	} catch {
+		return false;
+	}
+}

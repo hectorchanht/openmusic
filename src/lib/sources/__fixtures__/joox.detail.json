@@ -1,0 +1,17 @@
+{
+  "code": 200,
+  "data": {
+    "songmid": "002cZ5jq3Hk8Yz",
+    "歌曲ID": "songid-002cZ5jq3Hk8Yz",
+    "歌曲名称": "稻香",
+    "歌手": "周杰伦",
+    "专辑": "魔杰座",
+    "歌词内容": "[00:00.00]稻香 - 周杰伦\n[00:18.00]对这个世界如果你有太多的抱怨",
+    "播放链接": {
+      "Atmos全景声": "https://cdn.joox.example/audio/002cZ5jq3Hk8Yz.atmos.flac",
+      "无损FLAC": "https://cdn.joox.example/audio/002cZ5jq3Hk8Yz.flac",
+      "OGG 320": "https://cdn.joox.example/audio/002cZ5jq3Hk8Yz.320.ogg",
+      "MP3 320": "https://cdn.joox.example/audio/002cZ5jq3Hk8Yz.320.mp3"
+    }
+  }
+}

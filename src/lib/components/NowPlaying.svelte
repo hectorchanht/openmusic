@@ -1,0 +1,1904 @@
+<script lang="ts">
+	import { upNextWindowStart } from '$lib/services/upnext-scroll';
+	import { untrack } from 'svelte';
+	import { Spring } from 'svelte/motion';
+	import { fly, fade } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
+	import { cubicOut } from 'svelte/easing';
+	import { goto } from '$app/navigation';
+	import { ChevronDown, MoreVertical, Heart, Clapperboard, Info, SkipBack, SkipForward, Play, Pause, Moon, ListMusic, MicVocal, MessageCircle, Sparkles, VolumeX, Volume1, Volume2 } from '@lucide/svelte';
+	import { player, fmtTime } from '$lib/stores/player.svelte';
+	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
+	import { library } from '$lib/stores/library.svelte';
+	import { names } from '$lib/stores/names.svelte';
+	import { overlays } from '$lib/stores/overlays.svelte';
+	// quick-260926-qat: the lyrics timing row's "bring into view" counter (see the effect below).
+	import { lyricSyncRequest } from '$lib/stores/lyric-offset.svelte';
+	import { t, tMaybeKey } from '$lib/i18n';
+	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the per-row
+	// version picker — fired ONLY on a trigger tap, never on list render (T-26-10-02).
+	import { fetchVariants } from '$lib/services/variants';
+	// quick-261102-qtruth / quick-261102-srcpill: the quality + source tags derive through
+	// the ONE shared module (services/display-quality) so this page can never disagree
+	// with the Track detail sheet about the same playing track again.
+	import { displayQualityLabel, trackSourceLabel } from '$lib/services/display-quality';
+	import { enrichTrack } from '$lib/services/lastfm';
+	import { songShareUrl } from '$lib/services/share';
+	import { recallItunesId } from '$lib/services/itunes-cover';
+	import { lazyCover } from '$lib/actions/lazyCover';
+	import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
+	import { hasHttpsScheme } from '$lib/services/url-safety';
+	// cover-hero-mediacard-missing (Issue 1): the reactive cover-cache read helper the up-next rows /
+	// home tiles use — the hero current cell now falls back to it so a cover that lands anywhere for
+	// the current song repaints the hero live (one resolved cover reused EVERYWHERE, cached).
+	// quick-260910-q5a: `bumpCoverVersion` joins this import — the Up-Next fill below repaints every
+	// mounted tile through the same one global signal as the home backfill.
+	// quick-260915-w4f: readPinnedCover is pickRowCover's new leading rung, and also the pin read the
+	// cellBg carousel needs (it puts tk.cover ahead of everything, so a pin would otherwise lose).
+	// quick-260920-nyq: readCoverByUidOrName dropped — the hero's cache read moved into the store's
+	// displayCover getter, so this file no longer reads the cache for the CURRENT track directly.
+	// Phase 40 D-14: readChosenCover (pin, then crowd pick) replaces readPinnedCover as the display rung.
+	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
+	// quick-260919-0mw: the ONE shared tri-state download affordance. It already owns the idle /
+	// downloading / downloaded / unavailable states, the shared downloadTrack path, its own toasts,
+	// its own t() keys and tapBounce — so this is a mount, never a re-implementation.
+	import DownloadControl from '$lib/components/DownloadControl.svelte';
+	import KeyTip from '$lib/components/KeyTip.svelte';
+	import { marquee } from '$lib/actions/marquee';
+	import { coverSwipe } from '$lib/actions/coverSwipe';
+	// quick-261116-dtap: cover double-tap → random discovery dive (Phase 3), on the
+	// current cover cell only — see the use:doubleTap mount at .cover-cell.cur.
+	import { doubleTap } from '$lib/actions/doubleTap';
+	import { playRandomDiscovery } from '$lib/services/random-discovery';
+	import { CHART_GENRE_LABEL } from '$lib/services/home-charts';
+	import { playerSwipe } from '$lib/components/swipe-act';
+import VideoStage from '$lib/components/VideoStage.svelte';
+import NpAbout from '$lib/components/NpAbout.svelte';
+	import { scrub } from '$lib/actions/scrub';
+	import { seekTargetFraction, SEEK_STEP_SECONDS } from '$lib/services/transport-keys';
+	import { tapBounce } from '$lib/actions/tapBounce';
+	import { focusTrap } from '$lib/actions/focusTrap';
+	import { toast } from '$lib/stores/toast.svelte';
+	import { tick as hapticTick } from '$lib/util/haptics';
+	import { splitArtists } from '$lib/util/artist-split';
+	import { resolveArtistNames } from '$lib/services/artist-names';
+	import TrackMenu from '$lib/components/TrackMenu.svelte';
+	import VersionPicker from '$lib/components/VersionPicker.svelte';
+	import Nowbar from '$lib/components/Nowbar.svelte';
+	// quick-260919-np3: the three sheet panes. CLAUDE.md flags this file as a ~2000-line re-render
+	// hotspot whose stated fix is "split lyrics pane / up-next / transport into children that each
+	// subscribe to only the $state they need" — so the desktop three-up layout is built ON that
+	// split rather than bolted onto the monolith. Each child owns its own state and effects; the
+	// parent hands over only what it is the authority for (the anchored queue slice, the carousel's
+	// resolved-cover map, the sheet state, and the two shared overlay openers).
+	import NpUpNext from '$lib/components/NpUpNext.svelte';
+	import NpLyrics from '$lib/components/NpLyrics.svelte';
+	import NpRelated from '$lib/components/NpRelated.svelte';
+	// quick-260926-nsz: per-song comments — the 3rd tab on a phone, and the Comments | Related
+	// toggle of the third column at >=1280px.
+	import NpComments from '$lib/components/NpComments.svelte';
+	import { comments } from '$lib/stores/comments.svelte';
+	import { createVelocityTracker } from '$lib/gestures/velocity';
+	import type { Track } from '$lib/sources/types';
+	import { coverGradient } from '$lib/services/cover-gradient';
+	// upnext-no-scroll-to-current: the pure "is the Up-Next pane on screen?" decision — wide column
+	// OR sheet not closed — so the scroll-to-current and cover-backfill gates in NpUpNext fire at
+	// >=1280px, where the column is mounted while sheetState stays 'closed'.
+	import { upNextPaneOpen } from '$lib/services/upnext-scroll';
+
+	type Tab = 'queue' | 'lyrics' | 'comments' | 'related' | 'about';
+	let tab = $state<Tab>('lyrics');
+	// quick-260926-qat: PLAIN field (nothing renders it). Snapshot at mount so a request raised while
+	// this component was unmounted (menu opened from the Nowbar / a list row) is not replayed on the
+	// next expand; `tab` already defaults to 'lyrics' on mount, so the row is on screen anyway.
+	let seenSyncReq = lyricSyncRequest();
+
+	// quick-260919-np3 — the desktop three-up breakpoint.
+	//
+	// 1280px, NOT the 1024px rail rung (--rail-w / (app)/+layout.svelte). `.np` is fixed inset:0 over
+	// the rail, so unlike every other surface this one does get the full viewport width — and 1024 is
+	// still too narrow: minus the 18px side padding, two 18px gutters and the column padding, the
+	// 1fr/1.4fr/1fr split lands at 278 / 389 / 278, and a 278px track column carrying a 36px cover
+	// plus a two-line title/artist is where the text starts wrapping and reading as cramped. At 1280
+	// the same split measures 355 / 497 / 355 (verified live). 1280 is also the `xl` rung of the same
+	// sm/md/lg scale 640/1024 already sit on, so this adds a rung rather than a second scale.
+	//
+	// quick-260919-oc6 AMENDS the width premise above: `.np` is NO LONGER full-viewport at >=1024
+	// — it starts at `left: var(--rail-w)` so the rail stays visible beside it, making the sheet
+	// `100vw - 88px` wide. The 1280 rung still stands: the same split there is now ~326 / 457 /
+	// 326, still comfortably above the 278 measurement that read as cramped. WIDE_MQ is unchanged.
+	//
+	// This one has to be JS, unlike the 1024 rail which is pure CSS: the difference is STRUCTURAL,
+	// not cosmetic. Rendering all three panes and hiding two with CSS would mount NpRelated on a
+	// phone and fan out a searchAll for every track — the exact flood class this codebase already
+	// has an apiFetch governor and a circuit breaker for. So the breakpoint drives an `{#if}`, and
+	// below it the mobile markup is literally the same tree it was before.
+	//
+	// `browser`-guarded by the typeof check (SSR is off app-wide, but stores/components that touch
+	// window must still be safe by convention), and the listener is torn down with the component.
+	const WIDE_MQ = '(min-width: 1280px)';
+	let wide = $state(
+		typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(WIDE_MQ).matches : false
+	);
+	$effect(() => {
+		if (typeof window === 'undefined' || !window.matchMedia) return;
+		const mq = window.matchMedia(WIDE_MQ);
+		const onChange = (e: MediaQueryListEvent) => (wide = e.matches);
+		wide = mq.matches;
+		mq.addEventListener('change', onChange);
+		return () => mq.removeEventListener('change', onChange);
+	});
+	// quick-261115-inj — the two-up rung below `wide`: Up Next | (Lyrics · Comments · Related · About
+	// tabs). 768px = the md rung; the sheet is ~732px there (no rail below 1024), and the 1fr/1.4fr
+	// split lands ~290 / 410 — a 290px track column is the measured floor the 1280 note argues for
+	// (278 read as cramped). At 1024–1279 the rail eats 88px: ~350 / 500. JS for the same reason as
+	// `wide` — the Up-Next column must not mount on a phone.
+	const MID_MQ = '(min-width: 768px)';
+	let mid = $state(
+		typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(MID_MQ).matches : false
+	);
+	$effect(() => {
+		if (typeof window === 'undefined' || !window.matchMedia) return;
+		const mq = window.matchMedia(MID_MQ);
+		const onChange = (e: MediaQueryListEvent) => (mid = e.matches);
+		mid = mq.matches;
+		mq.addEventListener('change', onChange);
+		return () => mq.removeEventListener('change', onChange);
+	});
+	// Columns on screen at rest (the sheet stays 'closed' with them visible), so tab taps switch a
+	// column instead of moving the sheet. `wide` implies `mid`.
+	const split = $derived(wide || mid);
+	// shuffle/repeat moved to the store (gte) so the audio `ended` handler + next() can read
+	// them. The transport buttons below bind to player.shuffle / player.repeatMode directly.
+
+	// ii6: derived "is current track liked" for the transport heart button (Like replaces
+	// Shuffle in the transport row; Shuffle moved into the TrackMenu kebab menu).
+	// quick-261115-likeid: song-level identity (library.isLikedTrack) — the same song liked
+	// under another resolver must light this heart, and the toast must read the same answer.
+	const currentLiked = $derived(player.current ? library.isLikedTrack(player.current) : false);
+	function toggleCurrentLike() {
+		if (!player.current) return;
+		hapticTick();
+		library.toggleLike(player.current);
+		toast.show(library.isLikedTrack(player.current) ? t('toast.liked') : t('toast.unliked'));
+	}
+
+
+	// quick-260629-nyl Task 1: lazily-resolved cover map for the Up-Next list rows AND the
+	// carousel prev/next neighbors. Mirrors the established search/library/artist/album row idiom
+	// (a reactive uid→url record repainted via onCoverResolved). Values are SOLID https URLs only
+	// (lazyCover's isHttps gate) — safe for the existing background-image render path, no widening
+	// of the injection surface (T-nyl-01 / inherits T-0bb-01). The carousel CURRENT cell is NOT
+	// driven by this map (it keeps player.resolvedCover, which since quick-260809-38i also carries the
+	// adopted Last.fm swap — see effectiveCover); it
+	// instead self-heals a DEAD player.resolvedCover via player.healCover in its own $effect near the
+	// effectiveCover derivation (quick-260704-20e) — the map stays neighbors-only.
+	let resolvedCovers = $state<Record<string, string>>({});
+	function onCoverResolved(uid: string, url: string) {
+		resolvedCovers = { ...resolvedCovers, [uid]: url };
+	}
+
+	// shared context menu for current track + long-pressed queue/related rows
+	let menuTrack = $state<Track | null>(null);
+	let menuOpen = $state(false);
+	function openMenu(t: Track | null) {
+		menuTrack = t;
+		menuOpen = !!t;
+	}
+
+	// Gap 4 (26-10): a single lazily-fed VersionPicker reachable from EVERY Up-Next row. A played/
+	// queued song carries only its own source, so the variant list is discovered on demand — but
+	// ONLY when the user taps a row's version trigger (openVersionPicker), never on list render, so
+	// the Up-Next surface stays a zero-fan-out list (T-26-10-02). `versionGen`/`versionAc` are PLAIN
+	// (non-reactive) supersedence guards — the house idiom (see player.svelte.ts playGen): a second
+	// open bumps the token + aborts the prior fetch so a stale in-flight result can never land.
+	let pickerVersions = $state<Track[]>([]);
+	let pickerTarget = $state<Track | null>(null); // quick-261102-t7i: the row the sheet ranks against
+	let pickerOpen = $state(false);
+	let pickerLoading = $state(false);
+	let versionGen = 0;
+	let versionAc: AbortController | null = null;
+
+	async function openVersionPicker(track: Track) {
+		const gen = ++versionGen;
+		versionAc?.abort();
+		const ac = new AbortController();
+		versionAc = ac;
+		// Open immediately with the spinner; the single fetchVariants fan-out runs behind the sheet.
+		pickerVersions = [];
+		pickerTarget = track;
+		pickerLoading = true;
+		pickerOpen = true;
+		const list = await fetchVariants(track, ac.signal);
+		// Supersedence: a newer open (or a close/abort) invalidates this result.
+		if (gen !== versionGen || ac.signal.aborted) return;
+		pickerVersions = list;
+		pickerLoading = false;
+	}
+	function closeVersionPicker() {
+		pickerOpen = false;
+		versionAc?.abort(); // cancel any in-flight fetch when the sheet is dismissed.
+	}
+
+	// Shared placeholder (cover-gradient.ts); the null case keeps its own fixed colour.
+	function fallbackCover(t: Track | null): string {
+		// quick-261102-t5k: the null case was a purple literal (#3a2d63 -> #1a1326) that ignored the
+		// theme; it is now the two surface tokens, so light/gold/sakura get their own neutral.
+		return t ? coverGradient(t.uid) : 'linear-gradient(145deg, var(--color-surface-2), var(--color-bg))';
+	}
+
+	// ---- progress / scrubber (plan 002) ----
+	const frac = $derived(player.duration > 0 ? player.currentTime / player.duration : 0);
+	// While a live scrub is in flight, the UI shows the PREVIEW fraction (finger position) and the
+	// audio is NOT seeked until release — so playback never stutters mid-drag. displayFrac is what
+	// the rail + time readout render; it falls back to the real playback frac when not scrubbing.
+	let scrubbing = $state(false);
+	let scrubFrac = $state(0);
+	const displayFrac = $derived(scrubbing ? scrubFrac : frac);
+	const displayTime = $derived(
+		scrubbing && player.duration > 0 ? scrubFrac * player.duration : player.currentTime
+	);
+	function onScrubPreview(f: number) {
+		scrubFrac = f;
+		scrubbing = true;
+	}
+	function onScrubCommit(f: number) {
+		player.seekFraction(f); // clamps [0,1] internally; auto-plays if paused (same as tap-to-seek)
+	}
+	function onScrubEnd() {
+		scrubbing = false;
+	}
+	// Keyboard parity retained: arrows nudge ±5s via the store (unchanged behaviour).
+	// quick-260919-keys: the step and the arithmetic now come from services/transport-keys, which is
+	// also what the global Shift+arrows use — the two ±5s seeks in the app are the same ±5s by
+	// construction rather than by two copies of `(currentTime ± 5) / duration` staying in sync.
+	// Still only reached when the `.scrubber` itself has focus; the global listener yields arrows to
+	// role="slider", so a shifted OR plain arrow here seeks exactly once.
+	function seekKey(e: KeyboardEvent) {
+		if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+		const frac = seekTargetFraction(
+			player.currentTime,
+			player.duration,
+			e.key === 'ArrowRight' ? SEEK_STEP_SECONDS : -SEEK_STEP_SECONDS
+		);
+		if (frac !== null) player.seekFraction(frac);
+	}
+
+
+	// ---- Last.fm enrichment (Phase 8, ENRICH-01/02) ----
+	// Best-effort, OFF the playback critical path: keyed on the current uid, the
+	// $effect void-fires enrichTrack (never awaited, never blocks) and assigns the
+	// result only if the uid still matches (race guard, mirrors the related/trKey
+	// idiom). A non-Last.fm track / absent key resolves to the all-empty shape, so
+	// nothing renders and the source cover is never disturbed.
+	let enrichedFor = '';
+	$effect(() => {
+		const cur = player.current;
+		const uid = cur?.uid ?? '';
+		if (!cur || enrichedFor === uid) return;
+		enrichedFor = uid;
+		// quick-260809-38i: no local per-uid reset is needed any more — the adopted cover lives in
+		// player.resolvedCover, which play() already repoints on every track change.
+		void enrichTrack(cur).then((r) => {
+			if (player.current?.uid !== uid) return; // track changed mid-flight — discard
+			// Tags/genre chips are hidden now (quick-260607-f4y) — enrichment is kept ONLY for
+			// the hi-res Last.fm cover-art adoption below.
+			if (r.lastfmArt) maybeSwapCover(r.lastfmArt, cur);
+		});
+	});
+
+	// Preload the Last.fm cover candidate BEFORE swapping (D-04 guardrail 4 — no
+	// flash). Swap only when the source cover is absent OR the preloaded image is
+	// strictly larger than a sane threshold (D-04 guardrail 3). A real cover NEVER
+	// regresses to a placeholder/broken image — the endpoint already filtered the
+	// grey-star/empty art, and we keep the source cover when lastfmArt is null
+	// (ENRICH-02 overrides D-03). Best-effort + async — never blocks first paint.
+	//
+	// quick-260809-38i — INVARIANT CHANGE: the winner is PROMOTED, not held locally. The adopted art
+	// used to land in a component-local $state field, so it won on the hero ONLY while the
+	// Nowbar (player.resolvedCover ?? np.cover) and the OS media card kept the old album — one song,
+	// three covers. `player.adoptCover` now commits it to the single shared field + BOTH cache layers,
+	// so every reader follows. What is measured is UNCHANGED: the candidate is still weighed against
+	// `forTrack.cover` (the raw SOURCE cover), never against resolvedCover — that comparison is what
+	// produces the correct cover, so only the destination moved.
+	function maybeSwapCover(art: string, forTrack: Track) {
+		if (typeof Image === 'undefined') return; // SSR guard
+		// Adopt the Last.fm art only when its real width exceeds the source cover's
+		// (D-04 g3: STRICTLY larger — never downgrade a good cover). `srcWidth = 0`
+		// means the source is missing/broken, so any valid art is an improvement.
+		const adopt = (srcWidth: number) => {
+			const img = new Image();
+			img.onload = () => {
+				if (player.current?.uid !== forTrack.uid) return; // track changed — abort
+				// quick-260809-38i: hand the verified winner to the ONE shared authority (the store
+				// re-checks the uid, the https gate and same-url idempotence itself).
+				if (img.naturalWidth > srcWidth) player.adoptCover(forTrack.uid, art);
+			};
+			img.onerror = () => {}; // broken candidate → keep the source cover
+			img.src = art;
+		};
+		if (!forTrack.cover) {
+			adopt(0); // no source cover → any non-placeholder Last.fm art wins
+			return;
+		}
+		// Measure the source cover first (naturalWidth needs a load) so the swap is a
+		// genuine resolution upgrade, not a same-size/smaller regression (WR-03).
+		const src = new Image();
+		src.onload = () => {
+			if (player.current?.uid === forTrack.uid) adopt(src.naturalWidth);
+		};
+		// quick-261020-batch3 (C9): a broken source cover is dead-URL evidence — mark it so it
+		// can't shadow live art at pickRowCover's seeded rung (previously every track change
+		// re-probed the same dead URL). https-gated: inline (data:) covers never fail this way.
+		src.onerror = () => {
+			if (forTrack.cover && hasHttpsScheme(forTrack.cover)) markCoverUrlDead(forTrack.cover);
+			adopt(0); // source cover broken → Last.fm art beats nothing
+		};
+		src.src = forTrack.cover;
+	}
+
+	// Effective now-playing cover: the single player.resolvedCover field (COVER-01 / D-09) — which
+	// already encompasses track.cover, the uid/name cache, the async tier-chain resolve AND (since
+	// quick-260809-38i) the adopted hi-res Last.fm swap, so a no-cover-source track shows resolved art
+	// here once the chain lands. The swap no longer needs a head position in this chain: it IS
+	// resolvedCover the moment maybeSwapCover adopts it.
+	//
+	// cover-hero-mediacard-missing (Issue 1): the hero was once the ONLY cover surface not bound to
+	// the shared cache — it read resolvedCover alone, while the up-next rows + carousel neighbors
+	// resolve via use:lazyCover and read the cache reactively. resolvedCover is refreshed only in
+	// play()'s narrow windows (resolveCoverAsync fires once, when it starts null + gen-guarded;
+	// healCover only repairs a non-null DEAD url), so a cover that landed in the cache via a SIBLING
+	// surface (the same song's up-next row, a backfill, another tile) after those windows showed on
+	// up-next but never on the hero — the reported "hero blank while up-next has it".
+	//
+	// quick-260920-nyq: precedence INVERTED and moved into the store — the shared cache
+	// (pin → uid → name) now LEADS and resolvedCover is the last resort, so the hero repaints in
+	// lockstep with every tile, the Nowbar and the OS media card (all four read player.displayCover).
+	// The `data:` embedded-cover exception lives in the getter. Null (all miss) → gradient (D-12).
+	const effectiveCover = $derived(player.displayCover);
+	// quick-261024-vid1: the MV layer — one-tap toggle in the meta row; the stage replaces
+	// the cover strip while on. Offered only for ytmusic tracks with videos enabled.
+	let videoOn = $state(false);
+	const canVideo = $derived(settings.videoEnabled && player.current?.source === 'ytmusic');
+	// quick-261024-about: the About tab exists only for ytmusic tracks (it shows the
+	// video's YouTube description — other sources have no such thing to show).
+	const canAbout = $derived(player.current?.source === 'ytmusic');
+
+	// quick-260704-20e: self-heal a DEAD current cover — the counterpart to the neighbor cells'
+	// use:lazyCover. resolvedCover is seeded FIRST from track.cover (a source-CDN thumbnail that
+	// frequently expires / is served over http:), so a non-null-but-dead URL paints the current cell
+	// black (the reported bug). This $effect takes reactive deps on the current uid + effectiveCover
+	// and fires player.healCover (probe → evict → re-resolve under the playGen guard) at most once per
+	// uid+url. It returns early when effectiveCover is null (a true miss shows the gradient — nothing
+	// to probe). Fire-and-forget: healCover is never-throw, one-shot, and generation-guarded, so
+	// re-runs on re-render are safe.
+	//
+	// quick-260809-38i: the old "a local swap is showing → skip the heal" opt-out is GONE rather than
+	// moved. An adopted cover is onload-VERIFIED before adoptCover commits it, so healCover's probe
+	// simply loads and takes its zero-network fast path (step 5, `alive → return`) — the opt-out was
+	// protecting against work that cannot happen. A live adopted cover can never be evicted here.
+	$effect(() => {
+		const uid = player.current?.uid;
+		const cover = effectiveCover; // reactive dep — re-run when the displayed cover changes
+		if (!uid) return; // no current track
+		if (!cover) return; // true miss → gradient; nothing to probe
+		void player.healCover(uid); // fire-and-forget; the one-shot guard lives in the store
+	});
+
+	// ---- Cover carousel (NP-01 / D-01) ----
+	// A rigid 3-cell strip [prev | current | next] with neighbors flush against the current cell: each
+	// cell is `position:absolute` at left -100% / 0 / 100% so the strip's RESTING transform is
+	// translateX(0) (the current cell fills the cover; the neighbors sit flush off-screen and slide in
+	// 1:1 mid-drag with no gutter between covers).
+	// use:coverSwipe is attached to the strip element itself, so
+	// the action's own live `translateX(dx)` IS the 1:1 lockstep follow (UI-SPEC §1) — no separate
+	// transform to drive and no `ondrag` needed here (the action writes node.style.transform itself).
+	// The strip's CSS commit-settle transition `transform 0.32s cubic-bezier(.22,1,.36,1)` is
+	// overridden to `none` by the action while dragging, then restored on release/commit.
+	//
+	// Neighbors are derived from the PUBLIC player.queue by uid (indexOf is private in the store),
+	// mirroring the PATTERNS neighbor-lookup. On commit the coverSwipe action calls player.prev()/
+	// next() (D-03 — NO new advance fn); the store swap re-derives ci/prevCover/nextCover and the
+	// strip repaints the committed neighbor as the new current cell.
+	const ci = $derived(player.queue.findIndex((tk) => tk.uid === player.current?.uid));
+	// quick-260618-lsw: the Up-Next LIST slices from the ANCHOR's live index, NOT from the live
+	// current index `ci`. The store sets upNextAnchorUid ONLY on a fresh play / new-list install, so
+	// an auto-advance (which advances `current`/`ci` but leaves the anchor put) keeps the just-played
+	// song in the list — only the `.q-row.playing` highlight (keyed off the live current) moves down.
+	// The findIndex-by-uid each render keeps the anchor correct across drag-reorder and removals (the
+	// row moves with its uid). CLAMP: if the anchor uid is gone from the queue (removed) or never set
+	// (cold/restore), fall back to the live current index `ci` (the 260618-ink behavior) so the list
+	// still renders with current first and never goes blank.
+	// quick-261102-twq (DECISIONS.md §10): THE window rule (upnext-scroll upNextWindowStart) — the
+	// anchor, but never after the current song, so no reorder / prev / playNext can hide it.
+	const upNextStart = $derived(
+		upNextWindowStart(player.queue, player.current?.uid, player.upNextAnchorUid)
+	);
+	const upNextList = $derived(player.queue.slice(upNextStart)); // [anchor, ...current, ...tail]
+
+	const prevCover = $derived(ci > 0 ? player.queue[ci - 1] : null);
+	const nextCover = $derived(ci >= 0 && ci + 1 < player.queue.length ? player.queue[ci + 1] : null);
+	// hasPrev is false at the first queued track; player.prev() restarts the song when currentTime
+	// > 3, so that is the only prev rubber-band case. hasNext intentionally stays true whenever
+	// there is a current track: player.next() owns end-of-queue growth, so a left swipe should commit
+	// and let the store top up instead of resisting at the visual boundary.
+	const hasPrevNeighbor = $derived(prevCover !== null && ci !== 0);
+
+	// ---- Contextual cover scale (plan 003, Domain 4) ----
+	// Native players shrink the art when paused, expand when playing. A physics Spring drives the
+	// scale so rapid play/pause toggles retarget smoothly mid-flight (interruptible — Emil). Only
+	// applied while the sheet is CLOSED (the square hero); in half/full the cover is a full-bleed
+	// banner where a scale would look wrong, so the target is pinned to 1 there. Reduce-motion (app
+	// flag OR OS) snaps instantly via `{ instant: true }`. osReduceMotion is derived below (line ~600).
+	const coverScale = new Spring(1, { stiffness: 0.16, damping: 0.62 });
+	$effect(() => {
+		const playing = player.playing;
+		const closed = sheetState === 'closed';
+		const reduce = settings.reduceMotion || osReduceMotion;
+		const target = !playing && closed ? 0.93 : 1;
+		coverScale.set(target, reduce ? { instant: true } : undefined);
+	});
+	// Cell background: current cell uses the effective (possibly Last.fm-swapped) cover; the prev/next
+	// neighbors resolve through the SAME shared resolvedCovers map (lazyCover → Deezer→iTunes→CN) so a
+	// null-cover neighbor shows real art instead of a perpetual gradient (quick-260629-nyl Task 1).
+	// Resolved url wins over the raw track.cover; gradient fallback only on a true miss. null → 'none'.
+	// quick-260915-w4f: the user's pin leads here too — computed ONCE so the truthiness test and the
+	// url() use the same value (they previously restated the same expression twice).
+	const cellBg = (tk: Track | null) => {
+		if (!tk) return 'none';
+		// quick-261102-tdc (DECISIONS.md §6): the shared reader (chosen → name → uid), not the pin alone —
+		// a neighbour cell skipped the cache every other surface reads.
+		const u = readCoverByUidOrName(tk.uid, tk.artist, tk.title) ?? resolvedCovers[tk.uid] ?? tk.cover;
+		// quick-260920-nyq: gradient UNDER the image here too — see the hero comment below.
+		return u ? `url(${u}), ${fallbackCover(tk)}` : fallbackCover(tk);
+	};
+
+	// ---- Meta crossfade (NP-TEXT-XFADE) ----
+	// On track change the {#key uid} block remounts title+artist, so an in:/out:fade crossfades the
+	// outgoing text out while the incoming fades in. This is a Svelte JS transition, so the global
+	// app.css `:root[data-reduce-motion] * { transition:none!important }` rule does NOT stop it —
+	// it must be guarded explicitly. settings.reduceMotion is the app flag (already wired to
+	// :root[data-reduce-motion]); we also OR the OS prefers-reduced-motion query so OS-only users
+	// get the instant swap too. Duration 0 → instant remount, no animated fade.
+	const osReduceMotion =
+		typeof window !== 'undefined' && window.matchMedia
+			? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+			: false;
+	const xfadeMs = $derived(settings.reduceMotion || osReduceMotion ? 0 : 200);
+	// quick-261102-s5t: the sheet's own open/close `transition:fly` is a JS transition too, so the
+	// same app-flag-OR-OS guard applies — it was the one Now Playing motion that ignored both.
+	const flyMs = $derived(settings.reduceMotion || osReduceMotion ? 0 : 320);
+
+	// quick-260625-pzs-01: the now-playing artist string is split into individual names so each
+	// renders its own link to that SOLE artist. openArtistName generalises the old single-artist
+	// openArtist navigation, parameterised by the per-name string (T-pzs-04: encodeURIComponent the
+	// name exactly as before — the /artist/[name] route decodeURIComponent's the param; since
+	// quick-260926-hl9 names.artistHref does the encode, after the script lock).
+	// quick-261009-ewf: the FULL string is searched on MusicBrainz FIRST — "Earth, Wind & Fire"
+	// is one legal group name and must not render as three artists — and when the full string
+	// is NOT a known artist, the RECORDING's own artist credits are consulted (title + artist).
+	// resolveArtistNames() paints the synchronous split instantly (today's behavior, no empty
+	// flash) and refines it once the lookups resolve; the cancelled flag is the standard
+	// generation guard so a stale lookup can never overwrite a newer track's names. Both
+	// artist AND title are read so the effect re-runs when either changes.
+	let artistNames = $state<string[]>([]);
+	$effect(() => {
+		const raw = player.current?.artist ?? '';
+		const title = player.current?.title ?? '';
+		artistNames = splitArtists(raw);
+		let cancelled = false;
+		resolveArtistNames(raw, title).then((names) => {
+			if (!cancelled) artistNames = names;
+		});
+		return () => {
+			cancelled = true;
+		};
+	});
+	// quick-260831-k5y: the resolved track's quality tag (FLAC / 320 / …), shown under the
+	// title/artist when settings.showQualityTag is on. `qualityLabel` is the source's own
+	// wording and wins; `quality` is the raw tier. Null for a stub that has not resolved yet
+	// AND for a source that reports no tier — both render nothing (never an empty pill).
+	// quick-261102-qtruth (Hector 2026-11-02): the read now goes through the shared
+	// displayQualityLabel WITH the download record consulted live — the old bare read of
+	// player.current's stamps could lie (320K) when the snapshot / stream-resolve stamp
+	// was stale relative to the file actually playing, while the Detail sheet, which
+	// merges the record, said LOSSLESS for the same track. Precedence (one place now,
+	// services/display-quality): download record > resolved stamps > stub claim. Reading
+	// library.downloads here also repaints the pill the moment a download lands or is
+	// replaced while this page is open — the same truth the Detail sheet would show.
+	const qualityTag = $derived.by(() => {
+		const cur = player.current;
+		if (!cur) return null;
+		const dlUid = library.downloadUidFor(cur);
+		return displayQualityLabel(cur, dlUid ? library.qualityForDownload(dlUid) : null);
+	});
+	// quick-261102-srcpill (Hector 2026-11-02): the SOURCE pill, rendered immediately
+	// before the quality pill. The label is the registry adapter's own — the same wording
+	// the Play-from-source sheet rows carry (VersionPicker.sourceLabel, zhLock included) —
+	// read off player.current, so after a cross-source fallback the pill names the source
+	// actually playing, not the one originally tapped. Shown unless settings.showSourceTag
+	// is off; the current track always has a source, so no empty-pill case exists.
+	const sourceTag = $derived.by(() => {
+		const cur = player.current;
+		if (!cur) return null;
+		const raw = trackSourceLabel(cur);
+		return raw ? names.zhLock(raw) : null;
+	});
+	// quick-261010-npurl: the share URL of the current track, built with the EXACT recipe the
+	// Share button copies (display-language names via names.dnTitle/dnArtist, the hero cover's
+	// token via coverToken inside songShareUrl, the identity carrier) — so the URL bar shows
+	// the share URL while NowPlaying is open and the URL is always "true". Reactive on the
+	// track, player.resolvedCover, AND the display language: a track advance, a cover resolving
+	// mid-play, or a language switch repoints the SAME history entry via the replaceUrl effect
+	// below (replaceState — history depth never changes).
+	const npShareUrl = $derived.by(() => {
+		const t = player.current;
+		if (!t) return null;
+		return songShareUrl(
+			{ title: names.dnTitle(t.title, t.artist), artist: names.dnArtist(t.artist) },
+			// quick-261102-tdc: the cover every surface shows (displayCover), as TrackMenu's share does —
+			// resolvedCover alone missed the cache's latest write. coverToken drops a non-https (data:) art.
+			player.displayCover,
+			recallItunesId(player.displayCover),
+			t
+		);
+	});
+	// quick-261010-npvol: desktop volume gate — the SAME (min-width:1024px)+(hover:hover) DOM
+	// gate as the Nowbar's desktop bar (quick-260919-et3). iOS ignores audio.volume entirely,
+	// so a slider on a touch surface is a dead control; a width-only query would also fire on
+	// a landscape tablet. Touch devices get no volume node in the DOM at all.
+	let volDesktop = $state(false);
+	$effect(() => {
+		const mq = window.matchMedia('(min-width: 1024px) and (hover: hover)');
+		volDesktop = mq.matches;
+		const onChange = () => (volDesktop = mq.matches);
+		mq.addEventListener('change', onChange);
+		return () => mq.removeEventListener('change', onChange);
+	});
+	// Mute-button state mirrors the Nowbar's: muted OR dragged-to-zero both read as silent,
+	// and clicking it always restores sound (toggleMute + setVolume's unmute-on-raise).
+	const silent = $derived(player.muted || player.volume === 0);
+	// debug page-switch-lag-tap-dead: goto() runs FIRST via overlays.navigateAway(), and the sheet is
+	// collapsed by its close() handler AFTERWARDS with history.back() suppressed. The old order
+	// (`player.collapse(); goto(...)`) closed the sheet but never navigated: the unmount's $effect
+	// cleanup (below) fired overlays.dismiss → history.back(), and SvelteKit's popstate handler
+	// invalidates the in-flight navigation token BEFORE it decides the entry is unchanged
+	// (kit client.js: `token = {}` precedes the `history_index === current_history_index` return),
+	// so goto() resolved as a silent no-op. Same bug + same fix as TrackMenu.gotoArtist().
+	function openArtistName(name: string) {
+		if (!name) return;
+		overlays.navigateAway(() => goto(names.artistHref(name)));
+	}
+
+	// ---- back-gesture: NowPlaying only renders while player.expanded, so mount == overlay
+	// open. The back gesture runs player.collapse() (→ unmount → cleanup dismisses); the
+	// header ChevronDown and cover drag-collapse also call player.collapse(), and openArtistName
+	// reaches it through navigateAway's close() sweep, so they all route through the SAME single
+	// dismiss path (the $effect cleanup). History depth stays balanced: open pushes 1 state,
+	// cleanup's dismiss() pops it (or back-gesture's closeTop already popped it → dismiss is a
+	// no-op; or navigateAway is mid-flight → back() is suppressed so the destination survives).
+	$effect(() => {
+		// untrack: overlays.open/dismiss READ the $state overlay stack internally (isTop/has).
+		// Without untrack this effect would capture that stack as a dependency and RE-RUN
+		// (cleanup-dismiss then re-open, churning history) every time ANY other overlay (e.g.
+		// the track menu) pushes/pops — desyncing history depth so the menu can't be dismissed.
+		// quick-261010-npurl: the pushed entry carries the song's share URL — the URL bar shows
+		// it while NowPlaying is open. Read inside untrack: later track changes repoint the
+		// entry via the replaceUrl effect below, never by re-running this open.
+		const url = untrack(() => npShareUrl);
+		untrack(() => overlays.open('nowplaying', () => player.collapse(), url ?? undefined));
+		return () => untrack(() => overlays.dismiss('nowplaying'));
+	});
+
+	// quick-261010-npurl: keep the URL "true" while open — a track advance, a cover resolving
+	// mid-play, or a display-language switch repoints the SAME history entry (replaceState:
+	// depth unchanged, so Back still closes the overlay in one gesture). No-op when
+	// 'nowplaying' isn't the top entry, so a stale run can never rewrite another entry's URL.
+	$effect(() => {
+		const url = npShareUrl;
+		if (url) untrack(() => overlays.replaceUrl('nowplaying', url));
+	});
+
+	// ---- Keyboard shortcuts — MOVED OUT (quick-260919-npfix, Fix 2).
+	// The Space/left/right window listener that used to live here was mounted with this component, so
+	// the shortcuts existed ONLY while the overlay was open. They are global now: one listener in the
+	// app shell ((app)/+layout.svelte) over the pure `transportAction` mapping in
+	// services/transport-keys.ts. Deleting the copy rather than keeping both is the point — two
+	// listeners would double-fire every Space while NowPlaying was open.
+	//
+	// That move also RESOLVED this file's long-standing double meaning for the arrow keys: `seekKey`
+	// on the `.scrubber` (role="slider", above) nudges +-5s and is UNCHANGED, while prev/next is the
+	// document-level fallback. The old window listener target-guarded only its Space branch, so with
+	// the scrubber focused an ArrowRight ran BOTH (+5s AND next()); transportAction now yields arrows
+	// to role="slider" on the same "the focused control wins" principle WR-08 already applied to Space.
+
+	// ---- NP top drag-down to collapse ----
+	// Wrapping container (.np-top) carries the drag, so a downward swipe ANYWHERE on the
+	// cover/meta/prog/transport collapses the player back to the nowbar. The sheet area
+	// (grip/subnav/panel) is OUTSIDE this wrapper — it owns its own up/down snap machine.
+	//
+	// Slop-threshold capture: pointerdown just records the start position; no capture, no
+	// `dragging=true`, no preventDefault. Only after the user moves ≥SLOP px vertically AND
+	// the vertical component dominates the horizontal one does the wrapper claim the gesture
+	// (setPointerCapture + dragging=true). Below that threshold the click reaches the button /
+	// progress-bar / artist link normally, so taps don't get hijacked.
+	let dragY = $state(0); // page-collapse translate (`.np` transform); only used on the closed-state down path
+	let dragging = $state(false); // page-collapse drag in flight (drives `.np` transition:none)
+	let dragArmed = false;
+	let startY = 0;
+	let startX = 0;
+	const DRAG_SLOP = 8;
+	// plan 005: flick-to-collapse. The page-collapse path was distance-only (dragY > 120); add a
+	// velocity tracker so a fast downward flick dismisses too, matching the sheet snap machine and
+	// the coverSwipe/dragClose gestures. Reuses the shared pure tracker (no Date.now — WR-safe).
+	const collapseVel = createVelocityTracker();
+	const COLLAPSE_FLICK_V = 0.5; // px/ms — same flick threshold as gripVel / coverSwipe FLICK_V
+	// A cover vertical drag is a one-shot commit to one of two owners, chosen at the slop threshold:
+	//   • snap-machine — when the sheet is OPEN (half/full), OR when it is closed and the gesture goes
+	//     UP. Mirrors the grip 1:1: drives gripActive/sheetDragging/sheetDragY/gripMoved/gripVel so the
+	//     `.np-top` translateY(${gripMoved}px) follows the finger with ZERO new transform code, and the
+	//     same gripUp() FLICK/nearest-snap release logic commits sheetState.
+	//   • page-collapse — ONLY when the sheet is `closed` AND the gesture goes DOWN: today's
+	//     `dragY > 120 → player.collapse()` behaviour, unchanged.
+	// `npTopDeleg` is set at commit so npTopMove/npTopUp know which owner drives the rest of the gesture.
+	let npTopDeleg: 'none' | 'snap' | 'collapse' = 'none';
+	let npTopStartState: SheetState = 'closed'; // sheetState captured at the moment of vertical commit
+	function npTopDown(e: PointerEvent) {
+		dragArmed = true;
+		dragging = false;
+		npTopDeleg = 'none';
+		startY = e.clientY;
+		startX = e.clientX;
+		collapseVel.reset();
+		collapseVel.sample(e.clientY, e.timeStamp);
+	}
+	function npTopMove(e: PointerEvent) {
+		if (!dragArmed) return;
+		const dy = e.clientY - startY;
+		const dx = e.clientX - startX;
+		// Axis-dominance claim (D-05): vertical wins ONLY after the slop threshold AND when the vertical
+		// component dominates — `Math.abs(dy) > DRAG_SLOP && Math.abs(dy) > Math.abs(dx)`. A
+		// horizontal-dominant drag falls through (no capture) so coverSwipe owns the carousel; nothing is
+		// captured on pointerdown, so a sub-slop tap reaches the cover's onclick (Pitfall 7 invariant).
+		// NOTE: the threshold is now on `Math.abs(dy)` (was `dy > DRAG_SLOP`, downward-only) so an UPWARD
+		// drag also commits — this is the fix that lets the cover expand the sheet.
+		if (npTopDeleg === 'none') {
+			if (Math.abs(dy) > DRAG_SLOP && Math.abs(dy) > Math.abs(dx)) {
+				(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+				npTopStartState = sheetState;
+				if (sheetState !== 'closed') {
+					// Sheet OPEN → the ENTIRE gesture (up OR down) is owned by the snap machine.
+					npTopDeleg = 'snap';
+					startGripFromCover(e);
+				} else {
+					// Sheet CLOSED → tentatively page-collapse, but a gesture that turns out to be UPWARD
+					// is handed to the snap machine instead (decided here, by initial direction). A
+					// downward commit from closed keeps today's page-collapse path.
+					if (dy < 0) {
+						npTopDeleg = 'snap';
+						startGripFromCover(e);
+					} else {
+						npTopDeleg = 'collapse';
+						dragging = true;
+					}
+				}
+			} else {
+				return;
+			}
+		}
+		if (npTopDeleg === 'snap') {
+			// Feed the snap machine exactly as gripMove does (no parallel impl).
+			gripVel.sample(e.clientY, e.timeStamp);
+			gripMoved = e.clientY - gripStartY; // may be NEGATIVE (up) — the downward-only clamp is gone
+			sheetDragY = Math.max(0, Math.min(closedOffset, offsetFor(sheetState) + gripMoved));
+		} else if (npTopDeleg === 'collapse') {
+			collapseVel.sample(e.clientY, e.timeStamp);
+			dragY = Math.max(0, dy);
+		}
+	}
+	// Replicate gripDown's start sequence for a cover-initiated vertical drag. Does NOT
+	// stopPropagation / re-capture (npTopMove already captured on `.np-top`) and does NOT read a
+	// subnav tab (the cover is not a subnav button) — otherwise identical to gripDown so the cover
+	// drives the SAME machine state the grip does.
+	function startGripFromCover(e: PointerEvent) {
+		disarmGripClickSuppressor();
+		gripActive = true;
+		gripStartY = e.clientY;
+		gripMoved = e.clientY - startY; // continue from the slop already travelled (no jump on commit)
+		gripStartTab = null;
+		gripStartPlainButton = false;
+		if (snapTimer) clearTimeout(snapTimer);
+		gripVel.reset();
+		gripVel.sample(e.clientY, e.timeStamp);
+		measureOffsets();
+		sheetDragging = true;
+		sheetDragY = Math.max(0, Math.min(closedOffset, offsetFor(sheetState) + gripMoved));
+	}
+	function npTopUp() {
+		const deleg = npTopDeleg;
+		dragArmed = false;
+		npTopDeleg = 'none';
+		if (deleg === 'none') return; // tap path — let the cover's onclick do its thing
+		if (deleg === 'snap') {
+			// Hand the release to the grip snap machine: FLICK steps one state via gripVel/FLICK_V,
+			// else nearest-snap with the same directional bias; snapTimer commits sheetState and clears
+			// the transient drag state. An open-sheet DOWN gesture steps full→half→closed here — it does
+			// NOT collapse the page. Page-collapse only happens on a subsequent CLOSED+down gesture.
+			gripUp();
+			return;
+		}
+		// deleg === 'collapse' — closed-state downward drag: distance OR a fast downward flick.
+		dragging = false;
+		const v = collapseVel.velocity(); // px/ms; > 0 = moving DOWN
+		if (dragY > 120 || (v > COLLAPSE_FLICK_V && dragY > 8)) player.collapse();
+		dragY = 0;
+	}
+
+	// ---- sheet: 3-state snap machine (closed / half / full) ----
+	// translateY is measured in "full coordinates": 0 = full (sheet fills .np),
+	// halfOffset = half-open (~50% down), closedOffset = closed/peek (sheet at its
+	// resting peek height). The grip AND the subnav row both drive this via the same
+	// gripDown/gripMove/gripUp pointer handlers. Mirrors the old live-drag idiom.
+	type SheetState = 'closed' | 'half' | 'full';
+	let sheetState = $state<SheetState>('closed');
+
+	// quick-260926-pb0: load the current track's comment thread so the Comments tab can show its
+	// count — one GET per track. NOT gated on the sheet: the tab bar is visible in every sheet state,
+	// including the closed peek Now Playing opens in, and gating on upNextPaneOpen left the badge
+	// blank until the user dragged the sheet up (caught in E2E). The cost bound is the MOUNT itself —
+	// this component only renders while player.expanded — so a background track change with Now
+	// Playing closed still costs nothing, and re-opens hit the store's uid dedupe. untrack: the store
+	// reads/writes its own $state (uid dedupe, loading flip), which must never become deps of this
+	// effect (cf. restore-effect-self-invalidation-loop).
+	$effect(() => {
+		const cur = player.current;
+		if (!cur) return;
+		untrack(() => comments.load(cur));
+	});
+	// quick-260926-qat: "Adjust lyrics timing" in the track menu brings the timing row into view.
+	// Reads ONLY the request counter; `wide`, `tab`, `sheetState`, `subnavMoved` are read inside
+	// untrack so this can never re-run on its own writes (cf. restore-effect-self-invalidation-loop).
+	// Wide layout: lyrics is always the middle column and selectTab there would only flip the
+	// Comments | Related column, so it is skipped. Narrow: selectTab('lyrics') is the same call the
+	// tab button makes — it also opens the sheet to half from closed, nothing more. `subnavMoved` is
+	// false here (the request comes from a menu tap, not a subnav drag).
+	$effect(() => {
+		const n = lyricSyncRequest();
+		if (n === seenSyncReq) return;
+		seenSyncReq = n;
+		untrack(() => { if (!wide) selectTab('lyrics'); });
+	});
+	// The uid guard hides the previous song's count between a background track change and its load.
+	const commentBadge = $derived(
+		player.current && comments.uid === player.current.uid ? comments.badge : null
+	);
+	let sheetEl = $state<HTMLElement | null>(null);
+	let transportEl = $state<HTMLElement | null>(null); // transport row → live bottom edge for flush half offset
+	let coverEl = $state<HTMLElement | null>(null); // cover banner → its 0.32s reflow must settle before re-measuring halfOffset
+	let sheetDragY = $state(0); // px in full-coordinates (0 = full, closedOffset = closed)
+	let sheetDragging = $state(false); // forces absolute layout while dragging/snapping
+	let gripActive = $state(false); // true only while finger is down (transition off)
+	let subnavMoved = $state(false); // set true when the gesture passed the 8px drag threshold
+	let gripStartY = 0;
+	let gripMoved = $state(0);
+	let gripStartTab: Tab | null = null; // gesture-transient: the subnav tab the gesture started on (null = grip/empty)
+	let gripStartPlainButton = false; // gesture-transient: started on a subnav button WITHOUT data-tab (e.g. Clear) — WR-02
+	let closedOffset = 300; // distance from full-top to closed/peek-top (measured at drag start)
+	let halfOffset = $state(150); // distance from full-top to half-open-top; reactive so the resting-half transform updates when re-measured
+	let snapTimer: ReturnType<typeof setTimeout> | null = null;
+	let gripSuppressTimer: ReturnType<typeof setTimeout> | null = null; // NP-xx: self-expiry handle for the window-level grip trailing-click suppressor (mirrors coverSwipe WR-05)
+	// Pointer-velocity tracker for the grip drag → a fast flick steps ONE state in the
+	// flick direction even when distance is small (slow-drag falls back to nearest-by-position).
+	const gripVel = createVelocityTracker();
+	const FLICK_V = 0.5; // px/ms threshold that counts as a deliberate flick
+
+	/** translateY (full-coordinate px) for a given resting state. */
+	function offsetFor(s: SheetState): number {
+		return s === 'full' ? 0 : s === 'half' ? halfOffset : closedOffset;
+	}
+
+	/** Measure closed/half offsets from the live layout at drag/tap start. */
+	function measureOffsets() {
+		const np = sheetEl?.closest('.np') as HTMLElement | null;
+		if (!sheetEl || !np) return;
+		const npRect = np.getBoundingClientRect();
+		// When closed the sheet is in normal flow → real peek distance. When half/full it
+		// is absolute, so derive a sensible peek height from the container instead.
+		if (sheetState === 'closed') {
+			closedOffset = Math.max(80, sheetEl.getBoundingClientRect().top - npRect.top);
+		} else {
+			closedOffset = Math.max(80, npRect.height * 0.72);
+		}
+		// Flush half-open: the panel top sits exactly at the bottom edge of the transport
+		// row (no dead gap). Fall back to the old fraction only when the ref isn't mounted.
+		const rawHalf = transportEl
+			? Math.round(transportEl.getBoundingClientRect().bottom - npRect.top)
+			: Math.round(npRect.height * 0.5);
+		// Keep ordering sane: half must sit between full(0) and closed.
+		// quick-260910-soj: measureOffsets must never READ the $state it writes. Computing into a
+		// local and assigning ONCE means no reactive caller can become self-invalidating through
+		// this function, and a converging re-measure hits Svelte's equality short-circuit on a
+		// single write (see the half-rest $effect below).
+		halfOffset = Math.max(20, Math.min(closedOffset - 20, rawHalf));
+	}
+
+	// NP-xx grip ghost-click fix: a TAP on the grip synchronously moves the sheet, and the browser's
+	// trailing compatibility click (fired after pointerup at the tap coordinates) lands on whatever
+	// element now sits under the finger — the play toggle (.play onclick) or the seek slider (.track
+	// onclick={seek}) — causing an unwanted play/pause or a seek-back. This one-shot suppressor swallows
+	// that trailing click. It mirrors the coverSwipe.ts trailing-click-suppressor idiom (coverSwipe.ts
+	// lines 89-118 / 188-200) with ONE load-bearing deviation: coverSwipe arms on the gesture NODE
+	// (setPointerCapture retargets the click to that node), but the grip's ghost click does NOT target
+	// the grip — it targets the unrelated element (.play / .track) that slid under the finger after the
+	// sheet moved. So the listener MUST be at WINDOW level, CAPTURE phase, to intercept the click before
+	// it reaches its real (unrelated) target. A node-level / bubble-phase listener could not catch it.
+	function disarmGripClickSuppressor() {
+		window.removeEventListener('click', suppressGripClick, true);
+		if (gripSuppressTimer !== null) {
+			clearTimeout(gripSuppressTimer);
+			gripSuppressTimer = null;
+		}
+	}
+	function suppressGripClick(e: MouseEvent) {
+		e.stopPropagation();
+		e.preventDefault();
+		disarmGripClickSuppressor();
+	}
+	function armGripClickSuppressor() {
+		// Drop any stale suppressor first (a prior tap's trailing click may never have fired).
+		disarmGripClickSuppressor();
+		window.addEventListener('click', suppressGripClick, true);
+		// WR-05 self-expiry: a touch tap often produces NO trailing click, so the suppressor must
+		// self-disarm after a 350ms safety window rather than linger and swallow a later real click.
+		gripSuppressTimer = setTimeout(disarmGripClickSuppressor, 350);
+	}
+
+	function gripDown(e: PointerEvent) {
+		e.stopPropagation();
+		// A new gesture drops a stale suppressor from a prior tap whose trailing click never fired
+		// (mirror coverSwipe down() stale-suppressor cleanup, lines 122-124).
+		disarmGripClickSuppressor();
+		gripActive = true;
+		subnavMoved = false;
+		gripStartY = e.clientY;
+		gripMoved = 0;
+		// Remember which subnav tab (if any) the gesture started on, so a TAP switches that
+		// tab with priority over the generic grip toggle. null = grip handle / empty nav area.
+		// WR-02: only buttons WITH data-tab count as tabs; a plain subnav button (e.g. the
+		// Clear-queue button) must act alone — its tap must NOT fall through to the generic
+		// grip toggle (Clear used to also snap the sheet to a different state).
+		const btn = (e.target as HTMLElement).closest('.subnav button[data-tab]') as HTMLElement | null;
+		gripStartTab = btn ? (btn.dataset.tab as Tab) : null;
+		gripStartPlainButton = !btn && !!(e.target as HTMLElement).closest('.subnav button');
+		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		if (snapTimer) clearTimeout(snapTimer);
+		gripVel.reset();
+		gripVel.sample(e.clientY, e.timeStamp);
+		measureOffsets();
+		sheetDragging = true;
+		sheetDragY = offsetFor(sheetState);
+	}
+	function gripMove(e: PointerEvent) {
+		if (!gripActive) return;
+		e.stopPropagation();
+		gripVel.sample(e.clientY, e.timeStamp);
+		gripMoved = e.clientY - gripStartY;
+		if (Math.abs(gripMoved) >= 8) subnavMoved = true;
+		const start = offsetFor(sheetState);
+		sheetDragY = Math.max(0, Math.min(closedOffset, start + gripMoved));
+	}
+	function gripUp() {
+		if (!gripActive) return;
+		gripActive = false;
+		if (Math.abs(gripMoved) < 8) {
+			// TAP → reset transient drag state regardless of branch taken below.
+			sheetDragging = false;
+			sheetDragY = 0;
+			if (gripStartTab) {
+				// Tap originated on a subnav item → switch to that tab (+ half-open from
+				// closed) with priority over the generic toggle.
+				selectTab(gripStartTab);
+				gripStartTab = null;
+				// selectTab() is invoked directly here, so suppress the trailing click to prevent both
+				// the tab button's own onclick double-firing AND a ghost click when closed→half moves
+				// the sheet and the transport slides under the finger.
+				armGripClickSuppressor();
+				return;
+			}
+			if (gripStartPlainButton) {
+				// WR-02: tap on a non-tab subnav button (e.g. Clear queue) — its own onclick
+				// acts alone; the generic grip toggle must NOT also change the sheet state.
+				gripStartPlainButton = false;
+				return;
+			}
+			// Tap on the grip handle / empty nav area → generic single step:
+			// closed→half, half→closed, full→half.
+			sheetState = sheetState === 'closed' ? 'half' : sheetState === 'full' ? 'half' : 'closed';
+			gripStartTab = null;
+			// The reported bug: this state reassignment moves the sheet, and the trailing compatibility
+			// click lands on the .play toggle / .track seek slider that slid under the finger. Suppress it.
+			armGripClickSuppressor();
+			return;
+		}
+		gripStartTab = null;
+		gripStartPlainButton = false;
+		let target: SheetState;
+		// FLICK → a fast pointer velocity steps ONE state in the flick direction, regardless
+		// of how far the finger travelled (down = toward closed, up = toward full), clamped at
+		// the ends. v > 0 = moving DOWN, v < 0 = moving UP.
+		const v = gripVel.velocity();
+		if (Math.abs(v) > FLICK_V) {
+			if (v > 0) {
+				// downward flick: full → half → closed (clamp)
+				target = sheetState === 'full' ? 'half' : 'closed';
+			} else {
+				// upward flick: closed → half → full (clamp)
+				target = sheetState === 'closed' ? 'half' : 'full';
+			}
+		} else {
+			// SLOW DRAG → snap to the nearest of {full,half,closed}, biased by drag direction so a
+			// deliberate swipe overshoots one state (up = toward full, down = toward closed).
+			const dir = gripMoved < 0 ? -1 : 1; // -1 = swiped up, +1 = swiped down
+			const bias = closedOffset * 0.12 * dir; // shift the decision point with the swipe
+			const pos = sheetDragY + bias;
+			const dHalf = Math.abs(pos - halfOffset);
+			const dFull = Math.abs(pos - 0);
+			const dClosed = Math.abs(pos - closedOffset);
+			if (dFull <= dHalf && dFull <= dClosed) target = 'full';
+			else if (dClosed <= dHalf && dClosed <= dFull) target = 'closed';
+			else target = 'half';
+		}
+		sheetDragY = offsetFor(target); // animate (transition on now that gripActive=false)
+		if (snapTimer) clearTimeout(snapTimer);
+		snapTimer = setTimeout(() => {
+			sheetState = target;
+			sheetDragging = false;
+			sheetDragY = 0;
+		}, 290);
+	}
+
+	// HB6 (restores the gcy half→closed tap, kept atop the gww closed→toggle): a sub-slop TAP on the
+	// cover dispatches on sheetState:
+	//   - `closed` → toggle play/pause via player.toggle() (the same API the transport `.play` button
+	//     uses); the closed cover doubles as a play/pause target.
+	//   - `half`   → collapse the sheet to `closed` (the gcy behavior, restored by user request).
+	//   - `full`   → NO-OP (unchanged).
+	// This onclick only ever fires on a genuine tap: coverSwipe never setPointerCaptures on pointerdown
+	// and arms a one-shot click suppressor on a committed swipe, so a committed carousel swipe does NOT
+	// replay this. No extra movement guard beyond the state check (sub-slop-tap-reaches-onclick invariant).
+	function tapCoverCollapse() {
+		if (sheetState === 'closed') player.toggle();
+		else if (sheetState === 'half') sheetState = 'closed';
+		// `full` is a no-op.
+	}
+	// quick-261116-dtap: the cover double-tap dive — same feedback contract as the
+	// Nowbar's (haptic tick via the settings-gated leaf, the action's .dtap-pulse on
+	// the cell, a toast naming the landing). The single-tap side stays tapCoverCollapse
+	// verbatim, deferred ≤260ms by the action for current-cell taps only.
+	async function coverRandom() {
+		hapticTick();
+		const r = await playRandomDiscovery();
+		if (!r) {
+			toast.show(t('home.unplayable'));
+			return;
+		}
+		if (r.kind === 'genre') toast.show(t('toast.dtapGenre', { genre: t(CHART_GENRE_LABEL[r.genre]) }));
+		else if (r.kind === 'local') toast.show(t('toast.dtapLocal'));
+		else toast.show(t('toast.dtapAny'));
+	}
+	// Keyboard parity for the cover's role="button" (Enter/Space) — mirrors the grip's gripKey idiom
+	// and satisfies the a11y click-needs-keydown rule. Inherits the closed→toggle / half→no-op behavior.
+	function tapCoverKey(e: KeyboardEvent) {
+		if (e.key !== 'Enter' && e.key !== ' ') return;
+		e.preventDefault();
+		tapCoverCollapse();
+	}
+
+	/** Grip keyboard step (Enter/Space): mirrors the TAP single-step. */
+	function gripKey(e: KeyboardEvent) {
+		if (e.key !== 'Enter' && e.key !== ' ') return;
+		e.preventDefault();
+		sheetState = sheetState === 'closed' ? 'half' : sheetState === 'full' ? 'half' : 'closed';
+	}
+
+	/** Subnav item tap: switch tab; open to half from closed. Suppressed if it was a drag. */
+	// quick-261102-t5k: WAI-ARIA tabs keyboard contract for the phone tablist — one tab stop (roving
+	// tabindex on the selected tab), Left/Right step (mirrored under RTL), Home/End jump. Selecting on
+	// arrow ("automatic activation") matches a tap: selectTab also opens the sheet from closed.
+	// transport-keys already yields arrows to role="tab", so prev/next never double-fires here.
+	const TAB_ORDER: Tab[] = ['queue', 'lyrics', 'comments', 'related', 'about'];
+	function tabKey(e: KeyboardEvent) {
+		const list = TAB_ORDER.filter((x) => x !== 'about' || canAbout);
+		const i = list.indexOf(tab);
+		const rtl = getComputedStyle(e.currentTarget as HTMLElement).direction === 'rtl';
+		const step = e.key === 'ArrowRight' ? (rtl ? -1 : 1) : e.key === 'ArrowLeft' ? (rtl ? 1 : -1) : 0;
+		let next: Tab | null = null;
+		if (step) next = list[(i + step + list.length) % list.length];
+		else if (e.key === 'Home') next = list[0];
+		else if (e.key === 'End') next = list[list.length - 1];
+		if (!next) return;
+		e.preventDefault();
+		selectTab(next);
+		(e.currentTarget as HTMLElement).querySelector<HTMLElement>(`[data-tab="${next}"]`)?.focus();
+	}
+
+	function selectTab(next: Tab) {
+		if (subnavMoved) {
+			subnavMoved = false;
+			return; // gesture was a drag on the subnav row — don't switch tabs
+		}
+		tab = next;
+		// quick-260926-nsz: not at >=1280px. There `closed` is the resting state with every column
+		// fully on screen (see upNextPaneOpen), so a tap on the wide Comments | Related toggle must
+		// switch the column, not move the sheet.
+		if (sheetState === 'closed' && !split) {
+			sheetState = 'half';
+		}
+	}
+
+	// Resting half reads halfOffset for its transform, but tap/keyboard paths enter half
+	// without going through measureOffsets() (only the drag path measures). Recompute the
+	// flush offset whenever the sheet rests in half (and on layout-affecting changes).
+	// SEPARATE from the back-gesture $effect above — measureOffsets() is idempotent and
+	// guards on null refs.
+	//
+	// BUG-2 ROOT CAUSE FIX: the .cover runs a 0.32s width/height/margin reflow when entering
+	// half/full. Measuring transportEl.bottom DURING that transition overshoots by the
+	// cover-shrink delta → a visible dead gap. So defer the measurement until the reflow has
+	// SETTLED: re-measure on the cover's transitionend (one-shot) AND via a double-rAF + a
+	// ~340ms timeout fallback for the cases where no transition fires (already-reflowed tap
+	// into half, or prefers-reduced-motion). All listeners/timers are torn down on cleanup so
+	// nothing leaks or fires after the sheet leaves half.
+	//
+	// quick-260910-soj SELF-INVALIDATION GUARD (cf. restore-effect-self-invalidation-loop):
+	// measureOffsets() WRITES halfOffset ($state). Called bare here, that write re-scheduled this
+	// effect (Svelte 5 self-invalidation), and during the .cover 0.32s reflow every re-run measured
+	// a different transportEl.bottom — so the write never settled and the flush hit
+	// effect_update_depth_exceeded, after which the component stopped processing effects entirely
+	// (user-visible: the Related tab stuck on "Loading related…" although its data had arrived).
+	// untrack() drops halfOffset/sheetEl/transportEl from this effect's deps; sheetState,
+	// sheetDragging and coverEl stay tracked via the direct reads above/below, and those refs are
+	// bound unconditionally at mount (before the sheet can be half), so no re-run is lost.
+	// The deferred onSettled calls run from transitionend/rAF/setTimeout tasks OUTSIDE any reaction,
+	// register no dependencies, and are deliberately NOT wrapped.
+	$effect(() => {
+		if (sheetState !== 'half' || sheetDragging) return;
+		// Measure immediately (best-effort) then again once the reflow settles for the flush value.
+		untrack(() => measureOffsets());
+		let raf1 = 0;
+		let raf2 = 0;
+		const onSettled = () => measureOffsets();
+		const cover = coverEl;
+		cover?.addEventListener('transitionend', onSettled, { once: true });
+		// double-rAF: wait two frames so layout has flushed, then re-measure.
+		raf1 = requestAnimationFrame(() => {
+			raf2 = requestAnimationFrame(onSettled);
+		});
+		// timeout fallback (> the 0.32s reflow) for when no transitionend fires at all.
+		const fallback = setTimeout(onSettled, 340);
+		return () => {
+			cover?.removeEventListener('transitionend', onSettled);
+			if (raf1) cancelAnimationFrame(raf1);
+			if (raf2) cancelAnimationFrame(raf2);
+			clearTimeout(fallback);
+		};
+	});
+
+</script>
+
+<!-- quick-261102-s5t: a <div>, not <section> — role="dialog" is invalid on a sectioning element. -->
+<div
+	class="np"
+	class:reflow={sheetState !== 'closed'}
+	class:fullshrink={sheetState == 'full'}
+	transition:fly={{ y: 600, duration: flyMs, easing: cubicOut }}
+	style:transform={dragY ? `translateY(${dragY}px)` : undefined}
+	style:transition={dragging ? 'none' : 'transform 0.28s cubic-bezier(.22,1,.36,1)'}
+	use:focusTrap
+	role="dialog"
+	aria-modal="true"
+	aria-label={t('nowplaying.nowPlaying')}
+>
+	<!-- NP-04: top running-line loader. The indeterminate variant ONLY (always `indet`, only
+	     the sliver — no determinate seek `<i style:width>`, that one is the Nowbar's seek progress).
+	     Reuses the nowbar's `np-prog indet` + `sliver` class names verbatim so it inherits the
+	     shared `np-indet` keyframe. Mounted as the FIRST child of `.np`, full-bleed under
+	     `env(safe-area-inset-top)`, above the cover and `.bar`. DEFAULT per 20-UI-SPEC §6:
+	     render in ALL sheet states (unconditional `{#if player.loading}`). The suppress-in-full
+	     fallback (`&& sheetState !== 'full'`) is NOT applied — no visual duplication with the
+	     embedded Nowbar's own `.np-prog` is expected (the Nowbar's bar sits at its own top edge
+	     inside the flow, while this loader is absolutely pinned to the notch-safe top of `.np`). -->
+	{#if player.loading}
+		<div class="np-top-loader np-prog indet"><i class="sliver motion-always"></i></div>
+	{/if}
+	{#if sheetState === 'full'}
+		<!-- mtv-followup: reuse the existing docked Nowbar as the sticky top bar when the
+		     subnav sheet is fully open. Same cover/title/artist/play layout as the
+		     bottom-of-screen mini-player; tapping it collapses the sheet (returns to the
+		     full Now Playing view, sheet closed). The lower header (.bar) is hidden by CSS
+		     so the underlying NP chrome doesn't leak through. -->
+		<Nowbar variant="embed" onOpen={() => { sheetState = 'closed'; sheetDragY = offsetFor('closed'); }} />
+	{/if}
+	<header class="bar">
+		<button class="icon" aria-label={t('nowplaying.collapse')} onclick={() => player.collapse()} use:tapBounce><ChevronDown /></button>
+		<!-- <span class="ctx">{t('nowplaying.nowPlaying')}</span> -->
+		<button class="icon" aria-label={t('nowplaying.options')} onclick={() => openMenu(player.current)} use:tapBounce><MoreVertical /></button>
+	</header>
+
+	<!-- Wrapping container so the whole top half of NP (cover + meta + prog + transport)
+	     accepts the swipe-down-to-collapse gesture. Slop-thresholded capture: a tap on any
+	     button/artist link inside still fires its click handler normally; only a clear
+	     vertical drag claims the gesture and translates the panel downward. -->
+	<div
+		class="np-top"
+		role="group"
+		aria-label={t('nowplaying.albumArt')}
+		onpointerdown={npTopDown}
+		onpointermove={npTopMove}
+		onpointerup={npTopUp}
+		onpointercancel={npTopUp}
+		style:transform={
+			(sheetDragging)
+				? `translateY(${gripMoved}px)`
+				: undefined
+		}
+	>
+	<!-- AXIS-ARBITRATION CONTRACT (D-05 / Pitfall 7 — the highest-risk interaction in v1.2):
+	     The cover region hosts THREE pointer paths that must NEVER both capture:
+	       • HORIZONTAL carousel — use:coverSwipe on `.cover-strip` (below). Owns the X axis. Arms on
+	         down WITHOUT setPointerCapture; commits + captures in pointermove ONLY after the 8px slop
+	         and |dx|>|dy| dominance check; yields (goes passive, no capture) on vertical dominance so
+	         a down-drag started on the cover flows up to npTopMove. touch-action: pan-y set by the
+	         action on attach so the browser hands it the X axis.
+	       • VERTICAL collapse — npTop*/.np-top wrapper (unchanged). Owns the Y axis. `.np-top` keeps
+	         touch-action: pan-x so the wrapper yields the horizontal pan to the action; npTopMove
+	         captures ONLY after `dy > DRAG_SLOP && |dy| > |dx|`, so it never steals a horizontal swipe.
+	       • TAP — the `.cover` onclick (tap-to-collapse-in-half, NP-03). A sub-slop tap reaches it
+	         because neither path captures on pointerdown; a committed swipe does NOT replay it because
+	         coverSwipe arms a one-shot capture-phase click suppressor on the strip (stops the bubble to
+	         `.cover`). NO extra movement guard is added beyond the sheetState check.
+	     Net: |dy|>|dx| past slop → vertical collapse; |dx|>|dy| past slop → carousel; sub-slop → tap. -->
+	{#if videoOn && canVideo}
+		<div class="cover video-cover">
+			<VideoStage videoId={player.current?.songid ?? ''} onclose={() => (videoOn = false)} />
+		</div>
+	{:else}
+	<div
+		class="cover"
+		onclick={tapCoverCollapse}
+		onkeydown={tapCoverKey}
+		role="button"
+		tabindex="0"
+		bind:this={coverEl}
+		aria-label={t('nowplaying.albumArt')}
+		style:transform={`scale(${coverScale.current})`}
+	>
+		<!-- Rigid 3-cell carousel strip: prev | current | next, neighbors flush against the current
+		     cell, 1:1 lockstep (no parallax/scale/fade — UI-SPEC §1). Neighbors sit flush off-screen
+		     and slide in mid-drag with no gutter; the committed neighbor lands centered.
+		     overflow:hidden clips the off-strip neighbor. The
+		     strip's resting transform is translateX(0) (current cell at left:0); coverSwipe translates
+		     it live, then settles the committed neighbor to center over 0.32s before the store swap
+		     re-derives the cells. No accent/color/glow on arm (UI-SPEC §3 — positional feedback only). -->
+		<div
+			class="cover-strip"
+			use:coverSwipe={playerSwipe(settings.swipePlayer, player.current, hasPrevNeighbor)}
+		>
+			<!-- quick-260629-nyl Task 1: the prev/next neighbor cells resolve their cover via the SAME
+			     use:lazyCover chain (Deezer→iTunes→CN) the Up-Next rows use, repainting through the shared
+			     resolvedCovers map (cellBg reads it first). Attach the action ONLY when the neighbor is
+			     non-null (an empty cell stays 'none'); the CURRENT cell is untouched (effectiveCover). -->
+			{#if prevCover}
+				<div class="cover-cell prev" use:lazyCover={{ track: prevCover, onResolved: onCoverResolved }} style:background-image={cellBg(prevCover)}></div>
+			{:else}
+				<div class="cover-cell prev" style:background-image="none"></div>
+			{/if}
+			<!-- quick-261116-dtap: use:doubleTap on the CURRENT cell only (Q6). It claims
+			     the cell's clicks in the capture phase: a single tap runs tapCoverCollapse
+			     deferred by ≤260ms (prev/next cell taps still reach .cover's onclick
+			     instantly), a double tap cancels it and dives (coverRandom). coverSwipe's
+			     committed-swipe suppressor sits on .cover-strip (an ancestor), so a swipe
+			     can never pair into a double; the keyboard path (tapCoverKey on .cover)
+			     never routes through the cell and stays instant. -->
+			<div
+				class="cover-cell cur"
+				use:doubleTap={{ onsingletap: tapCoverCollapse, ondoubletap: coverRandom }}
+			>
+				<!-- plan 003: the current cell crossfades its art on a non-swipe track change / late
+				     resolve. Two keyed layers stack at inset:0 and dissolve; the strip transform
+				     (coverSwipe) is on the parent .cover-strip and is unaffected. xfadeMs → 0 under
+				     reduce-motion, so it becomes an instant swap. -->
+				{#key effectiveCover}
+					<!-- quick-260920-nyq: DEAD ≠ MISSING. A CSS background-image has no error event and
+					     nothing painted underneath it, so a truthy-but-unloadable url (blocked host,
+					     404, expired CDN signature) painted the void — the reported "blank black
+					     block". D-12's gradient only fired on a NULL cover. The placeholder is now a
+					     LAYER, not a branch: the gradient sits under the image, so a failed load
+					     reveals the normal per-uid placeholder. `background-size`/`-position` are
+					     single values and already apply to both layers. -->
+					<div
+						class="cover-img"
+						in:fade={{ duration: xfadeMs }}
+						out:fade={{ duration: xfadeMs }}
+						style:background-image={effectiveCover ? `url(${effectiveCover}), ${fallbackCover(player.current)}` : fallbackCover(player.current)}
+					></div>
+				{/key}
+			</div>
+			{#if nextCover}
+				<div class="cover-cell next" use:lazyCover={{ track: nextCover, onResolved: onCoverResolved }} style:background-image={cellBg(nextCover)}></div>
+			{:else}
+				<div class="cover-cell next" style:background-image="none"></div>
+			{/if}
+		</div>
+	</div>
+	{/if}
+
+	<div class="meta">
+		<!-- {#key uid}: .title/.artist are single persistent nodes, so the marquee action would
+		     never re-measure on a track change (box width is unchanged). Re-keying remounts them
+		     per track → fresh measure AND drives the in:/out:fade crossfade (outgoing text fades
+		     out while incoming fades in; xfadeMs collapses to 0 under reduce-motion). .marquee-inner
+		     wraps the text so the GLOBAL transform-based marquee in app.css drives them (gmy unified
+		     the artist + NowPlaying drift onto one system). Genre/tag chips intentionally hidden
+		     (quick-260607-f4y). -->
+		{#key player.current?.uid}
+			<!-- quick-261010-npvol: the title row — the song name shares its row with the desktop
+			     volume control at the end, above the quality tag. -->
+			<div class="title-row">
+				<div class="title" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}>
+					<span class="marquee-inner">{player.current ? names.dnTitle(player.current.title, player.current.artist) : ''}</span>
+				</div>
+				{#if canVideo}
+					<!-- quick-261024-mv3: the MV toggle is an ICON in the title row (Hector's
+					     placement): its margin-left:auto parks it at the row's end — on mobile
+					     directly above the quality tag, on desktop immediately left of the
+					     volume control (the .np-vol auto margin yields via the ~ rule below). -->
+					<button class="mv-icon" class:on={videoOn} aria-pressed={videoOn} aria-label={t('nowplaying.watchVideo')} title={t('nowplaying.watchVideo')} onclick={() => (videoOn = !videoOn)} use:tapBounce>
+						<Clapperboard size={18} />
+					</button>
+				{/if}
+				{#if volDesktop}
+					<!-- Desktop volume: mute button + native range, mirroring the Nowbar's .np-vol
+					     (quick-260919-et3). Native input = keyboard/screen-reader support for free. -->
+					<div class="np-vol">
+						<button
+							class="np-volbtn"
+							aria-label={t(silent ? "nowbar.unmute" : "nowbar.mute")}
+							onclick={() => player.toggleMute()}
+							use:tapBounce
+						>
+							{#if silent}<VolumeX size={18} />{:else if player.volume < 0.5}<Volume1 size={18} />{:else}<Volume2 size={18} />{/if}
+						</button>
+						<input
+							class="np-volrange"
+							type="range"
+							min="0"
+							max="1"
+							step="0.01"
+							aria-label={t("nowbar.volume")}
+							value={player.muted ? 0 : player.volume}
+							oninput={(e) => player.setVolume(e.currentTarget.valueAsNumber)}
+						/>
+					</div>
+				{/if}
+			</div>
+			<!-- quick-260625-pzs-01: one tappable link PER artist name (split on connectors). The row
+			keeps use:marquee + the in:/out:fade crossfade; names are joined by an INERT ` · `
+			separator span (not a link). When there is a single name (the common case) exactly one
+			link renders with no separator — visually unchanged from before. -->
+			<div class="artist" use:marquee in:fade={{ duration: xfadeMs }} out:fade={{ duration: xfadeMs }}><span class="marquee-inner">{#each artistNames as name, i (name + i)}{#if i > 0}<span class="artist-sep" aria-hidden="true"> · </span>{/if}<button class="artist-link" use:tapBounce onclick={() => openArtistName(name)}>{names.dnArtist(name)}</button>{/each}</span>
+				
+			<!-- quick-260831-k5y: opt-in quality tag. OUTSIDE the {#key} block on purpose — the value
+					lands asynchronously after ensureTrackDetails, so it repaints in place rather than
+					remounting with the title/artist crossfade. Renders nothing at all when the track has
+					no tag, so an unresolved stub leaves no empty box.
+					quick-261102-srcpill: the SOURCE pill sits immediately BEFORE the quality pill in
+					the same right-hand cluster (.np-tags) — one wrapper, so the pair keeps the exact
+					spot the lone quality tag held at the row's end on desktop AND mobile. Each pill
+					keeps its own toggle: settings.showSourceTag / settings.showQualityTag. -->
+			{#if (settings.showSourceTag && sourceTag) || (settings.showQualityTag && qualityTag)}
+				<div class="np-tags">
+					{#if settings.showSourceTag && sourceTag}
+						<div class="quality-tag source-tag">{sourceTag}</div>
+					{/if}
+					{#if settings.showQualityTag && qualityTag}
+						<div class="quality-tag">{qualityTag}</div>
+					{/if}
+				</div>
+			{/if}
+			</div>
+		{/key}
+	</div>
+
+	{#if player.error}
+		<p class="np-error" role="alert">{tMaybeKey(player.error)}</p>
+	{/if}
+
+	<div class="prog">
+		<div
+			class="scrubber tip-host"
+			class:scrubbing
+			style:--scrub-frac={displayFrac}
+			role="slider"
+			tabindex="0"
+			aria-label={t('nowplaying.seek')}
+			aria-valuemin="0"
+			aria-valuemax="100"
+			aria-valuenow={Math.round(displayFrac * 100)}
+			aria-valuetext={`${fmtTime(displayTime)} / ${player.duration > 0 ? fmtTime(player.duration) : '--:--'}`}
+			onkeydown={seekKey}
+			use:scrub={{ onSeek: onScrubCommit, onPreview: onScrubPreview, onScrubEnd }}
+		>
+			<!-- quick-261008-keytip: focused arrows seek ±5s here; Shift+arrows seek ±5s globally
+			     (transport-keys.ts) — both badges, exactly those bindings, no invented keys. -->
+			<KeyTip label={t('nowplaying.seek')} keys={['← →', 'Shift ← →']} />
+			<div class="scrub-fill"></div>
+			<div class="scrub-knob"></div>
+		</div>
+		<div class="times">
+			<span>{fmtTime(displayTime)}</span>
+			<span>{player.duration > 0 ? fmtTime(player.duration) : '--:--'}</span>
+		</div>
+	</div>
+
+	{#if sleepTimer.active}
+		<!-- Full sleep-timer readout (D-07: now-playing shows the FULL mm:ss, end-of-track shows the
+		     label). Tappable → opens the SAME global sheet as the nowbar/track-menu (D-08). The .t /
+		     class:on idiom reads as active. -->
+		<div class="st-row">
+			<button class="t st-readout on" aria-label={t('menu.sleepTimer')} onclick={() => (sleepTimer.sheetOpen = true)} use:tapBounce>
+				<Moon size={16} />
+				{#if sleepTimer.mode === 'minutes'}{fmtTime(sleepTimer.remaining / 1000)}{:else}{t('timer.endOfTrack')}{/if}
+			</button>
+		</div>
+	{/if}
+
+	<div class="transport" bind:this={transportEl}>
+		<!-- quick-261008-keytip: hover key-tips on the three transport buttons. Badge strings are
+		     transport-keys.ts verbatim (Space / ← / →); the labels reuse each button's own
+		     aria-label t() key so no new i18n keys are needed. Hover-only via app.css
+		     `@media (hover: hover)` — nothing changes on touch. -->
+		<button class="t" class:on={currentLiked} aria-pressed={currentLiked} aria-label={currentLiked ? t('menu.liked') : t('menu.like')} onclick={toggleCurrentLike} use:tapBounce><Heart size={20} fill={currentLiked ? 'currentColor' : 'none'} /></button>
+		<button class="t tip-host" aria-label={t('nowplaying.previous')} onclick={() => player.prev()} use:tapBounce><SkipBack size={26} /><KeyTip label={t('nowplaying.previous')} keys={['←']} /></button>
+		<button class="play tip-host" aria-label={t('nowplaying.playPause')} onclick={() => player.toggle()} use:tapBounce>
+			<KeyTip label={t('nowplaying.playPause')} keys={['Space']} />
+			<span class="play-glyph" class:is-playing={player.playing} aria-hidden="true">
+				<span class="pg pg-play"><Play size={26} /></span>
+				<span class="pg pg-pause"><Pause size={26} /></span>
+			</span>
+		</button>
+		<button class="t tip-host" aria-label={t('nowplaying.next')} onclick={() => player.next()} use:tapBounce><SkipForward size={26} /><KeyTip label={t('nowplaying.next')} keys={['→']} /></button>
+		<!-- quick-260919-0mw (correction) — the download control takes REPEAT's slot. The original ask
+		     was "replace the shuffle button with download", but ii6 had already moved Shuffle into the
+		     TrackMenu kebab, so the first pass appended Download as a sixth item instead of replacing
+		     anything. What was meant: the row stays FIVE wide and Repeat is the control that yields the
+		     slot — it follows Shuffle into the kebab (TrackMenu `cycleRepeatMode`). That split is the
+		     right one on its own terms: Repeat is a set-and-forget MODE, Download is a per-song ACTION,
+		     so the per-song control belongs beside the other per-song control (Heart) and the two of
+		     them bracket the three real transport buttons.
+		     `persist` stays at its true default: this is a user-initiated download and SHOULD land in
+		     the offline blob store. `probe` stays FALSE by decision, not oversight — it would cost a
+		     resolve + a HEAD on every render of the now-playing view, and a format/size readout is not
+		     what was asked for here. -->
+		<span class="t-dl"><DownloadControl track={player.current} size={20}/></span>
+	</div>
+	</div>
+
+	<div
+		class="sheet"
+		class:half={sheetState === 'half'} 
+		class:full={sheetState === 'full'}		
+		class:dragging={sheetDragging}
+		bind:this={sheetEl}
+		style:transform={
+			(sheetDragging)
+				? `translateY(${gripMoved}px)`
+				: undefined
+		}
+		style:transition={
+			gripActive
+				? 'none'
+				: 'transform 0.28s cubic-bezier(.22,1,.36,1), inset 0.28s cubic-bezier(.22,1,.36,1)'
+		}
+		style:inset={sheetState === 'full' ? '0' : undefined}
+	>
+		<div class="grip" role="button" tabindex="0" aria-label={sheetState === 'closed' ? t('nowplaying.expandPanel') : t('nowplaying.collapsePanel')}
+			onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}
+			onkeydown={gripKey}>
+			<span class="handle"></span>
+		</div>
+
+		<!-- quick-260919-np3 — the tab bar at <1280px, UNCHANGED (the same three buttons, the same
+		     `data-tab` contract the grip's tap-to-switch reads, the same drag handlers). At >=1280px
+		     the three panes render side by side, so three buttons that switch nothing would be a lie;
+		     the block below replaces it with the SAME three labels as inert column headings, aligned
+		     to the column grid. Headings over hiding: three unlabelled lists is worse than one extra
+		     row of text, and the headings double as the drag surface the subnav already was (same
+		     pointer handlers), so the snap machine keeps working identically at every width. -->
+		<!-- quick-260926-nsz: the third wide heading is now a real Comments | Related toggle, so the
+		     row is no longer aria-hidden as a whole — only the two inert headings are. The toggle's
+		     buttons carry `data-tab`, so the existing grip machinery handles them unchanged: gripDown
+		     finds `.subnav button[data-tab]`, a TAP calls selectTab in gripUp and arms the click
+		     suppressor (so onclick does not double-fire; it stays for keyboard activation). Related
+		     stays the default at this width (`tab` was unused here, so it becomes the column selector
+		     for free, and a phone-to-desktop resize carries the choice across). -->
+		<!-- quick-260926-vdp: every tab (and inert heading) is a lucide icon; the translated label moved
+		     to aria-label + title (title only on the aria-hidden headings). The comment count is an
+		     overlay pill on the Comments icon. `data-tab` is unchanged, and `.closest()` resolves
+		     through the SVG child, so tap/drag tab switching is untouched. -->
+		{#if wide}
+			<div class="subnav heads" role="group"
+				onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
+				<button aria-hidden="true" tabindex="-1" title={t('nowplaying.upNext')}><ListMusic size={20} /></button>
+				<button aria-hidden="true" tabindex="-1" title={t('nowplaying.lyrics')}><MicVocal size={20} /></button>
+				<span class="pair">
+					<!-- quick-261102-s5t: the active column was class-only (visual); aria-pressed exposes it. -->
+					<button data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} aria-pressed={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
+					<button data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab !== 'comments' && tab !== 'about'} aria-pressed={tab !== 'comments' && tab !== 'about'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
+					{#if canAbout}
+						<button data-tab="about" aria-label={t('nowplaying.about')} title={t('nowplaying.about')} class:active={tab === 'about'} aria-pressed={tab === 'about'} onclick={() => selectTab('about')} use:tapBounce><Info size={20} /></button>
+					{/if}
+				</span>
+			</div>
+		{:else if mid}
+			<!-- quick-261115-inj: two-up heads — inert Up Next heading over the left column, the
+			     remaining tabs over the right one. `queue` is not a choice here (it is on screen), so
+			     a carried-over `queue` tab reads as Lyrics. -->
+			<div class="subnav heads two" role="group"
+				onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
+				<button aria-hidden="true" tabindex="-1" title={t('nowplaying.upNext')}><ListMusic size={20} /></button>
+				<span class="pair">
+					<button data-tab="lyrics" aria-label={t('nowplaying.lyrics')} title={t('nowplaying.lyrics')} class:active={tab === 'lyrics' || tab === 'queue'} aria-pressed={tab === 'lyrics' || tab === 'queue'} onclick={() => selectTab('lyrics')} use:tapBounce><MicVocal size={20} /></button>
+					<button data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} aria-pressed={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
+					<button data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab === 'related'} aria-pressed={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
+					{#if canAbout}
+						<button data-tab="about" aria-label={t('nowplaying.about')} title={t('nowplaying.about')} class:active={tab === 'about'} aria-pressed={tab === 'about'} onclick={() => selectTab('about')} use:tapBounce><Info size={20} /></button>
+					{/if}
+				</span>
+			</div>
+		{:else}
+			<!-- quick-261102-s5t: tablist/tab + aria-selected — the selected tab used to be conveyed by
+			     the `.active` class alone, so a screen reader heard five identical icon buttons. -->
+			<div class="subnav" role="tablist" tabindex="-1" onkeydown={tabKey}
+				onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
+				<button role="tab" id="np-tab-queue" aria-selected={tab === 'queue'} tabindex={tab === 'queue' ? 0 : -1} data-tab="queue" aria-label={t('nowplaying.upNext')} title={t('nowplaying.upNext')} class:active={tab === 'queue'} onclick={() => selectTab('queue')} use:tapBounce><ListMusic size={20} /></button>
+				<button role="tab" id="np-tab-lyrics" aria-selected={tab === 'lyrics'} tabindex={tab === 'lyrics' ? 0 : -1} data-tab="lyrics" aria-label={t('nowplaying.lyrics')} title={t('nowplaying.lyrics')} class:active={tab === 'lyrics'} onclick={() => selectTab('lyrics')} use:tapBounce><MicVocal size={20} /></button>
+				<button role="tab" id="np-tab-comments" aria-selected={tab === 'comments'} tabindex={tab === 'comments' ? 0 : -1} data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
+				<button role="tab" id="np-tab-related" aria-selected={tab === 'related'} tabindex={tab === 'related' ? 0 : -1} data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
+				{#if canAbout}
+					<button role="tab" id="np-tab-about" aria-selected={tab === 'about'} tabindex={tab === 'about' ? 0 : -1} data-tab="about" aria-label={t('nowplaying.about')} title={t('nowplaying.about')} class:active={tab === 'about'} onclick={() => selectTab('about')} use:tapBounce><Info size={20} /></button>
+				{/if}
+			</div>
+		{/if}
+
+		<!-- The pane prop lists live in snippets so the narrow (one-of-three) and wide (all three)
+		     branches below cannot drift apart — one definition, two call sites. -->
+		{#snippet upNextPane()}
+			<!-- upnext-no-scroll-to-current: `open` was `sheetState !== 'closed'` — written for the
+			     phone sheet, before quick-260919-np3 mounted this pane as a standing column at >=1280px.
+			     There sheetState stays 'closed' while the column is fully on screen, so the pane's
+			     scroll-to-current and cover-backfill effects never ran. Same `wide` flag NpLyrics
+			     used to receive (quick-260919-npfix Fix 3), folded into the one prop both gates read. -->
+			<NpUpNext
+				rows={upNextList}
+				startIndex={upNextStart}
+				{resolvedCovers}
+				open={upNextPaneOpen(split, sheetState)}
+				onMenu={openMenu}
+				onVersions={openVersionPicker}
+			/>
+		{/snippet}
+		{#snippet lyricsPane()}
+			<!-- quick-260926-m72: `wide` is no longer passed — the lyrics anchor is the same
+			     settings.lyricsAnchor percent in every sheet state on phone and desktop. -->
+			<NpLyrics {sheetState} />
+		{/snippet}
+		{#snippet relatedPane()}
+			<NpRelated {resolvedCovers} onMenu={openMenu} />
+		{/snippet}
+		{#snippet commentsPane()}
+			<NpComments />
+		{/snippet}
+		{#snippet aboutPane()}
+			<NpAbout />
+		{/snippet}
+
+		{#if wide}
+			<!-- >=1280px: Up Next | Lyrics | Related, all three at once. `grid-template-columns:
+			     1fr 1.4fr 1fr` gives lyrics ~41% of the row against ~29% each for the two track
+			     lists — enough extra for the thing you actually read, while keeping each list column
+			     at ~340px at 1280 (the rail eats 88px) and ~390px at 1440, comfortably clear of the
+			     ~310px that makes a cover+title+artist row cramped. Each column is its own `.panel`
+			     scroller, so they scroll independently and `.np`'s `overflow: hidden` keeps the page
+			     itself still. -->
+			<div class="cols">
+				<div class="panel">{@render upNextPane()}</div>
+				<div class="panel">{@render lyricsPane()}</div>
+				<!-- quick-260926-nsz: toggling unmounts NpRelated (one searchAll on toggle-back, the
+				     same cost as switching tabs on a phone — accepted). -->
+				<div class="panel">{#if tab === 'comments'}{@render commentsPane()}{:else if tab === 'about' && canAbout}{@render aboutPane()}{:else}{@render relatedPane()}{/if}</div>
+			</div>
+		{:else if mid}
+			<div class="cols two">
+				<div class="panel">{@render upNextPane()}</div>
+				<div class="panel">
+					{#if tab === 'comments'}{@render commentsPane()}
+					{:else if tab === 'related'}{@render relatedPane()}
+					{:else if tab === 'about' && canAbout}{@render aboutPane()}
+					{:else}{@render lyricsPane()}{/if}
+				</div>
+			</div>
+		{:else}
+			<div class="panel" role="tabpanel" aria-labelledby={`np-tab-${tab}`}>
+				{#if tab === 'queue'}{@render upNextPane()}
+				{:else if tab === 'lyrics'}{@render lyricsPane()}
+				{:else if tab === 'comments'}{@render commentsPane()}
+				{:else if tab === 'about' && canAbout}{@render aboutPane()}
+				{:else}{@render relatedPane()}{/if}
+			</div>
+		{/if}
+	</div>
+
+	<TrackMenu track={menuTrack} open={menuOpen} onclose={() => (menuOpen = false)} />
+
+	<!-- Gap 4 (26-10): ONE VersionPicker mount driven by the per-row trigger. `loading` is bound to the
+	     in-flight fetchVariants state so the sheet opens instantly with a spinner; onpick plays the chosen
+	     source's EXACT variant fresh (the user explicitly re-picked the source). -->
+	<VersionPicker
+		versions={pickerVersions}
+		target={pickerTarget ?? undefined}
+		open={pickerOpen}
+		loading={pickerLoading}
+		overlayId="versionpicker-page"
+		onclose={closeVersionPicker}
+		onpick={(v) => player.tapPlay(v)}
+	/>
+</div>
+
+<style>
+	/* quick-260611-fr9: top is intentionally FLUSH (0) — content starts at the very top with no
+	   gap above the header (.bar). The header and .np-top follow immediately, neither carries a
+	   top margin. Bottom safe-area inset is preserved; only the TOP is flush. */
+	.np { position: fixed; inset: 0; z-index: 50; background: var(--color-bg); display: flex; flex-direction: column; padding: 0 18px env(safe-area-inset-bottom); overflow: hidden; }
+	/* quick-260919-oc6 — at desktop the rail stays mounted while this sheet is open (the layout's
+	   `class:np-open` opts `.tabbar` back to display:flex there), so the sheet starts where the
+	   rail ends instead of covering it. Same token and same rule shape as `.nowbar:not(.embed)`
+	   in Nowbar.svelte, and 1024 is the existing rung (breakpoints.test.ts).
+	   `inset: 0` is stylesheet-only — the inline styles on the <section> are transform/transition
+	   — so this longhand override wins in the cascade. The sheet's own `style:inset` is on the
+	   inner `.sheet` and is unaffected. */
+	@media (min-width: 1024px) {
+		.np { inset-inline-start: var(--rail-w); } /* quick-261102-wl9: follows the rail in RTL */
+	}
+	/* NP-04: top running-line loader. .np-prog / .np-prog.indet / .sliver + the np-indet
+	   keyframe + reduced-motion override are copied byte-for-byte from Nowbar.svelte so the
+	   loader is visually identical to the nowbar's indeterminate bar. .np-top-loader pins it
+	   full-bleed at the notch-safe top edge of .np: top:env(safe-area-inset-top), left/right:0
+	   (padding on .np does not offset an absolutely-positioned child's left/right:0, so it
+	   spans the full width), z-index:60 sits above the cover and .bar (within the z-index:50
+	   .np) yet below any modal. */
+	/* Two-class selector so `top` wins over .np-prog's `top: 0` regardless of source order
+	   (equal-specificity single-class rules would let the later .np-prog override it). */
+	.np-top-loader.np-prog { top: env(safe-area-inset-top); z-index: 60; }
+	.np-prog {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 3px;
+		background: rgba(255, 255, 255, 0.12);
+	}
+	.np-prog > i {
+		display: block;
+		height: 100%;
+		background: var(--color-primary);
+		transition: width 0.25s linear;
+	}
+	.np-prog.indet {
+		overflow: hidden;
+	}
+	.np-prog.indet > i.sliver {
+		width: 35%;
+		transition: none;
+		animation: np-indet 1.1s ease-in-out infinite;
+	}
+	@keyframes np-indet {
+		0% {
+			transform: translateX(-110%);
+		}
+		100% {
+			transform: translateX(310%);
+		}
+	}
+	/* quick-260809-mvz: no reduced-motion gate on this rail — same call as the Nowbar copy it mirrors.
+	   The markup carries `.motion-always` (app.css's escape hatch) so the app's reduce-motion setting
+	   cannot freeze it, and the OS-pref 2.2s slowdown is gone so it runs at one speed everywhere. */
+	.bar { display: flex; align-items: center; justify-content: space-between; }
+	/* quick-261102-s5t: 38 -> 44px (DESIGN.md hit minimum); hover gated so touch never latches it. */
+	.icon { background: none; border: none; color: var(--color-text); cursor: pointer; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; }
+	@media (hover: hover) { .icon:hover { background: var(--color-surface-2); } }
+	/* The .np-top wrapper carries the drag-down gesture (slop-thresholded so clicks still
+	   fire). touch-action: pan-x leaves horizontal scrolling intact (none here, but
+	   defensive) while letting our pointer handlers own vertical motion. */
+	.np-top { touch-action: pan-x; }
+	.cover { position: relative; z-index: 1; width: min(72vw, 320px); height: auto; aspect-ratio: 1/1; margin: 4px auto; border-radius: 16px; overflow: hidden; background-size: cover; background-position: center; box-shadow: 0 18px 50px rgba(0,0,0,0.5); cursor: grab; transition: width 0.32s cubic-bezier(.22,1,.36,1), height 0.32s cubic-bezier(.22,1,.36,1), margin 0.32s cubic-bezier(.22,1,.36,1), border-radius 0.32s cubic-bezier(.22,1,.36,1); }
+	.cover:active { cursor: grabbing; }
+	/* quick-261024-vid1: the video stage takes the cover box (black letterbox inside);
+	   the toggle pill sits centred under the meta block. */
+	.video-cover { background: #000; cursor: default; }
+	/* quick-261024-mv3: the title-row MV icon — same 34px round hit target as .np-volbtn.
+	   Its auto left margin takes the row's free space; when the desktop volume follows,
+	   the volume's own auto margin must yield or the free space splits between them. */
+	/* quick-261102-s5t: 44px hit area; the -5px block margin keeps the title row at its old 34px
+	   height so the meta block does not grow. `.on` was `--color-accent`, which no theme defines, so
+	   it always painted the #e5484d fallback — a second accent. An on-state is the One Signal. */
+	.mv-icon { flex: none; margin-inline-start: auto; margin-block: -5px; background: none; border: none; color: var(--color-text-muted); width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; transition: background 0.12s ease, color 0.12s ease, transform 0.12s ease; }
+	@media (hover: hover) { .mv-icon:hover { background: var(--color-surface); color: var(--color-text); } }
+	.mv-icon:active { transform: scale(0.92); }
+	.mv-icon.on { color: var(--color-primary); }
+	.title-row .mv-icon ~ .np-vol { margin-inline-start: 0; }
+	/* NP-01 carousel: the rigid strip fills .cover and rests at translateX(0) (current cell visible).
+	   The commit-settle uses the cover-reflow personality (0.32s, same universal curve); coverSwipe
+	   overrides this to `none` while dragging (1:1 finger-follow), then restores it on release so the
+	   committed neighbor / spring-back animates. will-change keeps the slide smooth. */
+	.cover-strip { position: absolute; inset: 0; transition: transform 0.32s cubic-bezier(.22,1,.36,1); }
+	/* Each cell is exactly one cover wide and flush against its neighbors: prev is pushed one cover
+	   width to the left (-100%), current fills the box (0), next is pushed one cover width to the
+	   right (100%). Adjacent covers touch with no gutter between them.
+	   The gutter is purely positional — it is revealed as the strip slides under the 1:1 finger-follow
+	   (coverSwipe writes raw translateX(dx)); it never displaces the resting current cell at left:0, so
+	   a committed neighbor still lands perfectly centered after the store re-derives the cells. No
+	   parallax, no scale, no fade, no accent (UI-SPEC §1/§3). An absent neighbor → background-image
+	   'none' (a blank edge during the rubber-band, which never commits anyway). */
+	.cover-cell { position: absolute; top: 0; width: 100%; height: 100%; background-size: cover; background-position: center; }
+	.cover-cell.prev { left: -100%; }
+	.cover-cell.cur { left: 0; }
+	.cover-cell.next { left: 100%; }
+	/* plan 003: the current cell crossfades its art on a non-swipe track change / late resolve.
+	   Two keyed .cover-img layers stack at inset:0 and dissolve; overflow:hidden clips them to
+	   the cell so a mid-fade layer never bleeds over a neighbor. */
+	.cover-cell.cur { overflow: hidden; }
+	.cover-img { position: absolute; inset: 0; background-size: cover; background-position: center; }
+	/* Reduced motion (OS pref OR the app's :root[data-reduce-motion] setting, app.css): the carousel
+	   commit-settle / spring-back collapses to instant — the track still changes, only the slide
+	   animation is removed (UI-SPEC §1 reduced-motion row). The action restores `transition` inline on
+	   release; setting it to `none` here is overridden by that inline value during the active gesture
+	   but applies to the resting strip so the post-swap repaint does not animate. */
+	@media (prefers-reduced-motion: reduce) { .cover-strip { transition: none; } }
+	:global(:root[data-reduce-motion]) .cover-strip { transition: none; }
+	.meta { margin: 0px 0px 12px; transition: margin 0.32s cubic-bezier(.22,1,.36,1); display: flex; flex-direction: column; align-items: flex-start; gap: 0px; }
+	/* Reflow (sheet half/full): cover becomes a full-bleed YT-Music banner that the
+	   header overlaps at the top and the meta overlaps at the bottom. */
+	.np.reflow .cover { width: auto; aspect-ratio: auto; height: 30vh; margin: 0 -18px; border-radius: 0; }
+	.np.reflow .cover::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(180deg, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0) 28%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.35) 100%); }
+	.np.reflow .bar { position: absolute; top: 0; left: 18px; right: 18px; z-index: 2; }
+	.np.reflow .meta { position: relative; z-index: 2; margin-top: -1.8rem; }
+	/* quick-260910-tqw FLUSH HALF REST: in half the sheet is a STATIC flex item that simply
+	   follows .np-top in normal flow — `position: absolute` was removed in f251ed0 ("way better
+	   dragging ux") — so the ONLY thing between transport.bottom and sheet.top is .transport's
+	   margin-bottom. 76ade46 ("remove grip padding") moved the grip's 16px padding-top into that
+	   margin (10px -> 22px) so the CLOSED peek kept its spacing; that also pushed the half-open
+	   sheet 22px below the transport. Collapsing the margin here in .reflow makes half rest flush,
+	   leaves CLOSED at its 22px peek, and is moot in full (.np.fullshrink hides .transport).
+	   Inset-based designs — the inline style:inset, a CSS-var sheet top, a halfOffset-driven inset —
+	   are NO-OPS on a static element: that is why df3221d's inset-writing stub never changed
+	   anything, and why that whole path is deleted now. halfOffset / measureOffsets / the half-rest
+	   effect are untouched — they feed the grip snap-decision geometry (offsetFor -> sheetDragY),
+	   never the resting position; with the margin gone halfOffset now equals the real half top. */
+	.np.reflow .transport { margin-bottom: 0; }
+	/* lw9-followup: .title is now a solid theme-coloured pill, no need for the legibility
+	   text-shadow anymore. */
+
+	/* mtv-followup: sheet FULL state → reuse the docked Nowbar as a sticky top bar. The
+	   existing .bar/.cover/.meta/.prog/.transport are all hidden (Nowbar carries the same
+	   information in a single compact row) and the sheet starts below the bar so the queue
+	   never overlaps it. .fullshrink is a strict superset of .reflow so the overrides win. */
+	.np.fullshrink .bar,
+	.np.fullshrink .cover,
+	.np.fullshrink .meta,
+	.np.fullshrink .prog,
+	.np.fullshrink .transport,
+	.np.fullshrink .np-error { display: none; }
+	/* The embedded Nowbar sits in static flow at the top of .np. Reserve viewport below it for
+	   the absolute-positioned sheet so the top bar isn't painted over. The 76px = Nowbar height
+	   (var(--nowbar-h)) + .np's own padding-top (8px); pinned numerically here because .np.fullshrink
+	   adds no extra padding-top and the sheet is `position:absolute` with explicit inset. */
+	.np.fullshrink .sheet.full { inset: calc(var(--nowbar-h) + 4px) 0 0 0; }
+	/* .np.fullshrink :global(.nowbar.embed) { margin-bottom: 0px; } */
+	/* Title + Artist sit on top of the album cover (.reflow mode), so they need a solid box to
+	   stay legible against any cover. The box bg tracks the theme (`--color-bg` = near-black
+	   in dark / near-white in light) and the text colour inverts to match (`--color-text`),
+	   giving black-on-white in light theme + white-on-black in dark theme. `display: inline-block`
+	   sizes the pill to the text instead of stretching across the column. */
+	/* NP big title/artist use the dedicated --fs-np-* multipliers (separated from --fs-title /
+	   --fs-artist used by list pages). The base sizes diverge enough that one shared slider
+	   couldn't both raise the list rows AND keep NP balanced; two sliders solve it. */
+	.title { display: inline-block; max-width: 100%; vertical-align: bottom; background: var(--color-bg); color: var(--color-text); padding: 1px; font-size: calc(1.5rem * var(--fs-np-title, 1)); font-weight: 800; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	/* quick-261010-npvol: the title row — song name + desktop volume at the end, above the
+	   quality tag. .title keeps its marquee: flex:1 + min-width:0 lets it shrink inside the
+	   row so ellipsis/marquee keep measuring correctly (marquee re-measures on box-width
+	   change via ResizeObserver). .meta is align-items:flex-start, so the row needs width:100%. */
+	.title-row { display: flex; align-items: center; gap: 10px; width: 100%; }
+	/* quick-261010-soy8: the title's black bg was stretching full-width (flex:1 grew it).
+	   flex:0 stops the grow so the bg hugs the text; shrink still allows ellipsis. */
+	.title-row > .title { flex: 0 1 auto; min-width: 0; }
+	.title-row .np-vol { flex: none; margin-inline-start: auto; display: flex; align-items: center; gap: 6px;
+		/* quick-261010-soy8: visible bg for the volume control.
+		   quick-261102-s5t: was rgba(0,0,0,.55) — on the light theme that put the dark
+		   --color-text glyph on a dark pill. surface-2 follows every theme. */
+		background: var(--color-surface-2); padding: 6px 10px; border-radius: 999px; }
+	.np-volbtn { background: none; border: none; color: var(--color-text); width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; opacity: 0.85; transition: background 0.12s ease, transform 0.12s ease; }
+	.np-volbtn:hover { background: var(--color-surface); opacity: 1; }
+	.np-volbtn:active { transform: scale(0.92); }
+	/* appearance:none + explicit track/thumb: the two vendors disagree about everything else;
+	   the element stays a native range input, so keyboard arrows, Home/End and pointer
+	   capture keep working for free (same recipe as the Nowbar's .np-volrange). */
+	.np-volrange { -webkit-appearance: none; appearance: none; width: 90px; height: 4px; border-radius: 999px; background: color-mix(in srgb, var(--color-text-muted) 30%, transparent); cursor: pointer; } /* quick-261102-s5t: same muted-30% track as .scrubber; white 25% vanished on light */
+	.np-volrange::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--color-text); cursor: pointer; }
+	.np-volrange::-moz-range-thumb { width: 12px; height: 12px; border: none; border-radius: 50%; background: var(--color-text); cursor: pointer; }
+	.artist { display: flex; width: 100%; justify-content: space-between; align-items: center; background: transparent; border: none; padding: 1px; color: var(--color-text); font-size: calc(1rem * var(--fs-np-artist, 1)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	/* quick-260625-pzs-01: per-artist tappable link inside the .artist row. Carries the underline +
+	   pointer the old single .artist button had; the inert separator is non-interactive. */
+	.artist-link { background: none; border: none; padding: 0; color: inherit; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+	/* quick-261102-t5k: the separator's literal spaces collapsed ("周杰倫·Jay Chou"), so the gap is padding. */
+	.artist-sep { color: var(--color-text-muted); text-decoration: none; cursor: default; padding-inline: 0.35em; }
+	/* quick-260831-k5y: small muted pill under the artist row. Sized off the NP artist scale so
+	   it tracks the appearance settings, and always smaller than the artist line it sits below. */
+	.quality-tag { display: inline-block; margin-top: 4px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--color-border); color: var(--color-text-muted); font-size: calc(0.7rem * var(--fs-np-artist, 1)); font-weight: 600; letter-spacing: 0.02em; line-height: 1.5; white-space: nowrap; }
+	/* quick-261102-srcpill: the source+quality pill cluster at the artist row's end. The
+	   wrapper is the flex child the lone quality tag used to be (the row's space-between
+	   parks it right); inside, the source pill leads and the quality pill follows. */
+	.np-tags { display: flex; align-items: flex-start; gap: 6px; flex-shrink: 0; }
+	/* Marquee lives globally in app.css (transform-based .marquee-inner). The .title/.artist
+	   clips above + the use:marquee action + inner .marquee-inner span in the markup are the
+	   only per-file pieces — the global rule animates them. (gmy unified the drift.) */
+	.np-error { color: var(--color-danger-text); font-size: 0.8125rem; text-align: center; margin: 2px 2px 10px; }
+	.prog { margin: 4px 0; }
+	/* quick-261102-s5t: the global .scrubber is 14px tall — too small a thumb target for the
+	   page's main gesture. A transparent 44px band centred on the rail is part of the element, so
+	   use:scrub receives its pointerdowns unchanged. Scoped here, not in app.css, because the
+	   Nowbar's scrubber sits beside buttons this band would cover. 44px stops ~1px short of the
+	   artist row above (meta margin 12 + prog margin 4). */
+	.prog .scrubber::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 44px; transform: translateY(-50%); }
+	/* plan 002: the seek rail is now the shared global `.scrubber` (app.css) driven by
+	   use:scrub — the old local `.track`/`.fill`/`.knob` rules were removed. */
+	/* plan 006: tabular-nums so the ticking current-time readout never jitters horizontally. */
+	.times { display: flex; justify-content: space-between; font-size: 0.6875rem; color: var(--color-text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+	/* quick-260910-tqw: the bottom margin glides with the .cover/.meta reflow (byte-identical
+	   0.32s curve) instead of hitching at t=0; see .np.reflow .transport above. */
+	.transport { display: flex; align-items: center; justify-content: space-between; margin: 0px 4px 0; transition: margin 0.32s cubic-bezier(.22,1,.36,1); }
+	/* quick-261102-t5k: on a wide sheet space-between spread the five controls across the whole row
+	   (~1700px between Heart and Download at 1440). Capped + centred; the scrubber stays full width. */
+	@media (min-width: 1024px) { .transport { max-width: 420px; margin-inline: auto; } }
+	.t { background: none; border: none; color: var(--color-text); cursor: pointer; opacity: 0.85; display: grid; place-items: center; }
+	/* quick-261102-s5t: the transport buttons had no box — the hit area was the bare glyph (Heart
+	   ~20px). 44px minimum; scoped to .transport so the sleep-timer pill (.t too) keeps its size. */
+	.transport .t { min-width: 44px; min-height: 44px; border-radius: 50%; }
+	.t.on { color: var(--color-primary); opacity: 1; }
+	/* quick-260919-0mw: size the shared DownloadControl to its five `.t` siblings — it ships a 40×40
+	   list-row footprint with an 18px glyph and a muted colour, none of which match this row. The
+	   override lives HERE (scoped under .t-dl, :global to cross the child's style scope) rather than
+	   in DownloadControl.svelte, because five list-row call sites depend on its current look. */
+	/* quick-261103-npcenter: NO horizontal padding and the same 44px box as a `.t` button. The
+	   transport is space-between, so the play button centres only when the two side pairs are
+	   equal width: heart+prev = 44+44, next+download must be 44+44 too. The old `padding: 0 6px`
+	   made this slot 56px, dragging play 6px left of the centred grip below it (Hector's
+	   screenshot 2026-11-03; the same asymmetry c366f48 fixed in 2026-10 and the s5t hit-area
+	   pass reintroduced). */
+	.t-dl { display: grid; place-items: center; min-width: 44px; min-height: 44px; }
+	.t-dl :global(.dc) { width: auto; height: auto; min-width: 44px; min-height: 44px; color: var(--color-text); opacity: 0.85; }
+	.t-dl :global(.dc svg) { width: 20px; height: 20px; }
+	.t-dl :global(button.dc:hover) { background: none; color: var(--color-text); }
+	/* The downloaded/unavailable states keep their own meaning — only the neutral idle colour moved. */
+	.t-dl :global(.dc.downloaded) { opacity: 0.4; }
+	.t-dl :global(.dc.unavailable) { color: var(--color-danger-text); opacity: 1; }
+	.st-row { display: flex; justify-content: center; margin: 2px 4px 0; }
+	.st-readout { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; font-size: 0.8125rem; font-variant-numeric: tabular-nums; background: var(--color-surface); }
+	.play { width: 62px; height: 62px; border-radius: 50%; border: none; background: #fff; color: #000; cursor: pointer; display: grid; place-items: center; }
+	/* quick-261102-s5t: a white disc on the #f7f7fa light floor has ~1.07:1 edge contrast. The
+	   hero's job is "brightest-contrast thing on screen", so on light it inverts to a dark disc. */
+	:global(:root[data-theme='light']) .play { background: var(--color-text); color: var(--color-bg); }
+	.sheet { display: flex; flex-direction: column; flex: 1; min-height: 0; user-select: none; -webkit-user-select: none; }
+	.sheet.full {
+    /* position: absolute; */
+    inset: 0;
+    z-index: 5;
+    background: var(--color-bg);
+		/* margin-top: 68px; */
+	}
+
+	/* Half-open: sheet occupies the real area below the transport row, no transform hack.
+	   quick-260910-tqw: static since f251ed0 (the commented-out `position: absolute` below is that
+	   decision's record, kept on purpose), so `inset` cannot move this element — the CSS-var sheet-top
+	   fallback and the JS that wrote it were inert and are gone. The flush rest now comes from
+	   `.np.reflow .transport { margin-bottom: 0 }`. */
+	.sheet.half {
+		/* position: absolute; */
+		z-index: 5;
+		background: var(--color-bg);
+		padding: 0px 0px env(safe-area-inset-bottom);
+		margin-top: 0px;
+		box-sizing: border-box;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+	}
+
+	/* Ensure the panel takes all available height in half/full so lyrics/queue scroll normally */
+	.sheet.half .panel,
+	.sheet.full .panel {
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		overscroll-behavior-y: contain;
+	}
+	.grip { display: flex; justify-content: center; padding: 0px; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+	.grip:active { cursor: grabbing; }
+	.handle { width: 44px; height: 5px; border-radius: 999px; background: var(--color-text-muted); opacity: 0.6; margin-top: 8px; }
+	.subnav { display: flex; justify-content: space-around; padding-bottom: 6px; touch-action: none; user-select: none; -webkit-user-select: none; }
+	.subnav button { position: relative; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; color: var(--color-text-muted); font-size: 0.8125rem; min-height: 44px; padding: 8px 12px; /* quick-261102-t5k: 40 -> 44 */ cursor: pointer; border-bottom: 2px solid transparent; }
+	.subnav button.active { color: var(--color-text); border-bottom-color: var(--color-primary); }
+	.subnav .count { position: absolute; top: 2px; inset-inline-end: 0; line-height: 1.2; padding: 1px 6px; border-radius: 999px; background: var(--color-surface); color: var(--color-text-muted); font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
+	/* NP-02: contain over-scroll/bounce to the panel edges so half-open scroll never chains to
+	   the page behind the sheet. NO touch-action: none — the panel keeps its pan-y scroll (the
+	   browser owns vertical scrolling here). iOS <16 lacks overscroll-behavior support, so it is
+	   best-effort there; no JS scroll-lock workaround is added in this phase. */
+	/* quick-260615-mnr: disable CSS scroll-anchoring. The Up-Next queue is a keyed {#each}
+	   on track.uid; every queue mutation (track advance moving the played song to history,
+	   removeFromQueue, retryUnplayable, reorder) adds/removes/reorders rows ABOVE the fold,
+	   changing height above the viewport. With the default `overflow-anchor: auto` the browser
+	   re-pinned scroll to an anchor node — the visually-distinct `.row.playing` row — yanking it
+	   back into view on every change so the user couldn't freely scroll the queue. The lyrics tab
+	   does its own explicit `container.scrollTo(...)` (it never relies on anchoring), and the
+	   related tab doesn't auto-scroll, so disabling anchoring here is safe for all three tabs. */
+	.panel { flex: 1; overflow-y: auto; overscroll-behavior-y: contain; overflow-anchor: none; }
+	/* quick-261102-t5k: keyboard focus in --color-focus (>=3:1 on every theme) instead of the UA ring,
+	   across the overlay and the child panes (hence :global under the scoped .np). */
+	.np :global(:focus-visible) { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+	/* quick-260919-np3: the row / lyric / skeleton rules that used to live here moved into
+	   NpUpNext.svelte, NpLyrics.svelte and NpRelated.svelte with the markup they style — Svelte
+	   scopes styles per component, so a rule cannot stay behind once its element leaves. `.panel`
+	   above stays, because the scroll container is still the parent's element (and both the lyrics
+	   anchor `$effect` and the Up-Next scroll-to-current still find it via `.closest('.panel')`).
+
+	   >=1280px three-up. `.cols` REPLACES the single `.panel` (it is not a wrapper around it), so
+	   every `.panel` rule above — including the `.sheet.half .panel` / `.sheet.full .panel`
+	   flex/overflow pair — applies unchanged to each of the three columns, which is what makes them
+	   scroll independently for free. `min-height: 0` on both the grid and its children is the part
+	   that actually keeps the page still: without it a long lyric column would blow the flex row out
+	   past `.np` instead of scrolling inside its own box.
+
+	   The 1fr/1.4fr/1fr ratio and the 1280 rung are argued at the `wide` declaration in the script.
+	   Equal-height stretch (the grid default) is why an empty or mid-fetch pane cannot collapse its
+	   column or shift its neighbours: the track lists never see the Related column's content at all,
+	   and the column box is sized by the grid row, not by what is in it. */
+	.cols {
+		display: grid;
+		grid-template-columns: 1fr 1.4fr 1fr;
+		gap: 18px;
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+	}
+	.cols > .panel { min-height: 0; padding: 0 4px; }
+	/* Column headings at >=1280px: the same three labels the tab bar carried, laid on the SAME grid
+	   as the columns below so each sits over its own list. The first two are inert (aria-hidden)
+	   because the lists they name are on screen; the third is the Comments | Related toggle
+	   (quick-260926-nsz). */
+	.subnav.heads {
+		display: grid;
+		grid-template-columns: 1fr 1.4fr 1fr;
+		gap: 18px;
+		padding: 0 4px 8px;
+		touch-action: none;
+		user-select: none;
+		-webkit-user-select: none;
+	}
+	/* quick-260926-nsz: replaces a dead span-selector rule here (the heads were always <button>s).
+	   The pair's buttons inherit `.subnav button` / `.active` like the phone tabs. */
+	.subnav.heads .pair { display: flex; justify-content: center; gap: 2px; }
+	/* quick-261115-inj: the two-up rung (768–1279) — same grid, one fewer column. */
+	.cols.two,
+	.subnav.heads.two { grid-template-columns: 1fr 1.4fr; }
+</style>

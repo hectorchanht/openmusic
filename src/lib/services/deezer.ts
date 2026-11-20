@@ -1,0 +1,512 @@
+// deezer — the thin, never-throws Deezer cover client (quick-260606-wv8, WV8-01).
+//
+// Deezer becomes the PRIMARY cover source for home discovery tiles (it has far stronger
+// Western + decent CN album-cover coverage and — unlike Last.fm — real artist-picture
+// coverage). This module ONLY builds the search URL and does a bounded fetch through
+// the OWN-ORIGIN proxy /api/deezer/search. It does NOT call api.deezer.com directly: the
+// browser fetch to Deezer is CORS-blocked (api.deezer.com sends no Access-Control-Allow-Origin),
+// so the request MUST go through the edge proxy (which also gives caching + posture parity).
+//
+// POSTURE (mirrors the prior never-throws cover client this supersedes):
+//  - Every network path NEVER throws: a non-ok response / { cover:null } / malformed JSON /
+//    abort / any throw all return null. A null → the caller leaves the gradient (never a broken
+//    image, never blocks first paint — callers fire this post-paint, capped + cached).
+//  - WR-03 / T-17-13 cache posture: only SUCCESSFUL responses are cached. Failures (non-ok,
+//    timeout, caller abort, malformed JSON) REJECT inside the cached() factory — never stored —
+//    and are mapped to the null/[] sentinel OUTSIDE the cache, so the next call retries instead
+//    of pinning "no result" for the 7d/6h TTL.
+//  - The resolved value is a plain URL string consumed ONLY as an `<img src>` ATTRIBUTE
+//    downstream (never a CSS url()); the proxy already host-allow-listed it to https *.dzcdn.net.
+//  - NO secret/key/PII crosses the boundary (Deezer search is public); NO new env var, NO new
+//    npm dependency (plain fetch + URL + URLSearchParams).
+//  - Every call is bounded by AbortSignal.timeout(FETCH_TIMEOUT_MS) AND honors a caller signal
+//    (short-circuits to null immediately if the caller's signal is already aborted), so a
+//    slow/hung response can never pile up against the CAP=3 + total-max backfill pool.
+
+import { cached } from './ttl-cache';
+import { apiFetch } from './api-base';
+import { combinedSignal as combineWithTimeout } from './abort-signal';
+
+const PROXY_PATH = '/api/deezer/search';
+const CHART_PATH = '/api/deezer/chart';
+const RELATED_PATH = '/api/deezer/related';
+const RADIO_PATH = '/api/deezer/radio';
+const ALBUM_TRACKS_PATH = '/api/deezer/album-tracks';
+// Phase 17, ENRICH-04 — artist/album info enrichment proxy paths.
+const ARTIST_PATH = '/api/deezer/artist';
+const ALBUM_PATH = '/api/deezer/album';
+// Phase 23, ART-01 / D-19 — artist-albums LIST proxy (each album carries nb_tracks natively).
+const ARTIST_ALBUMS_PATH = '/api/deezer/artist-albums';
+const FETCH_TIMEOUT_MS = 6000;
+
+/** This module's calls all share one deadline — bind it once so every call site stays
+ *  `combinedSignal(signal)` and the timeout is named in exactly one place. */
+const combinedSignal = (caller?: AbortSignal) => combineWithTimeout(FETCH_TIMEOUT_MS, caller);
+// k3y client-side TTLs (longer per lry-followup: a music app's catalogue + cover data is
+// stable for days, and the same-session repeat hit pattern dominates the network surface).
+// Covers basically never change for an existing track; search rankings drift slowly; related
+// + chart change daily but the visible UX cost of a half-day-old chart is zero.
+const TTL_COVER = 7 * 24 * 60 * 60 * 1000; // 7d — covers are effectively immutable for an existing release
+const TTL_SEARCH = 6 * 60 * 60 * 1000;     // 6h — search/related rankings drift slowly
+const TTL_RELATED = 6 * 60 * 60 * 1000;
+// Phase 17 — artist/album info is stable (mirror TTL_COVER's 7d posture).
+const TTL_ARTIST = 7 * 24 * 60 * 60 * 1000;
+
+/** quick-261020-batch4: single-homed — these mirrored the proxy's interfaces (drift-prone by
+ *  admission). The canonical declarations live in $lib/proxy/deezer-cover; this module re-exports
+ *  DeezerHit (imported by autocomplete + search page) and uses DeezerCover internally.
+ *  quick-261101-chk: the re-export alone never brought the names into THIS module's scope —
+ *  the internal annotations below need the matching `import type` (svelte-check baseline fix). */
+import type { DeezerCover, DeezerHit } from '$lib/proxy/deezer-cover';
+import { isCoverOf } from '$lib/services/song-variant';
+
+/** quick-261102-tdc: how many hits a song-cover lookup scans through the identity gate. */
+const COVER_CANDIDATES = 5;
+export type { DeezerCover, DeezerHit } from '$lib/proxy/deezer-cover';
+
+/** Chart item shapes (mirror the /api/deezer/chart +server.ts reshape + lastfm Discovery* shapes). */
+export interface DeezerChartTrack {
+	artist: string;
+	title: string;
+	image: string | null;
+	mbid: null;
+}
+export interface DeezerChartArtist {
+	name: string;
+	image: string | null;
+	mbid: null;
+}
+export interface DeezerChartResult {
+	tracks: DeezerChartTrack[];
+	artists: DeezerChartArtist[];
+}
+
+const EMPTY_CHART: DeezerChartResult = { tracks: [], artists: [] };
+
+/**
+ * Fetch the Deezer top-tracks + top-artists chart through the OWN-ORIGIN proxy. Each item
+ * carries its cover/picture NATIVELY (no per-tile backfill), so this is the PRIMARY home
+ * top-hits + top-artists source. Never throws: any non-ok / abort / timeout / malformed JSON
+ * returns { tracks: [], artists: [] } so the caller falls back to the Last.fm chart.
+ *
+ * WR-03 / T-17-13: the failure→sentinel mapping lives OUTSIDE cached() — a transient failure
+ * REJECTS inside the factory (so it is never cached; the next call retries) and only the
+ * `.catch` maps it to the empty sentinel for the caller.
+ */
+export async function deezerChart(limit = 18, signal?: AbortSignal): Promise<DeezerChartResult> {
+	if (signal?.aborted) return EMPTY_CHART;
+	return cached(`dz:chart:${limit}`, TTL_RELATED, async () => {
+		const url = `${CHART_PATH}?${new URLSearchParams({ limit: String(limit) }).toString()}`;
+		const res = await apiFetch(url, { signal: combinedSignal(signal) }); // governed; abort/timeout REJECT
+		if (!res.ok) throw new Error(String(res.status));
+		const data = (await res.json()) as Partial<DeezerChartResult>;
+		return { tracks: data.tracks ?? [], artists: data.artists ?? [] };
+	}).catch(() => EMPTY_CHART);
+}
+
+/**
+ * Deezer's per-genre top tracks (39-D-16) through the same own-origin proxy
+ * (`/api/deezer/chart?genre={id}&limit=50`). Western genre shelves read this. Same WR-03 posture
+ * as deezerChart: failures REJECT inside cached() (never stored) and map to [] outside it. An empty
+ * list rejects too — the route answers `{ tracks: [] }` with a 200 when Deezer failed, and memoising
+ * that would pin a blank genre shelf for 6 h.
+ */
+export async function deezerGenreChart(genreId: number, signal?: AbortSignal): Promise<DeezerChartTrack[]> {
+	if (signal?.aborted) return [];
+	return cached(`dz:chart:g${genreId}`, TTL_RELATED, async () => {
+		const url = `${CHART_PATH}?${new URLSearchParams({ genre: String(genreId), limit: '50' }).toString()}`;
+		const res = await apiFetch(url, { signal: combinedSignal(signal) }); // governed; abort/timeout REJECT
+		if (!res.ok) throw new Error(String(res.status));
+		const data = (await res.json()) as Partial<DeezerChartResult>;
+		if (!data.tracks?.length) throw new Error('empty chart');
+		return data.tracks;
+	}).catch(() => []);
+}
+
+/**
+ * Build the OWN-ORIGIN proxy URL for a search `term`. The term is encoded via URLSearchParams
+ * (no raw spaces / special chars leak into the query). Points at /api/deezer/search — NEVER
+ * api.deezer.com (the browser fetch to Deezer is CORS-blocked, so it must be proxied).
+ */
+export function buildDeezerSearchUrl(term: string, limit?: number): string {
+	const params = new URLSearchParams({ q: term });
+	if (limit && limit > 1) params.set('limit', String(limit));
+	return `${PROXY_PATH}?${params.toString()}`;
+}
+
+/**
+ * Combine the caller's AbortSignal (if any) with a per-call timeout so a hung request always
+ * settles. Uses AbortSignal.any when available, else falls back to the timeout signal alone
+ * (still bounded — the caller's pre-fetch `aborted` check short-circuits the common case).
+ *
+ * quick-260831-re9: EXPORTED so musicbrainz.ts reuses the identical bounding rule rather than
+ * carrying a second copy of it. Same timeout, same fallback.
+ */
+
+/**
+ * Bounded GET of the proxy → the parsed { cover, artistPicture } reshape. THROWS on a non-ok
+ * response, malformed JSON, abort/timeout, or network failure (WR-03 / T-17-13): a transient
+ * failure must REJECT inside cached() so the sentinel is never pinned for the TTL — the
+ * exported callers map the rejection to null OUTSIDE the cache.
+ */
+async function fetchDeezerOrThrow(term: string, signal?: AbortSignal, limit?: number): Promise<DeezerCover> {
+	const res = await apiFetch(buildDeezerSearchUrl(term, limit), { signal: combinedSignal(signal) });
+	if (!res.ok) throw new Error(String(res.status));
+	return (await res.json()) as DeezerCover;
+}
+
+/**
+ * quick-261006-o9t (cover-bandwidth): downsize a Deezer cover URL one rung, client-side.
+ * Deezer serves every cover in several baked sizes selected by the `<WxH>-` token in the
+ * path (`…/images/cover/<md5>/1000x1000-000000-80-0-0.jpg`); swapping the token asks the CDN
+ * for the smaller file with no extra request and no proxy change (~208 KB → ~73 KB measured
+ * for the same art, §C.13). DEFENSIVE like upgradeArtwork: only swaps when the `1000x1000-`
+ * token is present, otherwise returns the URL unchanged. Empty / blank → null.
+ */
+export function downsizeDeezerCover(url: string | null | undefined): string | null {
+	const clean = (url ?? '').trim();
+	if (!clean) return null;
+	return clean.includes('1000x1000-') ? clean.replace('1000x1000-', '500x500-') : clean;
+}
+
+/**
+ * Resolve a song album cover via the Deezer proxy for `${artist} ${title}`. Returns the cover
+ * URL or null on any miss/abort/throw (never throws). Only a SUCCESSFUL response is cached
+ * (a genuine `{ cover: null }` answer included); a transient failure rejects inside cached()
+ * and is mapped to null outside, so the next call retries (WR-03 / T-17-13).
+ *
+ * `prefer` selects the size rung: `'xl'` (default) keeps the historic cover_xl-first 1000px
+ * byte-identical for the share carrier; `'big'` downsizes to the 500px variant for inline
+ * display surfaces (quick-261006-o9t). The cache key carries the rung so the two never read
+ * each other's bytes — `'xl'` keeps the legacy key.
+ */
+export async function deezerSongCover(
+	artist: string,
+	title: string,
+	signal?: AbortSignal,
+	prefer: 'xl' | 'big' = 'xl'
+): Promise<string | null> {
+	if (signal?.aborted) return null;
+	const term = `${artist ?? ''} ${title ?? ''}`.trim();
+	if (!term) return null;
+	// k3y client cache: memo the resolved cover so repeat lookups skip the edge round-trip.
+	const key = prefer === 'big' ? `dz:cover:song:500:${term}` : `dz:cover:song:${term}`;
+	return cached(key, TTL_COVER, async () => {
+		// quick-261102-tdc (DECISIONS.md §6): scan a few hits through THE cover identity gate
+		// (song-variant isCoverOf) instead of trusting data[0] — the first hit for
+		// "高爾宣 OSN Without You (Explicit)" was a stranger's "Without you".
+		const result = await fetchDeezerOrThrow(term, signal, COVER_CANDIDATES);
+		const song = { artist: artist ?? '', title: title ?? '' };
+		const cover = (result?.results ?? []).find((h) => h.cover && isCoverOf(song, h))?.cover ?? null;
+		return prefer === 'big' ? downsizeDeezerCover(cover) : cover;
+	}).catch(() => null);
+}
+
+/**
+ * Resolve an artist picture via the Deezer proxy for the artist name. Returns the artist
+ * picture URL or null on any miss/abort/throw (never throws). Deezer (unlike Last.fm)
+ * carries a real artist picture, so this is the artist-tile cover source. Transient
+ * failures are never cached (WR-03 / T-17-13). `prefer` selects the size rung (same
+ * contract as deezerSongCover).
+ */
+export async function deezerArtistCover(
+	artist: string,
+	signal?: AbortSignal,
+	prefer: 'xl' | 'big' = 'xl'
+): Promise<string | null> {
+	if (signal?.aborted) return null;
+	const term = (artist ?? '').trim();
+	if (!term) return null;
+	const key = prefer === 'big' ? `dz:cover:artist:500:${term}` : `dz:cover:artist:${term}`;
+	return cached(key, TTL_COVER, async () => {
+		// quick-261102-tdc (DECISIONS.md §6): artistPicture belongs to the TOP hit's artist — accept it
+		// only when that artist IS the requested one (THE cover identity gate, artist-only).
+		const result = await fetchDeezerOrThrow(term, signal, COVER_CANDIDATES);
+		const top = result?.results?.[0];
+		const pic = top && isCoverOf({ artist: term, title: '' }, { artist: top.artist }) ? (result?.artistPicture ?? null) : null;
+		return prefer === 'big' ? downsizeDeezerCover(pic) : pic;
+	}).catch(() => null);
+}
+
+/**
+ * Search Deezer for top-N normalized hits (quick-260607-jau). Used for cross-source dedupe
+ * signals + metadata enrichment. Returns [] on miss/abort/throw (never throws). The proxy
+ * caps `limit` to [1,25].
+ */
+export async function deezerSearchTopN(
+	term: string,
+	limit = 10,
+	signal?: AbortSignal
+): Promise<DeezerHit[]> {
+	if (signal?.aborted) return [];
+	const clean = (term ?? '').trim();
+	if (!clean) return [];
+	// k3y client cache: key by (term, limit). Repeat callers (dedupe-deezer hot path) skip
+	// the network entirely for an hour. WR-03: a transient failure rejects inside cached()
+	// (never pinned for the TTL) and maps to [] outside, so the next call retries.
+	return cached(`dz:search:${clean}|${limit}`, TTL_SEARCH, async () => {
+		const url = `${PROXY_PATH}?${new URLSearchParams({ q: clean, limit: String(limit) }).toString()}`;
+		const res = await apiFetch(url, { signal: combinedSignal(signal) }); // governed; abort/timeout REJECT
+		if (!res.ok) throw new Error(String(res.status));
+		const data = (await res.json()) as DeezerCover;
+		return data.results ?? [];
+	}).catch(() => [] as DeezerHit[]);
+}
+
+/**
+ * Fetch related artists (by name) via Deezer's `artist/{id}/related` endpoint, proxied as
+ * `/api/deezer/related?artist=…&limit=…`. Returns the cleaned name list, or [] on
+ * miss/abort/throw. Used as a fallback for similar.ts when LASTFM_KEY is absent / Last.fm
+ * returns empty (quick-260607-jau).
+ */
+export async function deezerRelatedArtists(
+	artist: string,
+	limit = 8,
+	signal?: AbortSignal
+): Promise<string[]> {
+	if (signal?.aborted) return [];
+	const clean = (artist ?? '').trim();
+	if (!clean) return [];
+	// WR-03: failure rejects inside cached() (never pinned) → [] outside (retry next call).
+	return cached(`dz:related:${clean}|${limit}`, TTL_RELATED, async () => {
+		const url = `${RELATED_PATH}?${new URLSearchParams({ artist: clean, limit: String(limit) }).toString()}`;
+		const res = await apiFetch(url, { signal: combinedSignal(signal) }); // governed; abort/timeout REJECT
+		if (!res.ok) throw new Error(String(res.status));
+		const data = (await res.json()) as { artists?: string[] };
+		return Array.isArray(data?.artists) ? data!.artists! : [];
+	}).catch(() => [] as string[]);
+}
+
+/** One {artist,title,image} pair from Deezer's artist radio (the /api/deezer/radio reshape). */
+export interface DeezerRadioPair {
+	artist: string;
+	title: string;
+	image?: string;
+}
+
+/**
+ * Deezer artist RADIO — a ready-made taste-based track list in ONE call
+ * (debug/upnext-diverse-fallback-kuwo-dead, 2026-08-31).
+ *
+ * Used by similar.ts as the path between Last.fm `track.getSimilar` (dry for any track without
+ * scrobble history) and the expensive per-similar-artist search fallback. The pairs map straight
+ * onto similar.ts's `nameStub`, so the Up-Next entries stay lazy name stubs — no per-song search
+ * at build time. Never-throws: any failure returns [] and the caller falls through unchanged
+ * (same WR-03 discipline as deezerRelatedArtists — failure rejects INSIDE cached() so it is never
+ * pinned, and maps to [] outside).
+ */
+export async function deezerArtistRadio(
+	artist: string,
+	limit = 20,
+	signal?: AbortSignal
+): Promise<DeezerRadioPair[]> {
+	if (signal?.aborted) return [];
+	const clean = (artist ?? '').trim();
+	if (!clean) return [];
+	return cached(`dz:radio:${clean}|${limit}`, TTL_RELATED, async () => {
+		const url = `${RADIO_PATH}?${new URLSearchParams({ artist: clean, limit: String(limit) }).toString()}`;
+		const res = await apiFetch(url, { signal: combinedSignal(signal) }); // governed; abort/timeout REJECT
+		if (!res.ok) throw new Error(String(res.status));
+		const data = (await res.json()) as { tracks?: DeezerRadioPair[] };
+		return Array.isArray(data?.tracks) ? data!.tracks! : [];
+	}).catch(() => [] as DeezerRadioPair[]);
+}
+
+// ---- Phase 17, ENRICH-04 — Deezer artist/album info enrichment client fns -----------------
+// Mirror deezerRelatedArtists exactly: signal-aborted guard → trim → empty→null → cached() →
+// own-origin /api/deezer/* fetch with combinedSignal → non-ok/throw → null (never throws). A
+// null → the page's Deezer section is silently absent (D-14). The reshape interfaces are
+// exported so the page-level field-precedence merge (D-15, enrich-merge.ts) can type them.
+
+/** Client-facing artist reshape (mirrors the /api/deezer/artist +server.ts ArtistResult). */
+export interface DeezerArtistInfo {
+	picture: string | null;
+	fans: number | null;
+	albums: number | null;
+}
+
+/** Client-facing album reshape (mirrors the /api/deezer/album +server.ts AlbumResult). */
+export interface DeezerAlbumInfo {
+	cover: string | null;
+	releaseDate: string | null;
+	tracks: number | null;
+	fans: number | null;
+	label: string | null;
+	genres: string[];
+	duration: number | null;
+}
+
+/**
+ * Resolve Deezer artist info (hi-res picture, fan count, album count) via the OWN-ORIGIN proxy.
+ * Returns null on already-aborted signal / empty name / non-ok / abort / throw (never throws) —
+ * a null leaves the artist-page Deezer section silently absent (D-14).
+ *
+ * quick-261010-exact: `aliases` are the artist's other known names (MusicBrainz identity). They
+ * are forwarded as repeated `alias` params so the proxy's pickBestArtistId counts a hit on ANY
+ * variant as exact — without this, Deezer's search for 姜濤 picks the 13-fan exact-spelled
+ * impostor (Gin Lee's picture) over the real "Keung To" profile (128 fans). The alias list joins
+ * the client cache key, which ALSO busts the pre-fix `dz:artist:<name>` entries that had pinned
+ * the impostor for the 7-day TTL.
+ */
+export async function deezerArtist(
+	name: string,
+	signal?: AbortSignal,
+	aliases: string[] = []
+): Promise<DeezerArtistInfo | null> {
+	if (signal?.aborted) return null;
+	const clean = (name ?? '').trim();
+	if (!clean) return null;
+	const aliasList = (aliases ?? []).map((a) => (a ?? '').trim()).filter(Boolean);
+	// WR-03 / T-17-13: a timeout/abort/non-ok must NOT pin "no artist info" for 7 days —
+	// the failure rejects inside cached() (never stored) and maps to null OUTSIDE the cache,
+	// so the next visit retries instead of hiding the Deezer section all session.
+	return cached(`dz:artist:${clean}|${aliasList.join('|')}`, TTL_ARTIST, async () => {
+		const params = new URLSearchParams({ name: clean });
+		for (const a of aliasList) params.append('alias', a);
+		const url = `${ARTIST_PATH}?${params.toString()}`;
+		const res = await apiFetch(url, { signal: combinedSignal(signal) }); // governed; abort/timeout REJECT
+		if (!res.ok) throw new Error(String(res.status));
+		return (await res.json()) as DeezerArtistInfo;
+	}).catch(() => null); // never throws → caller leaves section absent (D-14)
+}
+
+/**
+ * deezerArtist with NAME-FORM fallbacks (2026-11-02, sunkis hero fix).
+ *
+ * WHY: the proxy's `alias` params only RE-RANK the candidates one search returns — they
+ * cannot rescue a search that returns nothing. A combined credited name is exactly such
+ * a dead search: Deezer finds sunkis under "sunkis" and under "宋秉勤" (same profile,
+ * real picture) but returns ZERO candidates for "sunkis 宋秉勤", so the artist page's
+ * hero lost its artist photo entirely and fell back to a track cover. So when the
+ * primary lookup yields no picture, retry the search under each alternate known form
+ * (MusicBrainz canonical + aliases) until one produces a picture. A result WITH a
+ * picture always wins; otherwise the first non-null result survives (fan/album counts
+ * still render). Every leg is the cached deezerArtist, so repeat visits are free.
+ * Never throws; a total miss returns null exactly like deezerArtist.
+ */
+export async function deezerArtistWithFallbacks(
+	name: string,
+	forms: string[] = [],
+	signal?: AbortSignal
+): Promise<DeezerArtistInfo | null> {
+	if (signal?.aborted) return null;
+	const clean = (name ?? '').trim();
+	if (!clean) return null;
+	const alternates = [...new Set((forms ?? []).map((f) => (f ?? '').trim()).filter(Boolean))]
+		.filter((f) => f !== clean)
+		.slice(0, 4);
+	const primary = await deezerArtist(clean, signal, alternates);
+	if (primary?.picture) return primary;
+	let best: DeezerArtistInfo | null = primary;
+	for (const form of alternates) {
+		if (signal?.aborted) break;
+		const info = await deezerArtist(form, signal);
+		if (info?.picture) return info;
+		if (!best && info) best = info;
+	}
+	return best;
+}
+
+/**
+ * Resolve Deezer album info (hi-res cover, release date, label, genres, track count, fans,
+ * duration) via the OWN-ORIGIN proxy. The title + artist combine into the search query for a
+ * better hit. Returns null on already-aborted signal / empty title / non-ok / abort / throw
+ * (never throws) — a null leaves the album-page Deezer section silently absent (D-14).
+ */
+export async function deezerAlbum(
+	title: string,
+	artist?: string,
+	signal?: AbortSignal
+): Promise<DeezerAlbumInfo | null> {
+	if (signal?.aborted) return null;
+	const cleanTitle = (title ?? '').trim();
+	if (!cleanTitle) return null;
+	const cleanArtist = (artist ?? '').trim();
+	// WR-03 / T-17-13: same posture as deezerArtist — transient failures reject inside
+	// cached() (never pinned for 7d) and map to null outside, so the next visit retries.
+	return cached(`dz:album:${cleanTitle}|${cleanArtist}`, TTL_ARTIST, async () => {
+		const params = new URLSearchParams({ title: cleanTitle });
+		if (cleanArtist) params.set('artist', cleanArtist);
+		const url = `${ALBUM_PATH}?${params.toString()}`;
+		const res = await apiFetch(url, { signal: combinedSignal(signal) }); // governed; abort/timeout REJECT
+		if (!res.ok) throw new Error(String(res.status));
+		return (await res.json()) as DeezerAlbumInfo;
+	}).catch(() => null); // never throws → caller leaves section absent (D-14)
+}
+
+// ---- Phase 23, ART-01 / D-19 — artist-albums LIST with native nb_tracks --------------------
+// The artist page uses this to hide trackless albums with ZERO per-album fetches: Deezer's
+// artist/{id}/albums endpoint returns nb_tracks per album natively (UI-SPEC §8.2 AUGMENT path).
+// Last.fm getArtistTopAlbums stays the graceful fallback for artists Deezer does not cover.
+
+/** Client-facing artist-album reshape (mirrors the /api/deezer/artist-albums DeezerArtistAlbum).
+ *  quick-260831-qkx widened it: `id` lets the album page pull the REAL tracklist by id instead of
+ *  re-matching by name, and `release_date`/`record_type` drive the newest-first sort + type
+ *  filter. All three are nullable — the Last.fm fallback path supplies none of them. */
+export interface DeezerArtistAlbum {
+	id: number | null;
+	title: string;
+	nb_tracks: number;
+	cover: string | null;
+	release_date: string | null;
+	record_type: string | null;
+}
+
+/**
+ * List an artist's albums (each with its native `nb_tracks`) via the OWN-ORIGIN proxy. Returns
+ * the reshaped array, or [] on already-aborted signal / empty name / non-ok / abort / throw /
+ * malformed JSON (never throws). Mirrors deezerSearchTopN's WR-03 cache posture exactly: a
+ * transient failure REJECTS inside cached() (never pinned for the TTL) and maps to [] OUTSIDE
+ * the cache, so the next visit retries; a SUCCESSFUL response (incl. a genuine empty list) IS
+ * cached. A [] result → the artist page falls back to the Last.fm album list (§8.2).
+ */
+export async function deezerArtistAlbums(
+	name: string,
+	signal?: AbortSignal
+): Promise<DeezerArtistAlbum[]> {
+	if (signal?.aborted) return [];
+	const clean = (name ?? '').trim();
+	if (!clean) return [];
+	return cached(`dz:artistalbums:${clean}`, TTL_ARTIST, async () => {
+		const url = `${ARTIST_ALBUMS_PATH}?${new URLSearchParams({ q: clean }).toString()}`;
+		const res = await apiFetch(url, { signal: combinedSignal(signal) }); // governed; abort/timeout REJECT
+		if (!res.ok) throw new Error(String(res.status));
+		const data = (await res.json()) as { data?: DeezerArtistAlbum[] };
+		return Array.isArray(data?.data) ? data!.data! : [];
+	}).catch(() => [] as DeezerArtistAlbum[]); // never throws → caller falls back to Last.fm (§8.2)
+}
+
+/** One ordered track from a Deezer album (the /api/deezer/album-tracks reshape). */
+export interface DeezerAlbumTrack {
+	artist: string;
+	title: string;
+	position: number | null;
+}
+
+/**
+ * The REAL ordered tracklist for a Deezer album id (quick-260831-qkx).
+ *
+ * Replaces the album page's name-keyed Last.fm `album.getInfo` lookup, which returned nothing
+ * whenever the name did not match — the reported "many of the time are empty inside". The id must
+ * come from the artist's own discography (deezerArtistAlbums); an album NAME search matches the
+ * wrong record often enough to be useless, so there is deliberately no name fallback here.
+ *
+ * Never throws: [] on a bad/missing id, non-ok, abort or malformed JSON, and the album page then
+ * falls back to its existing Last.fm path. Same WR-03 cache posture as the neighbours — a
+ * transient failure rejects INSIDE cached() so it is never pinned, and maps to [] outside.
+ */
+export async function deezerAlbumTracks(
+	albumId: number,
+	signal?: AbortSignal
+): Promise<DeezerAlbumTrack[]> {
+	if (signal?.aborted) return [];
+	if (!Number.isFinite(albumId) || albumId <= 0) return [];
+	const id = Math.floor(albumId);
+	return cached(`dz:albumtracks:${id}`, TTL_ARTIST, async () => {
+		const url = `${ALBUM_TRACKS_PATH}?${new URLSearchParams({ id: String(id) }).toString()}`;
+		const res = await apiFetch(url, { signal: combinedSignal(signal) }); // governed; abort/timeout REJECT
+		if (!res.ok) throw new Error(String(res.status));
+		const data = (await res.json()) as { tracks?: DeezerAlbumTrack[] };
+		return Array.isArray(data?.tracks) ? data!.tracks! : [];
+	}).catch(() => [] as DeezerAlbumTrack[]);
+}

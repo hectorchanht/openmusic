@@ -1,0 +1,18 @@
+# Dawn Gate - fails this check if internal content is pushed.
+# Hector's law (2026-11-19): no .planning, no internal md, no secret files
+# in any Dawn repo tree. Logic: .github/dawn-gate/check.py (same check runs
+# locally via .githooks/pre-push when core.hooksPath is set to .githooks).
+name: dawn-gate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  dawn-gate:
+    name: dawn-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Dawn Gate check
+        run: python3 .github/dawn-gate/check.py .

@@ -1,0 +1,393 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// Server-side tests for the /api/translate provider cascade (D-05 / D-06).
+//
+// Named `server.test.ts` (NOT `+server.test.ts`) so SvelteKit does not mistake it for a route
+// module. Drives the exported POST handler with a fabricated { request, platform } and a stubbed
+// global `fetch` that simulates each provider's documented response shape:
+//   Azure  → [ { translations: [ { text } ] } ]
+//   DeepL  → { translations: [ { text } ] }
+//   Google → [ [ [translated, original], ... ] ]   (nested-array the parser expects)
+//
+// Coverage (plan 25-02 Task 3): (1) Azure success short-circuits before DeepL/Google;
+// (2) Azure non-2xx / echo advances to DeepL; (3) no Azure/DeepL key ⇒ ONLY Google is fetched
+// (skip-absent-tier); (4) all-echo/fail ⇒ originals returned with all-false flags and
+// out.length === lines.length (contract preserved); (5) no provider key leaks into the body
+// (T-25c-01 / T-25c-05). quick-261020-cjk: (6) MyMemory is the keyless last resort after Google.
+
+import { POST } from './+server';
+
+// A translated reply is the source text plus a provider tag so a test can prove WHICH tier
+// produced the result (and that the output differs from the input — a genuine translation).
+const TAG = { azure: '·az', deepl: '·dl', google: '·gg', ai: '·ai' } as const;
+type Kind = keyof typeof TAG;
+type Mode = 'translate' | 'echo' | 'fail';
+
+function makeRes(ok: boolean, body: unknown): Response {
+	return { ok, json: async () => body } as unknown as Response;
+}
+
+// Build the provider-specific response for a given mode. 'echo' returns the input verbatim
+// (simulating Google echo-mode / a no-op translation); 'fail' is a non-2xx.
+function providerBody(kind: Kind, text: string, mode: Mode): Response {
+	if (mode === 'fail') return makeRes(false, {});
+	const out = mode === 'echo' ? text : text + TAG[kind];
+	if (kind === 'azure') return makeRes(true, [{ translations: [{ text: out, to: 'zh-Hant' }] }]);
+	if (kind === 'deepl') return makeRes(true, { translations: [{ detected_source_language: 'ZH', text: out }] });
+	return makeRes(true, [[[out, text]]]); // google single-segment nested array
+}
+
+const fetchMock = vi.fn();
+
+// Which provider a fetched URL belongs to (for asserting cascade ordering / skips).
+function hostOf(url: string): Kind | 'other' {
+	if (url.includes('cognitive.microsofttranslator.com')) return 'azure';
+	if (url.includes('api-free.deepl.com')) return 'deepl';
+	if (url.includes('translate.googleapis.com')) return 'google';
+	return 'other';
+}
+const fetchedProviders = (): Array<Kind | 'other'> =>
+	fetchMock.mock.calls.map((c) => hostOf(String(c[0])));
+
+// Route the stubbed fetch to each provider using per-test modes. A provider not listed in
+// `modes` still responds benignly, but a well-behaved cascade should never fetch it — the
+// tests assert on `fetchedProviders()` rather than throwing (a throw would be swallowed by the
+// provider's own try/catch and hide the bug).
+function wire(modes: { azure?: Mode; deepl?: Mode; google?: Mode }) {
+	fetchMock.mockImplementation(async (input: unknown, init?: { body?: string }) => {
+		const url = String(input);
+		const host = hostOf(url);
+		if (host === 'azure') {
+			const text = JSON.parse(init?.body ?? '[{}]')[0]?.Text ?? '';
+			return providerBody('azure', text, modes.azure ?? 'translate');
+		}
+		if (host === 'deepl') {
+			const text = JSON.parse(init?.body ?? '{}').text?.[0] ?? '';
+			return providerBody('deepl', text, modes.deepl ?? 'translate');
+		}
+		if (host === 'google') {
+			const q = new URL(url).searchParams.get('q') ?? '';
+			return providerBody('google', q, modes.google ?? 'translate');
+		}
+		return makeRes(false, {});
+	});
+}
+
+// Invoke the POST handler with a fabricated CF request event.
+async function callPost(lines: unknown, to: unknown, env?: Record<string, unknown>) {
+	const request = { json: async () => ({ lines, to }) };
+	const platform = { env: env ?? {} };
+	const event = { request, platform } as unknown as Parameters<typeof POST>[0];
+	return (await POST(event)) as Response;
+}
+
+// Mock Workers AI binding: run() returns a translation tagged like the others,
+// plus a usage.neurons count so the budget guard can be exercised.
+function mockAi(mode: Mode = 'translate', neurons = 0.34) {
+	return {
+		run: async (_model: string, input: { text: string }) => {
+			if (mode === 'fail') throw new Error('AI unavailable');
+			const out = mode === 'echo' ? input.text : input.text + TAG.ai;
+			return { translated_text: out, usage: { neurons } };
+		}
+	};
+}
+
+beforeEach(() => {
+	fetchMock.mockReset();
+	vi.stubGlobal('fetch', fetchMock);
+});
+afterEach(() => {
+	vi.restoreAllMocks();
+});
+
+describe('/api/translate provider cascade', () => {
+	it('uses Azure when its key is present and does NOT fall through to DeepL/Google', async () => {
+		wire({ azure: 'translate', deepl: 'translate', google: 'translate' });
+		const res = await callPost(['杜国华'], 'zh-Hant', {
+			AZURE_TRANSLATOR_KEY: 'az-key',
+			AZURE_TRANSLATOR_REGION: 'eastasia'
+		});
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated[0]).toBe('杜国华' + TAG.azure); // came from Azure
+		expect(body.flags).toEqual([true]);
+		expect(fetchedProviders()).toEqual(['azure']); // DeepL/Google never fetched
+	});
+
+	it('advances past an Azure non-2xx to DeepL', async () => {
+		wire({ azure: 'fail', deepl: 'translate' });
+		const res = await callPost(['周杰伦'], 'zh-Hant', {
+			AZURE_TRANSLATOR_KEY: 'az-key',
+			DEEPL_KEY: 'dl-key'
+		});
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated[0]).toBe('周杰伦' + TAG.deepl); // DeepL surfaced
+		expect(body.flags).toEqual([true]);
+		expect(fetchedProviders()).toEqual(['azure', 'deepl']); // Google not reached
+	});
+
+	it('advances past an Azure echo (output === input) to DeepL', async () => {
+		wire({ azure: 'echo', deepl: 'translate' });
+		const res = await callPost(['邓紫棋'], 'zh-Hant', {
+			AZURE_TRANSLATOR_KEY: 'az-key',
+			DEEPL_KEY: 'dl-key'
+		});
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated[0]).toBe('邓紫棋' + TAG.deepl);
+		expect(fetchedProviders()).toEqual(['azure', 'deepl']);
+	});
+
+	it('skips absent tiers: with NO Azure/DeepL key, only Google is fetched', async () => {
+		wire({ google: 'translate' });
+		const res = await callPost(['简体'], 'zh-Hant', {}); // no provider keys
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated[0]).toBe('简体' + TAG.google); // keyless Google last-resort
+		expect(body.flags).toEqual([true]);
+		expect(fetchedProviders()).toEqual(['google']); // Azure/DeepL short-circuited (no fetch)
+	});
+
+	it('preserves the contract when every provider echoes/fails (originals, all-false flags, aligned length)', async () => {
+		// No keys → Google then MyMemory attempted; both echo every request (batched + per-line).
+		wire({ google: 'echo' });
+		const lines = ['简体一', '简体二', '简体三'];
+		const res = await callPost(lines, 'zh-Hant', {});
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated).toEqual(lines); // fell back to the originals
+		expect(body.flags).toEqual([false, false, false]); // nothing genuinely translated
+		expect(body.translated.length).toBe(lines.length); // out.length === lines.length
+		expect(body.flags.length).toBe(lines.length);
+		expect(fetchedProviders().every((h) => h === 'google')).toBe(true); // absent tiers skipped
+	});
+
+
+
+	it('never leaks a provider key into the response body', async () => {
+		wire({ azure: 'translate' });
+		const env = {
+			AZURE_TRANSLATOR_KEY: 'AZURE-SECRET-XYZ',
+			AZURE_TRANSLATOR_REGION: 'eastasia',
+			DEEPL_KEY: 'DEEPL-SECRET-XYZ'
+		};
+		const res = await callPost(['简体'], 'zh-Hant', env);
+		const text = await res.text();
+		expect(text).not.toContain(env.AZURE_TRANSLATOR_KEY);
+		expect(text).not.toContain(env.DEEPL_KEY);
+	});
+
+	it('rejects an unknown target with the originals + all-false flags (no upstream call)', async () => {
+		wire({ azure: 'translate', deepl: 'translate', google: 'translate' });
+		const res = await callPost(['x', 'y'], 'klingon', { AZURE_TRANSLATOR_KEY: 'az-key' });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated).toEqual(['x', 'y']);
+		expect(body.flags).toEqual([false, false]);
+		expect(fetchMock).not.toHaveBeenCalled(); // validated before any provider fetch
+	});
+
+	// quick-261020-wai: Workers AI tier — used when bound and no Azure/DeepL key; sits
+	// between DeepL and Google in the cascade.
+	it('uses Workers AI when bound and Azure/DeepL keys are absent', async () => {
+		wire({ google: 'translate' }); // google would work, but AI comes first
+		const res = await callPost(['Hello world'], 'zh-Hant', { AI: mockAi('translate') });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated[0]).toBe('Hello world' + TAG.ai); // came from Workers AI
+		expect(body.flags).toEqual([true]);
+		expect(fetchedProviders()).toEqual([]); // no HTTP fetch — binding, not REST
+	});
+
+	it('skips Workers AI when the binding is absent (falls through to Google)', async () => {
+		wire({ google: 'translate' });
+		const res = await callPost(['Hello world'], 'zh-Hant', {}); // no AI in env
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated[0]).toBe('Hello world' + TAG.google); // google, not AI
+		expect(body.flags).toEqual([true]);
+	});
+
+	it('advances past a Workers AI echo to Google', async () => {
+		wire({ google: 'translate' });
+		const res = await callPost(['Hello world'], 'zh-Hant', { AI: mockAi('echo') });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated[0]).toBe('Hello world' + TAG.google); // AI echoed → google
+		expect(body.flags).toEqual([true]);
+	});
+
+	// quick-261116-kvprog: KV L2 cache — global layer behind the per-PoP edge L1.
+	// In the node test env `caches` is undefined, so L1 is absent and these tests
+	// exercise the KV path in isolation (the production lookup order is L1 → KV).
+	function mockKv(opts: { hit?: [string[], boolean[]] | null; getThrows?: boolean; putThrows?: boolean } = {}) {
+		const puts: Array<{ key: string; value: string; ttl?: number }> = [];
+		return {
+			puts,
+			kv: {
+				get: async (key: string): Promise<string | null> => {
+					if (opts.getThrows) throw new Error('KV down');
+					// quick-261116-lyrux: the scripted hit answers BATCH keys only — a real
+					// KV never returns a batch entry for a `translate-line:` key (the line
+					// layer reads those too, and must see a miss here).
+					if (!key.startsWith('translate:')) return null;
+					return opts.hit ? JSON.stringify(opts.hit) : null;
+				},
+				put: async (key: string, value: string, o?: { expirationTtl?: number }): Promise<void> => {
+					if (opts.putThrows) throw new Error('KV down');
+					puts.push({ key, value, ttl: o?.expirationTtl });
+				}
+			}
+		};
+	}
+
+	it('KV hit short-circuits the whole cascade (no AI call, no fetch)', async () => {
+		wire({ google: 'translate' });
+		const ai = mockAi('translate');
+		const aiSpy = vi.spyOn(ai, 'run');
+		const { kv } = mockKv({ hit: [['你好·kv'], [true]] });
+		const res = await callPost(['Hello world'], 'zh-Hant', { AI: ai, TRANSLATE_CACHE: kv });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated).toEqual(['你好·kv']); // served from KV verbatim
+		expect(body.flags).toEqual([true]);
+		expect(aiSpy).not.toHaveBeenCalled(); // zero neurons
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('KV miss + genuine result writes KV with the v3 key and NO expiration (permanent)', async () => {
+		wire({ google: 'translate' });
+		const { kv, puts } = mockKv();
+		const res = await callPost(['Hello world'], 'zh-Hant', { AI: mockAi('translate'), TRANSLATE_CACHE: kv });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.flags).toEqual([true]);
+		// quick-261116-lyrux: TWO puts now — the batch entry AND the per-line entry.
+		expect(puts).toHaveLength(2);
+		const batchPut = puts.find((p) => p.key.startsWith('translate:v3:'));
+		expect(batchPut).toBeDefined();
+		expect(batchPut?.key).toMatch(/^translate:v3:zh-Hant:[0-9a-f]{64}$/);
+		// quick-261116-kvttl: put called WITHOUT expirationTtl → the entry never expires.
+		expect(batchPut?.ttl).toBeUndefined();
+		expect(JSON.parse(batchPut?.value ?? 'null')).toEqual([['Hello world' + TAG.ai], [true]]);
+		const linePut = puts.find((p) => p.key.startsWith('translate-line:v3:'));
+		expect(linePut?.key).toMatch(/^translate-line:v3:zh-Hant:[0-9a-f]{64}$/);
+		expect(linePut?.value).toBe('Hello world' + TAG.ai); // raw translated string
+		expect(linePut?.ttl).toBeUndefined(); // permanent, same rationale
+	});
+
+	it('a throwing KV never breaks the translation (get AND put faults degrade)', async () => {
+		wire({ google: 'translate' });
+		const { kv } = mockKv({ getThrows: true, putThrows: true });
+		const res = await callPost(['Hello world'], 'zh-Hant', { AI: mockAi('translate'), TRANSLATE_CACHE: kv });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated).toEqual(['Hello world' + TAG.ai]); // cascade still answered
+		expect(body.flags).toEqual([true]);
+	});
+
+	it('ignores a KV entry whose length does not match the request', async () => {
+		wire({ google: 'translate' });
+		const { kv } = mockKv({ hit: [['只有一行'], [true]] }); // 1 entry, request has 2 lines
+		const res = await callPost(['Hello world', 'Good night'], 'zh-Hant', {
+			AI: mockAi('translate'),
+			TRANSLATE_CACHE: kv
+		});
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated).not.toEqual(['只有一行']); // stale entry NOT served
+		expect(body.translated.length).toBe(2);
+	});
+
+	// quick-261116-perf (Korean-lyrics latency): m2m100 drops the `‹i›` sentinels but
+	// preserves newlines. The batch must be accepted from the newline structure in ONE
+	// AI call — before the fix it failed the segment guard and fanned out per-line
+	// (~1.5-3.5s per line), so a full song took minutes.
+	it('accepts a newline-aligned Workers AI batch (sentinels dropped) in ONE AI call', async () => {
+		wire({ google: 'translate' }); // google must never be needed
+		let aiCalls = 0;
+		const ai = {
+			run: async (_model: string, input: { text: string }) => {
+				aiCalls++;
+				// Handles both batch shapes: the plain-newline join (workersAiBatch) and
+				// the sentinel join (cascade) — either must resolve in this ONE call.
+				const parts = input.text
+					.split(/‹\d+›|\n/)
+					.map((s) => s.trim())
+					.filter(Boolean);
+				return {
+					translated_text: parts.map((l) => l + TAG.ai).join('\n'),
+					usage: { neurons: 1 }
+				};
+			}
+		};
+		const lines = ['사랑해', '너를 원해', '오늘 밤'];
+		const res = await callPost(lines, 'zh-Hant', { AI: ai });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated).toEqual(lines.map((l) => l + TAG.ai));
+		expect(body.flags).toEqual([true, true, true]);
+		expect(aiCalls).toBe(1); // batched — NOT per-line fan-out
+		expect(fetchedProviders()).toEqual([]); // Google never fetched
+	});
+
+	// quick-261116-lyrux (Task 4): LINE-LEVEL KV — a re-composed batch (the client's
+	// lyricsSkip toggle changes which lines are sent together) reuses the per-line
+	// entries and only computes the genuinely-new lines. Stateful KV mock.
+	function statefulKv() {
+		const store = new Map<string, string>();
+		return {
+			store,
+			kv: {
+				get: async (k: string): Promise<string | null> => store.get(k) ?? null,
+				put: async (k: string, v: string): Promise<void> => {
+					store.set(k, v);
+				}
+			}
+		};
+	}
+	const lineKeysOf = (store: Map<string, string>) =>
+		Array.from(store.keys()).filter((k) => k.startsWith('translate-line:v3:'));
+	const googleQs = () =>
+		fetchMock.mock.calls
+			.map((c) => String(c[0]))
+			.filter((u) => u.includes('translate.googleapis.com'))
+			.map((u) => new URL(u).searchParams.get('q') ?? '');
+
+	it('line-KV: a SUPERSET batch only computes the new lines (toggle scenario)', async () => {
+		wire({ google: 'translate' }); // keyless deployment shape: Google is the cascade tail
+		const { kv, store } = statefulKv();
+		// Round 1: the KR-only batch (English still skipped client-side).
+		const r1 = await callPost(['사랑해', '너를 원해'], 'zh-Hant', { TRANSLATE_CACHE: kv });
+		const b1 = (await r1.json()) as { translated: string[]; flags: boolean[] };
+		expect(b1.flags).toEqual([true, true]);
+		expect(lineKeysOf(store)).toHaveLength(2); // both KR lines now have line entries
+		const fetchesAfterRound1 = fetchMock.mock.calls.length;
+		// Round 2: English un-skipped — a NEW composition (batch keys miss), KR lines
+		// interleaved around a brand-new English line.
+		const r2 = await callPost(['사랑해', 'Hello tonight', '너를 원해'], 'zh-Hant', {
+			TRANSLATE_CACHE: kv
+		});
+		const b2 = (await r2.json()) as { translated: string[]; flags: boolean[] };
+		expect(b2.flags).toEqual([true, true, true]);
+		expect(b2.translated[0]).toBe('사랑해' + TAG.google); // the line-KV value
+		expect(b2.translated[2]).toBe('너를 원해' + TAG.google);
+		// The providers only ever saw the ONE new line in round 2.
+		const qs = googleQs();
+		expect(fetchMock.mock.calls.length - fetchesAfterRound1).toBe(1);
+		expect(qs[qs.length - 1]).toBe('Hello tonight');
+		expect(lineKeysOf(store)).toHaveLength(3); // the new line joined the line cache
+	});
+
+	it('line-KV: echoed lines are never written per-line (nor as a batch)', async () => {
+		wire({ google: 'echo' });
+		const { kv, store } = statefulKv();
+		const res = await callPost(['简体一', '简体二'], 'zh-Hant', { TRANSLATE_CACHE: kv });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.flags).toEqual([false, false]);
+		expect(lineKeysOf(store)).toHaveLength(0);
+		expect(Array.from(store.keys()).filter((k) => k.startsWith('translate:v3:'))).toHaveLength(0);
+	});
+
+	it('line-KV: a fully line-cached batch makes ZERO provider calls', async () => {
+		wire({ google: 'translate' });
+		const { kv, store } = statefulKv();
+		await callPost(['사랑해', '너를 원해'], 'zh-Hant', { TRANSLATE_CACHE: kv });
+		fetchMock.mockClear();
+		// A DIFFERENT composition of the same two lines (order swapped — batch key differs).
+		const res = await callPost(['너를 원해', '사랑해'], 'zh-Hant', { TRANSLATE_CACHE: kv });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated).toEqual(['너를 원해' + TAG.google, '사랑해' + TAG.google]);
+		expect(body.flags).toEqual([true, true]);
+		expect(fetchMock).not.toHaveBeenCalled(); // served entirely from line-KV
+		expect(store.size).toBeGreaterThan(0);
+	});
+});

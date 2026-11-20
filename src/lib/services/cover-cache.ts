@@ -1,0 +1,566 @@
+// cover-cache — the pure localStorage store of lazily-resolved CN-source covers.
+//
+// quick-260606-rvy FIX-A: chart/tag/geo discovery tiles with NO Last.fm image AND no
+// MusicBrainz mbid render a bare color gradient. cover-backfill resolves a real album
+// cover for them from the CN sources (searchAll → dedupeBest) AFTER first paint and
+// stows it here, keyed by the normalized {artist,title} identity (matchKey, reused —
+// NOT reinvented). On the next visit / re-render the cover is read back synchronously
+// so the tile shows real art instantly with zero re-search.
+//
+// Stored shape is a single flat JSON `Record<string, { u: string; t: number } | string>` at
+// `openmusic:cover-cache:v1` (matchKey → timestamped cover entry). Each value is `{ u, t }`
+// where u=cover URL and t=write-time in ms; the bare `string` arm exists ONLY to tolerate
+// legacy `v1` values already on disk (grandfathered — never cold-flushed, lazily upgraded).
+// All localStorage access is wrapped in try/catch returning null / no-op on failure
+// (corrupt JSON, quota, privacy-mode / unavailable storage). These functions run only
+// in browser handlers / onMount, never SSR. Values are plain URL strings rendered into
+// an `<img src>` ATTRIBUTE (never CSS url()) — no script/CSS-injection surface (T-rvy-01).
+//
+// quick-260606-v7k adds an ARTIST-ONLY cover key (artistCoverCacheKey) so the 熱門歌手
+// (top-artist) tiles can cache a backfilled artist image (Deezer, wv8) WITHOUT colliding with
+// a {artist,title} track row of the same name. The artist entry is `'artist:' + matchKey(name, '')`
+// — the `artist:` prefix is provably disjoint from any track key (matchKey never emits a
+// leading `artist:`), so artist + track entries safely coexist in the same flat record.
+//
+// quick-260704-2xq adds proactive TTL expiry (~14 days) + a write-time-LRU size cap (~2000)
+// over the timestamped `{u,t}` entry shape — the root fix for the recurring stale-cover bug
+// cluster and the unbounded-localStorage-growth concern (CONCERNS.md optimization backlog #2):
+//   - TTL is READ-SIDE ONLY: an entry with `Date.now() - t > TTL_MS` reads as a MISS (null) with
+//     NO write side-effect (the pure-read contract lazyCover depends on — no eviction on read; the
+//     expired entry stays on disk until it is overwritten or cap-evicted).
+//   - The cap is WRITE-SIDE: after each insert, if the record exceeds MAX_ENTRIES, the oldest
+//     write-time entries are evicted first ("oldest-write-first"). This is an intentional
+//     approximation of access-LRU — true access-time LRU would require a write on every read
+//     (churning storage on every scroll) and would violate the pure-read contract.
+//   - LEGACY bare-string entries (pre-`{u,t}` `v1` values) are GRANDFATHERED: TTL-exempt (they
+//     have no `t`) so they read as valid hits, and cap-eviction treats them as the OLDEST
+//     (`t = -Infinity`, evict-first) so the store naturally migrates + trims over time. Their
+//     next write rewrites them as `{u,t}` (lazy upgrade). No re-resolve storm.
+//   - The `v1` CACHE_KEY is deliberately PRESERVED (NOT bumped to v2): bumping would cold-flush
+//     every user's cache — the exact re-resolve storm this change avoids.
+//
+// Phase 40 D-14 adds a FOURTH family, `crowd:uid:<uid>` / `crowd:name:<versionedMatchKey>` — the cached
+// crowd-shared cover pick (see CROWD PICKS below). Same record, same TTL / cap / clear semantics.
+
+import { matchKey, versionedMatchKey } from './dedupe';
+// quick-260915-w4f: the shared https predicate guards what setPinnedCover is allowed to persist.
+import { hasHttpsScheme } from './url-safety';
+import { isDeviceUid } from './device-track';
+// quick-261020-covsync: the script bridge. cover-cache's {artist,title} name layer is the
+// cross-surface bridge (a stub and the played track carry different uids), but matchKey
+// folds case/punct ONLY — a Traditional-script stub (在這裡等你， the pack/mandopop lists,
+// Last.fm geo charts) and the Simplified-script track resolveStub actually plays (在这里等你 —
+// QQ/netease index the Simplified name) land on DIFFERENT keys, so a cover resolved at play
+// time could never repaint the row (Hector 2026-10-20: mandopop-2026 在這裡等你 row dark forever
+// while the hero/nowbar showed the art). quick-261020-covsync bridged it with a t2s alias key;
+// quick-261102-sjg folded the key ITSELF (matchKey is the script-folded identity), so the alias
+// layer is gone — the old alias entries already sit under exactly the new key.
+
+const CACHE_KEY = 'openmusic:cover-cache:v1';
+
+/** A stored cover entry: `u` = cover URL, `t` = write-time in ms (Date.now()). */
+type CoverEntry = { u: string; t: number };
+
+// TTL of the cached cover URL. 14 days = the midpoint of the backlog's 7–30 day range: long
+// enough that a healthy CDN cover survives normal usage without a re-resolve, short enough that
+// a URL nearing its typical CDN expiry window is dropped proactively (complementing lazyCover's
+// reactive dead-URL probe) so fewer broken paints occur.
+const TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+
+// Write-time-LRU cap. Cover URLs are tiny (~80–150 bytes/entry as `{u,t}` JSON), so 2000 entries
+// is well under the ~5 MB localStorage budget (a few hundred KB) while comfortably covering an
+// active user's browsed catalogue; the cap exists to bound worst-case unbounded growth, not to
+// be tight.
+//
+// quick-261008-audit: INLINE sub-cap. cov1 writes downscaled embedded art as ~10–20 KB `data:`
+// URLs into this same record — the count-based MAX_ENTRIES cannot bound those (2000 × 15 KB would
+// blow the quota, and the swallowed QuotaExceededError would then silently stop ALL cover caching).
+// Inline entries get their own tight oldest-first cap so their worst case stays ~2 MB.
+const MAX_ENTRIES = 2000;
+const MAX_INLINE_ENTRIES = 100;
+
+/**
+ * Effective write-time for eviction ordering. A valid `{u,t}` entry uses its `t`; a legacy
+ * bare-string (or any malformed entry with no numeric `t`) sorts as `-Infinity` (oldest /
+ * evict-first) so the store naturally migrates + trims over time.
+ */
+function entryTime(v: CoverEntry | string | undefined): number {
+	return v && typeof v === 'object' && typeof v.t === 'number' ? v.t : -Infinity;
+}
+
+/**
+ * Resolve a raw stored value to a live URL, applying the shape guard + TTL:
+ *   - a non-empty legacy `string` → returned directly (grandfathered hit, TTL-EXEMPT);
+ *   - a `{u,t}` entry → null if `Date.now() - t > TTL_MS` (expired MISS), else `u` when non-empty;
+ *   - anything else (missing, wrong shape, empty `u`) → null.
+ * Pure — never writes (TTL expiry is read-side-null-only, no delete-on-read).
+ */
+function readUrlFromEntry(v: CoverEntry | string | undefined): string | null {
+	if (typeof v === 'string') return v.length > 0 ? v : null; // legacy grandfathered hit
+	if (v && typeof v === 'object' && typeof v.u === 'string' && typeof v.t === 'number') {
+		if (Date.now() - v.t > TTL_MS) return null; // expired — strict `>`, no write side-effect
+		return v.u.length > 0 ? v.u : null;
+	}
+	return null;
+}
+
+/** The cache key for an {artist,title} pair — delegates to matchKey (artist-first, folded). */
+export function coverCacheKey(artist: string, title: string): string {
+	return matchKey(artist, title);
+}
+
+/**
+ * The cache key for an ARTIST-only cover (distinct from coverCacheKey). Pinned form:
+ * `'artist:' + matchKey(name, '')`. The `artist:` prefix guarantees it can never collide
+ * with a track key (which is `matchKey(artist,title)` and never starts with `artist:`),
+ * so 'Drake' the artist and a 'Drake'|'<title>' track are disjoint entries.
+ */
+export function artistCoverCacheKey(artist: string): string {
+	return 'artist:' + matchKey(artist, '');
+}
+
+/**
+ * The cache key for a UID-keyed cover (Phase 21 COVER-02, D-13 two-layer cache). Pinned form:
+ * `'uid:' + uid` where `uid` is the RAW COLON-delimited Track.uid exactly as makeUid emitted it
+ * (e.g. `'netease:12345'` → `'uid:netease:12345'`). Pitfall 7: do NOT transform the delimiter to a
+ * hyphen — the uid is stored verbatim so the same song's stable identity is the cache key. The
+ * `uid:` prefix is provably disjoint from both the track key (matchKey, never starts with `uid:`)
+ * and the `artist:` key, so all three families coexist in the same flat record.
+ *
+ * READ ORDER (D-13): a caller reads `getCachedCoverByUid(uid) ?? getCachedCover(artist, title)` —
+ * uid-first (the exact song), then the {artist,title} name layer as a fallback. On a SOLID resolve
+ * the caller writes BOTH layers (setCachedCoverByUid + setCachedCover) so either lookup hits next time.
+ */
+export function uidCoverCacheKey(uid: string): string {
+	return 'uid:' + uid;
+}
+
+/**
+ * quick-260809-3uo: the key for an ITUNES NUMERIC ID retained alongside a resolved artwork URL.
+ * Pinned form `'itunes:' + artworkKey`, provably disjoint from all three existing families
+ * (matchKey never emits a leading `itunes:`, and `uid:` / `artist:` are different prefixes), so it
+ * coexists in the same flat record — and therefore inherits the TTL, the write-time-LRU cap and
+ * clearCoverCache for free rather than adding a second store.
+ *
+ * WHY IT EXISTS: the share card carries an iTunes cover by its numeric id (`i:<digits>`), never by
+ * its ~90-char mzstatic path. That id is not derivable from the artwork URL, so it has to be
+ * retained at the one moment it is known — the search response that produced the URL. See
+ * itunes-cover.ts (rememberItunesId / recallItunesId), the only two callers.
+ *
+ * The stored VALUE is a digit string, not a URL — writeKey/readKey are value-agnostic.
+ */
+export function itunesIdCacheKey(artworkKey: string): string {
+	return 'itunes:' + artworkKey;
+}
+
+/** Read a retained iTunes numeric id, or null when absent / expired / storage unavailable. */
+export function getCachedItunesId(artworkKey: string): string | null {
+	return readKey(itunesIdCacheKey(artworkKey));
+}
+
+/** Retain an iTunes numeric id under its artwork key. No-op on empty; never throws. */
+export function setCachedItunesId(artworkKey: string, id: string): void {
+	writeKey(itunesIdCacheKey(artworkKey), id);
+}
+
+/** Wipe the entire cover cache (used by the Data settings tab). Never throws. */
+export function clearCoverCache(): void {
+	try {
+		cache.clear();
+	} catch {
+		/* unavailable storage — no-op */
+	}
+}
+
+/**
+ * debug page-switch-lag-tap-dead: a parsed-record memo.
+ *
+ * Every read used to be getItem + JSON.parse of the WHOLE blob. The home route does ~700 cover
+ * reads per mount (one per tile, and every coverVersion bump re-runs all of them), and at the
+ * MAX_ENTRIES cap the blob is ~310 KB — measured 1252 full parses inside ONE 1.0 s long task between
+ * the Home-tab tap and the first painted frame (4–5 s at a phone-like 4x CPU throttle). That was
+ * "tap the home tab, nothing happens for a second".
+ *
+ * Cycle 3: a hit no longer touches localStorage AT ALL. The first cut kept `getItem` on every read
+ * and compared the raw string against the memo's — but getItem copies the whole 310 KB blob, and
+ * with ~700 rows re-reading per bump that copy alone was 85 ms (1x) / 340 ms (4x CPU) of every
+ * post-paint frame in which a backfilled cover landed. The memo is now authoritative for THIS
+ * document: every writer in this module goes through write()/clear() below, and a write from
+ * another tab arrives via the platform's own `storage` event (which fires only in OTHER documents
+ * of the origin), so that event is the one external invalidation. A setItem that throws drops the
+ * memo first, so a record mutated in place by a writer can never be served as if it were on disk.
+ * The memo also remembers WHICH Storage object it was read from: in a browser that is one object
+ * for the document's lifetime (an identity compare, no copy), while the node suites install a fresh
+ * stub per test and must never see the previous test's record.
+ */
+function memoRecord<T extends object>(key: string) {
+	let memo: { store: Storage; rec: T } | null = null;
+	if (typeof window !== 'undefined') {
+		window.addEventListener('storage', (e) => {
+			if (e.key === null || e.key === key) memo = null; // null key = the other tab called clear()
+		});
+	}
+	return {
+		/** The whole record; {} on absent / corrupt / unavailable storage — never throws. */
+		read(): T {
+			try {
+				if (memo && memo.store === localStorage) return memo.rec;
+				const raw = localStorage.getItem(key);
+				if (!raw) return {} as T;
+				const v: unknown = JSON.parse(raw);
+				if (v && typeof v === 'object' && !Array.isArray(v)) {
+					memo = { store: localStorage, rec: v as T };
+					return memo.rec;
+				}
+				return {} as T;
+			} catch {
+				return {} as T;
+			}
+		},
+		/** Persist `rec`. Throws exactly like setItem (quota / unavailable) — callers keep their try/catch. */
+		write(rec: T): void {
+			memo = null;
+			localStorage.setItem(key, JSON.stringify(rec));
+			memo = { store: localStorage, rec };
+		},
+		/** Drop the record. Throws exactly like removeItem — callers keep their try/catch. */
+		clear(): void {
+			memo = null;
+			localStorage.removeItem(key);
+		}
+	};
+}
+
+const cache = memoRecord<Record<string, CoverEntry | string>>(CACHE_KEY);
+
+/**
+ * Read the whole record; returns {} on absent / corrupt / unavailable storage (never throws).
+ * Shape-agnostic — entries may be `{u,t}` (current) or a legacy bare `string` (grandfathered);
+ * normalization + TTL expiry live in readKey so writeKey/removeKey still see raw entries.
+ */
+function readRecord(): Record<string, CoverEntry | string> {
+	return cache.read();
+}
+
+/**
+ * Return the cached cover URL for {artist,title}, or null when absent / on corrupt /
+ * unavailable storage. Pure read — never throws (mirrors +page.svelte loadCache).
+ */
+export function getCachedCover(artist: string, title: string): string | null {
+	// quick-261102-sjg: the key itself is script-folded now (matchKey = the identity), so the
+	// covsync alias layer is gone — a Traditional stub and its Simplified track share ONE key.
+	return readKey(coverCacheKey(artist, title));
+}
+
+/**
+ * Read the cached URL stored under `key`, or null when absent / expired (never throws).
+ * Applies the shape guard + TTL via readUrlFromEntry. PURE — must NOT call setItem (a TTL miss
+ * returns null without deleting the entry; the legacy string arm is TTL-exempt / grandfathered).
+ */
+function readKey(key: string): string | null {
+	return readUrlFromEntry(readRecord()[key]);
+}
+
+/**
+ * Merge `{ [key]: { u, t } }` into the stored record and write it back. No-op on an empty /
+ * whitespace-only url; swallows quota / unavailable-storage errors (mirrors saveCache). Always
+ * writes the new `{u,t}` shape — this is the lazy-upgrade point for a previously-legacy key.
+ * After insert, enforces MAX_ENTRIES by evicting the oldest-write-time entries first (legacy /
+ * no-`t` entries sort as `-Infinity`, so they are evicted first — the store trims + migrates).
+ */
+function writeKey(key: string, url: string): void {
+	const clean = (url ?? '').trim();
+	if (!clean) return; // no-op — never cache an empty cover (keeps the gradient)
+	try {
+		const rec = readRecord();
+		rec[key] = { u: clean, t: Date.now() }; // lazy upgrade: always the new timestamped shape
+		// quick-261008-audit: bound the heavy inline (`data:`) entries separately — oldest first.
+		// The just-written entry carries the newest `t`, so it is never the eviction victim.
+		if (clean.startsWith('data:')) {
+			const inlines = Object.entries(rec)
+				.filter(([, v]) => typeof v === 'object' && v !== null && typeof (v as { u?: unknown }).u === 'string' && ((v as { u: string }).u.startsWith('data:')))
+				.sort((a, b) => entryTime(a[1]) - entryTime(b[1]));
+			let i = 0;
+			while (inlines.length - i > MAX_INLINE_ENTRIES) {
+				delete rec[inlines[i][0]];
+				i++;
+			}
+		}
+		if (Object.keys(rec).length > MAX_ENTRIES) {
+			// Evict oldest-write-first: sort by ascending effective-t, drop from the front until
+			// at/under the cap. O(n log n) on an infrequent write path — clear and correct.
+			const ordered = Object.entries(rec).sort((a, b) => entryTime(a[1]) - entryTime(b[1]));
+			let i = 0;
+			while (Object.keys(rec).length > MAX_ENTRIES && i < ordered.length) {
+				delete rec[ordered[i][0]];
+				i++;
+			}
+		}
+		cache.write(rec);
+	} catch {
+		/* quota or unavailable — non-fatal, the tile simply keeps its gradient */
+	}
+}
+
+/**
+ * Merge `{ [coverCacheKey] : url }` into the stored record. No-op on an empty /
+ * whitespace-only url; swallows quota / unavailable-storage errors (mirrors saveCache).
+ * Persists across calls within the same storage.
+ */
+export function setCachedCover(artist: string, title: string, url: string): void {
+	writeKey(coverCacheKey(artist, title), url);
+}
+
+/**
+ * Return the cached ARTIST cover URL for `artist`, or null when absent / on corrupt /
+ * unavailable storage. Pure read — never throws. Disjoint from the track lookup.
+ */
+export function getCachedArtistCover(artist: string): string | null {
+	return readKey(artistCoverCacheKey(artist));
+}
+
+/**
+ * Cache an ARTIST cover URL under the artist-only key. No-op on an empty / whitespace-only
+ * url; swallows quota / unavailable-storage errors. Coexists with track entries.
+ */
+export function setCachedArtistCover(artist: string, url: string): void {
+	writeKey(artistCoverCacheKey(artist), url);
+}
+
+/**
+ * Return the cached cover URL for a Track uid (D-13 uid layer), or null when absent / on corrupt /
+ * unavailable storage. Pure read — never throws. The intended read order is uid-first then the
+ * name layer: `getCachedCoverByUid(uid) ?? getCachedCover(artist, title)`.
+ */
+export function getCachedCoverByUid(uid: string): string | null {
+	return readKey(uidCoverCacheKey(uid));
+}
+
+/**
+ * Cache a cover URL under the uid key (D-13 uid layer). No-op on an empty / whitespace-only url;
+ * swallows quota / unavailable-storage errors (reuses writeKey). On a SOLID resolve the caller
+ * writes BOTH this and setCachedCover so either lookup hits next time. Disjoint from track/artist keys.
+ */
+export function setCachedCoverByUid(uid: string, url: string): void {
+	writeKey(uidCoverCacheKey(uid), url);
+}
+
+/**
+ * The freshness age (ms since write) of a raw stored entry, applying the SAME shape + TTL guard as
+ * readUrlFromEntry — returns `Date.now() - t` for a live `{u,t}`, or null when: absent, a legacy
+ * bare-string (no `t`, freshness UNKNOWABLE), malformed, or expired (`age > TTL_MS`, strict `>`,
+ * mirroring the URL reader). Reuses `entryTime` + `TTL_MS` so the shape/TTL logic is NOT duplicated.
+ */
+function ageFromEntry(v: CoverEntry | string | undefined): number | null {
+	const t = entryTime(v); // -Infinity for legacy bare-string / malformed / absent
+	if (!Number.isFinite(t)) return null; // no numeric write-time → freshness unknowable
+	const age = Date.now() - t;
+	if (age > TTL_MS) return null; // expired MISS — strict `>`, mirrors readUrlFromEntry
+	return age;
+}
+
+/**
+ * Freshness reader (quick-260704-4fr, backlog #8): the raw AGE in ms (`Date.now() - t`) of the FIRST
+ * HITTING fresh `{u,t}` entry in the SAME uid-first → name read order the URL readers use, or null.
+ *
+ * Contract:
+ *   - uid layer is consulted FIRST, and ONLY when `uid` is truthy (the empty-uid guard — an empty uid
+ *     must NOT read the shared `'uid:'` slot; mirrors `track.uid ? getCachedCoverByUid(...) : null`);
+ *     then the {artist,title} name layer.
+ *   - a candidate contributes an age only when it is a live `{u,t}` (numeric `t`, `age <= TTL_MS`);
+ *     a legacy bare-string (no `t`), an absent key, or an expired entry contributes NO age → the next
+ *     layer is tried, then null.
+ *   - returns null on: total miss, legacy-only hit (freshness unknowable), or every hitting layer
+ *     expired.
+ *
+ * PURE / never-throws: reads the record ONCE via `readRecord()` (which swallows corrupt/unavailable
+ * storage → {}), indexes it by the SAME key builders as the URL readers, and reuses `ageFromEntry`
+ * (`entryTime` + `TTL_MS`) — no re-JSON.parse, no writes, no delete-on-read.
+ *
+ * A RAW AGE (not a boolean) is returned by design so the CONSUMER (lazyCover) owns the freshness
+ * threshold — this keeps the TTL constant private to this module while letting the consumer tune its
+ * own (tighter) "confirmed-fresh" window, and it is more directly testable.
+ */
+export function coverAgeByUidOrName(uid: string, artist: string, title: string): number | null {
+	const rec = readRecord(); // ONE read — never throws
+	// quick-261020-latest: name-first, mirroring the readers — the age must describe the entry the
+	// read will actually return (the name layer holds the latest write for the song).
+	const byName = ageFromEntry(rec[coverCacheKey(artist, title)]); // name layer, exact
+	if (byName !== null) return byName;
+	if (uid) return ageFromEntry(rec[uidCoverCacheKey(uid)]); // uid fallback (only for a real uid)
+	return null;
+}
+
+/**
+ * Delete EXACTLY one entry from the stored record (mirrors writeKey's try/catch shape). Reads the
+ * whole record, deletes the single key, writes the record back. Skips the write when the key is
+ * absent so a remove-missing is a true no-op. Swallows corrupt-JSON / quota / unavailable-storage
+ * errors — NEVER throws. Pure: does NOT touch the reactive cover-version (that bump lives in the
+ * `.svelte.ts` wrapper, LOCKED decision #2). Does NOT remove the whole CACHE_KEY blob — that is
+ * clearCoverCache's job (the per-entry remover deletes ONE key, leaving every other entry intact).
+ */
+function removeKey(key: string): void {
+	try {
+		const rec = readRecord();
+		if (key in rec) {
+			delete rec[key];
+			cache.write(rec);
+		}
+	} catch {
+		/* unavailable / quota / corrupt — non-fatal, no-op */
+	}
+}
+
+/**
+ * Evict the cover cached under a Track uid (D-13 uid layer). Keys by the RAW colon uid (Pitfall 7,
+ * no hyphen folding). Deletes exactly that one entry — the coexisting name + artist families are
+ * untouched. Pure, never throws, NO rune/bump (the reactive bump lives in cover-version.svelte.ts).
+ */
+export function removeCachedCoverByUid(uid: string): void {
+	removeKey(uidCoverCacheKey(uid));
+}
+
+/**
+ * Evict the cover cached for an {artist,title} name layer. Keys via the SAME coverCacheKey as the
+ * setter (matchKey folding parity — 'A','B (Live)' removes what 'a','b' set). Deletes exactly that
+ * one entry — coexisting uid + artist families untouched. Pure, never throws, NO rune/bump.
+ */
+export function removeCachedCover(artist: string, title: string): void {
+	removeKey(coverCacheKey(artist, title));
+}
+
+/**
+ * Evict the cover cached under the ARTIST-only key. Keys via the SAME artistCoverCacheKey as the
+ * setter (matchKey folding parity). Deletes exactly that one entry — coexisting track families
+ * untouched. Pure, never throws, NO rune/bump (the reactive bump lives in cover-version.svelte.ts).
+ */
+export function removeCachedArtistCover(artist: string): void {
+	removeKey(artistCoverCacheKey(artist));
+}
+
+// ── CROWD PICKS (Phase 40 D-14 / D-19) ──────────────────────────────────────────────────────────
+// The cover OTHER listeners voted for (/api/cover-pick), cached locally per song. Two keys mirror
+// the two vote keys: `crowd:uid:<uid>` (exact song) and `crowd:name:<matchKey>` (same-named songs).
+// A matchKey never contains `:` (norm strips it), and `crowd:` is a new prefix, so this family is
+// disjoint from the `uid:` / `<matchKey>` / `artist:` / `itunes:` families — a crowd pick never
+// reads as an auto-resolved cover and vice versa. Unlike a pin it IS a cache: it shares the TTL,
+// the write-time-LRU cap and clearCoverCache (the server is the source of truth; a miss refetches).
+// D-19: evicting an entry is local only — nothing here talks to the server.
+
+function crowdUidKey(uid: string): string {
+	return 'crowd:uid:' + uid;
+}
+function crowdNameKey(artist: string, title: string): string {
+	// versionedMatchKey (40-08 checkpoint): a live/remix cut keeps its own crowd entry; it must match
+	// the `n` hash coverPickKeys sends. The auto name layer (coverCacheKey) keeps matchKey's folding.
+	return 'crowd:name:' + versionedMatchKey(artist, title);
+}
+
+/** The crowd pick for an exact uid, or null. Empty uid is always a miss (EMPTY-UID guard). */
+export function getCrowdCoverByUid(uid: string): string | null {
+	return uid ? readKey(crowdUidKey(uid)) : null;
+}
+
+/** Cache the crowd pick for `uid`. No-op on an empty uid or a non-https url. Never throws. */
+export function setCrowdCoverByUid(uid: string, url: string): void {
+	if (!uid || !hasHttpsScheme(url)) return;
+	writeKey(crowdUidKey(uid), url);
+}
+
+/** Evict the crowd pick for `uid` (local only, D-19). Never throws. */
+export function removeCrowdCoverByUid(uid: string): void {
+	if (uid) removeKey(crowdUidKey(uid));
+}
+
+/** The crowd pick for an {artist,title} name, or null. */
+export function getCrowdCoverByName(artist: string, title: string): string | null {
+	return readKey(crowdNameKey(artist, title));
+}
+
+/** Cache the crowd pick for an {artist,title} name. No-op on a non-https url. Never throws. */
+export function setCrowdCoverByName(artist: string, title: string, url: string): void {
+	if (!hasHttpsScheme(url)) return;
+	writeKey(crowdNameKey(artist, title), url);
+}
+
+/** Evict the crowd pick for an {artist,title} name (local only, D-19). Never throws. */
+export function removeCrowdCoverByName(artist: string, title: string): void {
+	removeKey(crowdNameKey(artist, title));
+}
+
+/**
+ * Crowd read order: exact uid first, then the name key.
+ * 40-WR-04: never for a `device:` uid — a local file's own embedded art outranks any crowd pick
+ * (37-D-02), and the retag sweep must not embed an anonymous vote into the user's own files. Guarded
+ * HERE, the one shared read, so every caller (play/restore seeds, displayCover, readChosenCover) inherits it.
+ */
+export function getCrowdCover(uid: string, artist: string, title: string): string | null {
+	if (isDeviceUid(uid)) return null;
+	return getCrowdCoverByUid(uid) ?? getCrowdCoverByName(artist, title);
+}
+
+// ── USER COVER PINS (quick-260915-w4f) ──────────────────────────────────────────────────────────
+// A PIN is the cover the USER explicitly chose for one song in the TrackMenu cover picker. It is
+// deliberately NOT stored in CACHE_KEY above, and not in any of that record's three key families:
+//   - the `<matchKey>` NAME layer is SHARED across uids, so writing a pin there would push one
+//     user's pick onto every same-named song (covers, live versions, other sources' uploads);
+//   - even a uid-only entry inside CACHE_KEY would inherit the 14-day read-side TTL, the 2000-entry
+//     oldest-write-first eviction AND clearCoverCache() — three ways a deliberate choice gets
+//     SILENTLY wiped.
+// A pin is USER INTENT, not a cache, so it gets its own key with no TTL and no cap. The separation
+// also makes it immune to every existing cache writer (writeCoverBoth / resolveCoverForTrack /
+// resolveHqCover / removeCoverBoth) with zero changes to them. The ONE thing that removes a pin is
+// a genuinely dead URL (player.healCover's failed probe) — see the Q2 contract there.
+const PIN_KEY = 'openmusic:cover-pins:v1';
+
+// debug page-switch-lag-tap-dead: same parsed-record memo as the cover cache — every row read
+// consults the pin layer first (readCoverByUidOrName / readPinnedCover), so it was a second
+// whole-blob parse per tile.
+const pins = memoRecord<Record<string, string>>(PIN_KEY);
+
+/** Read the pin record; {} on absent / corrupt / unavailable storage (never throws). */
+function readPins(): Record<string, string> {
+	return pins.read();
+}
+
+/**
+ * The user's pinned cover for `uid`, or null. Pure read, never throws.
+ * EMPTY-UID GUARD (quick-260910-qwt / 8a848d9): a uid-less name stub has no identity, so it must
+ * never read a shared slot — an empty uid is always a miss, whatever is on disk.
+ */
+export function getPinnedCover(uid: string): string | null {
+	if (!uid) return null;
+	const v = readPins()[uid];
+	return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
+/**
+ * Pin `url` as the cover for `uid`. No-op on an empty uid (no identity to pin against) or a
+ * non-https url (T-w4f-02 — the value is painted as an `<img src>` and handed to the OS media
+ * session). Swallows quota / unavailable storage. Callers use pinCover() in cover-version.svelte.ts
+ * so the reactive bump is never forgotten.
+ */
+export function setPinnedCover(uid: string, url: string): void {
+	if (!uid || !hasHttpsScheme(url)) return;
+	try {
+		const rec = readPins();
+		rec[uid] = url;
+		pins.write(rec);
+	} catch {
+		/* quota or unavailable — non-fatal, the pin simply does not persist */
+	}
+}
+
+/** Drop the pin for `uid`. Removing a missing uid is a true no-op. Never throws. */
+export function removePinnedCover(uid: string): void {
+	if (!uid) return;
+	try {
+		const rec = readPins();
+		if (uid in rec) {
+			delete rec[uid];
+			pins.write(rec);
+		}
+	} catch {
+		/* unavailable / quota / corrupt — non-fatal, no-op */
+	}
+}

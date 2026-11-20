@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- 38-D-23/D-24: Android App Links. Claims openmusic.lol ONLY (the one host
+                 shareOrigin() can emit) and ONLY the three share surfaces — every other
+                 openmusic.lol URL still opens in a browser, by design. autoVerify makes the OS
+                 fetch https://openmusic.lol/.well-known/assetlinks.json at install/update and
+                 grant this activity the domain with no disambiguation dialog.
+                 NOTE: verification is per-HOST. The pathPrefix entries narrow which URLs this
+                 filter MATCHES; they are not part of what gets verified.
+                 NOTE: pathPrefix="/song" also matches "/songbook". No such route exists today,
+                 but a future /songs route would silently start opening in the app.
+                 https only: shareOrigin() rewrites localhost/capacitor:/file: to the public
+                 https origin and can never emit http, so claiming http would claim a scheme we
+                 never produce.
+                 38-D-26: android:launchMode="singleTask" (already set above) is what routes a
+                 re-tapped link into onNewIntent instead of a second task. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="openmusic.lol" android:pathPrefix="/song" />
+                <data android:scheme="https" android:host="openmusic.lol" android:pathPrefix="/album" />
+                <data android:scheme="https" android:host="openmusic.lol" android:pathPrefix="/artist" />
+            </intent-filter>
+
+            <!-- quick-261020-deeplink: auth handoff for the installed APK. The magic-link email
+                 points at https://openmusic.lol/auth/magic (the SYSTEM browser), which burns the
+                 single-use token; that page then offers "Open in OpenMusic" pointing at
+                 openmusic://auth/callback?token=<session-bearer> — the browser's cookie can
+                 never reach the app's WebView, so the bearer crosses on this deep link and the
+                 root layout adopts it (adoptNativeToken). android:scheme drops the '://'
+                 (manifest form); the payload is re-validated in parseAuthCallbackUrl() before
+                 it can become a credential (T-38-02 twin). Like the App Links filter above,
+                 this hand-added filter survives `npx cap sync android` — sync only manages
+                 plugin entries, never these. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="openmusic" android:host="auth" android:pathPrefix="/callback" />
+            </intent-filter>
+
+        </activity>
+
+        <!-- debug apk-cold-media-play: "play" from outside the app while it is closed (Samsung
+             Modes & Routines "Play music", headset/BT play key, media resumption). See
+             ColdMediaLaunch.kt. The browser service is what lists OpenMusic as a music app and lets
+             a routine connect to it cold; the receiver REPLACES androidx's MediaButtonReceiver
+             (merged in by @jofr/capacitor-media-session) so a key with the app closed wakes the app
+             instead of starting the plugin's session-less service. -->
+        <service
+            android:name=".OpenMusicBrowserService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+        <receiver
+            android:name=".OpenMusicMediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name="androidx.media.session.MediaButtonReceiver"
+            tools:node="remove" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- D-04 background audio (Plan 999.1-04): a mediaPlayback foreground service keeps the
+         backgrounded WebView audio alive past screen-off and renders the system media notification
+         + lock-screen transport. The @jofr/capacitor-media-session plugin merges in its own
+         MediaSessionService (android:foregroundServiceType="mediaPlayback") and declares
+         FOREGROUND_SERVICE, but it is stale (peer Cap 6 / pre-Android-14) and does NOT declare the
+         Android 14+/targetSdk-36-REQUIRED FOREGROUND_SERVICE_MEDIA_PLAYBACK permission. Without it,
+         starting the FGS throws MissingForegroundServiceTypeException on Android 14+. Declare both
+         here (FOREGROUND_SERVICE is redeclared harmlessly; the merger dedupes). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+    <!-- D-11 public Music/ (Plan 999.1-06): the MediaStoreSaver plugin writes downloaded audio into
+         the public Music/OpenMusic/ collection. On API 29+ writing the app's OWN MediaStore.Audio
+         entries needs NO runtime permission (RELATIVE_PATH + IS_PENDING). Only the legacy API <=28
+         branch (Environment.getExternalStoragePublicDirectory(DIRECTORY_MUSIC)) needs
+         WRITE_EXTERNAL_STORAGE, so it is scoped to maxSdkVersion="28" — a no-op on modern Android
+         (T-999.1-18 mitigation).
+
+         34-D-11: READ_MEDIA_AUDIO (API 33+) / READ_EXTERNAL_STORAGE (API 29-32, capped at 32) are
+         requested AT TAP TIME by MediaStoreSaverPlugin.requestReadAudio so the user's own Music/ and
+         Download/ audio can be scanned and played in place. Audio only — no images/video, no
+         MANAGE_EXTERNAL_STORAGE, no broad storage scope. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
+    <!-- debug apk-cold-media-play: Android 10+ refuses to start an Activity from the background
+         (a routine / headset play key with the app closed) unless the user grants "Display over
+         other apps". Declaring it is what makes OpenMusic appear on that settings screen. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+</manifest>

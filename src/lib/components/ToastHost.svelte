@@ -1,0 +1,26 @@
+<script lang="ts">
+	// Single mounted toast renderer (D-15). Reads the global toast store and renders the one
+	// visible message; mounted ONCE in the app layout alongside NowPlaying/SleepTimerSheet so
+	// every page shares this host instead of carrying its own copy. Both the message AND the
+	// quick-260910-omt action-button label are rendered as text content only (auto-escaped) —
+	// never {@html} (T-23-01). The `.toast` style + fly transition are copied byte-identical from
+	// TrackMenu's local copy (now a flex row so the optional button sits beside the message); its
+	// grandfathered pill values (env safe-area top, 999px radius) are exempt from the 8pt scale
+	// per UI-SPEC §1. The button is a native <button> inside the polite live region, so it is
+	// keyboard-focusable and announced with the message as one utterance.
+	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
+	import { toast } from '$lib/stores/toast.svelte';
+	import { tapBounce } from '$lib/actions/tapBounce';
+</script>
+
+{#if toast.msg}<div class="toast" role="status" aria-live="polite" transition:fly={{ y: -20, duration: 180 }}><span class="msg">{toast.msg}</span>{#if toast.action}<button type="button" class="act" onclick={() => toast.act()} use:tapBounce>{toast.action.label}</button>{/if}</div>{/if}
+
+<style>
+	/* fast 2026-10-04: left/right + auto margins, not left:50%+translateX — that capped the width at 50vw (see +layout .notice-toast). */
+	.toast { position: fixed; left: 12px; right: 12px; margin-inline: auto; width: fit-content; top: calc(env(safe-area-inset-top, 0px) + 14px); z-index: 90; background: #000; color: #fff; padding: 10px 16px; border-radius: 18px; font-size: 0.8125rem; box-shadow: var(--shadow-lg); border-color: darkgrey; display: flex; align-items: center; gap: 12px; max-width: min(92vw, 520px); }
+	/* quick-261001-grb: download toasts now carry CJK artist/album names — one line + ellipsis
+	   instead of a wrapping pill (the pill's max-width bounds it on a 375px phone). */
+	.toast .msg { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	/* Copied from +layout.svelte's .notice-toast .retry (the never-stop pill's button). */
+	.toast .act { flex: none; background: var(--color-primary, #0abab5); color: var(--color-on-primary); /* quick-261102-rrb */ border: none; border-radius: 999px; padding: 8px 14px; font-size: 0.8125rem; font-weight: 600; cursor: pointer; min-height: 32px; }
+</style>

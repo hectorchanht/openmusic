@@ -1,0 +1,70 @@
+// OG-PATH-01: carrier-free SONG share route. A crawler hitting /song/{artist}/{title} gets a
+// per-song OG card baked into the SSR HTML, built ENTIRELY from the two decoded path segments —
+// no query carriers at all (this supersedes DQ-1/DQ-2's ?n=&a=&c= for the NEW shape; the legacy
+// /song/[slug] handler keeps those verbatim, OG-COMPAT-01). Path depth differs, so the two shapes
+// coexist with no route-matching conflict.
+//
+// D-01/D-03: this is a UNIVERSAL `+page.ts` with `ssr = true` — a per-route SSR opt-in. The root
+// +layout.ts stays ssr=false; NEVER a +page.server.ts (that would break the adapter-static native
+// build — Pitfall 5 / T-24-09).
+//
+// T-24-08 / SSRF: this loader performs NO fetch and is SYNCHRONOUS. og.image is an own-origin
+// /api/og URL merely EMITTED into a meta tag; the crawler fetches it, and /api/og applies the
+// per-tier host allowlist server-side. The input is path TEXT, not a sharer-supplied https URL —
+// a strictly tighter posture than the retired `?c=` carrier. Because /api/og is a URL WE construct
+// on the request's own origin, it deliberately bypasses buildOg's isHttpsUrl carrier gate (that
+// gate exists for sharer-supplied covers, and would drop the image on an http dev origin), so the
+// image is spliced over buildOg's result rather than passed in as `cover`.
+//
+// quick-260809-3uo — AMENDMENT to the T-24-08 paragraph above (the ref STAYS; it records why the URL
+// carrier left). This loader now ECHOES one optional short `ci` cover-id token into the own-origin
+// /api/og URL. It still performs NO fetch and stays SYNCHRONOUS, so no SSRF is added here — and `ci`
+// is NOT a URL at all, so there is nothing to gate beyond the length cap that lives inside
+// ogImageUrl. The real gate is `coverUrlFromToken` inside /api/og, which rebuilds the image URL from
+// a template whose scheme, host and path shape are literals in our own source. No `ci` (or one the
+// edge rejects) → exactly today's carrier-free behaviour.
+//
+// params.artist/params.title are ALREADY decodeURIComponent'd by SvelteKit (decode_params,
+// utils/routing.js) — decoding again throws URIError on a literal '%' (a live 500 on the legacy
+// /album/{name} route today, Pitfall 1). decodePathSegment only reverses the '-'-for-space
+// transform; it never decodes.
+//
+// Plain strings (NOT t()) — load runs server-side where the reactive i18n lookup is unsafe (same
+// note as the album/artist loads).
+import { buildOg, decodePathSegment, ogImageUrl } from '$lib/services/share';
+import type { PageLoad } from './$types';
+
+// Per-route SSR opt-in (D-01): the song-share surface renders server-side so crawlers see the OG
+// head; prerender stays off (the artist/title space is unbounded / dynamic).
+export const ssr = true;
+export const prerender = false;
+
+export const load: PageLoad = ({ params, url }) => {
+	const artist = decodePathSegment(params.artist);
+	const title = decodePathSegment(params.title);
+
+	// OG title = `Song • Artist`, with a brand default so the head is NEVER empty (an empty segment
+	// arrives as the '-' guard, which decodes to ''). The card image is absolute + origin-derived so
+	// it stays crawler-valid from ANY deploy origin.
+	const og = {
+		...buildOg({ title: title || 'openmusic', artist: artist || undefined, type: 'music.song' }),
+		// quick-260809-3uo: `ci` is OPAQUE here — no parsing, no validation beyond ogImageUrl's cap.
+		image: ogImageUrl(url.origin, 'song', artist, title, url.searchParams.get('ci') ?? '')
+	};
+
+	// Same page-data contract as song/[slug] so the page component is a near-copy, plus the 38-D-08
+	// song-identity carrier `u` (`{source}{songid}` — the recipient does ONE direct detail resolve
+	// instead of a name search, and hears the same version the sender did).
+	//
+	// 38-D-08: `u` is echoed OPAQUE — NO parse and NO validation happens here. The closed source-enum
+	// gate is `parseEntityParam`, which runs CLIENT-side inside share-arrival (T-38-01), so this
+	// loader never turns the carrier into a source dispatch or a URL. It therefore stays SYNCHRONOUS
+	// and performs NO fetch: the T-24-08 / SSRF posture above is unchanged by this param — do not add
+	// a fetch here to "pre-resolve" it.
+	//
+	// quick-261102-covgate: `ci` is echoed RAW as its own field too — the page component appends
+	// it to its in-app hero URL, so the VISIBLE cover takes the same token fast-path the meta
+	// og:image already had (before this, the hero URL carried no token at all and re-resolved
+	// by name — the surface that served a wrong cover while the nowbar showed the right one).
+	return { og, name: title, artist, u: url.searchParams.get('u'), ci: url.searchParams.get('ci') };
+};

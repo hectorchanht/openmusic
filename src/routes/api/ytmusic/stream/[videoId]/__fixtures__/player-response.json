@@ -1,0 +1,76 @@
+{
+  "_note": "Hand-authored, faithful ANDROID_VR player-response shapes (spike 006). Fake but https googlevideo urls carry an ip= param to model the IP-lock. Never a real signed URL. Keyed variants exercise the pure selectAudioFormat/isPlayable helpers + the route.",
+  "ok": {
+    "playabilityStatus": { "status": "OK" },
+    "streamingData": {
+      "expiresInSeconds": "21540",
+      "adaptiveFormats": [
+        {
+          "itag": 251,
+          "mimeType": "audio/webm; codecs=\"opus\"",
+          "bitrate": 137474,
+          "audioSampleRate": "48000",
+          "contentLength": "4239359",
+          "url": "https://rr3---sn-fake.googlevideo.com/videoplayback?itag=251&mime=audio%2Fwebm&ip=203.0.113.7&expire=9999999999&aac=0"
+        },
+        {
+          "itag": 140,
+          "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+          "bitrate": 131477,
+          "audioSampleRate": "44100",
+          "contentLength": "4218164",
+          "url": "https://rr3---sn-fake.googlevideo.com/videoplayback?itag=140&mime=audio%2Fmp4&ip=203.0.113.7&expire=9999999999&aac=1"
+        },
+        {
+          "itag": 139,
+          "mimeType": "audio/mp4; codecs=\"mp4a.40.5\"",
+          "bitrate": 50998,
+          "audioSampleRate": "22050",
+          "contentLength": "1590672",
+          "url": "https://rr3---sn-fake.googlevideo.com/videoplayback?itag=139&mime=audio%2Fmp4&ip=203.0.113.7&expire=9999999999&aaclow=1"
+        }
+      ]
+    }
+  },
+  "loginRequired": {
+    "playabilityStatus": {
+      "status": "LOGIN_REQUIRED",
+      "reason": "Sign in to confirm you’re not a bot"
+    },
+    "streamingData": {}
+  },
+  "cipheredOnly": {
+    "playabilityStatus": { "status": "OK" },
+    "streamingData": {
+      "adaptiveFormats": [
+        {
+          "itag": 140,
+          "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+          "bitrate": 131477,
+          "audioSampleRate": "44100",
+          "signatureCipher": "s=FAKE_SIG_TO_SOLVE&sp=sig&url=https%3A%2F%2Frr3---sn-fake.googlevideo.com%2Fvideoplayback%3Fitag%3D140"
+        }
+      ]
+    }
+  },
+  "fallbackNoAac140": {
+    "playabilityStatus": { "status": "OK" },
+    "streamingData": {
+      "adaptiveFormats": [
+        {
+          "itag": 251,
+          "mimeType": "audio/webm; codecs=\"opus\"",
+          "bitrate": 137474,
+          "url": "https://rr3---sn-fake.googlevideo.com/videoplayback?itag=251&mime=audio%2Fwebm&ip=203.0.113.7&opus=1"
+        },
+        {
+          "itag": 139,
+          "mimeType": "audio/mp4; codecs=\"mp4a.40.5\"",
+          "bitrate": 50998,
+          "audioSampleRate": "22050",
+          "url": "https://rr3---sn-fake.googlevideo.com/videoplayback?itag=139&mime=audio%2Fmp4&ip=203.0.113.7&aaclow=1"
+        }
+      ]
+    }
+  }
+}

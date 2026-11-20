@@ -1,0 +1,37 @@
+[
+  {
+    "name": "想你就写信 (Live)",
+    "artist": "周杰伦/李硕/张鑫",
+    "url": "https://api.qijieya.cn/meting/?server=netease&type=url&id=509781655",
+    "pic": "https://api.qijieya.cn/meting/?server=netease&type=pic&id=109951163038292176",
+    "lrc": "https://api.qijieya.cn/meting/?server=netease&type=lrc&id=509781655"
+  },
+  {
+    "name": "屋顶",
+    "artist": "周杰伦/温岚/吴宗宪",
+    "url": "https://api.qijieya.cn/meting/?server=netease&type=url&id=5257138",
+    "pic": "https://api.qijieya.cn/meting/?server=netease&type=pic&id=109951165671182684",
+    "lrc": "https://api.qijieya.cn/meting/?server=netease&type=lrc&id=5257138"
+  },
+  {
+    "name": "布拉格广场",
+    "artist": "蔡依林/周杰伦",
+    "url": "https://api.qijieya.cn/meting/?server=netease&type=url&id=210049",
+    "pic": "https://api.qijieya.cn/meting/?server=netease&type=pic&id=109951172453712025",
+    "lrc": "https://api.qijieya.cn/meting/?server=netease&type=lrc&id=210049"
+  },
+  {
+    "name": "默 (Live)",
+    "artist": "李荣浩/周杰伦",
+    "url": "https://api.qijieya.cn/meting/?server=netease&type=url&id=1888354230",
+    "pic": "https://api.qijieya.cn/meting/?server=netease&type=pic&id=109951166537300832",
+    "lrc": "https://api.qijieya.cn/meting/?server=netease&type=lrc&id=1888354230"
+  },
+  {
+    "name": "因为爱情 (Live)",
+    "artist": "周杰伦/那英",
+    "url": "https://api.qijieya.cn/meting/?server=netease&type=url&id=490595315",
+    "pic": "https://api.qijieya.cn/meting/?server=netease&type=pic&id=18892908300315027",
+    "lrc": "https://api.qijieya.cn/meting/?server=netease&type=lrc&id=490595315"
+  }
+]

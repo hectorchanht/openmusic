@@ -1,0 +1,800 @@
+// Aggregation layer (Phase 1, DATA-03 + DATA-04). Ports the monolith's
+// `searchAllSources` (legacy/index.html:2216-2263), `getInterleavedSearchList`
+// (1691-1707) and `ensureTrackDetails` (2506-2513) — generalized to the registry so
+// NO source is ever named here. All DOM/render calls (dom.searchStatus,
+// renderMiniSearchList, playFromList) are dropped — those are Phase 4.
+import { SOURCES, getEnabledAdapters, onlySource, isAutoResolveEligible } from '$lib/sources/registry';
+import { playbackRank } from '$lib/sources/source-order';
+import { makeUid, type SourceId, type Track, type SettledSourceResult } from '$lib/sources/types';
+import type { DefaultQuality } from '$lib/stores/settings.svelte';
+import { sleep } from '$lib/proxy/http';
+import { cached, evictCached, __clearSearchCache } from './ttl-cache';
+import { matchKey, cjkSearchQuery } from './dedupe';
+import { scoreMatch } from './score-match';
+import { walkSource } from './fallback';
+import { readResolveCache, registerServedResolve } from './resolve-cache-client';
+import { logAction } from '$lib/stores/actionLog.svelte';
+import { isTrackReady } from './track-ready';
+import { isDeviceUid } from '$lib/services/device-track';
+import { foldScriptReady, foldScript } from '$lib/services/zh-convert';
+// 32-D-20: the cached url is filled at ONE tier (lossless), so the read gate and the adoption gate
+// both need the caller's EFFECTIVE tier. Same leaf-store + pure-helper pair sources/qq.ts uses.
+import { effectiveQuality } from '$lib/sources/quality';
+import { settings } from '$lib/stores/settings.svelte';
+
+/**
+ * quick-260629-nyl Task 3: sources that genuinely have NO upstream lyrics. A lyric MISS on one of
+ * these is expected (not the regression), so the cross-source lyric fallback must NOT fire for them
+ * (neither as the track to backfill nor as a fallback candidate). The CN/JOOX sources DO carry lyrics.
+ */
+const LYRICLESS_SOURCES = new Set<SourceId>(['jamendo', 'audius', 'fivesing', 'ccmixter', 'bandcamp']); // 43: bandcamp has no upstream lyrics
+
+// Re-exported so tests (and any future cache-busting caller) can reset the search
+// cache between cases — the 3 existing fan-out spy tests rely on this in afterEach.
+export { __clearSearchCache };
+
+/**
+ * GAPLESS-PREFETCH: inter-source stagger (ms). The concurrent fan-out used to hit every proxy in
+ * the exact same instant — a burst that triggers rate-limits / transient 5xx on the slower sources.
+ * Adapter at index N now starts ~`SEARCH_STAGGER_MS * N` after the first (adapter 0 fires
+ * immediately). This is a STAGGERED START, not serialization: once launched the searches still
+ * overlap, so total added latency for K sources is only ~`SEARCH_STAGGER_MS * (K-1)` (a few hundred
+ * ms for the typical enabled count) and partial results keep streaming in via onPartial as each
+ * source lands — first-search feel is preserved. A small single value in the 150-300ms band.
+ */
+export const SEARCH_STAGGER_MS = 200;
+
+export interface SearchResult {
+	/** Per-source outcome (DATA-03): one failure is isolated, not fatal. */
+	perSource: SettledSourceResult[];
+	/** Deduped (by colon uid), round-robin-interleaved in registry order. */
+	interleaved: Track[];
+}
+
+/**
+ * D-06 progressive snapshot — emitted via the optional `onPartial` callback as each
+ * source settles. Shapes match `SearchResult` plus a `pending` countdown.
+ */
+export interface PartialSearchResult {
+	/** Sources that have settled SO FAR this call (ok or error). */
+	perSource: SettledSourceResult[];
+	/** uid-deduped + round-robin interleave over ALL sources settled so far. */
+	interleaved: Track[];
+	/** Number of adapters still pending (0 on the final emit). */
+	pending: number;
+}
+
+/**
+ * D-04 search-result TTL (ms). Search/discovery metadata changes infrequently, so an
+ * hour of memoization gives instant repeat responses + drops cold-fetch load to ~0
+ * within the typical browsing session. This caches the SearchResult METADATA only —
+ * never resolved (short-lived) audio URLs, which stay un-cached in `ensureTrackDetails`.
+ * lry-followup: bumped 5min → 60min. A music catalogue's search ranking is stable for
+ * hours, and the page already exposes a fresh load via the search button.
+ */
+const SEARCH_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Fan out a search across all enabled sources with per-source isolation, memoized at
+ * the catalog seam (D-04). Every search/discovery-resolution path funnels through here
+ * (`resolveStub`, `buildDiversePicks`, `buildSimilarQueue`, the search page), so the
+ * single TTL wrap covers them all.
+ *
+ * Cache key = `${normQuery}|${enabledSources}|${page}` — it INCLUDES `page` so each
+ * cumulative-superset page caches independently (D-04 Pitfall 3: a page-less key would
+ * serve the wrong superset). The raw `keyword` (not the normalized key) is passed to
+ * the adapters, so upstream calls are unchanged. Normalization (trim + lowercase) is
+ * for the cache key ONLY, so "Jay" and "jay " share an entry. The cached value is the
+ * resolved SearchResult; a HIT returns instantly (nothing in flight to abort, so the
+ * AbortSignal is moot on a hit; a MISS still honors `signal`).
+ *
+ * D-06: the optional trailing `onPartial` callback streams progressive snapshots as each
+ * source settles. Omitting it = byte-for-byte today's behavior (final SearchResult only).
+ * On a cache HIT, `onPartial` (if passed) fires ONCE with the full set and `pending: 0`
+ * so the page's streaming handler has one uniform code path.
+ */
+export async function searchAll(
+	keyword: string,
+	page = 1,
+	prefs: Partial<Record<SourceId, boolean>> = {},
+	signal?: AbortSignal,
+	onPartial?: (partial: PartialSearchResult) => void
+): Promise<SearchResult> {
+	// quick-261102-sdm (DECISIONS.md §2, product call 2026-11-03): every search goes upstream in
+	// SIMPLIFIED — most providers index zhs only (QQ returned [] for "周杰倫 珊瑚海" while
+	// "周杰伦 珊瑚海" hit). One fold, one query, one cache entry: 周杰倫 and 周杰伦 are the same
+	// search. Display script is the names layer's job, never the search's.
+	keyword = await foldScriptReady(keyword);
+	const enabledKey = getEnabledAdapters(prefs)
+		.map((a) => a.id)
+		.join(',');
+	const key = `${keyword.trim().toLowerCase()}|${enabledKey}|${page}`;
+
+	// On a MISS, thread onPartial through so partials stream during the cold fetch.
+	// On a HIT, `cached` returns the resolved value WITHOUT invoking the factory, so we
+	// fire onPartial once below with the full cached set (pending:0) for a uniform path.
+	let wasMiss = false;
+	// quick-260926-l69 R1: never pin a POISONED result. searchAllUncached never rejects, so a
+	// per-source throw became `{status:'error', tracks:[]}` and an abort mid-stagger
+	// (RESOLVE_WATCHDOG / fallback budget / playGen supersede) returned a partial `acc`; cached()
+	// then pinned that miss for SEARCH_TTL_MS and every re-tap of the same song replayed it in ms
+	// with zero network (Activity-log proof: first failure ~4 s, re-taps `play → resolve.fail` in
+	// 12 ms → advance). An ok-but-EMPTY result stays cached on purpose — a genuinely-dry source is
+	// a real answer.
+	const result = await cached(
+		key,
+		SEARCH_TTL_MS,
+		() => {
+			wasMiss = true;
+			return searchAllUncached(keyword, page, prefs, signal, onPartial);
+		},
+		(r) => !signal?.aborted && r.perSource.every((s) => s.status === 'ok')
+	);
+
+	if (onPartial && !wasMiss && !signal?.aborted) {
+		onPartial({ perSource: result.perSource, interleaved: result.interleaved, pending: 0 });
+	}
+	return result;
+}
+
+/**
+ * quick-260926-l69 R2: evict every cached `${query}|${sources}|${page}` entry for `keyword` — the
+ * explicit-retry escape hatch for an ok-but-dry flake R1 cannot see. Same normalization as the
+ * key builder in `searchAll`. Every other ttl-cache consumer namespaces its keys (`dz:`/`lf:`/
+ * `mb:`/`ch:`/`it:`), so this prefix cannot collide with them.
+ */
+export function evictSearch(keyword: string): void {
+	// quick-261102-sdm: same fold as searchAll's cache key (sync: a search ran first, so warm).
+	evictCached(`${foldScript(keyword).trim().toLowerCase()}|`);
+}
+
+/**
+ * The actual fan-out (un-memoized). Split out of `searchAll` so the exported function
+ * is purely the D-04 cache wrapper.
+ *
+ * D-06: replaces the single `Promise.allSettled` with per-adapter `.then/.catch/.finally`
+ * that each push into a running accumulator and re-interleave over the WHOLE accumulated
+ * set, emitting via `onPartial` as each source lands. Because every promise is
+ * `.catch`-guarded, `Promise.all` never rejects — preserving the DATA-03 "one failure
+ * isolated" contract that `allSettled` gave. The `if (sig.aborted) return` guard inside
+ * `.finally` suppresses partials after a new query aborts this call. The final return
+ * shape is unchanged (`acc` ends holding all sources; `interleave` is registry-ordered by
+ * source-id regardless of settle order, so membership + interleaved output match the old
+ * behavior — verified against the existing fan-out tests).
+ */
+async function searchAllUncached(
+	keyword: string,
+	page = 1,
+	prefs: Partial<Record<SourceId, boolean>> = {},
+	signal?: AbortSignal,
+	onPartial?: (partial: PartialSearchResult) => void
+): Promise<SearchResult> {
+	const adapters = getEnabledAdapters(prefs);
+	const sig = signal ?? new AbortController().signal;
+
+	const acc: SettledSourceResult[] = []; // grows as sources settle
+	let pending = adapters.length;
+
+	await Promise.all(
+		adapters.map((a, idx) =>
+			// Staggered START (GAPLESS-PREFETCH): wait ~SEARCH_STAGGER_MS * idx before launching
+			// adapter idx so the proxies are not all hit in the same instant. `sleep` is the shared
+			// native-Promise delay (no hand-rolled AbortController). After the sleep we re-check
+			// `sig.aborted`: a query superseded DURING the stagger window must not keep launching
+			// later searches — we skip the `.search()` call entirely and just settle the accounting
+			// (decrement `pending`; the abort guard below suppresses the partial), so a superseded
+			// query stops firing new requests while `pending` still reaches 0.
+			sleep(SEARCH_STAGGER_MS * idx)
+				.then(() => {
+					if (sig.aborted) return; // aborted mid-stagger — do NOT launch this adapter
+					return a.search(keyword, page, sig).then((tracks) => {
+						acc.push({ source: a.id, status: 'ok', tracks });
+					});
+				})
+				.catch((reason) => {
+					acc.push({
+						source: a.id,
+						status: 'error',
+						tracks: [],
+						error: reason instanceof Error ? reason.message : String(reason)
+					});
+				})
+				.finally(() => {
+					pending--;
+					if (sig.aborted) return; // ABORT GUARD — drop partials for a superseded query
+					onPartial?.({ perSource: [...acc], interleaved: interleave(acc), pending });
+				})
+		)
+	);
+
+	return { perSource: acc, interleaved: interleave(acc) };
+}
+
+/**
+ * Round-robin merge in registry order with uid dedupe. Generalized from the
+ * monolith's hard-coded `order = ['netease','qq','kuwo','joox']` (legacy 1691) to
+ * `Object.keys(SOURCES)` so a new source needs no edit here (DATA-04).
+ */
+function interleave(perSource: SettledSourceResult[]): Track[] {
+	const order = Object.keys(SOURCES) as SourceId[];
+	const queues = new Map<SourceId, Track[]>();
+	for (const r of perSource) queues.set(r.source, [...r.tracks]);
+
+	const seen = new Map<string, Track>(); // dedupe by colon uid (legacy trackMap, 1657)
+	const out: Track[] = [];
+	let progressed = true;
+	while (progressed) {
+		progressed = false;
+		for (const sid of order) {
+			const queue = queues.get(sid);
+			if (!queue || queue.length === 0) continue;
+			const track = queue.shift() as Track;
+			progressed = true;
+			if (seen.has(track.uid)) continue;
+			seen.set(track.uid, track);
+			out.push(track);
+		}
+	}
+	return out;
+}
+
+/**
+ * RESOLVE-02 (POLICY.md / spikes 001+002+004): resolve a sourceless name-only stub (`{artist,title}`
+ * — the shape Plan 26-03's Last.fm `track.getSimilar` Up-Next emits) to a playable Track by walking
+ * the PLAYBACK_ORDER (quick-261102-sqn) ONE source at a time through fallback.ts walkSource
+ * (quick-261102-sy0): single-source search, isAutoAcceptable gate + rankAutoCandidates order over the
+ * RAW rows, up to three candidate resolves, return the FIRST that yields a truthy `audioUrl`.
+ * Never-throws (per-source failures are swallowed), AbortSignal-honoring (bails after every await),
+ * and stops at the first playable hit — so ~all plays resolve in ONE kuwo call (the ~59→~3 floor).
+ *
+ * 32-D-01: this walk follows PLAYBACK_ORDER, not qq-first, on purpose. It is the FAILURE path, and qq SEARCH is the
+ * flaky half of qq (0 rows intermittently under load, no throw), so leading with it here would make
+ * the fallback less reliable. qq-first arrives on the paths that matter — dedupe rank (32-D-08) and
+ * the edge mid cache (32-D-10) — never by reordering this walk.
+ */
+export async function resolveNameStub(
+	artist: string,
+	title: string,
+	signal?: AbortSignal,
+	avail?: Record<string, 'ok' | 'dry'>
+): Promise<Track | null> {
+	const query = `${artist} ${title}`.trim();
+	if (!query) return null;
+	const sig = signal ?? new AbortController().signal;
+	// PLAYBACK_ORDER inherited from the registry (quick-261102-sqn) — no source named here.
+	// Plan 27-04 (YT-RESILIENCE-01): exclude sources flagged off the auto-resolve floor
+	// (autoResolveEligible === false → ytmusic) so an Up-Next name stub NEVER auto-resolves to a
+	// searchable-but-off-the-hot-path source. Registry-flag-driven — no source named here either.
+	// quick-260926-c69: predicate hoisted to registry.ts isAutoResolveEligible, behaviour identical.
+	const eligible = getEnabledAdapters({})
+		.map((a) => a.id)
+		.filter((id) => isAutoResolveEligible(id));
+	// 31-D-06(c): the edge entry remembers which sources came up DRY for this song. Searching a
+	// known-dry source is a wasted call, and skipping it is the entire point of caching the
+	// availability hint. Applied ONLY when at least one source survives — an all-dry (or stale)
+	// hint must degrade to the full walk, never to an empty one that resolves nothing.
+	const kept = avail ? eligible.filter((id) => avail[id] !== 'dry') : eligible;
+	const order = kept.length ? kept : eligible;
+	// The walker's target (isAutoAcceptable reads title+artist; walkSource the duration). Typed, no cast.
+	const want: Track = {
+		uid: '',
+		source: order[0] ?? 'kuwo',
+		songid: '',
+		title,
+		artist,
+		album: '',
+		cover: null,
+		audioUrl: null,
+		lrc: null,
+		lrcUrl: null,
+		detailsLoaded: false,
+		quality: null,
+		qualityLabel: null,
+		keyword: query,
+		displayIndex: 1
+	};
+	// quick-261102-sy0 (DECISIONS.md §3): the SAME per-source walker the cross-source fallback
+	// races (fallback.ts walkSource) — same pool depth, same isAutoAcceptable gate + ranking, same
+	// per-candidate continue-on-throw, same verdicts. This loop is the sequential exhaustive pass:
+	// every eligible source gets one genuine attempt, so a name stub is never called unplayable
+	// because a source merely errored.
+	const walkAll = async (q: string): Promise<Track | null> => {
+		for (const src of order) {
+			if (sig.aborted) return null;
+			const attempt = await walkSource(src, q, want, sig);
+			if (sig.aborted) return null;
+			if (attempt.hit) return attempt.hit.track;
+		}
+		return null;
+	};
+	const hit = await walkAll(query);
+	if (hit || sig.aborted) return hit;
+	// quick-261103-cjk (user report 2026-11-03): a bilingual title ("車匙 - Car Key")
+	// defeats the strict CN search engines under its full spelling (live probe
+	// 2026-11-03: junk or nothing on kuwo / migu / netease; the CJK half alone hits
+	// the original), so a total miss earns ONE more walk with
+	// the CJK-half search string (dedupe.cjkSearchQuery — CJK artist kept, Latin artist
+	// dropped). `want` is unchanged: the walker's gates still compare every candidate
+	// against the ORIGINAL stub, so the split pool can only adopt a row that is the
+	// same song by the same artist — never a stranger's same-title cover.
+	const splitQuery = cjkSearchQuery(artist, title);
+	if (splitQuery && splitQuery !== query) return walkAll(splitQuery);
+	return null;
+}
+
+/**
+ * 32-D-10: turn a CACHED qq `song_mid` into a playable track with ONE qq detail call.
+ *
+ * Rewrites identity onto qq (source/songid/uid + the qqId/songMid extras qq's resolve reads) and
+ * clears the resolved-state fields so the adapter refills them; `lrcUrl` is dropped because a
+ * netease lrcUrl is meaningless once the identity is qq.
+ *
+ * NEVER-THROWS: returns null on a rejection, an abort, or a resolve that produced no audioUrl, and
+ * the caller then runs its pre-existing path untouched. That is 32-D-11 / 31-D-11 in code — the
+ * cache is ADVISORY, so a hit must never be WORSE than a miss.
+ *
+ * On success the resolved url is registered with the resolve-cache client so a later playback error
+ * routes `reportDeadUrl` → POST bust → the entry is dropped. That is the ONLY repair path for a
+ * permanent-but-wrong mid (32-D-10a), since there is deliberately no client write path.
+ */
+async function resolveFromCachedMid(
+	track: Track,
+	mid: string,
+	sig: AbortSignal,
+	quality?: DefaultQuality
+): Promise<Track | null> {
+	const derived: Track = {
+		...track,
+		source: 'qq',
+		songid: mid,
+		uid: makeUid('qq', mid),
+		qqId: mid,
+		songMid: mid,
+		audioUrl: null,
+		lrcUrl: null,
+		detailsLoaded: false
+	};
+	try {
+		const resolved = await SOURCES['qq'].resolve(derived, sig, quality);
+		if (sig.aborted || !resolved.audioUrl) return null;
+		registerServedResolve(resolved.audioUrl, track.artist, track.title);
+		return resolved;
+	} catch {
+		/* tang down / contract drift / abort — fall through to the caller's normal path */
+		return null;
+	}
+}
+
+
+/**
+ * Lazily resolve a track's audioUrl + lyrics through its source adapter.
+ *
+ * Dispatches via `SOURCES[track.source]` (registry, no source named — DATA-04) and applies the
+ * shared readiness guard (`isTrackReady`) — the monolith guard of legacy 2507 plus the freshness
+ * check it always lacked.
+ *
+ * This wrapper owns the guard, the `resolvedAt` stamp and the 34-D-01 device short-circuit so all
+ * three live at exactly ONE seam, the same discipline the cache read and the cross-source lyric tail
+ * already follow. `resolveTrackDetails`
+ * below is the unchanged body and has several return paths; stamping here covers all of them
+ * (cache url hit, mid shortcut, name stub, cold adapter walk) without touching any of them.
+ */
+export async function ensureTrackDetails(
+	track: Track,
+	signal?: AbortSignal,
+	quality?: DefaultQuality
+): Promise<Track> {
+	// 34-D-01 / RESEARCH bite #1: a `device:` uid is an IDENTITY namespace, not a registry source, so
+	// `track.source` on one is a PLACEHOLDER ('kuwo') exactly like the resolveByName stubs the RESOLVE-02
+	// comment below guards. Unguarded, this would dispatch SOURCES['kuwo'].resolve on a FOREIGN songid and
+	// resolve a DIFFERENT song under the user's own file's identity. There is nothing to fetch either: the
+	// file IS the resolve — blobStore.get serves its bytes (34-D-05). The return sits ABOVE isTrackReady
+	// because a local file has no resolvedAt/TTL semantics and must never be judged stale (Open Q5: no
+	// refresh stamping — this codebase has been bitten by re-resolve loops three times).
+	if (isDeviceUid(track.uid)) return track;
+	if (isTrackReady(track)) return track;
+	const resolved = await resolveTrackDetails(track, signal, quality);
+	// Stamp ONLY when this call actually produced a url. A fall-through (abort, every source missed,
+	// an unresolved name stub) returns the input track untouched and must stay unstamped, or the next
+	// caller would trust a url this call never validated.
+	if (resolved.audioUrl && resolved !== track) {
+		resolved.resolvedAt = Date.now();
+	}
+	return resolved;
+}
+
+async function resolveTrackDetails(
+	track: Track,
+	signal?: AbortSignal,
+	quality?: DefaultQuality
+): Promise<Track> {
+	const sig = signal ?? new AbortController().signal;
+
+	// ─── 31-D-08 CACHE-FIRST READ ────────────────────────────────────────────────────────────────
+	// This is the ONE seam every resolve caller (play, prefetch, warmAfter, download, fallback)
+	// funnels through, so one read here makes every one of them cache-aware. It costs each COLD
+	// resolve one governed own-origin GET — 31-D-05 explicitly accepts spending an extra call to
+	// make a play feel instant — bounded at 400ms inside the client, deduped + concurrency-capped by
+	// the apiFetch governor, and skipped entirely by the readiness guard above for a resolved track.
+	// NO second throttle is added here: composing local bounds is the named `api-fetch-flood-freeze`
+	// root cause.
+	//
+	// The cache is ADVISORY (31-D-08): readResolveCache maps a miss, a 404, a 500, malformed JSON,
+	// an abort, its own timeout and an open circuit breaker ALL to null, so every one of those
+	// leaves the pre-existing path below byte-identical and the user sees nothing.
+	//
+	// LYRIC RE-RESOLVE BYPASS (31-D-08): a track marked `lrcUnresolved` already HAS a url this cache
+	// (or an offline blob) supplied and is being re-resolved for the one thing the entry does not
+	// store — lyrics. Reading the cache again would hand back the same lrc-less url and the pane would
+	// stay empty, so skip straight to the source walk (+ crossSourceLyric) below.
+	//
+	// SKIP-WHEN-MID-HELD (32-D-10b): the entry stores a qq `song_mid`, so a caller that ALREADY holds
+	// one can never gain anything from this read — it would pay 0-400ms serially for an identifier it
+	// has. Post-32-D-08 a deduped search survivor is usually the qq row, so this guard is the single
+	// largest remaining latency win in the resolve path (32-D-10 itself saves a CALL, not the RTT:
+	// a mid still costs one qq detail call to become playable).
+	//
+	// 32-D-20 NARROWS the skip above. Under 32-D-10 the entry could only hand back an identifier the
+	// caller already had, so holding a mid meant the read could gain nothing. The entry now also
+	// carries a short-lived PLAYABLE url, and a mid-holder CAN gain that: a url hit is zero tang RTT
+	// (the Phase-31-measured 0.44s path) against the 2.0-3.8s a mid still costs to resolve. So the
+	// skip narrows to exactly the callers the url cannot serve: the url is filled lossless-only by
+	// construction (resolve-edge.ts), so a '320'/'128' caller can still gain nothing and keeps
+	// 32-04's zero-read fast path untouched. A lossless caller pays ≤400ms bounded for the chance.
+	const tier = effectiveQuality(quality ?? settings.defaultQuality);
+	const hasQqMid = Boolean(track.qqId || track.songMid || (track.source === 'qq' && track.songid));
+	// The LOG condition stays EXACTLY 32-04's (mid-less, not the lyric bypass) even though the READ
+	// condition moved — otherwise the Activity-log signal would silently change meaning.
+	const lyricBypass = Boolean(track.lrcUnresolved && !track.lrc);
+	const needsMidLookup = !hasQqMid && !lyricBypass;
+	// quick-261102-sqn (DECISIONS.md §5, product call 2026-11-03): the qq-only edge cache OBEYS
+	// PLAYBACK_ORDER. It may only lead for a track whose own source does not outrank qq — a
+	// joox/kuwo/kugou row the user tapped is resolved on its own source, never silently re-pointed
+	// at qq (that swap also turned a tapped "X (Live)" into qq's studio cut) — and never for a
+	// name stub, whose walk order is PLAYBACK_ORDER itself.
+	const cacheMayLead = playbackRank(track.source) <= playbackRank('qq') && !track.resolveByName;
+	const shouldReadCache = cacheMayLead && !lyricBypass && (!hasQqMid || tier === 'lossless');
+	if (needsMidLookup) {
+		// Research Open Question #2: nobody knows how often a qq mid is actually absent now that
+		// 32-D-08 promoted qq in dedupe. ONE log line per cold mid-less resolve turns that guess into
+		// data, readable at Settings → Activity log. Never on a churn/timeupdate path — this sits
+		// behind the readiness guard and fires at most once per cold resolve.
+		logAction('resolve.midless', { source: track.source, uid: track.uid });
+	}
+	const cachedEntry = shouldReadCache
+		? await readResolveCache(track.artist, track.title, sig)
+		: null;
+	if (sig.aborted) return track; // C-09: re-check after EVERY await — a newer play superseded us
+
+	// The track's OWN qq identity, if it already knows one. Used by BOTH gates below: a track that
+	// already knows which song it is must never be re-pointed at a different mid by a matchKey
+	// collision (two songs folding onto one shared, text-keyed PoP entry).
+	const ownMid = track.qqId || track.songMid || (track.source === 'qq' ? track.songid : null) || null;
+	const entryMatchesOwn = !ownMid || ownMid === cachedEntry?.songid;
+
+	// ─── 32-D-20 URL HIT — the zero-RTT path, and the one that carries the phase's accepted risk ──
+	// Read order is url → songid → cold walk. A fresh, tier-matching url is playable AS IS, so this
+	// returns immediately and spends no upstream call at all.
+	//
+	// ACCEPTED RISK (31-D-11, re-accepted by 32-D-20 for the 0.44s): this url is globally shared and
+	// signed, so it can be IP- or region-bound and WILL 403 for some other user in the PoP. Three
+	// mitigations make that survivable, and all three are load-bearing: the entry is ADVISORY
+	// (31-D-08) so a failure falls through to the mid path below and PLAYS; registerServedResolve
+	// keeps reportDeadUrl → POST bust wired as the repair (31-D-09); and a url already reported dead
+	// never even reaches here, because readOrThrow strips it one seam earlier. From the user's seat a
+	// poisoned hit must be indistinguishable from a url MISS.
+	//
+	// TIER GATE: one shared url cannot serve two tiers, so it is adopted only by the tier it was
+	// filled at — a cellular 'auto' user must never be handed a 50MB FLAC url.
+	// OWN-MID GATE: see entryMatchesOwn above.
+	//
+	// lrcUnresolved: true — a DELIBERATE reinstatement of the writer 32-04's SUMMARY recorded as
+	// gone from this file. A cached url carries no lyrics (that was the 31 flag's whole reason), and
+	// the early return must bypass the crossSourceLyric tail below or a serial lyric search would
+	// eat the 0.44s this branch exists for. The player's existing back-fill pass fills the pane off
+	// the critical path, so a hit is still never rendered worse than a miss.
+	if (
+		cachedEntry?.source === 'qq' &&
+		cachedEntry.songid &&
+		cachedEntry.url &&
+		cachedEntry.urlQuality === tier &&
+		entryMatchesOwn
+	) {
+		const mid = cachedEntry.songid;
+		registerServedResolve(cachedEntry.url, track.artist, track.title);
+		return {
+			...track,
+			source: 'qq',
+			songid: mid,
+			uid: makeUid('qq', mid),
+			qqId: mid,
+			songMid: mid,
+			audioUrl: cachedEntry.url,
+			lrcUrl: null,
+			detailsLoaded: true,
+			lrcUnresolved: true
+		};
+	}
+
+	// MID-HIT ADOPTION (32-D-10). 31's T-31-04-01 source+songid equality gate is SUPERSEDED here, on
+	// purpose: in 31 the entry held a URL, so adopting it for a different identity would have played
+	// another VERSION of the song than the one the user picked in the VersionPicker. A MID entry is
+	// different in kind — switching a mid-less track onto qq IS this phase's purpose (the roadmap's
+	// "collapses that back to 1 on the second listener"), and the residual risk (a matchKey collision
+	// folding two songs onto one key, so the mid plays a wrong-but-playable song) is repaired by the
+	// RETAINED POST bust (32-D-10a) exactly as a dead url was in 31 — which is why the resolved url is
+	// registered below.
+	//
+	// The adopted mid is a SHORTCUT PAST THE QQ SEARCH, never a finished resolve: qq's detail call
+	// returns url + lyrics + duration + cover together (32-D-09), so this path needs no `lrcUnresolved`
+	// re-resolve — the 31 flag existed only because a cached URL carried no lyrics.
+	//
+	// 32-D-06 / 32-D-07 — DELIBERATE generation-guard NON-USE, recorded so nobody "fixes" it: the
+	// background mid fill is EDGE-side (`waitUntil` in /api/resolve) and writes to cache only. It
+	// never writes back to `player.current` and never re-drives `audio.src`, so there is nothing for a
+	// `myGen` snapshot to protect and it would be dead code (`prewarm.ts` is the fire-and-forget
+	// precedent). The one guard that IS load-bearing here is the `sig.aborted` re-check after each
+	// await, which is already threaded.
+	// 32-D-20: the own-mid guard applies to the MID adoption too, not just the url. Now that a
+	// mid-holder reads the cache at the lossless tier, a colliding entry could otherwise rewrite the
+	// identity of a track that already knows exactly which song it is — the precise failure the url
+	// gate above exists to prevent, one line lower down.
+	const cachedMid = cachedEntry?.source === 'qq' && entryMatchesOwn ? cachedEntry.songid : null;
+	const fromMid = cachedMid ? await resolveFromCachedMid(track, cachedMid, sig, quality) : null;
+	if (sig.aborted) return track;
+	// Any other outcome (null, a stored known-none, a failed qq resolve) falls straight through with
+	// no side effect — the `named ?? track` fall-through shape already in this function. There is
+	// deliberately NO client-side cache WRITE: the edge fills its own entry out of band (31-03),
+	// because a client-supplied write would let one crafted request change what every other user in
+	// the PoP plays.
+	// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+	// RESOLVE-02: a lazy name-only stub (Plan 26-03's Up-Next) carries the `resolveByName` marker and
+	// no real source/songid. Resolve it in PLAYBACK_ORDER through ONE source at a time via resolveNameStub —
+	// NEVER dispatch SOURCES[placeholder].resolve on it. On a null return (every source missed or the
+	// signal aborted) fall through by returning the unresolved stub: the caller (player.play) treats
+	// an audioUrl-less result as a failed resolve and routes to its existing error/fallback path
+	// (never-throw). A normal source-bearing, detailsLoaded track skips this branch unchanged.
+	// 32-D-10: skipped when the mid shortcut already produced a playable track.
+	if (!fromMid && track.resolveByName && !track.detailsLoaded) {
+		// 31-D-06(c): thread the cached availability hints so the walk can skip a known-dry source.
+		const named = await resolveNameStub(track.artist, track.title, sig, cachedEntry?.avail);
+		return named ?? track;
+	}
+
+	// WR-07: `quality` threads an explicit per-call tier to the adapter (download path passes
+	// settings.downloadQuality) so download resolves never mutate the global streaming default.
+	// 32-D-10: `fromMid` short-circuits the dispatch but deliberately keeps the crossSourceLyric tail
+	// below, so a mid hit gets the SAME lyric completeness a cold resolve does.
+	// quick-261102-u4t (DECISIONS.md §14): adapters get the RESOLVED tier (effectiveQuality ran once
+	// above), never the raw pref — gdnetease tested `quality === 'lossless'` on an undefined/'auto'
+	// pref and always streamed 320, whatever the user's quality setting said.
+	const resolved = fromMid ?? (await SOURCES[track.source].resolve(track, sig, tier));
+
+	// quick-260629-nyl Task 3: bounded cross-source lyric fallback. The readiness guard treats a
+	// track with no lrcUrl and no lrc as "complete with no lyrics" and never re-resolves it, so a
+	// single-source lyric miss surfaces "No lyrics" even when another source HAS the lyrics for the
+	// same song. When the primary resolved to a PLAYABLE track that STILL has no lrc — and it is a
+	// source that SHOULD have lyrics — do ONE cross-source lyric lookup and copy ONLY the lrc across.
+	//
+	// PLACEMENT (chosen over widening player.backfillLyrics): this is the ONE seam every caller
+	// (play/prefetch/related) funnels through, so the fix is universal and lives with the readiness
+	// guard it complements. The netease/qq extractor fix above makes a genuine miss RARE, so the added
+	// latency only ever applies to the uncommon no-lrc case; it is strictly bounded (a single fallback
+	// candidate resolve, AbortSignal-threaded, never-throw) and never overwrites the primary audioUrl.
+	if (
+		resolved.audioUrl &&
+		!resolved.lrc &&
+		!LYRICLESS_SOURCES.has(resolved.source) &&
+		!sig.aborted
+	) {
+		const lrc = await crossSourceLyric(resolved, sig);
+		if (lrc && !sig.aborted) {
+			resolved.lrc = lrc;
+		}
+	}
+	return resolved;
+}
+
+/**
+ * quick-260629-nyl Task 3 + RESOLVE-02: best-effort cross-source lyric lookup for a track that
+ * resolved with no lrc. Reworked from a single all-enabled `searchAll` fan-out to a SINGLE-SOURCE
+ * PLAYBACK_ORDER WALK (quick-261102-sqn): step through `getEnabledAdapters({})` order, SKIP the track's own
+ * source (already resolved lyric-less) and every `LYRICLESS_SOURCES` (no upstream lyrics), and for
+ * each remaining source issue ONE single-source `searchAll` (`onlySource` prefs — never all 7). Per
+ * step, pick the best name-matching candidate (`matchKey` identity + `scoreMatch` ranking, no
+ * hand-rolled matching), use its inline lrc or resolve AT MOST that ONE candidate, and STOP at the
+ * first source that yields an lrc. Strictly bounded (one resolved candidate per step), single-source
+ * (never a fan-out), AbortSignal-honoring, and never-throws (returns null on any failure).
+ */
+async function crossSourceLyric(track: Track, signal: AbortSignal): Promise<string | null> {
+	return lyricWalk(track.artist || '', track.title || '', track.source, signal);
+}
+
+/**
+ * 37-D-03: `crossSourceLyric`'s body, verbatim, with the skipped source as a PARAMETER. Two entry
+ * points share it — `crossSourceLyric` (skip the track's own source: it already resolved lyric-less)
+ * and `lyricByName` (skip nothing).
+ */
+async function lyricWalk(
+	artist: string,
+	title: string,
+	skipSource: SourceId | null,
+	signal: AbortSignal
+): Promise<string | null> {
+	try {
+		if (!artist && !title) return null;
+		const query = `${artist} ${title}`.trim();
+		const wantKey = matchKey(artist, title);
+		const q = { artist, title };
+		// PLAYBACK_ORDER inherited from the registry (quick-261102-sqn) — one lyric-capable source per step.
+		const order = getEnabledAdapters({}).map((a) => a.id);
+		for (const src of order) {
+			if (signal.aborted) return null;
+			if (src === skipSource || LYRICLESS_SOURCES.has(src)) continue;
+			const lrc = await lyricFromSource(src, query, wantKey, q, signal);
+			if (lrc) return lrc;
+			// dry / lyric-less — advance to the next lyric-capable source (bounded walk).
+		}
+		return null;
+	} catch {
+		// Best-effort — any failure (abort, source throw, drift) leaves the primary track lyric-less.
+		return null;
+	}
+}
+
+/**
+ * quick-260919-1we: the BODY of `lyricWalk`'s per-source step, extracted verbatim so the picker's
+ * `collectLyricCandidates` runs the exact same step across every source instead of a second,
+ * subtly-different matching algorithm. Bounded by construction: ONE single-source `searchAll`
+ * (`onlySource` prefs — never a fan-out) and AT MOST ONE candidate `resolve`. The inner try/catch
+ * swallows a dry or throwing source, so a caller sees its absence, not its failure.
+ */
+async function lyricFromSource(
+	src: SourceId,
+	query: string,
+	wantKey: string,
+	q: { artist: string; title: string },
+	signal: AbortSignal,
+	// quick-261014-lyrnotitle: when true, identity is TITLE-ONLY — the candidate's artist is
+	// ignored both in the match-key filter and (via q.artist === '') in scoreMatch. Only the
+	// picker's title-only fallback pass sets this; the walk keeps the strict artist+title gate.
+	titleOnly = false
+): Promise<string | null> {
+	try {
+		const sr = await searchAll(query, 1, onlySource(src), signal);
+		if (signal.aborted) return null;
+		const best = sr.interleaved
+			.filter((c) =>
+				titleOnly
+					? matchKey('', c.title || '') === wantKey
+					: matchKey(c.artist || '', c.title || '') === wantKey
+			)
+			.sort((a, b) => scoreMatch(q, b) - scoreMatch(q, a))[0];
+		if (!best) return null;
+		// Use an inline lrc (qq/kuwo return it in the detail body) or resolve this ONE candidate.
+		if (best.lrc && best.lrc.trim()) return best.lrc;
+		const resolvedCand = await SOURCES[best.source].resolve(best, signal);
+		if (signal.aborted) return null;
+		if (resolvedCand.lrc && resolvedCand.lrc.trim()) return resolvedCand.lrc;
+		return null;
+	} catch {
+		/* this source dry / threw — the caller advances to the next source */
+		return null;
+	}
+}
+
+/**
+ * 37-D-03: the same bounded walk, entered by NAME — no Track in, a bare string out.
+ *
+ * Why a second entry point rather than calling `crossSourceLyric` with a device Track: that one skips
+ * `track.source`, and a `device:` track's source is the 34-D-01 PLACEHOLDER 'kuwo'. Passing the track
+ * in would silently drop the single best CN lyric source — and per MEMORY `sandbox-no-cn-upstream-network`
+ * the only CN source reachable from the dev sandbox, so the feature would also be untestable locally.
+ * This wrapper passes `null`, so nothing is skipped but the genuinely lyric-less sources.
+ *
+ * The return is `string | null` BY CONSTRUCTION, never a Track. That is the 34-D-01 guarantee in the
+ * type system: a caller enriching a device track physically cannot adopt an `audioUrl` from this — the
+ * file's bytes stay the only source of audio. Never throws, honors `signal`, issues at most one search
+ * and one candidate resolve per source and stops at the first lyric.
+ */
+export async function lyricByName(
+	artist: string,
+	title: string,
+	signal: AbortSignal
+): Promise<string | null> {
+	return lyricWalk(artist, title, null, signal);
+}
+
+/** One offered LRC: the text plus the source that produced it (the picker row's label). */
+export interface LyricCandidate {
+	source: SourceId;
+	lrc: string;
+}
+
+/**
+ * quick-260919-1we (D-5) — every source's LRC for one song, for the TrackMenu lyrics picker.
+ *
+ * The same relationship to `lyricWalk` that `collectCoverCandidates` has to the cover chain: the walk
+ * STOPS at the first hit because it sits on the playback path, whereas the picker wants them ALL so
+ * the user can choose. Both run the identical per-source step (`lyricFromSource` — `matchKey`
+ * identity + `scoreMatch` ranking, `LYRICLESS_SOURCES` skipped), so there is no second matching
+ * algorithm to drift.
+ *
+ * This is a PARALLEL fan-out and is therefore opt-in AT THE CALL SITE ONLY (T-26-10-02 posture,
+ * exactly like `collectCoverCandidates`): it runs on the Fix-lyrics row TAP, never on menu open.
+ * Still bounded the same way the walk is — one search and at most one candidate resolve per source,
+ * never an all-source fan-out per source — and every source is wrapped so one throwing source
+ * degrades to its own absence rather than taking the others down.
+ *
+ * Returns [] on an empty artist AND title, on an already-aborted signal, and on a total miss.
+ * Preserves `getEnabledAdapters({})` registry order in the returned array. Never throws.
+ *
+ * quick-261021-cache1 (user): memoized by artist|title — repeat opens instant.
+ */
+const lyricCandidatesMemo = new Map<string, LyricCandidate[]>();
+
+/** Test hook (mirrors ttl-cache's __clearSearchCache): the memo is session-scoped by
+ *  design, so suites that re-drive collectLyricCandidates with fixture names must reset it. */
+export function __clearLyricCandidatesCache(): void {
+	lyricCandidatesMemo.clear();
+}
+export async function collectLyricCandidates(
+	artist: string,
+	title: string,
+	signal: AbortSignal
+): Promise<LyricCandidate[]> {
+	try {
+		if (!artist && !title) return [];
+		if (signal.aborted) return [];
+		// quick-261021-cache1: memo hit — instant.
+		const memoKey = `${artist}|${title}`.toLowerCase();
+		if (lyricCandidatesMemo.has(memoKey)) {
+			return lyricCandidatesMemo.get(memoKey)!;
+		}
+		const order = getEnabledAdapters({})
+			.map((a) => a.id)
+			.filter((id) => !LYRICLESS_SOURCES.has(id));
+
+		// One pass of the identical per-source step, parameterized — the title-only fallback below
+		// reuses the exact same matching algorithm (no second implementation to drift).
+		const runPass = async (
+			passArtist: string,
+			titleOnly: boolean
+		): Promise<LyricCandidate[]> => {
+			const query = `${passArtist} ${title}`.trim();
+			const wantKey = titleOnly ? matchKey('', title) : matchKey(passArtist, title);
+			const q = { artist: passArtist, title };
+			// Per-source never-throw, mirroring collectCoverCandidates' `safe()`: one source
+			// throwing or timing out still yields the others' candidates.
+			const safe = async (src: SourceId): Promise<LyricCandidate | null> => {
+				try {
+					const lrc = await lyricFromSource(src, query, wantKey, q, signal, titleOnly);
+					return lrc ? { source: src, lrc } : null;
+				} catch {
+					return null;
+				}
+			};
+			const hits = await Promise.all(order.map(safe));
+			// Registry order preserved: Promise.all resolves positionally, so filtering keeps the order.
+			return hits.filter((h): h is LyricCandidate => h !== null);
+		};
+
+		const withArtist = await runPass(artist, false);
+		if (withArtist.length > 0) {
+			lyricCandidatesMemo.set(memoKey, withArtist);
+			return withArtist;
+		}
+		// quick-261014-lyrnotitle: fan covers carry the FAN's name as artist, so no lyric source
+		// matches "artist title" and the picker comes back empty. Fall back to a title-only pass —
+		// the original recording's lyrics are what the user wants to pick from. Strictly AFTER an
+		// empty first pass (a title-only match is looser and must never outrank an exact
+		// artist+title hit), and only when there is a title to search with.
+		if (!artist.trim() || !title.trim() || signal.aborted) return [];
+		const titleOnly = await runPass('', true);
+		if (titleOnly.length > 0) lyricCandidatesMemo.set(memoKey, titleOnly);
+		return titleOnly;
+	} catch {
+		return [];
+	}
+}

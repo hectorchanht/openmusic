@@ -1,0 +1,19 @@
+{
+	"code": 200,
+	"data": [
+		{
+			"rid": 158395650,
+			"name": "晴天",
+			"artist": "周杰伦",
+			"album": "叶惠美",
+			"pic": "https://img2.kuwo.cn/star/albumcover/300/68/40/1234567890.jpg"
+		},
+		{
+			"rid": 8888888,
+			"name": "稻香",
+			"artist": "周杰伦",
+			"album": "魔杰座",
+			"pic": "https://img2.kuwo.cn/star/albumcover/300/68/40/9876543210.jpg"
+		}
+	]
+}

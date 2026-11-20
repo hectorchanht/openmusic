@@ -1,0 +1,106 @@
+// Server-side proxy-adapter contract (Phase 1, DATA-02 / D-09).
+//
+// A ProxyAdapter runs on the Cloudflare edge inside the /api/[source]/[...path]
+// route. Its ONLY job (thin passthrough, D-09) is to turn an incoming /api request
+// into the real upstream URL — injecting the JOOX secret from `env` where needed.
+// The client SourceAdapter does all normalization.
+
+import type { SourceId } from '../sources/types';
+
+/** Server-only environment bindings (Cloudflare `platform.env`). Never reaches the client bundle. */
+export interface Env {
+	JOOX_TOKEN: string;
+	// OPTIONAL Last.fm key for /api/similar (artist.getSimilar). Server-side only —
+	// injected into the upstream URL on the edge, never echoed to the client
+	// (threat parity with JOOX_TOKEN / T-01-04, T-5ug-01). Absent key is a SUPPORTED
+	// state: /api/similar returns { artists: [] } so the service falls back to same-artist.
+	LASTFM_KEY?: string;
+	// OPTIONAL Last.fm shared secret for SIGNED calls (auth.getSession, track.love,
+	// track.scrobble). Used ONLY to compute the md5 api_sig on the edge — never echoed
+	// to the client (same threat class as LASTFM_KEY / JOOX_TOKEN). Absent = auth/scrobble
+	// endpoints unavailable; read-only Last.fm features still work.
+	LASTFM_SECRET?: string;
+	/** OPTIONAL Jamendo public API `client_id`. Sent on every Jamendo API URL — it is a
+	 * public id by design (same posture as LASTFM_KEY). Absent → the proxy returns an
+	 * empty `{ results: [] }` so jamendo simply has no hits. The Jamendo `client_secret`
+	 * is NOT carried here: it is only needed for OAuth flows we don't implement. */
+	JAMENDO_CLIENT_ID?: string;
+	// OPTIONAL Azure Translator subscription key for the /api/translate provider cascade
+	// (D-05/D-06). Server-side only — injected into the upstream `Ocp-Apim-Subscription-Key`
+	// header on the edge, NEVER echoed to the client (threat parity with JOOX_TOKEN /
+	// LASTFM_KEY, T-25c-01). Absent key is a SUPPORTED state: the Azure tier is SKIPPED and
+	// the cascade falls through to DeepL, then keyless Google.
+	AZURE_TRANSLATOR_KEY?: string;
+	// OPTIONAL Azure Translator resource region (e.g. `eastasia`), paired with
+	// AZURE_TRANSLATOR_KEY and sent as the `Ocp-Apim-Subscription-Region` header. Edge-only,
+	// never echoed to the client. Absent → the Azure request omits the region header.
+	AZURE_TRANSLATOR_REGION?: string;
+	// OPTIONAL DeepL Free API auth key for the /api/translate cascade (2nd tier). Server-side
+	// only — injected into the `Authorization: DeepL-Auth-Key <key>` header for api-free.deepl.com,
+	// NEVER echoed to the client (same threat class as AZURE_TRANSLATOR_KEY, T-25c-01). Absent
+	// key is a SUPPORTED state: the DeepL tier is SKIPPED and the cascade falls through to Google.
+	DEEPL_KEY?: string;
+	/** OPTIONAL R2 bucket holding maintainer-uploaded activity logs (Phase 33 / D-07 — R2 over KV
+	 * for strong read-after-write AND list-after-write). Bound as `DIAG` in wrangler.jsonc.
+	 * `R2Bucket` is a GLOBAL type from the Cloudflare Workers types already listed in tsconfig
+	 * `types` — deliberately no import here (an import would be the only one in this file).
+	 * ABSENT under `vite dev` and in unit tests is a SUPPORTED state: the diagnostic routes 503
+	 * rather than throwing, the same posture as an absent LASTFM_KEY. */
+	DIAG?: R2Bucket;
+	// quick-261116-kvprog: OPTIONAL KV namespace `openmusic-translate-cache` — the GLOBAL
+	// L2 for /api/translate (the edge Cache API is only a per-PoP L1). `KVNamespace` is a
+	// GLOBAL type from the Cloudflare Workers types, same posture as R2Bucket above.
+	// ABSENT under `vite dev` and in unit tests is a SUPPORTED state: the route degrades
+	// to L1 + the provider cascade, and every KV fault is swallowed (never-throw).
+	TRANSLATE_CACHE?: KVNamespace;
+	// OPTIONAL bearer token required to WRITE a log (D-01/D-03). Lives on the maintainer's device
+	// only; set via `wrangler pages secret put`, NEVER as a `var` and NEVER `VITE_`-prefixed, so it
+	// cannot reach the client bundle (T-33-03). Absent ⇒ uploads DISABLED — `bearerMatches` fails
+	// CLOSED, so a forgotten secret locks the door rather than removing it (T-33-01).
+	DIAG_UPLOAD_TOKEN?: string;
+	// OPTIONAL bearer token required to LIST/FETCH logs (D-02/D-03). NEVER shipped to any device —
+	// used only from curl on the maintainer's laptop. Absent ⇒ reads disabled (same fail-closed
+	// posture as DIAG_UPLOAD_TOKEN).
+	DIAG_READ_TOKEN?: string;
+	// quick-260926-nsz: OPTIONAL Cloudflare Turnstile secret for POST /api/comments. Set with
+	// `wrangler pages secret put TurnstileSecret`, NEVER as a `var` (vars are public config). Only
+	// ever sent in the siteverify form body — never logged or echoed. Absent ⇒ posting answers 503
+	// (reading and reporting still work).
+	TurnstileSecret?: string;
+	// quick-260926-nsz: comma list of hostnames a Turnstile token may have been minted on. PUBLIC,
+	// so it is a `var` in wrangler.jsonc ("openmusic.lol"); `.dev.vars` adds localhost for dev.
+	// Empty/absent ⇒ posting answers 503, same as a missing secret.
+	TURNSTILE_HOSTNAMES?: string;
+	// quick-261020-acct: D1 binding for magic-link auth + cross-device sync — database
+	// `openmusic-accounts` (see wrangler.jsonc). Holds PII (emails) + token hashes, so it is
+	// deliberately separate from the no-PII ANALYTICS_DB. ABSENT under `vite dev` and in unit
+	// tests is a SUPPORTED state: the /api/auth/* routes answer logged-out and
+	// /api/me/sync answers 503 rather than throwing.
+	ACCOUNTS_DB?: D1Database;
+	// SUPPORTERS WALL (2026-10-24): D1 binding for the public opt-in supporters
+	// wall — database `openmusic-supporters` (see wrangler.jsonc). Holds ONLY
+	// what a verified tipper chose to publish (display name + short message),
+	// keyed by the SHA-256 of their license key — no raw keys, no emails, so it
+	// is deliberately separate from both the PII ACCOUNTS_DB and the anonymous
+	// ANALYTICS_DB. ABSENT under `vite dev` and in unit tests is a SUPPORTED
+	// state: verify skips the wall write and the wall endpoint answers empty.
+	SUPPORTERS_DB?: D1Database;
+	// quick-261020-acct: Resend API key the /api/auth/magic-link route sends the sign-in
+	// email with. Server-side only — set via `wrangler pages secret put RESEND_API_KEY`,
+	// NEVER echoed to the client (same threat class as JOOX_TOKEN). Absent ⇒ the route
+	// FAILS CLOSED with 500 'not-configured' BEFORE minting a token (no orphan rows).
+	RESEND_API_KEY?: string;
+	// quick-261020-acct: OPTIONAL `From:` for the magic-link email. Absent ⇒ the route uses
+	// `OpenMusic <login@openmusic.lol>` (DEFAULT_MAGIC_LINK_FROM in $lib/auth/auth-core).
+	MAGIC_LINK_FROM?: string;
+}
+
+export interface ProxyAdapter {
+	id: SourceId;
+	/**
+	 * Build the real upstream URL from the incoming proxy path + query.
+	 * `env` is `platform?.env` and may be undefined outside the CF runtime;
+	 * only the JOOX adapter reads it (to inject the token).
+	 */
+	buildUrl(path: string, searchParams: URLSearchParams, env: Env | undefined): string;
+}

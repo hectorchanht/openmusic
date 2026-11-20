@@ -1,0 +1,1000 @@
+// Cover-chain (library.adoptCover) — a cover fetched once at play time must be shared
+// with every same-song library entry (uid OR normalized {artist,title} identity match).
+// quick-261008-cov1: the shown cover OVERWRITES — entries carrying stale art are updated so
+// every place the song appears shows the same cover.
+// Plus: library.downloading (D-10) — the reactive per-uid in-flight download set.
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+// DL-STATE-01: the `downloading` transient set test asserts it is NEVER persisted, which
+// needs a real save() path — so flip browser ON + back it with an in-memory localStorage
+// (mirrors player.svelte.test.ts). The cover-chain tests are unaffected (they never assert
+// on localStorage; save()/setCachedCover just write to the stub).
+vi.mock('$app/environment', () => ({ browser: true }));
+// 34-D-06: blobStore is mocked so "setDownloads never deletes a file" is a direct assertion rather
+// than an inference, and removeDownload's existing del() never reaches real IDB/Capacitor here.
+const { blobDel } = vi.hoisted(() => ({ blobDel: vi.fn(async () => {}) }));
+vi.mock('$lib/services/blob-store', () => ({ blobStore: { del: blobDel } }));
+// quick-261023-like-dl: the identity-linked like/unlike ping — mocked so the
+// fire-and-forget fetch never leaves the test process.
+const { trackLikeMock } = vi.hoisted(() => ({ trackLikeMock: vi.fn() }));
+vi.mock('$lib/analytics', () => ({ trackLike: trackLikeMock }));
+import { library } from './library.svelte';
+import { warmScript } from '$lib/services/zh-convert';
+import { getCachedCover } from '$lib/services/cover-cache';
+import type { Track } from '$lib/sources/types';
+
+const memStore = new Map<string, string>();
+const localStorageMock: Storage = {
+	get length() {
+		return memStore.size;
+	},
+	clear: () => memStore.clear(),
+	getItem: (k: string) => (memStore.has(k) ? (memStore.get(k) as string) : null),
+	key: (i: number) => Array.from(memStore.keys())[i] ?? null,
+	removeItem: (k: string) => void memStore.delete(k),
+	setItem: (k: string, v: string) => void memStore.set(k, String(v))
+};
+vi.stubGlobal('localStorage', localStorageMock);
+
+const mk = (over: Partial<Track>): Track =>
+	({
+		uid: 'netease-1',
+		source: 'netease',
+		id: '1',
+		title: '多远都要在一起',
+		artist: 'G.E.M. 邓紫棋',
+		album: '',
+		cover: null,
+		audioUrl: null,
+		detailsLoaded: false,
+		...over
+	}) as Track;
+
+describe('library.adoptCover (cover-chain)', () => {
+	it('fills empty covers on same-uid and same-{artist,title} entries across liked/downloads/playlists', () => {
+		library.liked = [
+			mk({ uid: 'netease-1' }), // same uid, no cover → fill
+			mk({ uid: 'qq-9', source: 'qq' }), // different uid, same song → fill
+			mk({ uid: 'kuwo-7', title: '光年之外', cover: null }) // different song → untouched
+		];
+		library.downloads = [mk({ uid: 'joox-3', source: 'joox' })]; // same song → fill
+		library.playlists = [
+			{ id: 'pl_x', name: 'mix', tracks: [mk({ uid: 'netease-1' }), mk({ uid: 'kuwo-7', title: '光年之外' })] }
+		];
+
+		library.adoptCover(mk({ uid: 'netease-1', cover: 'https://img/cover.jpg' }));
+
+		expect(library.liked[0].cover).toBe('https://img/cover.jpg');
+		expect(library.liked[1].cover).toBe('https://img/cover.jpg');
+		expect(library.liked[2].cover).toBeNull();
+		expect(library.downloads[0].cover).toBe('https://img/cover.jpg');
+		expect(library.playlists[0].tracks[0].cover).toBe('https://img/cover.jpg');
+		expect(library.playlists[0].tracks[1].cover).toBeNull();
+	});
+
+	it('overwrites a stale existing cover with the freshly shown one (quick-261008-cov1)', () => {
+		library.liked = [mk({ uid: 'netease-1', cover: 'https://img/original.jpg' })];
+		const before = library.liked[0];
+
+		library.adoptCover(mk({ uid: 'netease-1', cover: 'https://img/other.jpg' }));
+		expect(library.liked[0].cover).toBe('https://img/other.jpg');
+		expect(library.liked[0]).toBe(before); // same reference — mutated in place, not rebuilt
+
+		library.adoptCover(mk({ uid: 'netease-1', cover: null }));
+		expect(library.liked[0].cover).toBe('https://img/other.jpg'); // coverless source is a no-op
+	});
+
+	it('fillEntryCovers is the same in-place seam adoptCover uses (player.adoptCover reuses it)', () => {
+		library.liked = [mk({ uid: 'qq-9', source: 'qq', cover: 'https://img/stale.jpg' })];
+		library.fillEntryCovers('netease-1', 'G.E.M. 邓紫棋', '多远都要在一起', 'https://img/shown.jpg');
+		expect(library.liked[0].cover).toBe('https://img/shown.jpg'); // same song, other source uid
+	});
+
+	it('save() strips inline data: covers at the serialization boundary (persistence guard)', () => {
+		const small = 'data:image/jpeg;base64,/9j/AAAA';
+		library.liked = [mk({ uid: 'netease-1', cover: small })];
+		library.fillEntryCovers('netease-1', 'G.E.M. 邓紫棋', '多远都要在一起', 'https://img/shown.jpg');
+		// live entry keeps the shown https cover…
+		expect(library.liked[0].cover).toBe('https://img/shown.jpg');
+		library.fillEntryCovers('netease-1', 'G.E.M. 邓紫棋', '多远都要在一起', small);
+		expect(library.liked[0].cover).toBe(small); // …and an inline cover is fine live…
+		const raw = memStore.get('openmusic:library:v1') as string;
+		const saved = JSON.parse(raw).liked[0];
+		expect(saved.cover).toBeNull(); // …but never persisted
+	});
+
+	it('matches identity case/whitespace-insensitively via matchKey', () => {
+		library.liked = [mk({ uid: 'qq-2', artist: ' g.e.m. 邓紫棋 ', title: '多远都要在一起' })];
+		library.adoptCover(mk({ uid: 'netease-1', cover: 'https://img/c.jpg' }));
+		expect(library.liked[0].cover).toBe('https://img/c.jpg');
+	});
+
+	// quick-261008-cov1: the D-11b YTM uid-only carve-out is retired — a shown YTM thumbnail
+	// now writes the shared name layer like every other cover (shown cover shows everywhere).
+	it('a YTM-host cover fills the record AND the shared name layer', () => {
+		memStore.clear();
+		library.liked = [mk({ uid: 'netease-1', artist: 'YA', title: 'YT' })];
+		library.adoptCover(mk({ uid: 'netease-1', artist: 'YA', title: 'YT', cover: 'https://i.ytimg.com/vi/x/hq.jpg' }));
+		expect(library.liked[0].cover).toBe('https://i.ytimg.com/vi/x/hq.jpg');
+		expect(getCachedCover('YA', 'YT')).toBe('https://i.ytimg.com/vi/x/hq.jpg');
+	});
+
+	it('a Deezer cover IS written to the shared name layer (unchanged)', () => {
+		memStore.clear();
+		library.liked = [mk({ uid: 'netease-1', artist: 'DA', title: 'DT' })];
+		library.adoptCover(mk({ uid: 'netease-1', artist: 'DA', title: 'DT', cover: 'https://e-cdns-images.dzcdn.net/x.jpg' }));
+		expect(getCachedCover('DA', 'DT')).toBe('https://e-cdns-images.dzcdn.net/x.jpg');
+	});
+});
+
+// D-10 / DL-STATE-01: a single reactive per-uid in-flight set on the library store — the
+// source of truth every download affordance reads (D-18: kept OFF the player). begin/end
+// reassign a NEW Set each time (same idiom as TrackMenu `inFlight`) so runes re-render, and
+// one uid's transition never touches another's. It is transient — never persisted.
+describe('library.downloading (per-uid in-flight set, D-10)', () => {
+	beforeEach(() => {
+		library.downloading = new Set();
+		library.downloads = [];
+		library.liked = [];
+		library.playlists = [];
+		memStore.clear();
+	});
+
+	it('beginDownload adds the uid and reassigns a NEW Set reference (stays reactive)', () => {
+		const before = library.downloading;
+		library.beginDownload('netease-1');
+		expect(library.downloading.has('netease-1')).toBe(true);
+		expect(library.downloading).not.toBe(before); // reassigned, not mutated in place
+	});
+
+	it('tracks multiple uids; endDownload clears only its own uid (never another)', () => {
+		library.beginDownload('netease-1');
+		library.beginDownload('qq-2');
+		expect(library.downloading.has('netease-1')).toBe(true);
+		expect(library.downloading.has('qq-2')).toBe(true);
+
+		library.endDownload('netease-1');
+		expect(library.downloading.has('netease-1')).toBe(false);
+		expect(library.downloading.has('qq-2')).toBe(true); // isolation: qq-2 untouched
+	});
+
+	it('endDownload on an absent uid is a no-op and does not throw', () => {
+		library.beginDownload('netease-1');
+		expect(() => library.endDownload('kuwo-9')).not.toThrow();
+		expect(library.downloading.has('netease-1')).toBe(true);
+		expect(library.downloading.size).toBe(1);
+	});
+
+	// debug album-row-tick-before-file-done: brackets NEST. The album loop holds one outer bracket per
+	// song (start → final outcome) while downloadTrack / downloadFromDonor bracket each attempt inside
+	// it; with a plain Set the inner `finally` dropped the uid mid-album (tick during the qq backoff).
+	it('nested begin/end: the uid stays in flight until the LAST endDownload (refcount)', () => {
+		library.beginDownload('qq:1');
+		library.beginDownload('qq:1');
+		library.endDownload('qq:1');
+		expect(library.downloading.has('qq:1')).toBe(true);
+		library.endDownload('qq:1');
+		expect(library.downloading.has('qq:1')).toBe(false);
+		// an extra end never goes negative: the next bracket is a fresh 1 → 0
+		library.endDownload('qq:1');
+		library.beginDownload('qq:1');
+		library.endDownload('qq:1');
+		expect(library.downloading.has('qq:1')).toBe(false);
+	});
+
+	it('an inner endDownload clears the progress fraction while the outer bracket keeps the ring', () => {
+		library.beginDownload('qq:1');
+		library.beginDownload('qq:1');
+		library.setDownloadProgress('qq:1', 0.6);
+		library.endDownload('qq:1');
+		expect(library.downloadProgress['qq:1']).toBeUndefined();
+		expect(library.downloading.has('qq:1')).toBe(true);
+	});
+
+	it('is transient — never written to the persisted localStorage payload', () => {
+		library.beginDownload('netease-1');
+		library.addDownload(mk({ uid: 'netease-1' })); // a persisting write happens WHILE in-flight
+		const raw = localStorage.getItem('openmusic:library:v1');
+		expect(raw).toBeTruthy();
+		const payload = JSON.parse(raw as string) as Record<string, unknown>;
+		expect('downloading' in payload).toBe(false);
+	});
+});
+
+// debug download-state-lost-on-page-return: state a download needs that used to live in component
+// $state and died with the page — the album "Download all" job (header busy + duplicate guard) and
+// the stub → resolved-Track memory (what maps an album row to the REAL uid `library.downloading`
+// holds). Both transient, both copy-on-write so runes re-render.
+describe('library album jobs + stub memory (debug download-state-lost-on-page-return)', () => {
+	beforeEach(() => {
+		library.albumJobs = new Set();
+		library.resolvedStubs = {};
+		library.downloads = [];
+		memStore.clear();
+	});
+
+	it('beginAlbumJob claims the key once; a second claim while running is refused', () => {
+		const before = library.albumJobs;
+		expect(library.beginAlbumJob('rice|陳奕迅|0|mb')).toBe(true);
+		expect(library.albumJobs.has('rice|陳奕迅|0|mb')).toBe(true);
+		expect(library.albumJobs).not.toBe(before); // reassigned, not mutated in place
+		expect(library.beginAlbumJob('rice|陳奕迅|0|mb')).toBe(false); // duplicate job = no-op
+		expect(library.beginAlbumJob('other|x|0|')).toBe(true); // another album is independent
+	});
+
+	it('endAlbumJob releases only its own key; absent key is a no-op; the key can be claimed again', () => {
+		library.beginAlbumJob('a');
+		library.beginAlbumJob('b');
+		library.endAlbumJob('a');
+		expect(library.albumJobs.has('a')).toBe(false);
+		expect(library.albumJobs.has('b')).toBe(true);
+		expect(() => library.endAlbumJob('zzz')).not.toThrow();
+		expect(library.beginAlbumJob('a')).toBe(true);
+	});
+
+	it('rememberStub / stubTrack: a resolved stub is readable by its {artist,title} key (matchKey-folded)', () => {
+		const tr = mk({ uid: 'qq:002KvLx4425LV7', artist: '陳奕迅', title: '可以了' });
+		expect(library.stubTrack('陳奕迅', '可以了')).toBeNull();
+		const before = library.resolvedStubs;
+		library.rememberStub('陳奕迅', '可以了', tr);
+		expect(library.resolvedStubs).not.toBe(before);
+		expect(library.stubTrack('陳奕迅', '可以了')?.uid).toBe('qq:002KvLx4425LV7');
+		// matchKey folds case / whitespace, so a row rendered from the same stub always finds it.
+		expect(library.stubTrack(' 陳奕迅 ', '可以了 ')?.uid).toBe('qq:002KvLx4425LV7');
+		expect(library.stubTrack('陳奕迅', '陰天快樂')).toBeNull();
+	});
+
+	it('both are transient — never written to the persisted payload', () => {
+		library.beginAlbumJob('a');
+		library.rememberStub('A', 'T', mk({ uid: 'qq:1' }));
+		library.addDownload(mk({ uid: 'netease-1' }));
+		const payload = JSON.parse(localStorage.getItem('openmusic:library:v1') as string) as Record<string, unknown>;
+		expect('albumJobs' in payload).toBe(false);
+		expect('resolvedStubs' in payload).toBe(false);
+	});
+});
+
+// debug album-rows-miss-liked-downloaded-on-load: `resolvedStubs` is session-only, so on a FRESH load
+// an album / shelf / chart stub row had no uid to key on and showed an idle icon + empty heart for a
+// song the persisted library already held (tick + filled heart appeared only after a like tap resolved
+// the stub). stubTrack now falls back to the persisted library entry by song IDENTITY — songKey
+// (繁/简-folded) + the sameSongKey artist alias — with no network.
+describe('library stubTrack falls back to a persisted entry by identity (debug album-rows-miss-liked-downloaded-on-load)', () => {
+	beforeEach(async () => {
+		library.resolvedStubs = {};
+		library.downloads = [];
+		library.liked = [];
+		library.playlists = [];
+		library.favArtists = [];
+		memStore.clear();
+		await warmScript('zh-Hans');
+	});
+
+	it('a downloaded song is found by its {artist,title} with NO rememberStub', () => {
+		library.addDownload(mk({ uid: 'qq:002KvLx4425LV7', artist: '陳奕迅', title: '可以了' }));
+		expect(library.resolvedStubs).toEqual({});
+		expect(library.stubTrack('陳奕迅', '可以了')?.uid).toBe('qq:002KvLx4425LV7');
+		expect(library.isDownloaded(library.stubTrack('陳奕迅', '可以了')!.uid)).toBe(true);
+	});
+
+	it('a liked-only song is found too, and a miss stays null', () => {
+		library.toggleLike(mk({ uid: 'netease:7', artist: '陳奕迅', title: '陰天快樂' }));
+		expect(library.stubTrack('陳奕迅', '陰天快樂')?.uid).toBe('netease:7');
+		expect(library.stubTrack('陳奕迅', '可以了')).toBeNull();
+	});
+
+	it('matches across 繁/简 and the artist alias (an MB tracklist row vs what a CN source stored)', () => {
+		library.addDownload(mk({ uid: 'qq:simp', artist: '陈奕迅', title: '阴天快乐' }));
+		library.addDownload(mk({ uid: 'qq:gem', artist: 'G.E.M.邓紫棋', title: '多远都要在一起' }));
+		expect(library.stubTrack('陳奕迅', '陰天快樂')?.uid).toBe('qq:simp');
+		expect(library.stubTrack('G.E.M.', '多遠都要在一起')?.uid).toBe('qq:gem');
+		// A different same-artist song must not borrow the entry.
+		expect(library.stubTrack('陳奕迅', '可以了')).toBeNull();
+	});
+
+	it('downloaded wins over liked when both hold the song under different uids, so tick + heart key on ONE uid', () => {
+		library.toggleLike(mk({ uid: 'netease:like', artist: '陳奕迅', title: '可以了' }));
+		library.addDownload(mk({ uid: 'qq:dl', artist: '陳奕迅', title: '可以了' }));
+		expect(library.stubTrack('陳奕迅', '可以了')?.uid).toBe('qq:dl');
+	});
+
+	it('the session memory (rememberStub) still wins over the library fallback', () => {
+		library.addDownload(mk({ uid: 'qq:dl', artist: '陳奕迅', title: '可以了' }));
+		library.rememberStub('陳奕迅', '可以了', mk({ uid: 'kuwo:resolved', artist: '陳奕迅', title: '可以了' }));
+		expect(library.stubTrack('陳奕迅', '可以了')?.uid).toBe('kuwo:resolved');
+	});
+
+	it('a removed download stops matching (the fallback reads the live lists)', () => {
+		library.addDownload(mk({ uid: 'qq:dl', artist: '陳奕迅', title: '可以了' }));
+		expect(library.stubTrack('陳奕迅', '可以了')?.uid).toBe('qq:dl');
+		library.removeDownload('qq:dl', { deleteFile: false }); // keep the blobDel mock untouched for later blocks
+		expect(library.stubTrack('陳奕迅', '可以了')).toBeNull();
+	});
+});
+
+// 34-D-06: a device: entry whose file was missing at last play is MARKED, not removed — the user
+// sees why it will not play and can re-import (D-08: removal only ever inside an explicit import).
+// setDownloads is that import's single wholesale write: add / drop / refresh in one persisted pass.
+describe('34-D-06 unavailable + setDownloads', () => {
+	beforeEach(() => {
+		library.downloads = [];
+		library.liked = [];
+		library.playlists = [];
+		library.favArtists = [];
+		library.unavailable = new Set();
+		memStore.clear();
+	});
+
+	const payload = () =>
+		JSON.parse(localStorage.getItem('openmusic:library:v1') as string) as Record<string, unknown>;
+
+	it('markUnavailable marks exactly one uid, and an empty uid is a no-op', () => {
+		library.markUnavailable('device:42');
+		expect(library.isUnavailable('device:42')).toBe(true);
+		expect(library.isUnavailable('device:43')).toBe(false);
+
+		library.markUnavailable('');
+		expect(library.unavailable.size).toBe(1);
+	});
+
+	it('reassigns a NEW Set reference (copy-on-write, like beginDownload) so runes re-render', () => {
+		const before = library.unavailable;
+		library.markUnavailable('device:42');
+		expect(library.unavailable).not.toBe(before);
+	});
+
+	it('is PERSISTED — unlike downloading/downloadProgress, a missing file is still missing after relaunch', () => {
+		library.markUnavailable('device:42');
+		expect(payload().unavailable).toEqual(['device:42']);
+	});
+
+	it('load() of an OLD payload with no `unavailable` key yields an empty Set (tolerant migration)', () => {
+		memStore.set(
+			'openmusic:library:v1',
+			JSON.stringify({ liked: [], playlists: [], downloads: [mk({ uid: 'device:42' })] })
+		);
+		(library as unknown as { loaded: boolean }).loaded = false;
+		library.load();
+		expect(library.unavailable.size).toBe(0);
+		expect(library.downloads).toHaveLength(1);
+	});
+
+	it('load() restores a persisted unavailable list', () => {
+		memStore.set(
+			'openmusic:library:v1',
+			JSON.stringify({ liked: [], playlists: [], downloads: [], unavailable: ['device:42'] })
+		);
+		(library as unknown as { loaded: boolean }).loaded = false;
+		library.load();
+		expect(library.isUnavailable('device:42')).toBe(true);
+	});
+
+	it('clearUnavailable(uid) clears one and persists; clearUnavailable() clears ALL', () => {
+		library.markUnavailable('device:42');
+		library.markUnavailable('device:43');
+
+		library.clearUnavailable('device:42');
+		expect(library.isUnavailable('device:42')).toBe(false);
+		expect(library.isUnavailable('device:43')).toBe(true);
+		expect(payload().unavailable).toEqual(['device:43']);
+
+		library.clearUnavailable();
+		expect(library.unavailable.size).toBe(0);
+		expect(payload().unavailable).toEqual([]);
+	});
+
+	it('setDownloads replaces the list wholesale, order preserved, and persists', () => {
+		library.downloads = [mk({ uid: 'device:1' })];
+		const next = [mk({ uid: 'device:2' }), mk({ uid: 'kuwo:7', source: 'kuwo' })];
+
+		library.setDownloads(next);
+
+		expect(library.downloads.map((t) => t.uid)).toEqual(['device:2', 'kuwo:7']);
+		expect((payload().downloads as Track[]).map((t) => t.uid)).toEqual(['device:2', 'kuwo:7']);
+	});
+
+	it('setDownloads prunes `unavailable` to uids still present in the new list', () => {
+		library.markUnavailable('device:1'); // dropped by this import → mark goes with it
+		library.markUnavailable('device:2'); // still listed → stays marked
+
+		library.setDownloads([mk({ uid: 'device:2' })]);
+
+		expect(library.isUnavailable('device:1')).toBe(false);
+		expect(library.isUnavailable('device:2')).toBe(true);
+		expect(payload().unavailable).toEqual(['device:2']);
+	});
+
+	it('setDownloads NEVER deletes a file — the import drop lane has nothing to delete', () => {
+		library.downloads = [mk({ uid: 'device:1' })];
+		library.setDownloads([]);
+		expect(blobDel).not.toHaveBeenCalled();
+	});
+
+	it('removeDownload on a device uid still removes the row (explicit user removal) and clears its mark', () => {
+		library.downloads = [mk({ uid: 'device:42' })];
+		library.markUnavailable('device:42');
+
+		library.removeDownload('device:42');
+
+		expect(library.isDownloaded('device:42')).toBe(false);
+		expect(library.isUnavailable('device:42')).toBe(false);
+		// The FILE is protected downstream: blobStore.del refuses device uids (Plan 34-01).
+		expect(blobDel).toHaveBeenCalledWith('device:42');
+	});
+
+	it('clearAll also empties unavailable', () => {
+		library.markUnavailable('device:42');
+		library.clearAll();
+		expect(library.unavailable.size).toBe(0);
+	});
+});
+
+// quick-260915-vb9: the Library page's per-tab "Clear all" row needs a per-LIST wipe. The naive
+// implementation (loop removeLiked/removeDownload) re-serialises the WHOLE library payload once per
+// track — 300 downloads = 300 localStorage writes on a phone. These specs pin the contract: one
+// persisted save per clear, only the targeted list emptied, and (downloads only) one blob delete per
+// former uid so the offline cache does not outlive the registry.
+describe('quick-260915-vb9 per-list clears', () => {
+	beforeEach(() => {
+		library.liked = [];
+		library.downloads = [];
+		library.playlists = [];
+		library.favArtists = [];
+		library.unavailable = new Set();
+		memStore.clear();
+		blobDel.mockClear();
+	});
+
+	const payload = () =>
+		JSON.parse(localStorage.getItem('openmusic:library:v1') as string) as Record<string, unknown>;
+
+	it('clearLiked empties liked only and persists', () => {
+		library.liked = [mk({ uid: 'netease-1' }), mk({ uid: 'qq-9', source: 'qq' })];
+		library.downloads = [mk({ uid: 'kuwo-7', source: 'kuwo' })];
+		library.favArtists = ['G.E.M. 邓紫棋'];
+		library.playlists = [{ id: 'pl_x', name: 'mix', tracks: [mk({ uid: 'netease-1' })] }];
+
+		library.clearLiked();
+
+		expect(library.liked).toEqual([]);
+		expect(payload().liked).toEqual([]);
+		expect(library.downloads).toHaveLength(1);
+		expect(library.favArtists).toEqual(['G.E.M. 邓紫棋']);
+		expect(library.playlists[0].tracks).toHaveLength(1);
+	});
+
+	it('clearDownloads empties downloads + marks, deletes every blob, and saves EXACTLY once', () => {
+		library.downloads = [mk({ uid: 'kuwo:7', source: 'kuwo' }), mk({ uid: 'device:42' })];
+		library.liked = [mk({ uid: 'netease-1' })];
+		library.unavailable = new Set(['device:42']);
+		const setItem = vi.spyOn(localStorage, 'setItem');
+
+		library.clearDownloads();
+
+		expect(library.downloads).toEqual([]);
+		expect(library.unavailable.size).toBe(0);
+		expect(payload().downloads).toEqual([]);
+		expect(payload().unavailable).toEqual([]);
+		// The LIKED list must survive a downloads-only clear.
+		expect(library.liked).toHaveLength(1);
+		// One write for the whole clear — not one per track.
+		expect(setItem).toHaveBeenCalledTimes(1);
+		// Per-uid delete so blobStore.del's device: refusal (Plan 34-01) still protects imports.
+		expect(blobDel).toHaveBeenCalledTimes(2);
+		expect(blobDel).toHaveBeenCalledWith('kuwo:7');
+		expect(blobDel).toHaveBeenCalledWith('device:42');
+		setItem.mockRestore();
+	});
+
+	it('clearFavArtists empties favArtists only and persists', () => {
+		library.favArtists = ['a', 'b'];
+		library.liked = [mk({ uid: 'netease-1' })];
+
+		library.clearFavArtists();
+
+		expect(library.favArtists).toEqual([]);
+		expect(payload().favArtists).toEqual([]);
+		expect(library.liked).toHaveLength(1);
+	});
+
+	it('clearPlaylistTracks empties ONE playlist, keeps its identity, leaves siblings alone', () => {
+		library.playlists = [
+			{ id: 'pl_a', name: 'mix', tracks: [mk({ uid: 'netease-1' }), mk({ uid: 'qq-9', source: 'qq' })] },
+			{ id: 'pl_b', name: 'other', tracks: [mk({ uid: 'kuwo-7', source: 'kuwo' })] }
+		];
+
+		library.clearPlaylistTracks('pl_a');
+
+		expect(library.playlists[0]).toMatchObject({ id: 'pl_a', name: 'mix', tracks: [] });
+		expect(library.playlists[1].tracks).toHaveLength(1);
+		expect((payload().playlists as { tracks: unknown[] }[])[0].tracks).toEqual([]);
+	});
+
+	it('clearPlaylistTracks on an unknown id is a harmless no-op', () => {
+		library.playlists = [{ id: 'pl_a', name: 'mix', tracks: [mk({ uid: 'netease-1' })] }];
+
+		expect(() => library.clearPlaylistTracks('nope')).not.toThrow();
+		expect(library.playlists[0].tracks).toHaveLength(1);
+	});
+});
+
+// like-state-wrong-track-menu: a uid-less name-stub (home / charts DiscoveryTrack → uid:'') must never
+// enter the liked list, and an already-poisoned store must stop reporting every stub as "Liked".
+describe('like-state-wrong-track-menu: uid-less tracks cannot be liked or read as liked', () => {
+	beforeEach(() => {
+		library.liked = [];
+		memStore.clear();
+	});
+
+	it('isLiked("") is false even when a poisoned uid:"" entry is present', () => {
+		library.liked = [mk({ uid: '' })];
+		expect(library.isLiked('')).toBe(false);
+		expect(library.isLiked('netease:1')).toBe(false);
+	});
+
+	it('toggleLike on a uid-less stub is a no-op and persists nothing', () => {
+		library.toggleLike(mk({ uid: '' }));
+		expect(library.liked).toHaveLength(0);
+		expect(memStore.has('openmusic:library:v1')).toBe(false);
+	});
+
+	it('toggleLike fires the identity-linked ping with the action that happened', () => {
+		trackLikeMock.mockClear();
+		const t = mk({ uid: 'netease:ping1', artist: 'A', title: 'T' });
+		library.toggleLike(t); // like
+		library.toggleLike(t); // unlike
+		expect(trackLikeMock).toHaveBeenCalledTimes(2);
+		expect(trackLikeMock.mock.calls[0][0]).toBe(t);
+		expect(trackLikeMock.mock.calls[0][1]).toBe('like');
+		expect(trackLikeMock.mock.calls[1][1]).toBe('unlike');
+	});
+
+	it('toggleLike on a uid-less stub fires no ping', () => {
+		trackLikeMock.mockClear();
+		library.toggleLike(mk({ uid: '' }));
+		expect(trackLikeMock).not.toHaveBeenCalled();
+	});
+
+	it('load() prunes uid-less entries from an already-poisoned store, keeps real ones', () => {
+		memStore.set(
+			'openmusic:library:v1',
+			JSON.stringify({ liked: [mk({ uid: '' }), mk({ uid: 'kuwo:7' })], playlists: [], downloads: [] })
+		);
+		(library as unknown as { loaded: boolean }).loaded = false;
+		library.load();
+		expect(library.liked.map((t) => t.uid)).toEqual(['kuwo:7']);
+		expect(library.isLiked('kuwo:7')).toBe(true);
+	});
+});
+
+// quick-261115-likeid (Hector 2026-11-15): the liked identifier is the SONG, not the resolver.
+// 紅豆 liked under one resolver showed an empty heart while playing through another, and the
+// tap toasted "Removed from liked" while removing nothing (the old same-song branch in
+// toggleLike was a silent no-op and every caller read the state back by uid).
+describe('quick-261115-likeid: liked identity is the song, not the resolver', () => {
+	beforeEach(() => {
+		library.liked = [];
+		tombs().deleted = [];
+		memStore.clear();
+		trackLikeMock.mockClear();
+	});
+
+	it('isLikedTrack lights for the same song under another resolver uid', () => {
+		library.liked = [mk({ uid: 'netease:1' })];
+		expect(library.isLikedTrack(mk({ uid: 'kuwo:9', source: 'kuwo' }))).toBe(true);
+		expect(library.likedUidFor(mk({ uid: 'kuwo:9', source: 'kuwo' }))).toBe('netease:1');
+		// The uid-exact read stays exact — it answers a different question.
+		expect(library.isLiked('kuwo:9')).toBe(false);
+	});
+
+	it('a 繁/简 twin is the same liked song', async () => {
+		await warmScript('zh-Hans');
+		library.liked = [mk({ uid: 'netease:1', artist: '王菲', title: '紅豆' })];
+		expect(library.isLikedTrack(mk({ uid: 'qq:2', source: 'qq', artist: '王菲', title: '红豆' }))).toBe(true);
+		expect(library.likedUidFor(mk({ uid: 'qq:2', source: 'qq', artist: '王菲', title: '红豆' }))).toBe('netease:1');
+	});
+
+	it('version markers stay distinct — a Live cut is not the studio like', () => {
+		library.liked = [mk({ uid: 'netease:1' })];
+		expect(library.isLikedTrack(mk({ uid: 'kuwo:9', source: 'kuwo', title: '多远都要在一起 (Live)' }))).toBe(false);
+	});
+
+	it('toggleLike on a cross-resolver twin UNLIKES the song — removes the liked entry, tombstones ITS uid, pings unlike', () => {
+		library.liked = [mk({ uid: 'netease:1' })];
+		library.toggleLike(mk({ uid: 'kuwo:9', source: 'kuwo' }));
+		expect(library.liked).toHaveLength(0);
+		expect(tombs().deleted.some((k) => k.includes('netease:1'))).toBe(true);
+		const calls = trackLikeMock.mock.calls;
+		expect(calls[calls.length - 1][1]).toBe('unlike');
+	});
+
+	it('like via one resolver, tap via another: never a duplicate row', () => {
+		library.toggleLike(mk({ uid: 'netease:1' }));
+		expect(library.liked).toHaveLength(1);
+		library.toggleLike(mk({ uid: 'kuwo:9', source: 'kuwo' })); // same song — an unlike, not a second row
+		expect(library.liked).toHaveLength(0);
+		library.toggleLike(mk({ uid: 'kuwo:9', source: 'kuwo' }));
+		expect(library.liked.map((t) => t.uid)).toEqual(['kuwo:9']);
+	});
+
+	it('isLikedTrack is false for null / uid-less / a different song', () => {
+		library.liked = [mk({ uid: 'netease:1' })];
+		expect(library.isLikedTrack(null)).toBe(false);
+		expect(library.isLikedTrack(mk({ uid: '' }))).toBe(false);
+		expect(library.isLikedTrack(mk({ uid: 'kuwo:9', source: 'kuwo', title: '光年之外' }))).toBe(false);
+	});
+});
+
+// quick-260919-1eh — library.applyMetadata: the metadata editor's list-row repaint seam.
+// Same in-place discipline as adoptCover (home shelves hold snapshot references), but matched on
+// uid ONLY: adoptCover's matchKey widening exists to FILL an empty cover across duplicate
+// identities, whereas a name edit is a single-identity user action that must not rewrite a
+// same-named row belonging to another source.
+describe('library.applyMetadata (quick-260919-1eh)', () => {
+	beforeEach(() => {
+		library.liked = [];
+		library.downloads = [];
+		library.playlists = [];
+		memStore.clear();
+	});
+
+	it('updates the matching entry in downloads, liked and every playlist — same object references', () => {
+		library.liked = [mk({ uid: 'netease-1' }), mk({ uid: 'qq-9', source: 'qq' })];
+		library.downloads = [mk({ uid: 'netease-1' })];
+		library.playlists = [
+			{ id: 'pl_x', name: 'mix', tracks: [mk({ uid: 'netease-1' }), mk({ uid: 'kuwo-7' })] }
+		];
+		// A reference captured BEFORE the call must read the new title — this is the whole point of
+		// mutating the proxy instead of rebuilding it.
+		const captured = library.liked[0];
+
+		library.applyMetadata('netease-1', { title: 'Edited', artist: 'Edited Artist', album: 'Edited Album' });
+
+		expect(captured.title).toBe('Edited');
+		expect(library.liked[0].artist).toBe('Edited Artist');
+		expect(library.downloads[0].title).toBe('Edited');
+		expect(library.downloads[0].album).toBe('Edited Album');
+		expect(library.playlists[0].tracks[0].title).toBe('Edited');
+	});
+
+	it('matches uid ONLY — a same-named row from another source is left alone', () => {
+		library.liked = [mk({ uid: 'netease-1' }), mk({ uid: 'qq-9', source: 'qq' })];
+
+		library.applyMetadata('netease-1', { title: 'Edited' });
+
+		expect(library.liked[0].title).toBe('Edited');
+		expect(library.liked[1].title).toBe('多远都要在一起'); // same song, different uid — untouched
+	});
+
+	it('an absent or empty field leaves that field untouched (D-4: blank means keep)', () => {
+		library.liked = [mk({ uid: 'netease-1', album: 'Original Album' })];
+
+		library.applyMetadata('netease-1', { title: 'Edited', artist: '  ', album: '' });
+
+		expect(library.liked[0].title).toBe('Edited');
+		expect(library.liked[0].artist).toBe('G.E.M. 邓紫棋');
+		expect(library.liked[0].album).toBe('Original Album');
+	});
+
+	it('an unknown uid changes nothing and does not persist', () => {
+		library.liked = [mk({ uid: 'netease-1' })];
+		memStore.clear();
+
+		library.applyMetadata('netease-999', { title: 'Nope' });
+
+		expect(library.liked[0].title).toBe('多远都要在一起');
+		expect(memStore.get('openmusic:library:v1')).toBeUndefined(); // save() never ran
+	});
+
+	it('a real change DOES persist', () => {
+		library.liked = [mk({ uid: 'netease-1' })];
+		memStore.clear();
+
+		library.applyMetadata('netease-1', { title: 'Edited' });
+
+		expect(memStore.get('openmusic:library:v1')).toContain('Edited');
+	});
+});
+
+// quick-260919-vrq: the TrackMenu "Remove download" sheet lets the user KEEP the offline copy while
+// still dropping the library row, so removeDownload grew a `{ deleteFile }` opt-out. Two directions,
+// two specs: the default must stay byte-for-byte today's behaviour (every existing caller passes no
+// options), and the opt-out must drop the row WITHOUT ever reaching blobStore.del.
+describe('quick-260919-vrq removeDownload { deleteFile } opt-out', () => {
+	beforeEach(() => {
+		library.downloads = [];
+		library.unavailable = new Set();
+		memStore.clear();
+		blobDel.mockClear();
+	});
+
+	const payload = () =>
+		JSON.parse(localStorage.getItem('openmusic:library:v1') as string) as Record<string, unknown>;
+
+	it('default (no options) drops the row, clears the mark, and deletes the blob', () => {
+		library.downloads = [mk({ uid: 'kuwo:9', source: 'kuwo' })];
+		library.markUnavailable('kuwo:9');
+
+		library.removeDownload('kuwo:9');
+
+		expect(library.isDownloaded('kuwo:9')).toBe(false);
+		expect(library.isUnavailable('kuwo:9')).toBe(false);
+		expect(blobDel).toHaveBeenCalledWith('kuwo:9');
+	});
+
+	it('deleteFile: false drops the row and the mark but NEVER touches the offline copy', () => {
+		library.downloads = [mk({ uid: 'kuwo:10', source: 'kuwo' })];
+		library.markUnavailable('kuwo:10');
+		blobDel.mockClear();
+
+		library.removeDownload('kuwo:10', { deleteFile: false });
+
+		expect(library.isDownloaded('kuwo:10')).toBe(false);
+		expect(library.isUnavailable('kuwo:10')).toBe(false);
+		expect((payload().downloads as { uid: string }[]).some((t) => t.uid === 'kuwo:10')).toBe(false);
+		expect(blobDel).not.toHaveBeenCalled();
+	});
+});
+
+// quick-260926-hl9: artist URLs follow the script lock, so the same artist can arrive as 周杰伦 or
+// 周杰倫 — the favourite key folds Chinese to Simplified so the heart never splits them in two.
+describe('quick-260926-hl9 script-blind favArtists', () => {
+	beforeEach(() => {
+		library.favArtists = [];
+		memStore.clear();
+	});
+
+	it('a favourite saved in one script matches, and un-favourites, in the other', async () => {
+		await warmScript('zh-Hans');
+		library.toggleFavArtist('周杰伦');
+		expect(library.isFavArtist('周杰倫')).toBe(true);
+		expect(library.isFavArtist('周杰伦')).toBe(true);
+		library.toggleFavArtist('周杰倫');
+		expect(library.favArtists).toEqual([]);
+	});
+
+	it('Latin names keep the trim/lowercase fold and their saved case', () => {
+		library.toggleFavArtist('Daft Punk');
+		expect(library.isFavArtist('  daft punk  ')).toBe(true);
+		expect(library.favArtists).toEqual(['Daft Punk']);
+	});
+});
+
+// quick-260926-hze: the favourite fold warms ITSELF, lock-independent. Each test gets a FRESH
+// library + zh-convert pair (resetModules) so t2s starts COLD, which is the lock-OFF world the
+// hl9 fold could not see into. The top-level $app/environment / blob-store mocks and the stubbed
+// localStorage persist across the reset.
+describe('quick-260926-hze self-warming favourite fold', () => {
+	type Fresh = typeof import('./library.svelte');
+	const rev = (lib: Fresh['library']) => (lib as unknown as { foldRev: number }).foldRev;
+
+	beforeEach(() => {
+		vi.resetModules();
+		memStore.clear();
+	});
+
+	it('a Traditional favourite matches its Simplified form once the fold dict lands', async () => {
+		memStore.set('openmusic:library:v1', JSON.stringify({ favArtists: ['周杰倫'] }));
+		const { library: fresh } = await import('./library.svelte');
+		const zh = await import('$lib/services/zh-convert');
+		fresh.load();
+		expect(fresh.isFavArtist('周杰倫')).toBe(true);
+		expect(fresh.isFavArtist('周杰伦')).toBe(false); // cold precondition: the test is not vacuous
+		await zh.warmScript('zh-Hans');
+		await vi.waitFor(() => expect(rev(fresh)).toBe(1));
+		expect(fresh.isFavArtist('周杰伦')).toBe(true);
+	});
+
+	it('a Latin-only library never warms the dict', async () => {
+		memStore.set('openmusic:library:v1', JSON.stringify({ favArtists: ['Daft Punk'] }));
+		const { library: fresh } = await import('./library.svelte');
+		fresh.load();
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(rev(fresh)).toBe(0);
+	});
+
+	it('favouriting a Chinese name also warms the fold', async () => {
+		const { library: fresh } = await import('./library.svelte');
+		const zh = await import('$lib/services/zh-convert');
+		fresh.load();
+		fresh.toggleFavArtist('周杰倫');
+		await zh.warmScript('zh-Hans');
+		await vi.waitFor(() => expect(rev(fresh)).toBe(1));
+	});
+});
+
+// quick-261007-abq/abq3 — the download record's quality fields are the truth about the file on
+// disk. updateDownloadQuality patches ONLY quality fields (uid/source/songid identity untouched);
+// qualityForDownload exposes the pair for display surfaces (player.current, Detail sheet).
+describe('library.updateDownloadQuality + qualityForDownload (quick-261007-abq)', () => {
+	beforeEach(() => {
+		library.downloads = [];
+		memStore.clear();
+	});
+
+	it('updateDownloadQuality patches quality fields and preserves identity', () => {
+		library.downloads = [mk({ uid: 'qq:1', source: 'qq', songid: '1', quality: 'standard', qualityLabel: 'STD' })];
+		library.updateDownloadQuality('qq:1', { quality: 'lossless', qualityLabel: 'LOSSLESS' });
+		const rec = library.downloads[0];
+		expect(rec.quality).toBe('lossless');
+		expect(rec.qualityLabel).toBe('LOSSLESS');
+		expect(rec.uid).toBe('qq:1');
+		expect(rec.source).toBe('qq');
+		expect(rec.songid).toBe('1');
+	});
+
+	it('updateDownloadQuality is a no-op for an unknown uid', () => {
+		library.downloads = [mk({ uid: 'qq:1', quality: 'standard' })];
+		expect(() => library.updateDownloadQuality('qq:9', { quality: 'lossless' })).not.toThrow();
+		expect(library.downloads[0].quality).toBe('standard');
+	});
+
+	it('qualityForDownload returns the record pair for a downloaded uid', () => {
+		library.downloads = [mk({ uid: 'qq:1', quality: 'lossless', qualityLabel: 'LOSSLESS' })];
+		expect(library.qualityForDownload('qq:1')).toEqual({ quality: 'lossless', qualityLabel: 'LOSSLESS' });
+	});
+
+	it('qualityForDownload returns null for an unknown uid', () => {
+		library.downloads = [mk({ uid: 'qq:1', quality: 'lossless' })];
+		expect(library.qualityForDownload('qq:9')).toBeNull();
+	});
+
+	it('qualityForDownload returns null when the record carries no quality info (never blanks a good label)', () => {
+		library.downloads = [mk({ uid: 'qq:1', quality: null, qualityLabel: null })];
+		expect(library.qualityForDownload('qq:1')).toBeNull();
+	});
+});
+
+// quick-261008-dl1 — "the download file must be used to play all the time".
+// downloadUidFor resolves the download record for a track: exact uid first, then the same
+// song (same VERSION) downloaded under another source's uid.
+describe('library.downloadUidFor (quick-261008-dl1)', () => {
+	beforeEach(() => {
+		library.downloads = [];
+		memStore.clear();
+	});
+
+	it('exact uid wins', () => {
+		library.downloads = [mk({ uid: 'qq:1', artist: '周杰倫', title: '晴天' })];
+		expect(library.downloadUidFor(mk({ uid: 'qq:1', artist: '周杰倫', title: '晴天' }))).toBe('qq:1');
+	});
+
+	it('same song under another source uid resolves (cross-source play uses the file)', () => {
+		library.downloads = [mk({ uid: 'qq:1', artist: '周杰倫', title: '晴天' })];
+		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰倫', title: '晴天' }))).toBe('qq:1');
+	});
+
+	it('version markers stay distinct — a live cut never plays the studio file', () => {
+		library.downloads = [mk({ uid: 'qq:1', artist: '周杰倫', title: '晴天' })];
+		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰倫', title: '晴天 (Live)' }))).toBeNull();
+	});
+
+	it('returns null when nothing is downloaded', () => {
+		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰倫', title: '晴天' }))).toBeNull();
+	});
+
+	// quick-261102-trh (DECISIONS.md §11): ONE rendition-aware identity (isSameShelfSong) — a 繁/简
+	// twin of a downloaded song IS downloaded (versionedMatchKey never folded script).
+	it('a 繁/简 twin resolves to the download (the same song, the same version)', async () => {
+		await warmScript('zh-Hans');
+		library.downloads = [mk({ uid: 'qq:1', artist: '周杰倫', title: '晴天' })];
+		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰伦', title: '晴天' }))).toBe('qq:1');
+		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰伦', title: '晴天 (Live)' }))).toBeNull();
+	});
+
+	it('returns null for a blank identity (never matches everything)', () => {
+		library.downloads = [mk({ uid: 'qq:1', artist: '', title: '' })];
+		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '', title: '' }))).toBeNull();
+	});
+
+	it('device: tracks are exact-uid only — a catalog tap never resolves to a device file', () => {
+		// 34-D-01: 'device' is an identity namespace, deliberately NOT a SourceId — the
+		// device-ness lives in the uid ('device:abc', matched by isDeviceUid), so the
+		// source field keeps a valid SourceId here.
+		library.downloads = [mk({ uid: 'device:abc', artist: '周杰倫', title: '晴天' })];
+		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰倫', title: '晴天' }))).toBeNull();
+		expect(library.downloadUidFor(mk({ uid: 'device:abc', artist: '周杰倫', title: '晴天' }))).toBe(
+			'device:abc'
+		);
+	});
+
+	it('punctuation/case folds — "晴天 " matches "晴天"', () => {
+		library.downloads = [mk({ uid: 'qq:1', artist: '周杰倫', title: '晴天' })];
+		expect(library.downloadUidFor(mk({ uid: 'kuwo:9', artist: '周杰倫', title: '晴天 ' }))).toBe('qq:1');
+	});
+});
+
+// quick-261031-dlpersist: the discography Download-all run state — claim-once per artist,
+// progress writes land in the store (so a remounted page re-reads them), release frees the
+// artist for a fresh run. Plus quick-261031-dedup's otherDownloadOf.
+describe('library pack jobs (quick-261031-dlpersist)', () => {
+	beforeEach(() => {
+		library.packJobs = {};
+		library.downloads = [];
+		memStore.clear();
+	});
+
+	it('beginPackJob claims an artist once; progress + per-album writes land; endPackJob releases', () => {
+		expect(library.beginPackJob('農夫', 13)).toBe(true);
+		expect(library.beginPackJob('農夫', 13)).toBe(false); // re-click while running = no-op
+		expect(library.beginPackJob('陳奕迅', 3)).toBe(true); // another artist is independent
+		library.bumpPackProgress('農夫');
+		library.bumpPackProgress('農夫');
+		library.setPackAlbumProgress('農夫', '鏗鏘集|農夫||', { done: 4, total: 10 });
+		expect(library.packJobs['農夫'].done).toBe(2);
+		expect(library.packJobs['農夫'].total).toBe(13);
+		expect(library.packJobs['農夫'].albums['鏗鏘集|農夫||']).toEqual({ done: 4, total: 10 });
+		library.setPackAlbumProgress('農夫', '鏗鏘集|農夫||', null);
+		expect(library.packJobs['農夫'].albums['鏗鏘集|農夫||']).toBeUndefined();
+		library.endPackJob('農夫');
+		expect(library.packJobs['農夫']).toBeUndefined();
+		expect(library.beginPackJob('農夫', 13)).toBe(true); // claimable again after release
+	});
+
+	it('progress writes to an absent job are no-ops, never throws', () => {
+		expect(() => {
+			library.bumpPackProgress('nobody');
+			library.setPackAlbumProgress('nobody', 'k', { done: 1, total: 2 });
+			library.endPackJob('nobody');
+		}).not.toThrow();
+	});
+
+	it('otherDownloadOf finds the same song+rendition under a different uid only', () => {
+		library.downloads = [mk({ uid: 'netease-1' }), mk({ uid: 'qq-9', source: 'qq', title: '多远都要在一起 (Live)' })];
+		// same uid — not "other"
+		expect(library.otherDownloadOf(mk({ uid: 'netease-1' }))).toBeNull();
+		// same song, different uid — found
+		expect(library.otherDownloadOf(mk({ uid: 'kuwo-7', source: 'kuwo' }))?.uid).toBe('netease-1');
+		// different rendition (Live) is a different download — matches the Live record, not the studio one
+		expect(library.otherDownloadOf(mk({ uid: 'kuwo-8', source: 'kuwo', title: '多远都要在一起 (Live)' }))?.uid).toBe('qq-9');
+		// different song — null
+		expect(library.otherDownloadOf(mk({ uid: 'kuwo-9', source: 'kuwo', title: '光年之外' }))).toBeNull();
+	});
+});
+
+// `deleted` is private on Library (tombstones are store-internal); tests reach it through a cast.
+const tombs = () => library as unknown as { deleted: string[] };
+
+describe('quick-261102-libaudit restoreAt (edit-mode Undo)', () => {
+	beforeEach(() => {
+		library.liked = [];
+		library.downloads = [];
+		library.playlists = [];
+		tombs().deleted = [];
+		memStore.clear();
+		blobDel.mockClear();
+	});
+
+	it('puts an unliked track back at its old index and lifts its tombstone', () => {
+		const a = mk({ uid: 'netease-1', title: 'A' });
+		const b = mk({ uid: 'qq-2', source: 'qq', title: 'B' });
+		const c = mk({ uid: 'kuwo-3', source: 'kuwo', title: 'C' });
+		library.liked = [a, b, c];
+		library.toggleLike(b);
+		expect(library.liked.map((x) => x.uid)).toEqual(['netease-1', 'kuwo-3']);
+		library.restoreAt('liked', b, 1);
+		expect(library.liked.map((x) => x.uid)).toEqual(['netease-1', 'qq-2', 'kuwo-3']);
+		expect(tombs().deleted.some((k) => k.includes('qq-2'))).toBe(false);
+	});
+
+	it('restores into the named playlist only, and is a no-op when already back', () => {
+		const a = mk({ uid: 'netease-1', title: 'A' });
+		library.playlists = [
+			{ id: 'p1', name: 'one', tracks: [] },
+			{ id: 'p2', name: 'two', tracks: [] }
+		];
+		library.restoreAt({ playlist: 'p2' }, a, 5);
+		library.restoreAt({ playlist: 'p2' }, a, 0);
+		expect(library.playlists[0].tracks).toEqual([]);
+		expect(library.playlists[1].tracks.map((x) => x.uid)).toEqual(['netease-1']);
+	});
+
+	it('an undone download removal keeps its file (removal used deleteFile:false)', () => {
+		const a = mk({ uid: 'netease-1' });
+		library.downloads = [a];
+		library.removeDownload(a.uid, { deleteFile: false });
+		library.restoreAt('downloads', a, 0);
+		expect(library.isDownloaded(a.uid)).toBe(true);
+		expect(blobDel).not.toHaveBeenCalled();
+	});
+});

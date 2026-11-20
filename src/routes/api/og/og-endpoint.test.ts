@@ -1,0 +1,1450 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import {
+	OG_RESOLVE_MS,
+	coverUrlFromToken,
+	isOgType,
+	resolveCoverTiered,
+	safeItunesImageUrl,
+	safeKuwoImageUrl,
+	safeLastfmImageUrl
+} from '$lib/proxy/og-cover';
+import { OG_FALLBACK_BYTES, OG_FALLBACK_TYPE } from '$lib/proxy/og-fallback';
+import { upgradeArtwork } from '$lib/services/itunes-cover';
+import { t2sConvertLines } from '$lib/services/zh-convert';
+import { GET, OPTIONS } from './+server';
+
+// /api/og (OG-EP-01/OG-EP-02) is the carrier-free share card's cover endpoint: it resolves
+// {type, artist, title} TEXT through a bounded Deezer → iTunes → kuwo chain and STREAMS the
+// image bytes from our own origin, so a shared link needs no `?c=` cover carrier at all.
+//
+// LIVE probe facts these tests encode (research 2026-08-07, all three upstreams keyless):
+//  - Deezer: GET api.deezer.com/search?q=&limit=1 → { data:[{album:{cover_big,…},artist:{…}}] };
+//    no-match is a CLEAN 200 { data: [], total: 0 }. Image host *.dzcdn.net.
+//  - iTunes: GET itunes.apple.com/search?term=&entity=&limit=1 → { results:[{artworkUrl100}] };
+//    host *.mzstatic.com; the 100x100bb token is swapped to 600x600bb (101 KB, not 332 KB).
+//  - kuwo: ONE subrequest — the search.kuwo.cn/r.s body already carries the cover
+//    (abslist[n].web_albumpic_short → img2.kuwo.cn/…/500/…, quick-261004-n1i). Host *.kuwo.cn.
+//
+// Every case runs with `platform: undefined` — that is a real assertion: all three tiers are
+// keyless, so /api/og reads NO secret and needs no Env. fetch is stubbed (no live network) and
+// caches.default is an in-memory stub (edgeCache() is null under vite dev by design, so the
+// cache layers are unit-provable ONLY — Pitfall 8).
+
+beforeEach(() => {
+	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
+});
+afterEach(() => {
+	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
+});
+
+const DZ_COVER = 'https://cdn-images.dzcdn.net/images/cover/abc/500x500-000000-80-0-0.jpg';
+const DZ_PICTURE = 'https://cdn-images.dzcdn.net/images/artist/def/500x500-000000-80-0-0.jpg';
+const IT_ART_100 = 'https://is1-ssl.mzstatic.com/image/thumb/Music/aa/bb/cc/100x100bb.jpg';
+const IT_ART_600 = 'https://is1-ssl.mzstatic.com/image/thumb/Music/aa/bb/cc/600x600bb.jpg';
+const KW_PIC = 'https://img2.kuwo.cn/star/albumcover/500/s4s0/93/1794217775.jpg';
+
+const DZ_HIT = JSON.stringify({
+	data: [{ album: { cover_big: DZ_COVER }, artist: { picture_big: DZ_PICTURE } }],
+	total: 1
+});
+const DZ_MISS = JSON.stringify({ data: [], total: 0 });
+const IT_HIT = JSON.stringify({ results: [{ artworkUrl100: IT_ART_100 }] });
+const IT_MISS = JSON.stringify({ results: [] });
+const KW_HIT = JSON.stringify({
+	abslist: [
+		{ MUSICRID: 'MUSIC_440613', SONGNAME: '稻香', ARTIST: '周杰伦', web_albumpic_short: '120/s4s0/93/1794217775.jpg' }
+	]
+});
+const KW_MISS = JSON.stringify({ abslist: [] });
+
+/** 'THROW' = network failure, 'NOTOK' = non-ok status; anything else is a 200 JSON body. */
+type TierReply = string | 'THROW' | 'NOTOK';
+
+/**
+ * Stub global fetch per TIER and capture every upstream URL in call order — the tier-order
+ * assertion is "assert the sequence AND the count" (capturedUpstream idiom,
+ * deezer-endpoint.test.ts:57-63). An unspecified tier throws, so a test that expects a tier
+ * NOT to be reached fails loudly rather than silently passing.
+ */
+function stubTiers(replies: { lf?: TierReply; dz?: TierReply; it?: TierReply; kw?: TierReply }) {
+	const calls: string[] = [];
+	const spy = vi.fn(async (input: RequestInfo | URL) => {
+		const u = String(input);
+		calls.push(u);
+		// quick-260809-38i: ws.audioscrobbler.com is matched FIRST so a Last.fm call is never
+		// mis-attributed to the kuwo bucket (the catch-all). A test that does not declare `lf` and
+		// nonetheless triggers a Last.fm call throws — a silently-added tier fails loudly.
+		const reply = u.includes('ws.audioscrobbler.com')
+			? replies.lf
+			: u.includes('api.deezer.com')
+				? replies.dz
+				: u.includes('itunes.apple.com')
+					? replies.it
+					: replies.kw;
+		if (reply === undefined || reply === 'THROW') throw new Error('network down');
+		if (reply === 'NOTOK') return new Response('upstream error', { status: 500 });
+		return new Response(reply, { status: 200, headers: { 'content-type': 'application/json' } });
+	});
+	vi.stubGlobal('fetch', spy);
+	return { calls, spy };
+}
+
+const fresh = () => AbortSignal.timeout(5000);
+
+/**
+ * Read a raster's format from its MAGIC BYTES — the only assertion that proves the fallback body
+ * really is the image its content-type claims (a stale/mis-decoded base64 constant would slip past
+ * a header-only check). `89 50 4E 47` = PNG, `FF D8` = JPEG.
+ */
+function magicOf(bytes: Uint8Array): string | null {
+	if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47)
+		return 'image/png';
+	if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg';
+	return null;
+}
+
+describe('og-cover — tier order (Deezer → iTunes → kuwo, sequential)', () => {
+	it('a Deezer hit costs exactly ONE subrequest and never reaches iTunes/kuwo', async () => {
+		const { calls } = stubTiers({ dz: DZ_HIT });
+		const out = await resolveCoverTiered('song', 'Nirvana', 'Come As You Are', fresh());
+		expect(out).toBe(DZ_COVER);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toContain('https://api.deezer.com/search');
+		expect(calls[0]).toContain(encodeURIComponent('Nirvana Come As You Are'));
+	});
+
+	it('falls through to iTunes when Deezer cleanly misses', async () => {
+		const { calls } = stubTiers({ dz: DZ_MISS, it: IT_HIT });
+		const out = await resolveCoverTiered('song', 'Nirvana', 'Come As You Are', fresh());
+		expect(out).toBe(IT_ART_600);
+		expect(calls).toHaveLength(2);
+		expect(calls[1]).toContain('https://itunes.apple.com/search');
+		expect(calls[1]).toContain('entity=song');
+	});
+
+	it('falls through to kuwo LAST, as one search subrequest reading `pic`', async () => {
+		const { calls } = stubTiers({ dz: DZ_MISS, it: IT_MISS, kw: KW_HIT });
+		const out = await resolveCoverTiered('song', '周杰倫', '稻香', fresh());
+		expect(out).toBe(KW_PIC);
+		expect(calls).toHaveLength(3);
+		expect(calls[2]).toContain('search.kuwo.cn');
+		expect(calls[2]).toContain('rn=1');
+		// kuwo is ONE subrequest — no /detail follow-up (the search body already carries `pic`).
+		expect(calls.filter((c) => c.includes('type=song'))).toHaveLength(0);
+	});
+
+	it('never fans out via searchAll — the CN tier is kuwo ONLY (≤5 resolve subrequests)', async () => {
+		const { calls } = stubTiers({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		const out = await resolveCoverTiered('song', 'Nobody', 'Nothing', fresh());
+		expect(out).toBeNull();
+		// 3 tiers + Fallback B (title-only). Fallback A is SKIPPED — a non-Chinese query is never
+		// substituted, so the original terms are byte-identical to the primary query.
+		expect(calls).toHaveLength(4);
+		expect(calls[3]).toContain('https://api.deezer.com/search');
+		expect(calls[3]).toContain(encodeURIComponent('Nothing'));
+		expect(calls[3]).not.toContain(encodeURIComponent('Nobody'));
+	});
+
+	it('uses the ALBUM entity for type=album and the artistTerm album proxy for type=artist', async () => {
+		const albumCalls = stubTiers({ dz: DZ_MISS, it: IT_HIT }).calls;
+		await resolveCoverTiered('album', 'Nirvana', 'Nevermind', fresh());
+		expect(albumCalls[1]).toContain('entity=album');
+		expect(albumCalls[1]).not.toContain('attribute=artistTerm');
+
+		vi.unstubAllGlobals();
+		const artistCalls = stubTiers({ dz: DZ_MISS, it: IT_HIT }).calls;
+		await resolveCoverTiered('artist', 'Nirvana', '', fresh());
+		// musicArtist carries no artwork — the top ALBUM cover is the artist-image proxy.
+		expect(artistCalls[1]).toContain('entity=album');
+		expect(artistCalls[1]).toContain('attribute=artistTerm');
+	});
+
+	it('type=artist reads the Deezer artist PICTURE, not the album cover', async () => {
+		stubTiers({ dz: DZ_HIT });
+		const out = await resolveCoverTiered('artist', 'Nirvana', '', fresh());
+		expect(out).toBe(DZ_PICTURE);
+	});
+});
+
+describe('og-cover — CONVERT-FIRST t2s primary query + two Deezer fallbacks (quick-260807-vl1)', () => {
+	// The production repro: `artist=周傑倫&title=止戰之殤` (Traditional) missed every tier 3/3, while
+	// the t2s output hit 4/4 — the catalogs index the SIMPLIFIED name. So the Simplified terms are
+	// the PRIMARY query, not a retry: converting first costs zero added latency on the slowest
+	// (CJK, measured 4.12 s cold) query class, where a retry-after design would have doubled it.
+	const TRAD_ARTIST = '周傑倫';
+	const TRAD_TITLE = '止戰之殤';
+
+	/** The expected Simplified forms are computed BY THE CONVERTER — never a hardcoded guess. */
+	async function simplified(): Promise<[string, string]> {
+		const [a, t] = await t2sConvertLines([TRAD_ARTIST, TRAD_TITLE]);
+		return [a, t];
+	}
+
+	const missByHost = (u: string): TierReply =>
+		u.includes('api.deezer.com') ? DZ_MISS : u.includes('itunes.apple.com') ? IT_MISS : KW_MISS;
+
+	/**
+	 * stubTiers keys on HOST only, so a form-discriminating case needs its own stub: `decide`
+	 * inspects the outgoing URL's query (Simplified-form vs original-form vs title-only), which is
+	 * exactly the upstream behaviour the probe observed.
+	 */
+	function stubBy(decide: (url: string) => TierReply) {
+		const calls: string[] = [];
+		const spy = vi.fn(async (input: RequestInfo | URL) => {
+			const u = String(input);
+			calls.push(u);
+			const reply = decide(u);
+			if (reply === 'THROW') throw new Error('network down');
+			if (reply === 'NOTOK') return new Response('upstream error', { status: 500 });
+			return new Response(reply, { status: 200, headers: { 'content-type': 'application/json' } });
+		});
+		vi.stubGlobal('fetch', spy);
+		return { calls, spy };
+	}
+
+	it('(a) the FIRST outgoing query already carries the SIMPLIFIED terms, and a hit costs 1 call', async () => {
+		const [sArtist, sTitle] = await simplified();
+		// Sanity-check the converter itself before asserting on it.
+		expect(sArtist).toContain('杰');
+		expect(sArtist).toContain('伦');
+		expect(sArtist).not.toContain('傑');
+		expect(sArtist).not.toContain('倫');
+
+		const { calls } = stubBy((u) =>
+			u.includes('api.deezer.com') && u.includes(encodeURIComponent(sArtist))
+				? DZ_HIT
+				: missByHost(u)
+		);
+		const out = await resolveCoverTiered('song', TRAD_ARTIST, TRAD_TITLE, fresh());
+		expect(out).toBe(DZ_COVER);
+		// The headline structural assertion: the corrected query is the FIRST thing tried.
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toContain('https://api.deezer.com/search');
+		expect(calls[0]).toContain(encodeURIComponent(sArtist));
+		expect(calls[0]).toContain(encodeURIComponent(sTitle));
+		expect(calls[0]).not.toContain(encodeURIComponent(TRAD_ARTIST));
+		expect(calls[0]).not.toContain(encodeURIComponent(TRAD_TITLE));
+	});
+
+	it('(b) ZERO-COST: a non-Chinese query is never converted and never gets Fallback A', async () => {
+		const { calls } = stubBy(missByHost);
+		expect(await resolveCoverTiered('song', 'Nobody', 'Nothing', fresh())).toBeNull();
+		// 3 tiers + Fallback B only — Fallback A would be a byte-identical duplicate, so it is skipped.
+		expect(calls).toHaveLength(4);
+		expect(calls[0]).toContain(encodeURIComponent('Nobody Nothing'));
+	});
+
+	it('(b) ZERO-COST: an already-Simplified query gets no substitution and no extra subrequest', async () => {
+		const { calls } = stubBy(missByHost);
+		expect(await resolveCoverTiered('song', '周杰伦', '止战之殇', fresh())).toBeNull();
+		expect(calls).toHaveLength(4); // same 4 as the non-Chinese case — no Fallback A
+		// Every outgoing URL carries the INPUT form; nothing was rewritten.
+		for (const c of calls.slice(0, 3)) {
+			expect(c).toContain(encodeURIComponent('周杰伦'));
+			expect(c).toContain(encodeURIComponent('止战之殇'));
+		}
+		expect(calls[3]).toContain(encodeURIComponent('止战之殇'));
+		expect(calls[3]).not.toContain(encodeURIComponent('周杰伦'));
+	});
+
+	it('(c) the Simplified chain missing all 3 tiers → Fallback A retries the ORIGINAL terms', async () => {
+		const [sArtist] = await simplified();
+		const { calls } = stubBy((u) =>
+			u.includes('api.deezer.com') && u.includes(encodeURIComponent(TRAD_ARTIST))
+				? DZ_HIT
+				: missByHost(u)
+		);
+		const out = await resolveCoverTiered('song', TRAD_ARTIST, TRAD_TITLE, fresh());
+		expect(out).toBe(DZ_COVER);
+		expect(calls).toHaveLength(4);
+		// Call order: 3 tiers on the Simplified form, THEN Deezer on the original form.
+		for (const c of calls.slice(0, 3)) {
+			expect(c).toContain(encodeURIComponent(sArtist));
+			expect(c).not.toContain(encodeURIComponent(TRAD_ARTIST));
+		}
+		expect(calls[3]).toContain('https://api.deezer.com/search');
+		expect(calls[3]).toContain(encodeURIComponent(TRAD_ARTIST));
+		expect(calls[3]).toContain(encodeURIComponent(TRAD_TITLE));
+	});
+
+	it('(d) Fallback A missing too → Fallback B (title-only, ORIGINAL title) hits', async () => {
+		const { calls } = stubBy((u) =>
+			u.includes('api.deezer.com') &&
+			u.includes(encodeURIComponent(TRAD_TITLE)) &&
+			!u.includes(encodeURIComponent(TRAD_ARTIST))
+				? DZ_HIT
+				: missByHost(u)
+		);
+		const out = await resolveCoverTiered('song', TRAD_ARTIST, TRAD_TITLE, fresh());
+		expect(out).toBe(DZ_COVER);
+		expect(calls).toHaveLength(5); // 3 tiers + A + B — the documented worst case
+		expect(calls[4]).toContain('https://api.deezer.com/search');
+		expect(calls[4]).toContain(encodeURIComponent(TRAD_TITLE));
+		expect(calls[4]).not.toContain(encodeURIComponent(TRAD_ARTIST));
+	});
+
+	it('(e) everything missing stays a cacheable negative (null) at exactly 5 resolve calls', async () => {
+		const { calls } = stubBy(missByHost);
+		expect(await resolveCoverTiered('song', TRAD_ARTIST, TRAD_TITLE, fresh())).toBeNull();
+		expect(calls).toHaveLength(5);
+	});
+
+	it('a fallback that FAULTS yields ERROR (never negative-cached)', async () => {
+		stubBy((u) =>
+			u.includes('api.deezer.com') && !u.includes(encodeURIComponent(TRAD_ARTIST))
+				? 'THROW'
+				: missByHost(u)
+		);
+		expect(await resolveCoverTiered('song', TRAD_ARTIST, TRAD_TITLE, fresh())).toBe('ERROR');
+	});
+
+	it('type=artist never issues Fallback B (an artist card has no title)', async () => {
+		const { calls } = stubTiers({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		expect(await resolveCoverTiered('artist', 'Nobody', '', fresh())).toBeNull();
+		expect(calls).toHaveLength(3);
+	});
+
+	it('an empty artist never issues Fallback B (it would repeat the query just run)', async () => {
+		const { calls } = stubTiers({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		expect(await resolveCoverTiered('song', '', 'Nothing', fresh())).toBeNull();
+		expect(calls).toHaveLength(3);
+	});
+
+	it('the route still answers 200 + the branded card when every fallback misses', async () => {
+		const { calls } = stubRoute({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		const res = await callGET(fakeEvent(SONG));
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
+		// Non-Chinese input: 3 tiers + Fallback B, 0 image. The Traditional worst case is 5 + 1.
+		expect(calls).toHaveLength(4);
+	});
+});
+
+describe('og-cover — miss vs error (only a clean miss is cacheable)', () => {
+	it('returns null when every tier cleanly misses (cacheable negative)', async () => {
+		stubTiers({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		const out = await resolveCoverTiered('song', 'No', 'Match', fresh());
+		expect(out).toBeNull();
+	});
+
+	it("returns 'ERROR' when a tier faults and no tier hits (never negative-cached)", async () => {
+		stubTiers({ dz: 'THROW', it: IT_MISS, kw: KW_MISS });
+		const out = await resolveCoverTiered('song', 'No', 'Match', fresh());
+		expect(out).toBe('ERROR');
+	});
+
+	it("treats a non-ok upstream as an ERROR, not a miss", async () => {
+		stubTiers({ dz: DZ_MISS, it: 'NOTOK', kw: KW_MISS });
+		const out = await resolveCoverTiered('song', 'No', 'Match', fresh());
+		expect(out).toBe('ERROR');
+	});
+
+	it('treats kuwo contract drift (code !== 200 / non-array data) as an ERROR', async () => {
+		stubTiers({ dz: DZ_MISS, it: IT_MISS, kw: JSON.stringify({ code: 500, data: null }) });
+		const out = await resolveCoverTiered('song', 'No', 'Match', fresh());
+		expect(out).toBe('ERROR');
+	});
+
+	it('an earlier fault never suppresses a later tier hit', async () => {
+		const { calls } = stubTiers({ dz: 'NOTOK', it: IT_HIT });
+		const out = await resolveCoverTiered('song', 'Nirvana', 'Come As You Are', fresh());
+		expect(out).toBe(IT_ART_600);
+		expect(calls).toHaveLength(2);
+	});
+
+	it('malformed JSON from a tier is an ERROR, never a throw out of resolveCoverTiered', async () => {
+		stubTiers({ dz: '{ not json', it: '<html>', kw: 'nope' });
+		const out = await resolveCoverTiered('song', 'A', 'B', fresh());
+		expect(out).toBe('ERROR');
+	});
+});
+
+describe('og-cover — the overall deadline is the hard ceiling', () => {
+	it('a pre-aborted deadline resolves with ZERO fetch calls', async () => {
+		const { calls } = stubTiers({ dz: DZ_HIT, it: IT_HIT, kw: KW_HIT });
+		const out = await resolveCoverTiered('song', 'Nirvana', 'Come As You Are', AbortSignal.abort());
+		expect(calls).toHaveLength(0);
+		expect(out).toBeNull();
+	});
+
+	it('stops entering further tiers once the deadline aborts mid-chain', async () => {
+		const ctl = new AbortController();
+		const calls: string[] = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (input: RequestInfo | URL) => {
+				calls.push(String(input));
+				ctl.abort(); // the OG_RESOLVE_MS deadline expires while tier 1 is in flight
+				return new Response(DZ_MISS, { status: 200 });
+			})
+		);
+		const out = await resolveCoverTiered('song', 'Nirvana', 'Come As You Are', ctl.signal);
+		// An expired budget skips the remaining tiers AND BOTH quick-260807-vl1 fallbacks.
+		expect(calls).toHaveLength(1);
+		expect(out).toBeNull();
+	});
+
+	it('OG_RESOLVE_MS is 5000 — the measured 4.12s CJK cold resolve + headroom (quick-260807-vl1)', () => {
+		// Derived, not arbitrary: Latin cold resolves measured 0.66–0.84s but CJK 4.12s, and
+		// 30-RESEARCH.md §D puts crawler fetch budgets at 3–10s, so 5000 stays in tolerance.
+		expect(OG_RESOLVE_MS).toBe(5000);
+	});
+
+	it('an empty artist AND title resolves with ZERO fetch calls (T-og-01)', async () => {
+		const { calls } = stubTiers({ dz: DZ_HIT, it: IT_HIT, kw: KW_HIT });
+		const out = await resolveCoverTiered('song', '  ', '  ', fresh());
+		expect(calls).toHaveLength(0);
+		expect(out).toBeNull();
+	});
+});
+
+describe('og-cover — per-tier host allow-lists (T-wv8-05, one per tier)', () => {
+	it('safeItunesImageUrl allows only https *.mzstatic.com', () => {
+		expect(safeItunesImageUrl(IT_ART_600)).toBe(IT_ART_600);
+		expect(safeItunesImageUrl(IT_ART_600.replace('https:', 'http:'))).toBeNull();
+		// a Deezer/kuwo host must NOT pass the iTunes allow-list
+		expect(safeItunesImageUrl(DZ_COVER)).toBeNull();
+		expect(safeItunesImageUrl(KW_PIC)).toBeNull();
+		expect(safeItunesImageUrl('https://evil-mzstatic.com/x.jpg')).toBeNull();
+	});
+
+	it('safeKuwoImageUrl allows only https *.kuwo.cn', () => {
+		expect(safeKuwoImageUrl(KW_PIC)).toBe(KW_PIC);
+		expect(safeKuwoImageUrl(KW_PIC.replace('https:', 'http:'))).toBeNull();
+		expect(safeKuwoImageUrl(DZ_COVER)).toBeNull();
+		expect(safeKuwoImageUrl(IT_ART_600)).toBeNull();
+		expect(safeKuwoImageUrl('https://kuwo.cn.evil.example/x.jpg')).toBeNull();
+	});
+
+	it('both reject CSS/attribute breakers and never throw on null/empty/unparseable', () => {
+		for (const bad of ['(', ')', ' ', '"', "'", '\\']) {
+			expect(safeItunesImageUrl(`https://is1-ssl.mzstatic.com/a${bad}b.jpg`)).toBeNull();
+			expect(safeKuwoImageUrl(`https://img4.kuwo.cn/a${bad}b.jpg`)).toBeNull();
+		}
+		expect(safeItunesImageUrl(null)).toBeNull();
+		expect(safeKuwoImageUrl(undefined)).toBeNull();
+		expect(safeItunesImageUrl('')).toBeNull();
+		expect(safeKuwoImageUrl('not-a-url')).toBeNull();
+	});
+
+	it('a tier smuggling ANOTHER tier’s host is rejected by its own allow-list and falls through', async () => {
+		// Deezer JSON naming an mzstatic cover → rejected → iTunes answers instead.
+		const { calls } = stubTiers({
+			dz: JSON.stringify({ data: [{ album: { cover_big: IT_ART_600 } }], total: 1 }),
+			it: IT_HIT
+		});
+		const out = await resolveCoverTiered('song', 'Nirvana', 'Come As You Are', fresh());
+		expect(out).toBe(IT_ART_600); // via the iTunes tier, whose allow-list DOES cover mzstatic
+		expect(calls).toHaveLength(2);
+	});
+
+	it('an iTunes body naming a kuwo host is rejected and falls through to kuwo', async () => {
+		const { calls } = stubTiers({
+			dz: DZ_MISS,
+			it: JSON.stringify({ results: [{ artworkUrl100: KW_PIC }] }),
+			kw: KW_HIT
+		});
+		// quick-261102-covgate: the request names the KW_HIT song — a cover candidate must now
+		// BE the requested song, so this test's terms match its fixture's identity.
+		const out = await resolveCoverTiered('song', '周杰倫', '稻香', fresh());
+		expect(out).toBe(KW_PIC);
+		expect(calls).toHaveLength(3);
+	});
+});
+
+describe('og-cover — Last.fm tier (key-gated, song only) — quick-260809-38i', () => {
+	// WHY THIS TIER EXISTS: the CLIENT hero adopts Last.fm album art (services/lastfm.ts album.getInfo,
+	// promoted via player.adoptCover), but /api/og re-resolved through Deezer → iTunes → kuwo, which has
+	// no Last.fm tier — so the WhatsApp card landed on a DIFFERENT album than the app was showing.
+	// A share URL carries only artist+title (no album), so the reachable server equivalent is
+	// track.getInfo, whose reshape prefers `track.image[]` then `track.album.image[]`.
+	// PROBE (2026-08-09, production): track.getinfo for 方大同/紅豆 returned image hash
+	// 95f31bcdc1e942d3c24daa08dbf0e654 — byte-identical to what the client's album.getInfo returns for
+	// the same song, in ONE subrequest. That parity is the whole justification for running it FIRST.
+	const KEY = 'test-lastfm-key';
+	const LF_IMG = 'https://lastfm-img.freetls.fastly.net/i/u/300x300/95f31bcdc1e942d3c24daa08dbf0e654.png';
+	const LF_GREY = 'https://lastfm-img.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png';
+
+	/** track.getinfo with the art on the embedded ALBUM (the real-world shape). */
+	const lfHit = (url = LF_IMG) =>
+		JSON.stringify({
+			track: {
+				name: '紅豆',
+				artist: { name: '方大同' },
+				album: {
+					title: 'The Soulboy Collection',
+					image: [
+						{ '#text': url.replace('300x300', '64s'), size: 'small' },
+						{ '#text': url, size: 'extralarge' }
+					]
+				}
+			}
+		});
+	/** A track with NO art at all — a clean miss (cacheable, falls through). */
+	const LF_MISS = JSON.stringify({ track: { name: 'X', artist: { name: 'Y' } } });
+
+	it('NO key → the chain is byte-identical to today (Deezer first, never a Last.fm call)', async () => {
+		const { calls } = stubTiers({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		// No 5th argument at all — the pre-existing call shape.
+		const out = await resolveCoverTiered('song', 'Nobody', 'Nothing', fresh());
+		expect(out).toBeNull();
+		expect(calls.some((c) => c.includes('audioscrobbler'))).toBe(false);
+		expect(calls[0]).toContain('https://api.deezer.com/search');
+		expect(calls).toHaveLength(4); // 3 tiers + Fallback B, exactly as before
+	});
+
+	it('an EMPTY-STRING key is treated as absent (T-08-02 parity — no api_key=undefined upstream)', async () => {
+		const { calls } = stubTiers({ dz: DZ_HIT });
+		const out = await resolveCoverTiered('song', 'Nirvana', 'Come As You Are', fresh(), '');
+		expect(out).toBe(DZ_COVER);
+		expect(calls.some((c) => c.includes('audioscrobbler'))).toBe(false);
+	});
+
+	it('key + type=song → Last.fm runs FIRST; a hit costs ONE subrequest and never reaches Deezer', async () => {
+		const { calls } = stubTiers({ lf: lfHit() });
+		const out = await resolveCoverTiered('song', '方大同', '紅豆', fresh(), KEY);
+		expect(out).toBe(LF_IMG);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toContain('https://ws.audioscrobbler.com/2.0/');
+		expect(calls[0]).toContain('method=track.getinfo');
+		expect(calls[0]).toContain('format=json');
+		// Every interpolated value is encodeURIComponent'd into the fixed template (T-wv8-01).
+		expect(calls[0]).toContain(encodeURIComponent('方大同'));
+		expect(calls[0]).toContain(encodeURIComponent('紅豆'));
+		expect(calls[0]).toContain(`api_key=${encodeURIComponent(KEY)}`);
+		// The key stays edge-side: it is in the upstream URL only, never in the returned value.
+		expect(out).not.toContain(KEY);
+	});
+
+	it('queries the ORIGINAL Traditional terms — the convert-first t2s pass must NOT reach this tier', async () => {
+		// PROBED 2026-08-09 in production: artist=方大同 track=紅豆 returns the album art, while the t2s
+		// output 红豆 returns NOTHING. The convert-first pass exists because the CN catalogs index the
+		// SIMPLIFIED name; Last.fm indexes what its scrobbles say, which here is the Traditional name.
+		// So this tier runs ABOVE the conversion — running it on the converted terms would break it on
+		// the exact song the cover mismatch was reported for.
+		const { calls } = stubTiers({ lf: lfHit(), dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		const out = await resolveCoverTiered('song', '方大同', '紅豆', fresh(), KEY);
+		expect(out).toBe(LF_IMG);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toContain(encodeURIComponent('紅豆')); // Traditional — the input form
+		expect(calls[0]).not.toContain(encodeURIComponent('红豆')); // never the t2s output
+	});
+
+	it('a Last.fm miss still lets convert-first run for the keyless tiers below it', async () => {
+		// The tier sits ABOVE the conversion but must not disable it: on a miss the CN chain still gets
+		// the Simplified query it needs (quick-260807-vl1 stays intact).
+		// quick-261102-covgate: the kuwo reply is the REQUESTED song (止戰之殤) — under the
+		// identity gate a reply naming a different song （稻香） is a miss by design now.
+		const KW_HIT_ZHIZHAN = JSON.stringify({
+			abslist: [
+				{ MUSICRID: 'MUSIC_440613', SONGNAME: '止戰之殤', ARTIST: '周杰伦', web_albumpic_short: '120/s4s0/93/1794217775.jpg' }
+			]
+		});
+		const { calls } = stubTiers({ lf: LF_MISS, dz: DZ_MISS, it: IT_MISS, kw: KW_HIT_ZHIZHAN });
+		const out = await resolveCoverTiered('song', '周傑倫', '止戰之殤', fresh(), KEY);
+		expect(out).toBe(KW_PIC);
+		expect(calls[0]).toContain(encodeURIComponent('止戰之殤')); // Last.fm: original
+		expect(calls[1]).toContain(encodeURIComponent('止战之殇')); // Deezer onward: converted
+	});
+
+	it('picks the LARGEST image by Last.fm size rank, not array order', async () => {
+		stubTiers({ lf: lfHit() });
+		// quick-261102-covgate: the request names the lfHit song — the returned track's own
+		// name/artist are validated now, so the terms must be the fixture's identity.
+		const out = await resolveCoverTiered('song', '方大同', '紅豆', fresh(), KEY);
+		expect(out).toBe(LF_IMG); // extralarge, even though `small` came first in the array
+	});
+
+	it('reads the top-level track.image[] in preference to the album image (api/lastfm/info parity)', async () => {
+		const TOP = 'https://lastfm-img.freetls.fastly.net/i/u/300x300/toplevel.png';
+		stubTiers({
+			lf: JSON.stringify({
+				track: {
+					image: [{ '#text': TOP, size: 'extralarge' }],
+					album: { image: [{ '#text': LF_IMG, size: 'mega' }] }
+				}
+			})
+		});
+		const out = await resolveCoverTiered('song', 'A', 'B', fresh(), KEY);
+		expect(out).toBe(TOP);
+	});
+
+	it('type=album and type=artist never call Last.fm (track.getInfo has no analogue we want)', async () => {
+		const album = stubTiers({ dz: DZ_HIT }).calls;
+		expect(await resolveCoverTiered('album', 'Nirvana', 'Nevermind', fresh(), KEY)).toBe(DZ_COVER);
+		expect(album.some((c) => c.includes('audioscrobbler'))).toBe(false);
+
+		vi.unstubAllGlobals();
+		const artist = stubTiers({ dz: DZ_HIT }).calls;
+		expect(await resolveCoverTiered('artist', 'Nirvana', '', fresh(), KEY)).toBe(DZ_PICTURE);
+		expect(artist.some((c) => c.includes('audioscrobbler'))).toBe(false);
+	});
+
+	it('a clean MISS (no image) falls through to the unchanged Deezer → iTunes → kuwo chain', async () => {
+		const { calls } = stubTiers({ lf: LF_MISS, dz: DZ_MISS, it: IT_MISS, kw: KW_HIT });
+		// quick-261102-covgate: request names the KW_HIT song (see the allow-list case above).
+		const out = await resolveCoverTiered('song', '周杰倫', '稻香', fresh(), KEY);
+		expect(out).toBe(KW_PIC);
+		expect(calls[0]).toContain('audioscrobbler');
+		expect(calls[1]).toContain('api.deezer.com');
+		expect(calls[2]).toContain('itunes.apple.com');
+		expect(calls[3]).toContain('search.kuwo.cn');
+	});
+
+	it('a GREY-STAR placeholder is a MISS, never a hit (ENRICH-02 / D-04 guardrail 2)', async () => {
+		const { calls } = stubTiers({ lf: lfHit(LF_GREY), dz: DZ_HIT });
+		const out = await resolveCoverTiered('song', 'A', 'B', fresh(), KEY);
+		expect(out).toBe(DZ_COVER); // a real cover must never regress to the placeholder
+		expect(calls).toHaveLength(2);
+	});
+
+	it('a non-ok / malformed / throwing Last.fm is an ERROR (never negative-cached), and a later tier still wins', async () => {
+		// non-ok → all other tiers cleanly miss → 'ERROR', so /api/og will NOT cache the fault.
+		const notOk = stubTiers({ lf: 'NOTOK', dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		expect(await resolveCoverTiered('song', 'A', 'B', fresh(), KEY)).toBe('ERROR');
+		expect(notOk.calls[0]).toContain('audioscrobbler');
+
+		// malformed JSON body → same posture.
+		vi.unstubAllGlobals();
+		stubTiers({ lf: 'not json at all', dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		expect(await resolveCoverTiered('song', 'A', 'B', fresh(), KEY)).toBe('ERROR');
+
+		// network throw, but Deezer answers → the HIT wins over the fault.
+		vi.unstubAllGlobals();
+		stubTiers({ lf: 'THROW', dz: DZ_HIT });
+		expect(await resolveCoverTiered('song', 'A', 'B', fresh(), KEY)).toBe(DZ_COVER);
+
+		// Last.fm's own error envelope (a 200 with { error, message }) is drift → ERROR, not a hit.
+		vi.unstubAllGlobals();
+		stubTiers({ lf: JSON.stringify({ error: 6, message: 'Track not found' }), dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		expect(await resolveCoverTiered('song', 'A', 'B', fresh(), KEY)).toBe('ERROR');
+	});
+
+	it('safeLastfmImageUrl allows only https last.fm / *.last.fm / *.fastly.net', () => {
+		expect(safeLastfmImageUrl(LF_IMG)).toBe(LF_IMG);
+		expect(safeLastfmImageUrl('https://last.fm/i/u/300x300/a.png')).toBe('https://last.fm/i/u/300x300/a.png');
+		expect(safeLastfmImageUrl('https://img.last.fm/x.png')).toBe('https://img.last.fm/x.png');
+		expect(safeLastfmImageUrl(LF_IMG.replace('https:', 'http:'))).toBeNull();
+		// Another tier's host must NOT pass the Last.fm allow-list (T-wv8-05, T-38i-02).
+		expect(safeLastfmImageUrl(DZ_COVER)).toBeNull();
+		expect(safeLastfmImageUrl(IT_ART_600)).toBeNull();
+		expect(safeLastfmImageUrl(KW_PIC)).toBeNull();
+		// Suffix-confusion hosts.
+		expect(safeLastfmImageUrl('https://evil-last.fm.example/x.png')).toBeNull();
+		expect(safeLastfmImageUrl('https://notlast.fm/x.png')).toBeNull();
+		expect(safeLastfmImageUrl('https://evilfastly.net/x.png')).toBeNull();
+		// The grey-star placeholder is rejected AT THE ALLOW-LIST, not just at the picker.
+		expect(safeLastfmImageUrl(LF_GREY)).toBeNull();
+		// CSS/attribute breakers + never-throw on junk.
+		for (const bad of ['(', ')', ' ', '"', "'", '\\']) {
+			expect(safeLastfmImageUrl(`https://lastfm-img.freetls.fastly.net/a${bad}b.png`)).toBeNull();
+		}
+		expect(safeLastfmImageUrl(null)).toBeNull();
+		expect(safeLastfmImageUrl(undefined)).toBeNull();
+		expect(safeLastfmImageUrl('')).toBeNull();
+		expect(safeLastfmImageUrl('not-a-url')).toBeNull();
+	});
+
+	it('a Last.fm body smuggling an mzstatic/kuwo host is rejected and falls through', async () => {
+		const { calls } = stubTiers({
+			lf: JSON.stringify({ track: { image: [{ '#text': IT_ART_600, size: 'extralarge' }] } }),
+			dz: DZ_HIT
+		});
+		const out = await resolveCoverTiered('song', 'A', 'B', fresh(), KEY);
+		expect(out).toBe(DZ_COVER);
+		expect(calls).toHaveLength(2);
+	});
+
+	it('/api/og threads platform.env.LASTFM_KEY into the tier (edge-side only)', async () => {
+		// quick-261102-covgate: the Last.fm body names the SONG request (Nirvana) — the tier
+		// validates the returned track's identity now, so the fixture echoes the request.
+		const LF_NIRVANA = JSON.stringify({
+			track: {
+				name: 'Come As You Are',
+				artist: { name: 'Nirvana' },
+				album: { image: [{ '#text': LF_IMG, size: 'extralarge' }] }
+			}
+		});
+		const { calls } = stubRoute({ lf: LF_NIRVANA });
+		const res = await callGET(fakeEvent(SONG, 'https://openmusic.lol', { LASTFM_KEY: KEY }));
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toBe('image/jpeg');
+		expect(calls[0]).toContain('ws.audioscrobbler.com');
+		expect(calls[0]).toContain(`api_key=${encodeURIComponent(KEY)}`);
+		// 1 resolve + 1 image. The key never leaves the edge: it is absent from every response header.
+		expect(calls).toHaveLength(2);
+		for (const [, v] of res.headers) expect(v).not.toContain(KEY);
+	});
+
+	it('/api/og with NO platform env keeps the keyless chain (regression guard for the absent-key state)', async () => {
+		const { calls } = stubRoute({ dz: DZ_HIT });
+		const res = await callGET(fakeEvent(SONG));
+		expect(res.status).toBe(200);
+		expect(calls.some((c) => c.includes('audioscrobbler'))).toBe(false);
+	});
+});
+
+describe('og-cover — closed type set + branded fallback constant', () => {
+	it('isOgType accepts exactly song/album/artist', () => {
+		expect(isOgType('song')).toBe(true);
+		expect(isOgType('album')).toBe(true);
+		expect(isOgType('artist')).toBe(true);
+		expect(isOgType('banana')).toBe(false);
+		expect(isOgType('')).toBe(false);
+	});
+
+	it('the branded fallback is a RASTER, never an SVG (quick-260807-vl1)', () => {
+		// The hard gate: no major platform renders an SVG og:image (30-RESEARCH §C.11/§D.15), which
+		// is what made the user's WhatsApp card come through blank.
+		expect(OG_FALLBACK_TYPE).toMatch(/^image\/(png|jpeg)$/);
+		expect(OG_FALLBACK_TYPE).not.toBe('image/svg+xml');
+		expect(OG_FALLBACK_BYTES.length).toBeGreaterThan(1000);
+		expect(magicOf(OG_FALLBACK_BYTES)).toBe(OG_FALLBACK_TYPE);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// ROUTE LEVEL — src/routes/api/og/+server.ts (OG-EP-02)
+// ---------------------------------------------------------------------------------------------
+
+const JPEG_BODY = 'JPEG-BYTES';
+
+type ImageReply = 'jpeg' | 'png' | 'html' | 'nolength' | 'THROW' | 'NOTOK';
+
+/**
+ * Stub fetch for the WHOLE route: the three tier hosts plus the image-bytes fetch (any other
+ * host — the cover URL always lives on a tier's own allow-listed CDN). Returns the call log so
+ * "no second upstream fetch" and "≤4 subrequests" are assertable.
+ */
+function stubRoute(replies: {
+	lf?: TierReply;
+	dz?: TierReply;
+	it?: TierReply;
+	kw?: TierReply;
+	image?: ImageReply;
+}) {
+	const calls: string[] = [];
+	const spy = vi.fn(async (input: RequestInfo | URL) => {
+		const u = String(input);
+		calls.push(u);
+		// quick-260809-38i: audioscrobbler joins the tier hosts so a Last.fm call is never mistaken for
+		// the image-bytes fetch (the catch-all branch below).
+		if (
+			u.includes('ws.audioscrobbler.com') ||
+			u.includes('api.deezer.com') ||
+			u.includes('itunes.apple.com') ||
+			u.includes('search.kuwo.cn')
+		) {
+			const reply = u.includes('ws.audioscrobbler.com')
+				? replies.lf
+				: u.includes('api.deezer.com')
+					? replies.dz
+					: u.includes('itunes.apple.com')
+						? replies.it
+						: replies.kw;
+			if (reply === undefined || reply === 'THROW') throw new Error('network down');
+			if (reply === 'NOTOK') return new Response('upstream error', { status: 500 });
+			return new Response(reply, { status: 200, headers: { 'content-type': 'application/json' } });
+		}
+		const img = replies.image ?? 'jpeg';
+		if (img === 'THROW') throw new Error('cdn down');
+		if (img === 'NOTOK') return new Response('gone', { status: 404 });
+		if (img === 'html') {
+			// A CDN error page must NEVER be relayed as the card image (T-30-04).
+			return new Response('<html>nope</html>', {
+				status: 200,
+				headers: { 'content-type': 'text/html; charset=utf-8', 'content-length': '17' }
+			});
+		}
+		const headers: Record<string, string> = {
+			'content-type': img === 'png' ? 'image/png' : 'image/jpeg; charset=binary'
+		};
+		if (img !== 'nolength') headers['content-length'] = String(JPEG_BODY.length);
+		return new Response(JPEG_BODY, { status: 200, headers });
+	});
+	vi.stubGlobal('fetch', spy);
+	return { calls, spy };
+}
+
+/** In-memory caches.default (the harness at deezer-endpoint.test.ts:279-347). */
+function stubCache() {
+	const store = new Map<string, Response>();
+	const putKeys: string[] = [];
+	const cacheStub = {
+		match: vi.fn(async (req: Request) => {
+			const hit = store.get(req.url);
+			return hit ? hit.clone() : undefined;
+		}),
+		put: vi.fn(async (req: Request, res: Response) => {
+			putKeys.push(req.url);
+			store.set(req.url, res.clone());
+		})
+	};
+	vi.stubGlobal('caches', { default: cacheStub });
+	return { store, putKeys, cacheStub };
+}
+
+function fakeEvent(
+	search: Record<string, string>,
+	origin = 'https://openmusic.lol',
+	env?: Record<string, string>
+) {
+	const url = new URL('https://openmusic.lol/api/og');
+	for (const [k, v] of Object.entries(search)) url.searchParams.set(k, v);
+	return {
+		url,
+		// quick-260809-38i: platform stays undefined by DEFAULT, and that is still a real assertion —
+		// the keyless Deezer/iTunes/kuwo chain must remain the complete behaviour with no Env at all.
+		// An explicit `env` is passed only by the Last.fm-tier cases.
+		platform: env ? { env } : undefined,
+		request: new Request(url, { headers: { origin } })
+	};
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const callGET = (event: ReturnType<typeof fakeEvent>) => GET(event as any);
+
+const SONG = { type: 'song', artist: 'Nirvana', title: 'Come As You Are' };
+
+describe('/api/og — zero-work short-circuit + input coercion', () => {
+	it('no artist and no title → 200 branded raster with ZERO subrequests (T-og-01)', async () => {
+		const { calls } = stubRoute({});
+		const res = await callGET(fakeEvent({ type: 'song' }));
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
+		expect(res.headers.get('Content-Length')).toBe(String(OG_FALLBACK_BYTES.length));
+		expect(calls).toHaveLength(0);
+		// The body is the real raster: magic bytes must match the declared type.
+		expect(magicOf(new Uint8Array(await res.arrayBuffer()))).toBe(OG_FALLBACK_TYPE);
+		// quick-260914-to2: the MACHINE marker that lets an in-app consumer tell "no cover exists"
+		// from "here is the cover" — both are 200 + image/jpeg. Exposed cross-origin for the APK.
+		expect(res.headers.get('x-og-fallback')).toBe('1');
+		expect(res.headers.get('Access-Control-Expose-Headers')).toContain('x-og-fallback');
+	});
+
+	it('a type outside the closed set is COERCED to song (never a 404/500)', async () => {
+		const { calls } = stubRoute({ dz: DZ_HIT });
+		const res = await callGET(fakeEvent({ ...SONG, type: 'banana' }));
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toBe('image/jpeg');
+		// song semantics: the Deezer ALBUM cover, not the artist picture
+		expect(calls.filter((c) => c.includes('cdn-images.dzcdn.net'))[0]).toBe(DZ_COVER);
+	});
+
+	it('caps pathological input length instead of building a giant upstream URL', async () => {
+		const { calls } = stubRoute({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		const res = await callGET(fakeEvent({ type: 'song', artist: 'a'.repeat(5000), title: 'b' }));
+		expect(res.status).toBe(200);
+		expect(calls[0]).toContain(encodeURIComponent('a'.repeat(200)));
+		expect(calls[0]).not.toContain(encodeURIComponent('a'.repeat(201)));
+	});
+});
+
+describe('/api/og — streams image bytes (never a 30x, never a 500)', () => {
+	it('a tier hit → 200 image/jpeg, immutable 24h Cache-Control, body streamed through', async () => {
+		const { calls } = stubRoute({ dz: DZ_HIT });
+		const res = await callGET(fakeEvent(SONG));
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toBe('image/jpeg');
+		expect(res.headers.get('Cache-Control')).toBe('public, max-age=86400, immutable');
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://openmusic.lol');
+		// quick-260914-to2: a REAL relayed cover must NOT carry the fallback marker — that is the
+		// whole discriminant media-artwork.ts relies on.
+		expect(res.headers.get('x-og-fallback')).toBeNull();
+		expect(await res.text()).toBe(JPEG_BODY);
+		// worst case for this path: 1 resolve + 1 image = 2 subrequests
+		expect(calls).toHaveLength(2);
+	});
+
+	it('an upstream image serving text/html falls back to the branded card (T-30-04)', async () => {
+		stubRoute({ dz: DZ_HIT, image: 'html' });
+		const res = await callGET(fakeEvent(SONG));
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
+		expect(magicOf(new Uint8Array(await res.arrayBuffer()))).toBe(OG_FALLBACK_TYPE);
+	});
+
+	it('a failed / non-ok image fetch falls back branded rather than 500ing', async () => {
+		stubRoute({ dz: DZ_HIT, image: 'THROW' });
+		const thrown = await callGET(fakeEvent(SONG));
+		expect(thrown.status).toBe(200);
+		expect(thrown.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
+		expect(thrown.headers.get('Content-Length')).toBe(String(OG_FALLBACK_BYTES.length));
+		expect(thrown.headers.get('x-og-fallback')).toBe('1');
+		expect(thrown.headers.get('Access-Control-Expose-Headers')).toContain('x-og-fallback');
+
+		vi.unstubAllGlobals();
+		stubRoute({ dz: DZ_HIT, image: 'NOTOK' });
+		const notOk = await callGET(fakeEvent(SONG));
+		expect(notOk.status).toBe(200);
+		expect(notOk.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
+		expect(notOk.headers.get('x-og-fallback')).toBe('1');
+	});
+
+	it('every tier faulting still returns 200 + the branded card', async () => {
+		stubRoute({ dz: 'THROW', it: 'THROW', kw: 'THROW' });
+		const res = await callGET(fakeEvent(SONG));
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
+	});
+
+	it('a throwing Cache API cannot 500 the route', async () => {
+		stubRoute({ dz: DZ_HIT });
+		vi.stubGlobal('caches', {
+			default: {
+				match: vi.fn(async () => {
+					throw new Error('cache exploded');
+				}),
+				put: vi.fn(async () => {
+					throw new Error('cache exploded');
+				})
+			}
+		});
+		const res = await callGET(fakeEvent(SONG));
+		expect(res.status).toBe(200);
+	});
+
+	it('OPTIONS → 204 with own-origin CORS (never *)', async () => {
+		const res = await OPTIONS({
+			request: new Request('https://openmusic.lol/api/og', {
+				headers: { origin: 'https://openmusic.lol' }
+			})
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		} as any);
+		expect(res.status).toBe(204);
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://openmusic.lol');
+	});
+
+	it('an origin outside the allow-list gets NO Access-Control-Allow-Origin', async () => {
+		stubRoute({ dz: DZ_HIT });
+		const res = await callGET(fakeEvent(SONG, 'https://evil.example'));
+		expect(res.status).toBe(200);
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
+	});
+});
+
+describe('/api/og — two caches.default layers, both keyed own-origin', () => {
+	it('serves the second identical request from the BYTES layer with no further upstream fetch', async () => {
+		const { calls } = stubRoute({ dz: DZ_HIT });
+		const { cacheStub } = stubCache();
+
+		const res1 = await callGET(fakeEvent(SONG));
+		expect(await res1.text()).toBe(JPEG_BODY);
+		expect(calls).toHaveLength(2); // resolve + image
+		expect(cacheStub.put).toHaveBeenCalledTimes(2); // resolve layer + bytes layer
+
+		const res2 = await callGET(fakeEvent(SONG, 'http://localhost:5173'));
+		expect(calls).toHaveLength(2); // NO second upstream fetch
+		expect(await res2.text()).toBe(JPEG_BODY);
+		expect(res2.headers.get('content-type')).toBe('image/jpeg');
+		expect(res2.headers.get('Cache-Control')).toBe('public, max-age=86400, immutable');
+		// quick-260914-to2: cache writes happen on SUCCESS only, so a bytes-layer hit is never the
+		// branded card and must never look like one.
+		expect(res2.headers.get('x-og-fallback')).toBeNull();
+		// CORS re-applied for THIS request's origin (WR-01) — the stored copy is CORS-free.
+		expect(res2.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173');
+	});
+
+	it('both cache keys are OWN-ORIGIN, never a tier upstream URL (T-wv8-06)', async () => {
+		stubRoute({ dz: DZ_HIT });
+		const { putKeys } = stubCache();
+		await callGET(fakeEvent(SONG));
+		expect(putKeys).toHaveLength(2);
+		for (const key of putKeys) {
+			expect(key).toContain('openmusic.lol/api/og');
+			expect(key).not.toContain('api.deezer.com');
+			expect(key).not.toContain('itunes.apple.com');
+			expect(key).not.toContain('search.kuwo.cn');
+			expect(key).not.toContain('cdn-images.dzcdn.net');
+		}
+	});
+
+	it('param-order variants share ONE resolve entry (matchKey-normalized layer-1 key)', async () => {
+		const { calls } = stubRoute({ dz: DZ_HIT });
+		stubCache();
+		await callGET(fakeEvent({ type: 'song', artist: 'Nirvana', title: 'Come As You Are' }));
+		// different query serialization AND the hyphen-for-space share loss → same matchKey
+		await callGET(fakeEvent({ title: 'Come-As-You Are', artist: 'Nirvana', type: 'song' }));
+		const tierCalls = calls.filter((c) => c.includes('api.deezer.com'));
+		expect(tierCalls).toHaveLength(1); // resolve reused
+		expect(calls).toHaveLength(3); // 1 resolve + 2 image (bytes key differs by query order)
+	});
+
+	it("a clean all-miss IS negative-cached; the repeat costs ZERO subrequests", async () => {
+		const { calls } = stubRoute({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		const { putKeys } = stubCache();
+		const res1 = await callGET(fakeEvent(SONG));
+		expect(res1.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
+		// 3 tiers + Fallback B (title-only). Fallback A is skipped — 'Nirvana' is not substituted.
+		expect(calls).toHaveLength(4);
+		expect(putKeys).toHaveLength(1); // resolve layer only — there are no bytes to store
+
+		const res2 = await callGET(fakeEvent(SONG));
+		expect(calls).toHaveLength(4); // known-none served from the resolve layer
+		expect(res2.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
+	});
+
+	it("resolveCoverTiered 'ERROR' writes NOTHING to either layer", async () => {
+		stubRoute({ dz: 'THROW', it: IT_MISS, kw: KW_MISS });
+		const { cacheStub } = stubCache();
+		const res = await callGET(fakeEvent(SONG));
+		expect(res.status).toBe(200);
+		expect(cacheStub.put).not.toHaveBeenCalled();
+	});
+
+	it('an image with no Content-Length still streams, but is NOT buffered into the cache (T-og-02)', async () => {
+		stubRoute({ dz: DZ_HIT, image: 'nolength' });
+		const { putKeys } = stubCache();
+		const res = await callGET(fakeEvent(SONG));
+		expect(await res.text()).toBe(JPEG_BODY);
+		expect(putKeys).toHaveLength(1); // resolve layer only
+	});
+});
+
+describe('itunes-cover — upgradeArtwork keeps its client default and takes an /api/og size', () => {
+	it('defaults to 1200x1200bb (client tiles unchanged)', () => {
+		expect(upgradeArtwork(IT_ART_100)).toBe(
+			'https://is1-ssl.mzstatic.com/image/thumb/Music/aa/bb/cc/1200x1200bb.jpg'
+		);
+	});
+
+	it('swaps to the requested size when one is passed (600x600bb = 101 KB, not 332 KB)', () => {
+		expect(upgradeArtwork(IT_ART_100, '600x600bb')).toBe(IT_ART_600);
+	});
+
+	it('still returns unchanged/null for a URL without the token or empty input', () => {
+		expect(upgradeArtwork('https://is1-ssl.mzstatic.com/image/x.jpg', '600x600bb')).toBe(
+			'https://is1-ssl.mzstatic.com/image/x.jpg'
+		);
+		expect(upgradeArtwork('  ', '600x600bb')).toBeNull();
+		expect(upgradeArtwork(null, '600x600bb')).toBeNull();
+	});
+});
+
+// =============================================================================================
+// quick-260809-3uo — the `ci` COVER-ID CARRIER
+// =============================================================================================
+// A carrier is back on /api/og, in a strictly narrower form than the retired `?c=`: what crosses
+// the boundary is a SHORT ID from a closed tag set, never a URL. /api/og rebuilds the image URL
+// from a template whose scheme, host and every path character outside the variable part are
+// LITERALS in og-cover.ts.
+//
+// HARNESS PROPERTY these negative tests lean on (do not "simplify" it away): stubTiers/stubRoute
+// THROW for any tier whose reply is undeclared. So both failure directions fail LOUDLY —
+// "the tier chain ran when the token should have short-circuited it" throws on an undeclared tier,
+// and "the token was not used" shows up as a missing/extra captured call. A silently-passing
+// negative test is impossible here.
+//
+// LIVE PROBES 2026-08-09 (the templates are only real because these returned 200 + image/*):
+//   d → https://cdn-images.dzcdn.net/images/cover/fe1082c5ef54876802146897e76b592e/500x500-000000-80-0-0.jpg
+//       200 image/jpeg 72,650 B
+//   l → https://lastfm.freetls.fastly.net/i/u/300x300/95f31bcdc1e942d3c24daa08dbf0e654.png
+//       200 image/png 112,810 B  (500x500 = 274 KB and 600x600 = 342 KB are past the crawler
+//       budget Pitfall 6 records, so 300x300 IS the card size)
+//   k → https://img4.kuwo.cn/star/albumcover/600/s4s27/11/1502064321.jpg  200 image/jpeg 97,759 B
+//       (img1.kuwo.cn serves the SAME asset byte-for-byte, so pinning img4 as a literal is safe)
+//   i → itunes.apple.com/lookup?id=446760418 → artworkUrl100 → 600x600bb
+//       200 image/jpeg 54,671 B — the 陳柏宇 "Quinquennium" art the bug report names.
+
+const TOK_D = 'd:fe1082c5ef54876802146897e76b592e';
+const TOK_D_URL =
+	'https://cdn-images.dzcdn.net/images/cover/fe1082c5ef54876802146897e76b592e/500x500-000000-80-0-0.jpg';
+const TOK_L = 'l:95f31bcdc1e942d3c24daa08dbf0e654.png';
+const TOK_L_URL = 'https://lastfm.freetls.fastly.net/i/u/300x300/95f31bcdc1e942d3c24daa08dbf0e654.png';
+const TOK_K = 'k:s4s27-11-1502064321';
+const TOK_K_URL = 'https://img4.kuwo.cn/star/albumcover/600/s4s27/11/1502064321.jpg';
+const TOK_I = 'i:446760418';
+const TOK_I_ART_100 =
+	'https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/44/ab/f4/44abf48c-3f51-31b9-469a-6d99548070e1/886443102378.jpg/100x100bb.jpg';
+const TOK_I_URL =
+	'https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/44/ab/f4/44abf48c-3f51-31b9-469a-6d99548070e1/886443102378.jpg/600x600bb.jpg';
+const IT_LOOKUP_HIT = JSON.stringify({
+	resultCount: 1,
+	results: [{ wrapperType: 'collection', artworkUrl100: TOK_I_ART_100 }]
+});
+
+/** Stub ONLY the iTunes lookup endpoint (the single subrequest the `i` tag costs). */
+function stubItunesLookup(reply: TierReply = IT_LOOKUP_HIT) {
+	const calls: string[] = [];
+	vi.stubGlobal(
+		'fetch',
+		vi.fn(async (input: RequestInfo | URL) => {
+			const u = String(input);
+			calls.push(u);
+			if (!u.includes('itunes.apple.com/lookup')) throw new Error(`unexpected fetch: ${u}`);
+			if (reply === 'THROW') throw new Error('network down');
+			if (reply === 'NOTOK') return new Response('nope', { status: 500 });
+			return new Response(reply, { status: 200, headers: { 'content-type': 'application/json' } });
+		})
+	);
+	return calls;
+}
+
+describe('coverUrlFromToken — the closed tag set rebuilds a FIXED template', () => {
+	it('d:<32hex> → the canonical Deezer 500x500 cover URL (probed 200 image/jpeg)', async () => {
+		expect(await coverUrlFromToken(TOK_D)).toBe(TOK_D_URL);
+	});
+
+	it('l:<32hex>.<ext> → the canonical Last.fm 300x300 URL, extension preserved', async () => {
+		expect(await coverUrlFromToken(TOK_L)).toBe(TOK_L_URL);
+		expect(await coverUrlFromToken('l:95f31bcdc1e942d3c24daa08dbf0e654.jpg')).toBe(
+			'https://lastfm.freetls.fastly.net/i/u/300x300/95f31bcdc1e942d3c24daa08dbf0e654.jpg'
+		);
+	});
+
+	it('k:<d1>-<d2>-<id> → the canonical kuwo /600/ albumcover URL (probed 200 image/jpeg)', async () => {
+		expect(await coverUrlFromToken(TOK_K)).toBe(TOK_K_URL);
+	});
+
+	it('i:<digits> → ONE itunes lookup, upgraded to the 600x600bb card size', async () => {
+		const calls = stubItunesLookup();
+		expect(await coverUrlFromToken(TOK_I)).toBe(TOK_I_URL);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toBe('https://itunes.apple.com/lookup?id=446760418');
+	});
+
+	it('the i lookup NEVER interpolates anything but digits, and a fault → null (never throws)', async () => {
+		for (const reply of ['THROW', 'NOTOK', 'not json', JSON.stringify({ results: [] })] as const) {
+			vi.unstubAllGlobals();
+			stubItunesLookup(reply as TierReply);
+			expect(await coverUrlFromToken(TOK_I)).toBeNull();
+		}
+	});
+
+	it('an i lookup whose artwork is NOT an mzstatic host is rejected by safeItunesImageUrl', async () => {
+		stubItunesLookup(
+			JSON.stringify({ results: [{ artworkUrl100: 'https://evil.example/100x100bb.jpg' }] })
+		);
+		expect(await coverUrlFromToken(TOK_I)).toBeNull();
+	});
+
+	it('an UNKNOWN or absent tag is null — the tag set is closed, not a prefix filter', async () => {
+		for (const bad of [
+			'x:fe1082c5ef54876802146897e76b592e',
+			':fe1082c5ef54876802146897e76b592e',
+			'fe1082c5ef54876802146897e76b592e',
+			'D:fe1082c5ef54876802146897e76b592e', // tags are lower-case literals
+			'dd:fe1082c5ef54876802146897e76b592e'
+		]) {
+			expect(await coverUrlFromToken(bad)).toBeNull();
+		}
+	});
+
+	it('a variable part failing its ANCHORED pattern is null (length, case, partial match)', async () => {
+		for (const bad of [
+			'd:fe1082c5ef54876802146897e76b592', // 31
+			'd:fe1082c5ef54876802146897e76b592ee', // 33
+			'd:FE1082C5EF54876802146897E76B592E', // upper-case hex
+			'd:zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz',
+			'd:fe1082c5ef54876802146897e76b592eextra', // merely CONTAINS a valid hash
+			'd:xfe1082c5ef54876802146897e76b592e',
+			'l:95f31bcdc1e942d3c24daa08dbf0e654.gif', // ext is a CLOSED two-value set
+			'l:95f31bcdc1e942d3c24daa08dbf0e654', // no ext
+			'k:s4s27-11', // no id
+			'k:s4s27-11-123', // id under 4 digits
+			'k:S4S27-11-1502064321', // upper-case shard
+			'i:4467604180000', // 13 digits, over the cap
+			'i:44676041a', // not digits
+			'i:' // empty variable part
+		]) {
+			expect(await coverUrlFromToken(bad)).toBeNull();
+		}
+	});
+
+	it('separators / traversal / smuggling inside the variable part are UNGRAMMATICAL, not filtered', async () => {
+		for (const bad of [
+			'd:../../etc/passwd',
+			'd:ab/cd',
+			'd:%2e%2e%2ffe1082c5ef54876802146897e76b592e',
+			'k:a-1-1/../x',
+			'k:s4s27-11-1502064321/../../x',
+			'd:fe1082c5ef54876802146897e76b592e?x=1',
+			'd:fe1082c5ef54876802146897e76b592e#f',
+			'd:fe1082c5ef54876802146897e76b592e@evil.example',
+			'd:fe1082c5ef54876802146897e76b592e\\evil',
+			'i:446760418/../9',
+			'i:44676041 8'
+		]) {
+			expect(await coverUrlFromToken(bad)).toBeNull();
+		}
+	});
+
+	it('empty / whitespace / null / undefined / over-cap input is null and never throws', async () => {
+		expect(await coverUrlFromToken('')).toBeNull();
+		expect(await coverUrlFromToken('   ')).toBeNull();
+		expect(await coverUrlFromToken(null)).toBeNull();
+		expect(await coverUrlFromToken(undefined)).toBeNull();
+		// Over the 64-char cap — REJECTED, never truncated (T-3uo-04).
+		expect(await coverUrlFromToken('d:' + 'a'.repeat(80))).toBeNull();
+		expect(await coverUrlFromToken('d:'.repeat(60) + 'fe1082c5ef54876802146897e76b592e')).toBeNull();
+	});
+
+	it('the longest legal token still fits the cap (the cap can never reject a real token)', async () => {
+		for (const tok of [TOK_D, TOK_L, TOK_K, TOK_I]) expect(tok.length).toBeLessThanOrEqual(64);
+	});
+});
+
+describe('/api/og — the `ci` carrier short-circuits the resolve chain (quick-260809-3uo)', () => {
+	it('a valid token serves that exact cover with ZERO resolve subrequests', async () => {
+		// EVERY tier reply is left undeclared: reaching one THROWS, so "the chain did not run" is
+		// asserted structurally, not just by a call count.
+		const { calls } = stubRoute({});
+		const res = await callGET(fakeEvent({ ...SONG, ci: TOK_D }));
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-type')).toBe('image/jpeg');
+		expect(await res.text()).toBe(JPEG_BODY);
+		// EXACTLY one fetch, and it is the reconstructed template in full — a host or path-shape
+		// edit fails here.
+		expect(calls).toEqual([TOK_D_URL]);
+	});
+
+	it('each covered tag reconstructs its own canonical URL end-to-end', async () => {
+		for (const [tok, want] of [
+			[TOK_L, TOK_L_URL],
+			[TOK_K, TOK_K_URL]
+		] as const) {
+			vi.unstubAllGlobals();
+			const { calls } = stubRoute({});
+			await callGET(fakeEvent({ ...SONG, ci: tok }));
+			expect(calls).toEqual([want]);
+		}
+	});
+
+	it('the i tag costs ONE lookup + ONE image fetch, and still no resolve chain', async () => {
+		const { calls } = stubRoute({ it: IT_LOOKUP_HIT });
+		const res = await callGET(fakeEvent({ ...SONG, ci: TOK_I }));
+		expect(await res.text()).toBe(JPEG_BODY);
+		expect(calls).toEqual(['https://itunes.apple.com/lookup?id=446760418', TOK_I_URL]);
+	});
+
+	it('the token path never reads or writes the RESOLVE layer (T-3uo-03 anti-poisoning)', async () => {
+		stubRoute({});
+		const { putKeys, cacheStub } = stubCache();
+		await callGET(fakeEvent({ ...SONG, ci: TOK_D }));
+		for (const k of putKeys) expect(k).not.toContain('_resolve');
+		for (const call of cacheStub.match.mock.calls)
+			expect((call[0] as Request).url).not.toContain('_resolve');
+		expect(putKeys).toHaveLength(1); // bytes layer only
+	});
+
+	it('two requests differing ONLY in ci get DISTINCT bytes-cache keys', async () => {
+		stubRoute({});
+		const { putKeys } = stubCache();
+		await callGET(fakeEvent({ ...SONG, ci: TOK_D }));
+		await callGET(fakeEvent({ ...SONG, ci: TOK_K }));
+		expect(putKeys).toHaveLength(2);
+		expect(putKeys[0]).not.toBe(putKeys[1]);
+		for (const k of putKeys) expect(k).toContain('openmusic.lol/api/og');
+	});
+
+	it('a bytes-layer hit still costs ZERO subrequests with a carrier present', async () => {
+		const { calls } = stubRoute({});
+		stubCache();
+		await callGET(fakeEvent({ ...SONG, ci: TOK_D }));
+		await callGET(fakeEvent({ ...SONG, ci: TOK_D }));
+		expect(calls).toHaveLength(1);
+	});
+
+	it('a token whose image fetch fails lands on the BRANDED card, NOT a second chain (D1)', async () => {
+		for (const image of ['html', 'NOTOK', 'THROW'] as const) {
+			vi.unstubAllGlobals();
+			// Tiers undeclared: a fall-through to the chain would THROW instead of quietly costing
+			// IMAGE_MS + OG_RESOLVE_MS + a second image fetch (~10 s, past the crawler budget).
+			const { calls } = stubRoute({ image });
+			const res = await callGET(fakeEvent({ ...SONG, ci: TOK_D }));
+			expect(res.status).toBe(200);
+			expect(res.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
+			expect(calls).toEqual([TOK_D_URL]);
+		}
+	});
+
+	it('an INVALID token runs the FULL tier chain, byte-identically to no carrier at all', async () => {
+		const { calls: noCarrier } = stubRoute({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+		await callGET(fakeEvent(SONG));
+		const baseline = [...noCarrier];
+		expect(baseline).toHaveLength(4);
+
+		for (const bad of [
+			'x:fe1082c5ef54876802146897e76b592e',
+			'd:../../etc/passwd',
+			'd:fe1082c5ef54876802146897e76b592eextra',
+			'i:44676041a',
+			'd:' + 'a'.repeat(80),
+			''
+		]) {
+			vi.unstubAllGlobals();
+			const { calls } = stubRoute({ dz: DZ_MISS, it: IT_MISS, kw: KW_MISS });
+			const res = await callGET(fakeEvent({ ...SONG, ci: bad }));
+			expect(res.status).toBe(200);
+			expect(calls).toEqual(baseline); // identical tier sequence
+			// No fragment of the rejected token reaches ANY outbound URL.
+			const needle = bad.replace(/^[a-z]*:/, '').slice(0, 12);
+			if (needle) for (const c of calls) expect(c).not.toContain(needle);
+		}
+	});
+
+	it('the empty-card short-circuit still wins over a carrier (ZERO subrequests, T-og-01)', async () => {
+		const { calls } = stubRoute({});
+		const res = await callGET(fakeEvent({ type: 'song', ci: TOK_D }));
+		expect(res.headers.get('content-type')).toBe(OG_FALLBACK_TYPE);
+		expect(calls).toHaveLength(0);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// quick-261102-covgate — the CANDIDATE IDENTITY GATE (the red-hoodie incident)
+// ---------------------------------------------------------------------------------------------
+// THE INCIDENT (2026-11-02, Hector's screenshot): the song page for 高爾宣 OSN
+// 《Without You (Explicit)》 (uid qq:003OVf2Y349s0Z) showed a photo of a stranger in a red
+// hoodie while the nowbar on the same screen showed the real album art. The hero's bytes were
+// proven md5-identical to Deezer cover 1a18a3631eb049dbd2fbd2fc4afae088 — 'Without you
+// explicit' by Lilcory_offical, a DIFFERENT artist: Fallback B (a title-only Deezer search)
+// returned it as data[0] and the chain trusted first results outright. Every tier now
+// validates a candidate's own (artist, title) against the request before its cover can win;
+// a mismatch is a MISS, never a hit — at worst the chain serves the branded card.
+describe('og-cover — candidate identity gate (quick-261102-covgate)', () => {
+	const LIL_COVER =
+		'https://cdn-images.dzcdn.net/images/cover/1a18a3631eb049dbd2fbd2fc4afae088/500x500-000000-80-0-0.jpg';
+	const LIL_BODY = JSON.stringify({
+		data: [
+			{
+				id: 3388515483,
+				title: 'Without you explicit',
+				artist: { name: 'Lilcory_offical' },
+				album: { title: 'Lost reality', cover_big: LIL_COVER }
+			}
+		],
+		total: 1
+	});
+	const OSN_KW_PIC = 'https://img2.kuwo.cn/star/albumcover/500/54/40/1789045318.jpg';
+	const OSN_KW = JSON.stringify({
+		abslist: [
+			{
+				MUSICRID: 'MUSIC_5212317',
+				SONGNAME: 'Without You (Explicit)',
+				ARTIST: '高尔宣 OSN',
+				web_albumpic_short: '120/54/40/1789045318.jpg'
+			}
+		]
+	});
+	// Probed shape: iTunes' top hits for this song are OTHER OSN songs, never the right title.
+	const IT_OSN_WRONG = JSON.stringify({
+		results: [
+			{ trackName: '最後一次', artistName: 'Osn', artworkUrl100: IT_ART_100 },
+			{ trackName: 'Why You Gonna Lie', artistName: 'Osn', artworkUrl100: IT_ART_100 }
+		]
+	});
+
+	/**
+	 * The incident's Deezer, URL-aware: full-term queries (either script) find NOTHING (probed
+	 * total 0); only the title-only Fallback B query finds the Lilcory track. stubTiers cannot
+	 * express per-query replies, hence this dedicated stub.
+	 */
+	function stubIncident(opts: { it?: TierReply; kw?: TierReply }) {
+		const calls: string[] = [];
+		const spy = vi.fn(async (input: RequestInfo | URL) => {
+			const u = String(input);
+			calls.push(u);
+			if (u.includes('api.deezer.com')) {
+				const q = new URL(u).searchParams.get('q') ?? '';
+				return new Response(q === 'Without You (Explicit)' ? LIL_BODY : DZ_MISS, {
+					status: 200,
+					headers: { 'content-type': 'application/json' }
+				});
+			}
+			const reply = u.includes('itunes.apple.com') ? opts.it : opts.kw;
+			if (reply === undefined || reply === 'THROW') throw new Error('network down');
+			if (reply === 'NOTOK') return new Response('upstream error', { status: 500 });
+			return new Response(reply, { status: 200, headers: { 'content-type': 'application/json' } });
+		});
+		vi.stubGlobal('fetch', spy);
+		return { calls, spy };
+	}
+
+	it('the incident shape: kuwo’s identity-matching row wins; the title-only Deezer stranger never does', async () => {
+		const { calls } = stubIncident({ it: IT_OSN_WRONG, kw: OSN_KW });
+		const out = await resolveCoverTiered('song', '高爾宣 OSN', 'Without You (Explicit)', fresh());
+		expect(out).toBe(OSN_KW_PIC);
+		expect(out).not.toBe(LIL_COVER);
+		expect(calls.some((c) => c.includes('search.kuwo.cn'))).toBe(true);
+	});
+
+	it('only mismatched covers everywhere → null (branded card), never the wrong image', async () => {
+		// kuwo answers with a DIFFERENT song; iTunes with the right artist’s wrong songs; and
+		// Fallback B still finds Lilcory. Pre-gate, this exact shape returned LIL_COVER.
+		const KW_OTHER = JSON.stringify({
+			abslist: [
+				{ MUSICRID: 'MUSIC_9', SONGNAME: 'Without You', ARTIST: 'Mariah Carey', web_albumpic_short: '120/1/2/3.jpg' }
+			]
+		});
+		const { calls } = stubIncident({ it: IT_OSN_WRONG, kw: KW_OTHER });
+		const out = await resolveCoverTiered('song', '高爾宣 OSN', 'Without You (Explicit)', fresh());
+		expect(out).toBeNull();
+		// The title-only fallback really ran — and its stranger was gated out, not trusted.
+		expect(
+			calls.some(
+				(c) => c.includes('api.deezer.com') && new URL(c).searchParams.get('q') === 'Without You (Explicit)'
+			)
+		).toBe(true);
+	});
+
+	it('iTunes: a wrong-title first result is skipped for the identity-matching second', async () => {
+		const IT_RIGHT_100 = 'https://is1-ssl.mzstatic.com/image/thumb/Music/right/100x100bb.jpg';
+		const it = JSON.stringify({
+			results: [
+				{ trackName: '最後一次', artistName: 'Osn', artworkUrl100: IT_ART_100 },
+				{ trackName: 'Without You (Explicit)', artistName: 'Osn', artworkUrl100: IT_RIGHT_100 }
+			]
+		});
+		stubTiers({ dz: DZ_MISS, it });
+		const out = await resolveCoverTiered('song', '高爾宣 OSN', 'Without You (Explicit)', fresh());
+		expect(out).toBe(IT_RIGHT_100.replace('100x100bb', '600x600bb'));
+	});
+
+	it('Deezer: a wrong-artist first hit is skipped within the SAME subrequest (limit=5)', async () => {
+		const OSN_DZ = 'https://cdn-images.dzcdn.net/images/cover/osn500/500x500-000000-80-0-0.jpg';
+		const dz = JSON.stringify({
+			data: [
+				{ id: 1, title: 'Without You (Explicit)', artist: { name: 'Lilcory_offical' }, album: { cover_big: LIL_COVER } },
+				{ id: 2, title: 'Without You (Explicit)', artist: { name: '高爾宣 OSN' }, album: { cover_big: OSN_DZ } }
+			],
+			total: 2
+		});
+		const { calls } = stubTiers({ dz });
+		const out = await resolveCoverTiered('song', '高爾宣 OSN', 'Without You (Explicit)', fresh());
+		expect(out).toBe(OSN_DZ);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toContain('limit=5');
+	});
+
+	it('a Simplified request accepts a Traditional-credited iTunes row (s2t wants widening)', async () => {
+		// Probed live 2026-11-02: iTunes credits 陳奕迅 in Traditional. With wants limited to
+		// the Simplified pair, the artist's OWN row was gated out and only kuwo could ever win
+		// a Simplified CJK request. The widened wants accept either script's echo.
+		const it = JSON.stringify({
+			results: [{ trackName: '孤勇者', artistName: '陳奕迅', artworkUrl100: IT_ART_100 }]
+		});
+		stubTiers({ dz: DZ_MISS, it });
+		const out = await resolveCoverTiered('song', '陈奕迅', '孤勇者', fresh());
+		expect(out).toBe(IT_ART_600);
+	});
+
+	it('Last.fm: an autocorrect SUBSTITUTION (right title, wrong artist) is a miss, not a hit', async () => {
+		// 紅豆 is famously 王菲's song and 方大同's cover of it — exactly the substitution
+		// autocorrect=1 can hand back. Its art must not dress the other artist's card.
+		const lf = JSON.stringify({
+			track: {
+				name: '紅豆',
+				artist: { name: '王菲' },
+				album: { image: [{ '#text': 'https://lastfm-img.freetls.fastly.net/i/u/300x300/sub.png', size: 'extralarge' }] }
+			}
+		});
+		const { calls } = stubTiers({ lf, dz: DZ_HIT });
+		const out = await resolveCoverTiered('song', '方大同', '紅豆', fresh(), 'test-lastfm-key');
+		expect(out).toBe(DZ_COVER);
+		expect(calls).toHaveLength(2);
+		expect(calls[0]).toContain('audioscrobbler');
+	});
+});

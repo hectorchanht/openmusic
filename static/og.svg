@@ -1,0 +1,36 @@
+<!-- 1200×630 share card. NOTE: many social crawlers (Slack, iMessage, some Twitter
+     paths) don't render SVG og:image — a PNG export is the production-correct follow-up
+     (needs an image-render toolchain, out of scope for this pass). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#160f29"/>
+      <stop offset="1" stop-color="#0b0b0f"/>
+    </linearGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0abab5"/>
+      <stop offset="1" stop-color="#81d8d0"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#0abab5" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#0abab5" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="290" cy="315" r="340" fill="url(#glow)"/>
+
+  <!-- logo mark -->
+  <g transform="translate(150 207)">
+    <rect width="216" height="216" rx="54" fill="url(#tile)"/>
+    <g transform="translate(108 108)">
+      <circle r="58" fill="none" stroke="#fff" stroke-width="16" stroke-linecap="round"
+              stroke-dasharray="277 87" transform="rotate(-52)"/>
+      <path d="M-31 -34 L52 0 L-31 34 Z" fill="#fff"/>
+    </g>
+  </g>
+
+  <!-- wordmark + tagline -->
+  <text x="430" y="300" font-family="Inter, system-ui, sans-serif" font-size="104" font-weight="800" fill="#f4f4f6">openmusic</text>
+  <!-- <text x="434" y="362" font-family="Inter, system-ui, sans-serif" font-size="34" font-weight="500" fill="#a0a0ad">stream music openly</text> -->
+  <text x="434" y="380" font-family="Inter, system-ui, sans-serif" font-size="34" font-weight="600" fill="#0abab5" letter-spacing="2">music streaming for earth</text>
+</svg>

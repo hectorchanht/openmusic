@@ -1,0 +1,11 @@
+{
+	"code": 200,
+	"data": {
+		"name": "晴天",
+		"artist": "周杰伦",
+		"album": "叶惠美",
+		"pic": "https://img2.kuwo.cn/star/albumcover/500/68/40/1234567890.jpg",
+		"url": "https://sh-sycdn.kuwo.cn/resource/n3/158395650.flac",
+		"lyric": "[00:00.00]晴天 - 周杰伦\n[00:12.00]故事的小黄花"
+	}
+}

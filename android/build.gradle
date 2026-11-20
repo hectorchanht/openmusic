@@ -1,0 +1,43 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+buildscript {
+    
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.13.0'
+        classpath 'com.google.gms:google-services:4.4.4'
+        // Kotlin Gradle plugin (Plan 999.1-06, D-11): the hand-written MediaStoreSaverPlugin.kt is
+        // the only Kotlin source in the app module, and the cap-add-generated project ships pure
+        // Java with no Kotlin support. Declared at the ROOT so the app module's build.gradle (owned
+        // by Plan 999.1-05) stays untouched; the plugin is applied to :app from the subprojects
+        // block below. Kotlin 2.2.20 matches the Capacitor 8.4.0 toolchain (env note).
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.20'
+
+        // NOTE: Do not place your application dependencies here; they belong
+        // in the individual module build.gradle files
+    }
+}
+
+apply from: "variables.gradle"
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+// D-11 (Plan 999.1-06): apply the Kotlin Android plugin to the :app module from here so the local
+// Kotlin MediaStore plugin compiles WITHOUT editing app/build.gradle (Plan 999.1-05 owns that file).
+// Applied during the :app configuration phase (NOT afterEvaluate — the Kotlin plugin lifecycle must
+// start before the project reaches the EXECUTED state).
+project(':app') {
+    apply plugin: 'org.jetbrains.kotlin.android'
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}

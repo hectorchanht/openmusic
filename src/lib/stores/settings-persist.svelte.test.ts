@@ -1,0 +1,755 @@
+// Genuine load()/save() round-trip coverage for the settings singleton (quick-260808-vzu).
+//
+// WHY THIS IS A SEPARATE FILE from settings.svelte.test.ts: that file's cases depend on
+// `browser === false` — it asserts applyTheme() is a no-op and that load() never runs, so the
+// $state field initializers hold. Flipping `$app/environment` to browser=true here would break
+// those cases (the mock is module-scoped, one value per test file). So the persistence path gets
+// its own file with the browser-true harness (the library.svelte.test.ts:10-25 idiom).
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { HOME_DEFAULTS } from '$lib/config/defaults';
+import { CHART_SECTIONS, CLASSIC_SECTIONS } from '$lib/services/home-layout';
+vi.mock('$app/environment', () => ({ browser: true }));
+
+const memStore = new Map<string, string>();
+const localStorageMock: Storage = {
+	get length() {
+		return memStore.size;
+	},
+	clear: () => memStore.clear(),
+	getItem: (k: string) => (memStore.has(k) ? (memStore.get(k) as string) : null),
+	key: (i: number) => Array.from(memStore.keys())[i] ?? null,
+	removeItem: (k: string) => void memStore.delete(k),
+	setItem: (k: string, v: string) => void memStore.set(k, String(v))
+};
+vi.stubGlobal('localStorage', localStorageMock);
+// Settings-specific globals the library harness does not need: load()'s first-visit branch reads
+// `navigator.language` (detectAppLang), and BOTH load() and save() end in applyTheme(), which
+// writes CSS custom properties + dataset flags onto document.documentElement.
+vi.stubGlobal('navigator', { language: 'en-US' });
+vi.stubGlobal('document', { documentElement: { style: { setProperty: () => {} }, dataset: {} } });
+
+const KEY = 'openmusic:settings:v1';
+
+// `settings` is a module-scope singleton carrying a `loaded` once-guard, so every load case needs
+// a FRESH module instance. Registered vi.mock factories survive resetModules.
+async function freshSettings() {
+	vi.resetModules();
+	const { settings } = await import('./settings.svelte');
+	return settings;
+}
+
+describe('settings persistence round-trip — shareIncludeTitle (quick-260808-vzu)', () => {
+	beforeEach(() => memStore.clear());
+
+	it('defaults to false when nothing is persisted', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.shareIncludeTitle).toBe(false);
+	});
+
+	it('an explicitly persisted `true` wins on load', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', shareIncludeTitle: true }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.shareIncludeTitle).toBe(true);
+	});
+
+	// T-vzu-01 (tampering): localStorage is user/extension-writable, so a non-boolean must fall
+	// back to the defaults.ts const rather than being coerced truthy ('yes' is a truthy string).
+	it('a corrupt non-boolean falls back to the default (false)', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', shareIncludeTitle: 'yes' }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.shareIncludeTitle).toBe(false);
+	});
+
+	it('save() writes the field into the persisted blob', async () => {
+		const settings = await freshSettings();
+		settings.shareIncludeTitle = true;
+		settings.save();
+		expect(JSON.parse(localStorage.getItem(KEY) as string).shareIncludeTitle).toBe(true);
+	});
+
+	// The 4th store touchpoint: without resetGeneral() the "reset group" button silently leaves
+	// this setting stuck at the user's old value.
+	it('resetGeneral() reverts the field AND the persisted blob', async () => {
+		const settings = await freshSettings();
+		settings.shareIncludeTitle = true;
+		settings.save();
+		settings.resetGeneral();
+		expect(settings.shareIncludeTitle).toBe(false);
+		expect(JSON.parse(localStorage.getItem(KEY) as string).shareIncludeTitle).toBe(false);
+	});
+});
+
+// quick-261116-carmode: the Car Mode entry button's visibility toggle. Default is FALSE
+// (Q5 — the button is hidden until the user opts in from Settings), the same resting
+// value as shareIncludeTitle, so the cases mirror that describe exactly.
+describe('settings persistence round-trip — showCarModeButton (quick-261116-carmode)', () => {
+	beforeEach(() => memStore.clear());
+
+	it('defaults to false when nothing is persisted', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.showCarModeButton).toBe(false);
+	});
+
+	it('an explicitly persisted `true` wins on load', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', showCarModeButton: true }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.showCarModeButton).toBe(true);
+	});
+
+	it('a corrupt non-boolean falls back to the default (false)', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', showCarModeButton: 'yes' }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.showCarModeButton).toBe(false);
+	});
+
+	it('save() writes the field into the persisted blob', async () => {
+		const settings = await freshSettings();
+		settings.showCarModeButton = true;
+		settings.save();
+		expect(JSON.parse(localStorage.getItem(KEY) as string).showCarModeButton).toBe(true);
+	});
+
+	it('resetGeneral() reverts the field AND the persisted blob', async () => {
+		const settings = await freshSettings();
+		settings.showCarModeButton = true;
+		settings.save();
+		settings.resetGeneral();
+		expect(settings.showCarModeButton).toBe(false);
+		expect(JSON.parse(localStorage.getItem(KEY) as string).showCarModeButton).toBe(false);
+	});
+});
+
+// quick-261102-srcpill: the Now-Playing source pill's toggle. Default is TRUE (Hector
+// asked for the pill; hiding it is the opt-out) — the exact inverse of shareIncludeTitle's
+// default, which is why every case below asserts the TRUE resting value explicitly.
+describe('settings persistence round-trip — showSourceTag (quick-261102-srcpill)', () => {
+	beforeEach(() => memStore.clear());
+
+	// quick-261117-srctag (Hector 2026-11-17): Hector explicitly decided the default is
+	// FALSE (superseding srcpill's ON default and the quick-261116-spfix restore), so
+	// the pinned expectations below mirror to false — persisted-`true`-wins and the
+	// save/reset cases flip to the opposite value so they still distinguish from the
+	// default at the same strictness.
+	it('defaults to false when nothing is persisted', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.showSourceTag).toBe(false);
+	});
+
+	it('an explicitly persisted `true` wins on load', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', showSourceTag: true }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.showSourceTag).toBe(true);
+	});
+
+	it('a corrupt non-boolean falls back to the default (false)', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', showSourceTag: 'no' }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.showSourceTag).toBe(false);
+	});
+
+	it('save() writes the field into the persisted blob', async () => {
+		const settings = await freshSettings();
+		settings.showSourceTag = true;
+		settings.save();
+		expect(JSON.parse(localStorage.getItem(KEY) as string).showSourceTag).toBe(true);
+	});
+
+	// quick-261103-stg: the source-tag picker moved to Appearance, and its reset with it.
+	it('resetAppearance() reverts the field AND the persisted blob', async () => {
+		const settings = await freshSettings();
+		settings.showSourceTag = true;
+		settings.save();
+		settings.resetAppearance();
+		expect(settings.showSourceTag).toBe(false);
+		expect(JSON.parse(localStorage.getItem(KEY) as string).showSourceTag).toBe(false);
+	});
+});
+
+// quick-260919-l9e. ORDER IS LOAD-BEARING here in a way shareIncludeTitle's boolean is not: this
+// array is the left-to-right layout of the inline row buttons, so a round-trip that preserved the
+// MEMBERS but not the ORDER would silently rearrange every song row on the next app open.
+describe('settings persistence round-trip — rowActions (quick-260919-l9e)', () => {
+	beforeEach(() => memStore.clear());
+
+	// quick-260925-vtg reversed quick-260920-kxz's [] default back to both on; 11fdfb5a (2026-10-04,
+	// "rowActions remove like, download") returned it to [] — a fresh install gets NO inline row
+	// buttons (the ⋮ menu is unconditional). The persisted-list cases below are UNCHANGED — only the
+	// "what does a fresh install get" assertions move.
+	it('defaults to [] when nothing is persisted (11fdfb5a)', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.rowActions).toEqual([]);
+	});
+
+	it('a persisted subset wins on load', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', rowActions: ['like'] }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.rowActions).toEqual(['like']);
+	});
+
+	it('a persisted ORDER survives the round-trip (the array is a layout, not a set)', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', rowActions: ['download', 'like'] }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.rowActions).toEqual(['download', 'like']);
+	});
+
+	// An empty array is a legitimate user choice ("no inline buttons"), NOT corruption — the ⋮ is
+	// unconditional, so there is no dead end to rescue the user from.
+	it('a persisted EMPTY array is honoured, not replaced by the default', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', rowActions: [] }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.rowActions).toEqual([]);
+	});
+
+	// T-l9e-01 (tampering): localStorage is user/extension-writable.
+	it.each([['like'], [null], [{}], [7]])(
+		'a corrupt non-array (%p) falls back to the default ([], 11fdfb5a)',
+		async (bad) => {
+			memStore.set(KEY, JSON.stringify({ appLang: 'en', rowActions: bad }));
+			const settings = await freshSettings();
+			settings.load();
+			expect(settings.rowActions).toEqual([]);
+		}
+	);
+
+	it('unknown and duplicate members are dropped rather than poisoning the order', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', rowActions: ['like', 'bogus', 7, 'like', 'download'] }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.rowActions).toEqual(['like', 'download']);
+	});
+
+	it('save() writes the field into the persisted blob', async () => {
+		const settings = await freshSettings();
+		settings.rowActions = ['download'];
+		settings.save();
+		expect(JSON.parse(localStorage.getItem(KEY) as string).rowActions).toEqual(['download']);
+	});
+
+	// The starting value must differ from the [] default (11fdfb5a), or the case would pass trivially
+	// without ever proving that reset touched the field — so it now starts from the OLD
+	// ['download', 'like'] default (quick-260925-vtg started from [] for the same reason).
+	it('resetAppearance() reverts the field AND the persisted blob (11fdfb5a)', async () => {
+		const settings = await freshSettings();
+		settings.rowActions = ['download', 'like'];
+		settings.save();
+		settings.resetAppearance();
+		expect(settings.rowActions).toEqual([]);
+		expect(JSON.parse(localStorage.getItem(KEY) as string).rowActions).toEqual([]);
+	});
+});
+
+// quick-260920-kxz. fontScaleApp is the ROOT text multiplier — the one scale that can make the
+// whole app, Settings included, unreadable if a bad value survives load(). So the clamp gets a
+// case of its own on top of the usual default / round-trip / reset trio (T-kxz-01).
+describe('settings persistence round-trip — fontScaleApp (quick-260920-kxz)', () => {
+	beforeEach(() => memStore.clear());
+
+	it('defaults to 100 when nothing is persisted', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.fontScaleApp).toBe(100);
+	});
+
+	it('a persisted value loads and save() writes it back into the blob', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', fontScaleApp: 130 }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.fontScaleApp).toBe(130);
+		settings.save();
+		expect(JSON.parse(localStorage.getItem(KEY) as string).fontScaleApp).toBe(130);
+	});
+
+	// T-kxz-01 (tampering): localStorage is user/extension-writable. An out-of-range value must
+	// land on the bound, not on <html> — 250% would push Settings itself off the screen.
+	it('an out-of-range value clamps to FONT_SCALE_MAX, and resetGeneral() returns it to 100 (quick-261103-stg: moved to the General card)', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', fontScaleApp: 250 }));
+		const settings = await freshSettings();
+		const { FONT_SCALE_MAX } = await import('./settings.svelte');
+		settings.load();
+		expect(settings.fontScaleApp).toBe(FONT_SCALE_MAX);
+		expect(FONT_SCALE_MAX).toBe(200);
+		settings.resetGeneral();
+		expect(settings.fontScaleApp).toBe(100);
+		expect(JSON.parse(localStorage.getItem(KEY) as string).fontScaleApp).toBe(100);
+	});
+});
+
+// quick-260926-m72: lyricsAnchor is where the active lyric line sits in the lyrics pane, percent of
+// the visible band. Same default / round-trip / clamp+reset trio as fontScaleApp (T-m72-01).
+describe('settings persistence round-trip — lyricsAnchor (quick-260926-m72)', () => {
+	beforeEach(() => memStore.clear());
+
+	it('defaults to 50 (centre) when nothing is persisted', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.lyricsAnchor).toBe(50);
+	});
+
+	it('a persisted value loads and save() writes it back into the blob', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', lyricsAnchor: 20 }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.lyricsAnchor).toBe(20);
+		settings.save();
+		expect(JSON.parse(localStorage.getItem(KEY) as string).lyricsAnchor).toBe(20);
+	});
+
+	it('an out-of-range value clamps to LYRICS_ANCHOR_MAX, and resetAppearance() returns it to 50', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', lyricsAnchor: 150 }));
+		const settings = await freshSettings();
+		const { LYRICS_ANCHOR_MAX } = await import('./settings.svelte');
+		settings.load();
+		expect(settings.lyricsAnchor).toBe(LYRICS_ANCHOR_MAX);
+		expect(LYRICS_ANCHOR_MAX).toBe(100);
+		settings.resetAppearance();
+		expect(settings.lyricsAnchor).toBe(50);
+		expect(JSON.parse(localStorage.getItem(KEY) as string).lyricsAnchor).toBe(50);
+	});
+});
+
+// 39-D-25: the three home-chart settings (Chart region / More regions / Genres). Region gets an
+// ALLOWLIST guard on load (T-39-25) — a bare cast like bioLang would let 'cn' or garbage reach the
+// chart fetch planner. The two lists get a TYPE guard only (T-39-26); resolveExtraRegions /
+// resolveChartGenres clean the values at render.
+describe('settings persistence round-trip — home chart settings (39-D-25)', () => {
+	beforeEach(() => memStore.clear());
+
+	// quick-260925-vtg: all 11 pool genres (supersedes the 39-D-10 8-genre lock); default region
+	// 'hk' and extra regions ['us'] (supersedes 39-D-25's 'auto' / []).
+	const DEFAULT_GENRES = [
+		'cantopop',
+		'mandopop',
+		'kpop',
+		'jpop',
+		'hiphop',
+		'rock',
+		'dance',
+		'rnb',
+		'electronic',
+		'alternative',
+		'asian'
+	];
+
+	async function loadWith(blob: Record<string, unknown>) {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', ...blob }));
+		const settings = await freshSettings();
+		settings.load();
+		return settings;
+	}
+
+	it('homeChartRegion defaults to hk when nothing is persisted (quick-260925-vtg)', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.homeChartRegion).toBe('hk');
+	});
+
+	it("homeExtraRegions defaults to ['us'] when nothing is persisted (quick-260925-vtg)", async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.homeExtraRegions).toEqual(['us']);
+	});
+
+	it('homeChartGenres defaults to all 11 pool genres when nothing is persisted (quick-260925-vtg)', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.homeChartGenres).toEqual(DEFAULT_GENRES);
+	});
+
+	it('a blob without the three keys (existing install) loads the defaults (quick-260925-vtg)', async () => {
+		const settings = await loadWith({ homeHidden: ['radio'] });
+		expect(settings.homeChartRegion).toBe('hk');
+		expect(settings.homeExtraRegions).toEqual(['us']);
+		expect(settings.homeChartGenres).toEqual(DEFAULT_GENRES);
+	});
+
+	it('a persisted offered region (tw) wins on load', async () => {
+		expect((await loadWith({ homeChartRegion: 'tw' })).homeChartRegion).toBe('tw');
+	});
+
+	it("a persisted 'auto' region survives load (quick-260925-vtg — Auto is a real choice, not corruption)", async () => {
+		expect((await loadWith({ homeChartRegion: 'auto' })).homeChartRegion).toBe('auto');
+	});
+
+	it('a persisted cn region loads as the default (hk) — cn is not an offered region (quick-260925-vtg)', async () => {
+		expect((await loadWith({ homeChartRegion: 'cn' })).homeChartRegion).toBe('hk');
+	});
+
+	it('a non-string region (42) loads as the default (hk) (quick-260925-vtg)', async () => {
+		expect((await loadWith({ homeChartRegion: 42 })).homeChartRegion).toBe('hk');
+	});
+
+	it('an upper-case region (HK) loads as the default (hk) — the allowlist is case-sensitive (quick-260925-vtg)', async () => {
+		expect((await loadWith({ homeChartRegion: 'HK' })).homeChartRegion).toBe('hk');
+	});
+
+	it('a garbage region string loads as the default (hk) (quick-260925-vtg)', async () => {
+		expect((await loadWith({ homeChartRegion: 'garbage' })).homeChartRegion).toBe('hk');
+	});
+
+	it('persisted homeExtraRegions load in their saved order', async () => {
+		expect((await loadWith({ homeExtraRegions: ['tw', 'jp'] })).homeExtraRegions).toEqual(['tw', 'jp']);
+	});
+
+	it("a non-array homeExtraRegions falls back to the default ['us'] (quick-260925-vtg)", async () => {
+		expect((await loadWith({ homeExtraRegions: 'tw' })).homeExtraRegions).toEqual(['us']);
+	});
+
+	it('persisted homeChartGenres load in their saved order', async () => {
+		expect((await loadWith({ homeChartGenres: ['rock', 'kpop'] })).homeChartGenres).toEqual(['rock', 'kpop']);
+	});
+
+	it('an explicit empty homeChartGenres [] is preserved (a real choice, not a corrupt value)', async () => {
+		expect((await loadWith({ homeChartGenres: [] })).homeChartGenres).toEqual([]);
+	});
+
+	it('a non-array homeChartGenres ({}) falls back to the 11 defaults (quick-260925-vtg)', async () => {
+		expect((await loadWith({ homeChartGenres: {} })).homeChartGenres).toEqual(DEFAULT_GENRES);
+	});
+
+	it('save() writes all three keys into the persisted blob', async () => {
+		const settings = await freshSettings();
+		settings.homeChartRegion = 'jp';
+		settings.homeExtraRegions = ['kr', 'us'];
+		settings.homeChartGenres = ['jpop'];
+		settings.save();
+		const blob = JSON.parse(localStorage.getItem(KEY) as string);
+		expect(blob.homeChartRegion).toBe('jp');
+		expect(blob.homeExtraRegions).toEqual(['kr', 'us']);
+		expect(blob.homeChartGenres).toEqual(['jpop']);
+	});
+
+	it('resetHome() reverts all three fields AND the persisted blob (quick-260925-vtg)', async () => {
+		const settings = await loadWith({ homeChartRegion: 'tw', homeExtraRegions: ['jp'], homeChartGenres: [] });
+		settings.resetHome();
+		expect(settings.homeChartRegion).toBe('hk');
+		expect(settings.homeExtraRegions).toEqual(['us']);
+		expect(settings.homeChartGenres).toEqual(DEFAULT_GENRES);
+		const blob = JSON.parse(localStorage.getItem(KEY) as string);
+		expect(blob.homeChartRegion).toBe('hk');
+		expect(blob.homeExtraRegions).toEqual(['us']);
+		expect(blob.homeChartGenres).toEqual(DEFAULT_GENRES);
+	});
+
+	// T-39-36: the version stamp is what stops the one-time layout switch re-running on every load.
+	it('save() writes homeLayoutVersion 2', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		settings.save();
+		expect(JSON.parse(localStorage.getItem(KEY) as string).homeLayoutVersion).toBe(2);
+	});
+});
+
+describe('one-time home layout switch (39-D-40 / P39-06)', () => {
+	beforeEach(() => memStore.clear());
+
+	// The pre-chart section order every existing install persisted (no homeLayoutVersion field).
+	const OLD_ORDER = ['liked', 'downloads', 'radio', 'top-hits', 'top-artists', 'fav-artists', 'tags', 'countries', 'playlists', 'history'];
+	const OLD_BLOB = {
+		appLang: 'en',
+		homeSectionOrder: OLD_ORDER,
+		homeHidden: [],
+		homeSectionDensity: { 'top-hits': 'pile' },
+		homeShelfSize: 16,
+		homeLandingTab: 'search',
+		homeShowSearchPill: false
+	};
+
+	async function loadWith(blob: Record<string, unknown>) {
+		memStore.set(KEY, JSON.stringify(blob));
+		const settings = await freshSettings();
+		settings.load();
+		return settings;
+	}
+	const persisted = () => JSON.parse(localStorage.getItem(KEY) as string);
+
+	it('an old blob migrates once: chart ids at the old chart slot, classics hidden, density carried, version saved', async () => {
+		const settings = await loadWith(OLD_BLOB);
+		const order = ['liked', 'downloads', 'radio', ...CHART_SECTIONS, 'top-hits', 'top-artists', 'fav-artists', 'tags', 'countries', 'playlists', 'history'];
+		expect(settings.homeSectionOrder).toEqual(order);
+		expect(settings.homeHidden).toEqual([...CLASSIC_SECTIONS]);
+		expect(settings.homeSectionDensity).toEqual({ 'top-hits': 'pile', 'chart-songs': 'pile' });
+		// load() saved: the persisted blob now carries the new layout AND the version marker.
+		const blob = persisted();
+		expect(blob.homeLayoutVersion).toBe(2);
+		expect(blob.homeSectionOrder).toEqual(order);
+		expect(blob.homeHidden).toEqual([...CLASSIC_SECTIONS]);
+	});
+
+	it('keeps a hidden library section, the library relative order, shelf size, landing tab and chrome toggles', async () => {
+		const custom = ['history', 'liked', 'top-artists', 'playlists', 'downloads', 'radio', 'top-hits', 'fav-artists', 'tags', 'countries'];
+		const settings = await loadWith({ ...OLD_BLOB, homeSectionOrder: custom, homeHidden: ['liked'] });
+		expect(settings.homeHidden).toContain('liked');
+		const library = ['history', 'liked', 'playlists', 'downloads', 'radio', 'fav-artists'];
+		expect(settings.homeSectionOrder.filter((id) => library.includes(id))).toEqual(library);
+		// Chart ids land where the first classic shelf sat.
+		expect(settings.homeSectionOrder.slice(2, 2 + CHART_SECTIONS.length)).toEqual([...CHART_SECTIONS]);
+		expect(settings.homeShelfSize).toBe(16);
+		expect(settings.homeLandingTab).toBe('search');
+		expect(settings.homeShowSearchPill).toBe(false);
+	});
+
+	it('a legacy density value is normalised before it carries (comfortable on tags → pile on genres)', async () => {
+		const settings = await loadWith({ ...OLD_BLOB, homeSectionDensity: { tags: 'comfortable' } });
+		expect(settings.homeSectionDensity).toEqual({ tags: 'pile', genres: 'pile' });
+	});
+
+	it('un-hiding a classic section after the migration survives a reload (no second migration)', async () => {
+		const settings = await loadWith(OLD_BLOB);
+		const order = [...settings.homeSectionOrder];
+		settings.homeHidden = settings.homeHidden.filter((id) => id !== 'top-hits');
+		settings.save();
+		const reloaded = await freshSettings();
+		reloaded.load();
+		expect(reloaded.homeHidden).not.toContain('top-hits');
+		expect(reloaded.homeSectionOrder).toEqual(order);
+	});
+
+	it('a blob already at version 2 is untouched and load() does not write', async () => {
+		// quick-261116-srchrank: the fixture is current on BOTH one-time migrations — the
+		// sources-defaults marker rides along, or that migration (correctly) writes.
+		const raw = JSON.stringify({ ...OLD_BLOB, homeLayoutVersion: 2, sourcesDefaultsVersion: 1 });
+		memStore.set(KEY, raw);
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.homeHidden).toEqual([]);
+		expect(settings.homeSectionOrder).toEqual(OLD_ORDER);
+		expect(localStorage.getItem(KEY)).toBe(raw);
+	});
+
+	// T-39-35: only a real number counts as a version; a string '2' is treated as a pre-chart blob.
+	it('a non-number homeLayoutVersion is treated as version 1 and migrates', async () => {
+		const settings = await loadWith({ ...OLD_BLOB, homeLayoutVersion: '2' });
+		expect(settings.homeHidden).toEqual([...CLASSIC_SECTIONS]);
+		expect(persisted().homeLayoutVersion).toBe(2);
+	});
+
+	it('a fresh install gets the classic-hidden defaults, never migrates and does not save', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.homeHidden).toEqual([...CLASSIC_SECTIONS]);
+		expect(settings.homeSectionOrder).toEqual(HOME_DEFAULTS.homeSectionOrder);
+		expect(localStorage.getItem(KEY)).toBeNull();
+	});
+
+	it('resetHome() yields the new layout and persists version 2', async () => {
+		const settings = await loadWith({ ...OLD_BLOB, homeHidden: ['liked'], homeSectionOrder: ['history', ...OLD_ORDER] });
+		settings.homeHidden = [];
+		settings.resetHome();
+		expect(settings.homeHidden).toEqual([...CLASSIC_SECTIONS]);
+		expect(settings.homeSectionOrder).toEqual(HOME_DEFAULTS.homeSectionOrder);
+		const blob = persisted();
+		expect(blob.homeLayoutVersion).toBe(2);
+		expect(blob.homeHidden).toEqual([...CLASSIC_SECTIONS]);
+		expect(blob.homeSectionOrder).toEqual(HOME_DEFAULTS.homeSectionOrder);
+	});
+});
+
+// quick-261116-srchrank: the UGC sources (fivesing/bilibili/audius/jamendo/archive/ccmixter)
+// flipped to default-OFF. A persisted enabledSources map is auto-saved wholesale by save(),
+// so its `true`s are mostly yesterday's defaults, not choices — the one-time migration
+// (sourcesDefaultsVersion) forces the new defaults off ONCE on load and stamps the marker.
+describe('one-time sources-defaults switch (quick-261116-srchrank)', () => {
+	beforeEach(() => memStore.clear());
+
+	async function loadWith(blob: Record<string, unknown>) {
+		memStore.set(KEY, JSON.stringify(blob));
+		const settings = await freshSettings();
+		settings.load();
+		return settings;
+	}
+	const persisted = () => JSON.parse(localStorage.getItem(KEY) as string);
+	const ALL_ON = {
+		qq: true, joox: true, netease: true, gdnetease: true, kuwo: true, suyin: true,
+		kugou: true, migu: true, fivesing: true, jamendo: true, audius: true, archive: true,
+		ccmixter: true, bandcamp: true, bilibili: true, ytmusic: true
+	};
+
+	it('a pre-srchrank blob (all sources on, no marker) gets the six UGC sources forced off + marker saved', async () => {
+		const settings = await loadWith({ appLang: 'en', enabledSources: { ...ALL_ON } });
+		for (const id of ['fivesing', 'jamendo', 'audius', 'archive', 'ccmixter', 'bilibili'] as const) {
+			expect(settings.enabledSources[id]).toBe(false);
+		}
+		// Mainstream + ytmusic/bandcamp untouched.
+		expect(settings.enabledSources.joox).toBe(true);
+		expect(settings.enabledSources.ytmusic).toBe(true);
+		expect(settings.enabledSources.bandcamp).toBe(true);
+		const blob = persisted();
+		expect(blob.sourcesDefaultsVersion).toBe(1);
+		expect(blob.enabledSources.fivesing).toBe(false);
+	});
+
+	it('a source re-enabled after the migration stays on (marker already current)', async () => {
+		const settings = await loadWith({
+			appLang: 'en',
+			sourcesDefaultsVersion: 1,
+			enabledSources: { ...ALL_ON }
+		});
+		expect(settings.enabledSources.fivesing).toBe(true);
+		expect(settings.enabledSources.bilibili).toBe(true);
+	});
+
+	it('save() writes the sourcesDefaultsVersion marker', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		settings.save();
+		expect(persisted().sourcesDefaultsVersion).toBe(1);
+	});
+});
+
+// quick-260925-vtg: the zhScript default flipped 'off' → 'zh-Hant'. Before this, load()'s allowlist
+// accepted only the two scripts and sent everything else to the default — harmless while the
+// default WAS 'off', but it would now silently re-script an existing user who explicitly chose
+// 'off'. These cases pin the widened guard.
+describe('settings persistence — zhScript survives load (quick-260925-vtg)', () => {
+	beforeEach(() => memStore.clear());
+
+	async function loadWith(blob: Record<string, unknown>) {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', ...blob }));
+		const settings = await freshSettings();
+		settings.load();
+		return settings;
+	}
+
+	it("a persisted 'off' loads as 'off' (a real choice, and the pre-vtg default)", async () => {
+		expect((await loadWith({ zhScript: 'off' })).zhScript).toBe('off');
+	});
+
+	it("a blob without the key loads the default 'zh-Hant'", async () => {
+		expect((await loadWith({})).zhScript).toBe('zh-Hant');
+	});
+
+	it("a garbage value ('bogus') loads the default 'zh-Hant'", async () => {
+		expect((await loadWith({ zhScript: 'bogus' })).zhScript).toBe('zh-Hant');
+	});
+});
+
+describe('settings persistence round-trip — syncItems (quick-261020-sync)', () => {
+	beforeEach(() => memStore.clear());
+
+	it('a pre-picker blob (no syncItems) loads all-true', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en' }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.syncItems).toEqual({
+			settings: true,
+			library: true,
+			history: true,
+			searchHistory: true,
+			nameTr: true,
+			// quick-261118-xdresume: absent in pre-resume blobs → default ON.
+			player: true
+		});
+	});
+
+	it('honours persisted booleans per key and falls back per key on tampering', async () => {
+		memStore.set(
+			KEY,
+			JSON.stringify({
+				appLang: 'en',
+				syncItems: { settings: false, library: true, history: 'yes', searchHistory: 0, nameTr: null, extra: true }
+			})
+		);
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.syncItems).toEqual({
+			settings: false,
+			library: true,
+			history: true,
+			searchHistory: true,
+			nameTr: true,
+			// quick-261118-xdresume: absent in pre-resume blobs → default ON.
+			player: true
+		});
+	});
+
+	it('a non-object syncItems falls back to all-true', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', syncItems: ['settings'] }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.syncItems).toEqual({
+			settings: true,
+			library: true,
+			history: true,
+			searchHistory: true,
+			nameTr: true,
+			// quick-261118-xdresume: absent in pre-resume blobs → default ON.
+			player: true
+		});
+	});
+
+	it('round-trips through save()', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		settings.syncItems = { ...settings.syncItems, library: false };
+		settings.save();
+		const blob = JSON.parse(memStore.get(KEY) as string) as { syncItems: unknown };
+		expect(blob.syncItems).toEqual({
+			settings: true,
+			library: false,
+			history: true,
+			searchHistory: true,
+			nameTr: true,
+			// quick-261118-xdresume: absent in pre-resume blobs → default ON.
+			player: true
+		});
+	});
+
+	it('reset-group methods never touch syncItems', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		settings.syncItems = { ...settings.syncItems, library: false };
+		settings.resetAppearance();
+		settings.resetGeneral();
+		settings.resetTranslation();
+		settings.resetPlayback();
+		settings.resetHome();
+		expect(settings.syncItems.library).toBe(false);
+	});
+});
+
+// quick-261108-swp: per-direction swipe actions — defaults from config/defaults.ts, a known act
+// round-trips, an unknown one (tampered storage) falls back per direction, resetPlayback restores.
+describe('settings persistence round-trip — swipePlayer / swipeRow (quick-261108-swp)', () => {
+	beforeEach(() => memStore.clear());
+
+	it('defaults come from PLAYBACK_DEFAULTS when nothing is persisted', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.swipePlayer).toEqual({ left: 'next', right: 'prev' });
+		expect(settings.swipeRow).toEqual({ left: 'playNext', right: 'like' });
+	});
+
+	it('a persisted choice wins; an unknown act falls back for that direction only', async () => {
+		memStore.set(
+			KEY,
+			JSON.stringify({ appLang: 'en', swipePlayer: { left: 'like', right: 'off' }, swipeRow: { left: 'nuke', right: 'queue' } })
+		);
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.swipePlayer).toEqual({ left: 'like', right: 'off' });
+		expect(settings.swipeRow).toEqual({ left: 'playNext', right: 'queue' });
+	});
+
+	it('save() persists the maps and resetPlayback() restores the defaults', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		settings.swipeRow = { left: 'off', right: 'next' };
+		settings.save();
+		expect(JSON.parse(localStorage.getItem(KEY) as string).swipeRow).toEqual({ left: 'off', right: 'next' });
+		settings.resetPlayback();
+		expect(settings.swipeRow).toEqual({ left: 'playNext', right: 'like' });
+	});
+});

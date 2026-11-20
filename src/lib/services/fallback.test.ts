@@ -1,0 +1,578 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { makeUid, type SourceId, type Track } from '$lib/sources/types';
+
+// CR-03 / WR-06 regression. fallbackOrder must EXCLUDE every already-attempted source so a
+// resolve-but-unplayable A↔B ping-pong terminates (the order empties → tryFallback returns null →
+// the caller's loop-guard engages). tryFallback must (a) thread + populate the attempted set and
+// (b) adopt a candidate only when it is the SAME song (normalized title+artist), not blindly the
+// first deduped result.
+
+// Control the enabled-source set + registry without touching real settings/network.
+// Phase 26 (RESOLVE-01): the mock mirrors the real registry's kuwo-FIRST order.
+// quick-261021-fb2: fallbackOrder then RE-SORTS by measured findOfficial pass rate
+// (joox/kuwo tier 1 at 100, qq/netease tier 2 at 67; the sort is stable, so registry order
+// survives inside a tier) — the effective floor over this mock is kuwo → joox → qq → netease.
+// 27-04 (YT-RESILIENCE-01): ytmusic is registered (enabledByDefault → appears in getEnabledAdapters)
+// but flagged autoResolveEligible:false, so fallbackOrder must EXCLUDE it as a failover target. Adding
+// it here proves the exclusion is what keeps the mainstream-floor assertions green (without the filter,
+// ytmusic would leak into every fallbackOrder result). The mainstream sources carry no flag (undefined).
+vi.mock('$lib/sources/registry', () => {
+	// 43-D-08: `audius` is a fake flagged entry (NOT in getEnabledAdapters, so fallbackOrder never
+	// sees it) that walkSource is driven against directly to prove the noticeOnAutoPick gate.
+	const SOURCES: Record<string, { id: string; autoResolveEligible?: boolean; noticeOnAutoPick?: boolean }> = {
+		kuwo: { id: 'kuwo' },
+		qq: { id: 'qq' },
+		netease: { id: 'netease' },
+		joox: { id: 'joox' },
+		ytmusic: { id: 'ytmusic', autoResolveEligible: false },
+		audius: { id: 'audius', noticeOnAutoPick: true }
+	};
+	return {
+		SOURCES,
+		// quick-260926-c69: the eligibility predicate moved to the registry. Mocked with the REAL
+		// behaviour over the mocked SOURCES flags (like onlySource below), so the ytmusic-exclusion
+		// assertions still prove the flag is what keeps it off the failover floor.
+		isAutoResolveEligible: (id: string) => SOURCES[id].autoResolveEligible !== false,
+		// quick-261102-sqn: getEnabledAdapters returns PLAYBACK_ORDER (registry SOURCES is built
+		// from it) — mirrored here: joox → kuwo → qq → netease, ytmusic last.
+		getEnabledAdapters: vi.fn(() => [
+			{ id: 'joox' },
+			{ id: 'kuwo' },
+			{ id: 'qq' },
+			{ id: 'netease' },
+			{ id: 'ytmusic' }
+		]),
+		// onlySource moved to the registry (it derives from SOURCES and is the counterpart to
+		// getEnabledAdapters). Mocked with the REAL behaviour, not a stub: tryFallback passes its result
+		// to searchAll, and the per-source assertions below read that prefs object.
+		onlySource: (id: string) => {
+			const prefs: Record<string, boolean> = {};
+			for (const sourceId of ['kuwo', 'qq', 'netease', 'joox', 'ytmusic']) prefs[sourceId] = false;
+			prefs[id] = true;
+			return prefs;
+		}
+	};
+});
+vi.mock('$lib/services/catalog', () => ({ searchAll: vi.fn(), ensureTrackDetails: vi.fn() }));
+
+import { deviceUid } from '$lib/services/device-track';
+import { fallbackOrder, tryFallback, walkSource } from './fallback';
+import { searchAll, ensureTrackDetails } from '$lib/services/catalog';
+
+const mockSearch = vi.mocked(searchAll);
+const mockEnsure = vi.mocked(ensureTrackDetails);
+
+function mk(source: SourceId, songid: string, artist: string, title: string, audioUrl: string | null): Track {
+	return {
+		uid: makeUid(source, songid),
+		source,
+		songid,
+		title,
+		artist,
+		album: '',
+		cover: null,
+		audioUrl,
+		lrc: null,
+		lrcUrl: null,
+		detailsLoaded: true,
+		quality: null,
+		qualityLabel: null,
+		keyword: 'x',
+		displayIndex: 1
+	};
+}
+
+describe('fallbackOrder — attempted-source exclusion (CR-03)', () => {
+	it('drops the failed source', () => {
+		// PLAYBACK_ORDER (joox → kuwo → qq → netease) minus the failed source.
+		expect(fallbackOrder('netease')).toEqual(['joox', 'kuwo', 'qq']);
+	});
+
+	it('also drops every source in the attempted set', () => {
+		const attempted = new Set<SourceId>(['netease', 'qq']);
+		expect(fallbackOrder('netease', undefined, attempted)).toEqual(['joox', 'kuwo']);
+	});
+
+	it('empties the order once all sources have been attempted (→ total failure upstream)', () => {
+		const attempted = new Set<SourceId>(['qq', 'kuwo', 'joox']);
+		expect(fallbackOrder('netease', undefined, attempted)).toEqual([]);
+	});
+
+	it('surfaces preferred first among the remaining (non-attempted) sources', () => {
+		const attempted = new Set<SourceId>(['netease']);
+		expect(fallbackOrder('netease', 'joox', attempted)).toEqual(['joox', 'kuwo', 'qq']);
+	});
+});
+
+describe('fallbackOrder — PLAYBACK_ORDER floor (quick-261102-sqn)', () => {
+	it('defaults to joox FIRST when no preferred source is set', () => {
+		expect(fallbackOrder('netease', undefined, new Set())[0]).toBe('joox');
+	});
+
+	it('walks joox → qq → netease after a kuwo failure with no preferred source', () => {
+		// kuwo just failed → dropped; the rest follow PLAYBACK_ORDER.
+		expect(fallbackOrder('kuwo', undefined, new Set())).toEqual(['joox', 'qq', 'netease']);
+	});
+
+	it('an explicit user preferred source still wins over the floor', () => {
+		// preferred=qq is hoisted first even though joox leads PLAYBACK_ORDER.
+		expect(fallbackOrder('kuwo', 'qq', new Set())[0]).toBe('qq');
+	});
+});
+
+describe('fallbackOrder — ytmusic off the hot path (27-04, YT-RESILIENCE-01)', () => {
+	it('NEVER offers ytmusic as a failover target for a non-ytmusic failed source', () => {
+		// ytmusic is enabled (in getEnabledAdapters) but autoResolveEligible:false → filtered out.
+		expect(fallbackOrder('kuwo')).not.toContain('ytmusic');
+		expect(fallbackOrder('netease')).not.toContain('ytmusic');
+		expect(fallbackOrder('qq')).not.toContain('ytmusic');
+	});
+
+	it('a FAILED ytmusic track still falls FORWARD to the unchanged mainstream floor', () => {
+		// ytmusic just failed → the PLAYBACK_ORDER floor, ytmusic itself absent.
+		expect(fallbackOrder('ytmusic')).toEqual(['joox', 'kuwo', 'qq', 'netease']);
+	});
+
+	it('excludes ytmusic even with a preferred source set (flag beats enablement)', () => {
+		expect(fallbackOrder('netease', 'qq')).not.toContain('ytmusic');
+	});
+});
+
+describe('tryFallback — attempted set + identity check', () => {
+	beforeEach(() => {
+		mockSearch.mockReset();
+		mockEnsure.mockReset();
+	});
+
+	it('CR-03: populates the attempted set with every source it touches', async () => {
+		// No source yields a candidate → every remaining source is tried (and recorded), returns null.
+		mockSearch.mockResolvedValue({ interleaved: [], perSource: [] } as never);
+		const failed = mk('netease', '1', 'Artist', 'Song', null);
+		const attempted = new Set<SourceId>(['netease']);
+
+		const out = await tryFallback(failed, undefined, undefined, attempted);
+
+		expect(out).toBeNull();
+		// netease was the seed; qq/kuwo/joox each got tried → all four now in the set.
+		expect([...attempted].sort()).toEqual(['joox', 'kuwo', 'netease', 'qq']);
+	});
+
+	it('27-04: never attempts ytmusic as a failover target (off the auto-resolve floor)', async () => {
+		mockSearch.mockResolvedValue({ interleaved: [], perSource: [] } as never);
+		const failed = mk('netease', '1', 'Artist', 'Song', null);
+		const attempted = new Set<SourceId>(['netease']);
+
+		await tryFallback(failed, undefined, undefined, attempted);
+
+		// kuwo/qq/joox were each tried; ytmusic (autoResolveEligible:false) was never searched/recorded.
+		expect(attempted.has('ytmusic')).toBe(false);
+		expect([...attempted].sort()).toEqual(['joox', 'kuwo', 'netease', 'qq']);
+	});
+
+	it('CR-03: a pre-populated attempted set narrows the sources tried', async () => {
+		mockSearch.mockResolvedValue({ interleaved: [], perSource: [] } as never);
+		const failed = mk('qq', '1', 'Artist', 'Song', null);
+		const attempted = new Set<SourceId>(['netease', 'kuwo']); // already tried
+
+		await tryFallback(failed, undefined, undefined, attempted);
+
+		// failed=qq is excluded by source; netease/kuwo by the set → only joox searched.
+		expect(mockSearch).toHaveBeenCalledTimes(1);
+	});
+
+	it('WR-06: adopts only a candidate that is the SAME song (normalized title+artist)', async () => {
+		// The first deduped candidate is an UNRELATED song; must NOT be adopted.
+		const wrong = mk('qq', 'w', 'Other Artist', 'Totally Different', 'https://cdn/wrong.mp3');
+		mockSearch.mockResolvedValue({ interleaved: [wrong], perSource: [] } as never);
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const failed = mk('netease', '1', 'Real Artist', 'Real Song', null);
+		const out = await tryFallback(failed, undefined);
+
+		expect(out).toBeNull(); // wrong-song candidate rejected on every source
+		expect(mockEnsure).not.toHaveBeenCalled(); // never even resolved the mismatch
+	});
+
+	it('WR-06: adopts a same-song candidate (case/punctuation-insensitive match)', async () => {
+		const match = mk('qq', 'm', 'real artist', 'Real Song!', 'https://cdn/right.mp3');
+		mockSearch.mockResolvedValue({ interleaved: [match], perSource: [] } as never);
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const failed = mk('netease', '1', 'Real Artist', 'Real Song', null);
+		const out = await tryFallback(failed, undefined);
+
+		expect(out?.uid).toBe(match.uid);
+	});
+});
+
+// debug slow-cold-start-first-playing. tryFallback has NO deadline of its own — it is a serial walk
+// over up to 7 sources, each bounded only by apiFetch's ~25s timeout (measured on-device: one walk
+// took 29,278ms, and a backgrounded one left 26s of silence the user experienced as playback
+// stopping). The fix puts the ceiling in the CALLER (player.runFallback's FALLBACK_BUDGET_MS
+// watchdog, which aborts this signal), so the whole guarantee rests on the walk unwinding PROMPTLY
+// when the signal aborts. That contract had no coverage at all — these two lock it down.
+describe('tryFallback — abort unwinds the walk (FALLBACK_BUDGET_MS contract)', () => {
+	// The reset above is scoped to the other describe block; these assert CALL COUNTS, so they need
+	// their own clean slate or they inherit the previous block's calls.
+	beforeEach(() => {
+		mockSearch.mockReset();
+		mockEnsure.mockReset();
+	});
+
+	it('returns null and stops walking when the signal aborts mid-search', async () => {
+		const ac = new AbortController();
+		// quick-261020-race1: racing launches all sources in parallel; aborting cancels
+		// every in-flight attempt and the race resolves null. The walk must NOT return
+		// a result after the abort, even if a source would have succeeded.
+		mockSearch.mockImplementation(async () => {
+			ac.abort();
+			throw new Error('aborted');
+		});
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const failed = mk('netease', '1', 'A', 'B', null);
+		const out = await tryFallback(failed, undefined, ac.signal);
+
+		expect(out).toBeNull();
+		// Racing: every source in the order is attempted (parallel launch), but none
+		// may produce a result after the abort.
+		expect(mockSearch).toHaveBeenCalled();
+	});
+
+	it('does not even start when handed an already-aborted signal', async () => {
+		const ac = new AbortController();
+		ac.abort();
+		mockSearch.mockResolvedValue({ interleaved: [], perSource: [] } as never);
+
+		const out = await tryFallback(mk('netease', '1', 'A', 'B', null), undefined, ac.signal);
+
+		expect(out).toBeNull();
+		expect(mockSearch).not.toHaveBeenCalled();
+	});
+});
+
+// 34-D-06 / RESEARCH Open Q2 / UI-SPEC Contract 8: an imported device file that will not play is the
+// USER'S OWN file gone missing. Silently substituting some other recording scraped off a streaming
+// source — successful failover is silent by design — would tell the user their file played when it
+// did not. The bar is the first statement of tryFallback (the SERVICE), so every caller route
+// (play(), the audio `error` listener, handleDefinitiveFailure's retry) is covered by one line.
+describe('34-D-06 device uids never fall back', () => {
+	beforeEach(() => {
+		mockSearch.mockReset();
+		mockEnsure.mockReset();
+	});
+
+	it('returns null for a device: uid without ever searching', async () => {
+		const failed = { ...mk('kuwo', '42', 'a', 't', null), uid: deviceUid('42') };
+
+		const out = await tryFallback(failed, undefined, undefined, new Set());
+
+		expect(out).toBeNull();
+		expect(searchAll).not.toHaveBeenCalled();
+		expect(ensureTrackDetails).not.toHaveBeenCalled();
+	});
+
+	it('does not touch the attempted set (nothing was tried)', async () => {
+		const attempted = new Set<SourceId>();
+		await tryFallback({ ...mk('kuwo', '42', 'a', 't', null), uid: deviceUid('42') }, 'qq', undefined, attempted);
+		expect(attempted.size).toBe(0);
+	});
+
+	it('regression pin: a normal kuwo track still walks qq first when preferred', async () => {
+		mockSearch.mockResolvedValue({ interleaved: [], perSource: [], errors: {} } as never);
+		const attempted = new Set<SourceId>();
+
+		const out = await tryFallback(mk('kuwo', '7', 'a', 't', null), 'qq', undefined, attempted);
+
+		expect(out).toBeNull();
+		expect(mockSearch).toHaveBeenCalled();
+		expect(mockSearch.mock.calls[0][2]).toMatchObject({ qq: true }); // qq searched first
+		expect(attempted.has('qq')).toBe(true);
+	});
+});
+
+// quick-261102-exh1 (user report 2026-11-02): J.Sheon《別問很可怕》 was skipped as "not
+// playable" although its JOOX rows played fine from a manual VersionPicker tap. The automatic
+// chain declared exhaustion without genuinely trying the good sources, three ways:
+// (1) per source only the ranking's FIRST pick was resolved — one failed resolve burned the
+// source even when its #2 acceptable row would have played (the rows the manual sheet uses);
+// (2) every raced source was marked attempted UP FRONT, including sources the race aborted
+// the moment a winner was picked — when the winner's URL then failed at the audio layer,
+// the follow-up episode had no sources left and the song was declared unplayable;
+// (3) a source whose search threw / never settled counted as a rejection instead of earning
+// one sequential exhaustive attempt before the song may be called unplayable.
+describe('tryFallback — the not-playable bar (quick-261102-exh1)', () => {
+	beforeEach(() => {
+		mockSearch.mockReset();
+		mockEnsure.mockReset();
+	});
+
+	/** Which source a searchAll call targets, read off its onlySource prefs object. */
+	function searchedSource(prefs: unknown): SourceId {
+		const p = prefs as Record<string, boolean>;
+		return Object.keys(p).find((k) => p[k]) as SourceId;
+	}
+
+	it('candidate walk: a source whose FIRST acceptable row fails resolve still plays its second row', async () => {
+		// Every source offers the same shape as the report: an unresolvable #1 row and a
+		// playable #2 row (the two JOOX rows). The old code resolved only #1 on each
+		// source → every source "rejected" → skip. The walk must reach a #2 row.
+		mockSearch.mockImplementation(async (_q, _p, prefs) => {
+			const src = searchedSource(prefs);
+			return {
+				interleaved: [
+					mk(src, 'bad1', 'Real Artist', 'Real Song', null),
+					mk(src, 'good2', 'Real Artist', 'Real Song', 'https://cdn/good2.mp3')
+				],
+				perSource: []
+			} as never;
+		});
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const out = await tryFallback(mk('netease', '1', 'Real Artist', 'Real Song', null), undefined);
+
+		expect(out?.songid).toBe('good2');
+		// The winning source's walk provably went PAST its failed first pick.
+		const ensuredIds = mockEnsure.mock.calls.map((c) => (c[0] as Track).songid);
+		expect(ensuredIds).toContain('bad1');
+		expect(ensuredIds).toContain('good2');
+	});
+
+	it('exhaustive second pass: a top source whose search THREW in the race is retried sequentially and plays', async () => {
+		// The report's shape: joox's first search dies transiently (an apicx 504 — the
+		// exact failure shape its health gate counts) while every other source genuinely
+		// comes back empty. Old code counted joox as rejected → null → skip. The manual
+		// path (a direct resolve on a sheet row) later succeeded — so must the chain.
+		const counts = new Map<SourceId, number>();
+		mockSearch.mockImplementation(async (_q, _p, prefs) => {
+			const src = searchedSource(prefs);
+			const n = (counts.get(src) ?? 0) + 1;
+			counts.set(src, n);
+			if (src === 'joox') {
+				if (n === 1) throw new Error('joox upstream 504');
+				return {
+					interleaved: [mk('joox', 'j1', 'Real Artist', 'Real Song', 'https://cdn/joox.mp3')],
+					perSource: [{ source: 'joox', status: 'ok', tracks: [] }]
+				} as never;
+			}
+			return {
+				interleaved: [],
+				perSource: [{ source: src, status: 'ok', tracks: [] }]
+			} as never;
+		});
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const out = await tryFallback(mk('netease', '1', 'Real Artist', 'Real Song', null), undefined);
+
+		expect(out?.uid).toBe('joox:j1');
+		expect(counts.get('joox')).toBe(2); // raced once, retried once — sequentially
+		expect(counts.get('kuwo')).toBe(1); // genuinely-empty sources are NOT re-searched
+		expect(counts.get('qq')).toBe(1);
+	});
+
+	it('attempted set: a source the race aborted mid-flight is NOT poisoned as attempted', async () => {
+		// kuwo wins the race fast; joox's search is still in flight when the race finishes
+		// and gets aborted. The old up-front marking had already poisoned joox — when the
+		// kuwo URL later failed at the audio layer, the next episode could not try joox
+		// and the song was skipped although joox had never rejected it.
+		mockSearch.mockImplementation(async (_q, _p, prefs, signal) => {
+			const src = searchedSource(prefs);
+			if (src === 'joox') {
+				// Hangs until the race aborts it — never settles a verdict in the race.
+				return new Promise((_res, reject) => {
+					signal?.addEventListener('abort', () => reject(new Error('aborted')));
+				}) as never;
+			}
+			if (src === 'kuwo') {
+				return {
+					interleaved: [mk('kuwo', 'k1', 'Real Artist', 'Real Song', 'https://cdn/kuwo.mp3')],
+					perSource: [{ source: 'kuwo', status: 'ok', tracks: [] }]
+				} as never;
+			}
+			return {
+				interleaved: [],
+				perSource: [{ source: src, status: 'ok', tracks: [] }]
+			} as never;
+		});
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const attempted = new Set<SourceId>(['netease']);
+		const out = await tryFallback(
+			mk('netease', '1', 'Real Artist', 'Real Song', null),
+			undefined,
+			undefined,
+			attempted
+		);
+
+		expect(out?.uid).toBe('kuwo:k1');
+		expect(attempted.has('kuwo')).toBe(true); // the winner WAS genuinely tried
+		expect(attempted.has('qq')).toBe(true); // a genuinely empty pool counts as tried
+		expect(attempted.has('joox')).toBe(false); // never settled → NOT attempted
+	});
+});
+
+// quick-261102-cov1 (user report 2026-11-02): the artist-identity gate on the failover
+// chain. A candidate credited to a clearly DIFFERENT artist （阿傑's 同人 cover of
+// 周杰倫's《說了再見》) is not an acceptable substitute: it is never resolved, never
+// adopted, and a pool containing ONLY covers counts as that source REJECTING the
+// original (verdict 'rejected' → the source joins `attempted`), never as a hit.
+describe('tryFallback — artist-identity gate (quick-261102-cov1)', () => {
+	beforeEach(() => {
+		mockSearch.mockReset();
+		mockEnsure.mockReset();
+	});
+
+	/** Which source a searchAll call targets, read off its onlySource prefs object. */
+	function searchedSource(prefs: unknown): SourceId {
+		const p = prefs as Record<string, boolean>;
+		return Object.keys(p).find((k) => p[k]) as SourceId;
+	}
+
+	it('(a) official row fails resolve + cover row playable in the SAME pool → another source’s official plays; the cover is never even resolved', async () => {
+		mockSearch.mockImplementation(async (_q, _p, prefs) => {
+			const src = searchedSource(prefs);
+			if (src === 'kuwo') {
+				return {
+					interleaved: [
+						mk('kuwo', 'official-fail', '周杰倫', '說了再見', null),
+						mk('kuwo', 'cover', '阿傑', '說了再見', 'https://cdn/cover.mp3')
+					],
+					perSource: [{ source: 'kuwo', status: 'ok', tracks: [] }]
+				} as never;
+			}
+			if (src === 'joox') {
+				return {
+					interleaved: [mk('joox', 'official', '周杰倫', '說了再見', 'https://cdn/joox.mp3')],
+					perSource: [{ source: 'joox', status: 'ok', tracks: [] }]
+				} as never;
+			}
+			return {
+				interleaved: [],
+				perSource: [{ source: src, status: 'ok', tracks: [] }]
+			} as never;
+		});
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const out = await tryFallback(mk('netease', '1', '周杰倫', '說了再見', null), undefined);
+
+		expect(out?.uid).toBe('joox:official');
+		const ensuredIds = mockEnsure.mock.calls.map((c) => (c[0] as Track).songid);
+		expect(ensuredIds).toContain('official-fail'); // kuwo's official WAS genuinely tried
+		expect(ensuredIds).not.toContain('cover'); // the cover never reached a resolve
+	});
+
+	it('(b) only covers exist anywhere → null (unplayable-as-original), and no cover is resolved', async () => {
+		mockSearch.mockImplementation(async (_q, _p, prefs) => {
+			const src = searchedSource(prefs);
+			return {
+				interleaved: [mk(src, 'cover', '阿傑', '說了再見', 'https://cdn/cover.mp3')],
+				perSource: [{ source: src, status: 'ok', tracks: [] }]
+			} as never;
+		});
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const attempted = new Set<SourceId>(['netease']);
+		const out = await tryFallback(
+			mk('netease', '3388515483', '周杰倫', '說了再見', null),
+			undefined,
+			undefined,
+			attempted
+		);
+
+		expect(out).toBeNull();
+		expect(mockEnsure).not.toHaveBeenCalled();
+		// Covers-only pools are genuine rejections: every walked source joins attempted.
+		expect(attempted.has('kuwo')).toBe(true);
+		expect(attempted.has('joox')).toBe(true);
+		expect(attempted.has('qq')).toBe(true);
+	});
+
+	it('(c) a duet credit containing the failed artist still counts as the original', async () => {
+		mockSearch.mockImplementation(async (_q, _p, prefs) => {
+			const src = searchedSource(prefs);
+			if (src === 'kuwo') {
+				return {
+					interleaved: [mk('kuwo', 'duet', '周杰倫/蔡依林', '說了再見', 'https://cdn/duet.mp3')],
+					perSource: [{ source: 'kuwo', status: 'ok', tracks: [] }]
+				} as never;
+			}
+			return {
+				interleaved: [],
+				perSource: [{ source: src, status: 'ok', tracks: [] }]
+			} as never;
+		});
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const out = await tryFallback(mk('netease', '1', '周杰倫', '說了再見', null), undefined);
+		expect(out?.uid).toBe('kuwo:duet');
+	});
+});
+
+// quick-261103-cjk — bilingual title split: a failed track titled "車匙 - Car Key" is
+// unfindable on the strict CN engines under its full spelling (live probe, 2026-11-03), so
+// after the full-query pass misses, tryFallback runs ONE more pass with the CJK-half
+// search string. The identity gates still compare against the failed track itself.
+describe('tryFallback — bilingual title split (quick-261103-cjk)', () => {
+	beforeEach(() => {
+		mockSearch.mockReset();
+		mockEnsure.mockReset();
+	});
+
+	it('full query dry everywhere → split query finds the same song on a CN source', async () => {
+		const cand = mk('qq', 'car', '陳柏宇', '車匙', 'https://cdn/car.mp3');
+		mockSearch.mockImplementation(async (q: string) =>
+			(q === '陳柏宇 車匙'
+				? { interleaved: [cand], perSource: [] }
+				: { interleaved: [], perSource: [] }) as never
+		);
+		mockEnsure.mockImplementation(async (t) => t);
+
+		const failed = mk('ytmusic', 'yt1', '陳柏宇', '車匙 - Car Key', null);
+		const out = await tryFallback(failed, undefined);
+
+		expect(out?.uid).toBe(cand.uid);
+		const queries = mockSearch.mock.calls.map((c) => c[0]);
+		expect(queries).toContain('陳柏宇 車匙 - Car Key');
+		expect(queries).toContain('陳柏宇 車匙');
+	});
+
+	it('a non-bilingual miss stays a single pass (no split query issued)', async () => {
+		mockSearch.mockResolvedValue({ interleaved: [], perSource: [] } as never);
+		const failed = mk('netease', '1', 'Artist', 'Song', null);
+
+		const out = await tryFallback(failed, undefined);
+
+		expect(out).toBeNull();
+		const queries = new Set(mockSearch.mock.calls.map((c) => c[0]));
+		expect(queries).toEqual(new Set(['Artist Song']));
+	});
+});
+
+describe('43-D-08 walkSource versionMismatch marker', () => {
+	beforeEach(() => {
+		mockSearch.mockReset();
+		mockEnsure.mockReset();
+	});
+
+	async function hitFrom(src: SourceId, candTitle: string, candDuration: number) {
+		const cand = { ...mk(src, '9', 'Artist', candTitle, null), duration: candDuration };
+		mockSearch.mockResolvedValue({ interleaved: [cand], perSource: [{ source: src, status: 'ok' }] } as never);
+		mockEnsure.mockImplementation(async (t) => ({ ...t, audioUrl: 'https://cdn/x.mp3' }));
+		const failed = { ...mk('netease', '1', 'Artist', 'Song', null), duration: 240 };
+		const out = await walkSource(src, 'Song Artist', failed, new AbortController().signal);
+		expect(out.verdict).toBe('hit');
+		return out.hit!.track;
+	}
+
+	it('flagged source + live variant → versionMismatch true', async () => {
+		expect((await hitFrom('audius', 'Song (Live)', 240)).versionMismatch).toBe(true);
+	});
+
+	it('unflagged source, same variant → no marker', async () => {
+		expect((await hitFrom('qq', 'Song (Live)', 240)).versionMismatch).toBeUndefined();
+	});
+
+	it('flagged source + plain same-length original → no marker (flag alone is not enough)', async () => {
+		expect((await hitFrom('audius', 'Song', 240)).versionMismatch).toBeUndefined();
+	});
+});

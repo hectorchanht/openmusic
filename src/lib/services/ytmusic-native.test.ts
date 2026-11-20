@@ -1,0 +1,221 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { SEARCH_URL, PLAYER_URL, PLAYER_UA, PLAYER_CLIENT_VERSION } from '$lib/proxy/ytmusic-innertube';
+
+// quick-260915-3ng: node-only tests over a MOCKED @capacitor/core — NO live network, no device.
+// Mock shape mirrors the house precedent in blob-store.test.ts.
+const mocks = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn() }));
+vi.mock('@capacitor/core', () => ({
+	CapacitorHttp: { post: (o: unknown) => mocks.post(o), get: (o: unknown) => mocks.get(o) },
+	Capacitor: { isNativePlatform: () => true }
+}));
+
+import { nativeResolveStreamUrl, nativeFetchStreamBlob, __resetNativeVisitorCache } from './ytmusic-native';
+
+const DIRECT_URL = 'https://rr1---sn-x.googlevideo.com/videoplayback?itag=140&sparams=ip';
+
+const OK_PLAYER = {
+	playabilityStatus: { status: 'OK' },
+	streamingData: {
+		adaptiveFormats: [
+			{
+				itag: 251,
+				mimeType: 'audio/webm; codecs="opus"',
+				url: 'https://rr1---sn-x.googlevideo.com/videoplayback?itag=251'
+			},
+			{ itag: 140, mimeType: 'audio/mp4; codecs="mp4a.40.2"', bitrate: 131112, url: DIRECT_URL }
+		]
+	}
+};
+const LOGIN_REQUIRED = { playabilityStatus: { status: 'LOGIN_REQUIRED' } };
+const CIPHERED_ONLY = {
+	playabilityStatus: { status: 'OK' },
+	streamingData: {
+		adaptiveFormats: [
+			{ itag: 140, mimeType: 'audio/mp4; codecs="mp4a.40.2"', signatureCipher: 's=abc&url=x' }
+		]
+	}
+};
+
+interface PostOpts {
+	url: string;
+	headers?: Record<string, string>;
+	data?: { context?: { client?: Record<string, unknown> }; videoId?: string };
+}
+
+/** Route the mock by URL: SEARCH_URL always yields a fresh distinguishable token; PLAYER_URL yields
+ *  the next queued player response (the last one repeats). */
+function stubPost(playerResponses: unknown[], searchStatus = 200) {
+	let searchCalls = 0;
+	let playerCalls = 0;
+	mocks.post.mockImplementation(async (o: PostOpts) => {
+		if (o.url === SEARCH_URL) {
+			searchCalls += 1;
+			return {
+				status: searchStatus,
+				data: { responseContext: { visitorData: 'VD-' + searchCalls } },
+				headers: {},
+				url: o.url
+			};
+		}
+		const body = playerResponses[Math.min(playerCalls, playerResponses.length - 1)];
+		playerCalls += 1;
+		return { status: 200, data: body, headers: {}, url: o.url };
+	});
+}
+
+const urlsPosted = () => mocks.post.mock.calls.map(([o]) => (o as PostOpts).url);
+const playerCall = (n = 0) =>
+	mocks.post.mock.calls.filter(([o]) => (o as PostOpts).url === PLAYER_URL)[n][0] as PostOpts;
+
+beforeEach(() => {
+	mocks.post.mockReset();
+	mocks.get.mockReset();
+	__resetNativeVisitorCache();
+});
+
+const live = () => new AbortController().signal;
+
+describe('nativeResolveStreamUrl — on-device InnerTube hops via CapacitorHttp (quick-260915-3ng)', () => {
+	it('posts SEARCH then PLAYER and returns the itag-140 googlevideo url', async () => {
+		stubPost([OK_PLAYER]);
+
+		const url = await nativeResolveStreamUrl('vid1', live());
+
+		expect(url).toBe(DIRECT_URL);
+		expect(mocks.post).toHaveBeenCalledTimes(2);
+		expect(urlsPosted()).toEqual([SEARCH_URL, PLAYER_URL]);
+	});
+
+	it('sends the player-client UA + the InnerTube origin, with the VISIONOS client in the body', async () => {
+		stubPost([OK_PLAYER]);
+		await nativeResolveStreamUrl('vid2', live());
+
+		const call = playerCall();
+		expect(call.headers?.['user-agent']).toBe(PLAYER_UA);
+		expect(call.headers?.origin).toBe('https://music.youtube.com');
+		// Same posture as the edge route's rotting-pin guard: pin no literal version, only the one constant.
+		expect(call.data?.context?.client?.clientName).toBe('VISIONOS');
+		expect(call.data?.context?.client?.clientVersion).toBe(PLAYER_CLIENT_VERSION);
+		expect(call.data?.context?.client?.visitorData).toBe('VD-1');
+		expect(call.data?.videoId).toBe('vid2');
+	});
+
+	it('caches visitorData across calls — the second resolve posts to PLAYER only', async () => {
+		stubPost([OK_PLAYER]);
+		await nativeResolveStreamUrl('vid3', live());
+		mocks.post.mockClear();
+
+		const url = await nativeResolveStreamUrl('vid4', live());
+
+		expect(url).toBe(DIRECT_URL);
+		expect(urlsPosted()).toEqual([PLAYER_URL]);
+		expect(playerCall().data?.context?.client?.visitorData).toBe('VD-1');
+	});
+
+	it('refreshes visitorData ONCE then gives up — 4 posts, null result, never loops', async () => {
+		stubPost([LOGIN_REQUIRED]);
+
+		const url = await nativeResolveStreamUrl('vid5', live());
+
+		expect(url).toBeNull();
+		expect(urlsPosted()).toEqual([SEARCH_URL, PLAYER_URL, SEARCH_URL, PLAYER_URL]);
+		// The retry must carry the NEW token, else the refresh was pointless.
+		expect(playerCall(0).data?.context?.client?.visitorData).toBe('VD-1');
+		expect(playerCall(1).data?.context?.client?.visitorData).toBe('VD-2');
+	});
+
+	it('returns the url when the refreshed retry succeeds', async () => {
+		stubPost([LOGIN_REQUIRED, OK_PLAYER]);
+
+		expect(await nativeResolveStreamUrl('vid6', live())).toBe(DIRECT_URL);
+		expect(mocks.post).toHaveBeenCalledTimes(4);
+	});
+
+	it('NEVER throws on a rejected post — returns null', async () => {
+		mocks.post.mockRejectedValue(new Error('no network'));
+
+		await expect(nativeResolveStreamUrl('vid7', live())).resolves.toBeNull();
+	});
+
+	it('returns null on a non-2xx status', async () => {
+		mocks.post.mockResolvedValue({ status: 403, data: 'forbidden', headers: {}, url: '' });
+
+		expect(await nativeResolveStreamUrl('vid8', live())).toBeNull();
+	});
+
+	it('returns null when the player offers only ciphered formats', async () => {
+		stubPost([CIPHERED_ONLY]);
+
+		expect(await nativeResolveStreamUrl('vid9', live())).toBeNull();
+	});
+
+	it('returns null on an already-aborted signal without a second hop', async () => {
+		stubPost([OK_PLAYER]);
+		const ac = new AbortController();
+		ac.abort();
+
+		expect(await nativeResolveStreamUrl('vid10', ac.signal)).toBeNull();
+		// The signal is checked BETWEEN hops (HttpOptions has no AbortSignal), so at most one request.
+		expect(mocks.post.mock.calls.length).toBeLessThanOrEqual(1);
+	});
+
+	it('parses a player response delivered as a JSON STRING (non-json content-type)', async () => {
+		mocks.post.mockImplementation(async (o: PostOpts) => ({
+			status: 200,
+			data:
+				o.url === SEARCH_URL
+					? JSON.stringify({ responseContext: { visitorData: 'VD-s' } })
+					: JSON.stringify(OK_PLAYER),
+			headers: {},
+			url: o.url
+		}));
+
+		expect(await nativeResolveStreamUrl('vid11', live())).toBe(DIRECT_URL);
+	});
+
+	it('returns null on malformed (unparseable) body', async () => {
+		mocks.post.mockResolvedValue({ status: 200, data: '{not json', headers: {}, url: '' });
+
+		expect(await nativeResolveStreamUrl('vid12', live())).toBeNull();
+	});
+});
+
+describe('nativeFetchStreamBlob — on-device googlevideo byte fetch (quick-261004-o9t)', () => {
+	interface GetOpts {
+		url: string;
+		headers?: Record<string, string>;
+		responseType?: string;
+	}
+
+	it('206 + base64 body → an audio/mp4 Blob; one GET with Range bytes=0- and responseType blob', async () => {
+		mocks.get.mockResolvedValue({ status: 206, data: 'YWJj', headers: {}, url: DIRECT_URL });
+
+		const blob = await nativeFetchStreamBlob(DIRECT_URL);
+
+		expect(blob?.size).toBe(3);
+		expect(blob?.type).toBe('audio/mp4');
+		expect(await blob?.text()).toBe('abc');
+		expect(mocks.get).toHaveBeenCalledTimes(1);
+		const o = mocks.get.mock.calls[0][0] as GetOpts;
+		expect(o.url).toBe(DIRECT_URL);
+		expect(o.headers?.Range).toBe('bytes=0-');
+		expect(o.responseType).toBe('blob');
+	});
+
+	it('a 403 → null', async () => {
+		mocks.get.mockResolvedValue({ status: 403, data: '', headers: {}, url: DIRECT_URL });
+		expect(await nativeFetchStreamBlob(DIRECT_URL)).toBeNull();
+	});
+
+	it('a bridge rejection → null, never throws', async () => {
+		mocks.get.mockRejectedValue(new Error('bridge down'));
+		await expect(nativeFetchStreamBlob(DIRECT_URL)).resolves.toBeNull();
+	});
+
+	it('a 200 with an empty or non-string body → null', async () => {
+		mocks.get.mockResolvedValue({ status: 200, data: '', headers: {}, url: DIRECT_URL });
+		expect(await nativeFetchStreamBlob(DIRECT_URL)).toBeNull();
+		mocks.get.mockResolvedValue({ status: 200, data: { not: 'a string' }, headers: {}, url: DIRECT_URL });
+		expect(await nativeFetchStreamBlob(DIRECT_URL)).toBeNull();
+	});
+});

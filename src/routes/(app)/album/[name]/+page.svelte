@@ -1,0 +1,861 @@
+<script lang="ts">
+	// Album page. The tracklist is the REAL ordered album.getInfo tracklist (Phase 9,
+	// D-05), reached by clicking an album on the artist page (which carries the album
+	// artist via the ?artist= query param). Each track is a Last.fm {artist,title} STUB
+	// resolved to a playable Track lazily, ON TAP, via resolveStub (D-05/D-03) — the same
+	// resolve-on-tap path the home shelves use.
+	import { page } from '$app/state';
+	import { Play, Download, Share2, Shuffle } from '@lucide/svelte';
+	import { player } from '$lib/stores/player.svelte';
+	import { library } from '$lib/stores/library.svelte';
+	import { names } from '$lib/stores/names.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
+	import { entityCardUrl } from '$lib/services/share';
+	import { tapBounce } from '$lib/actions/tapBounce';
+	import { toast as globalToast } from '$lib/stores/toast.svelte';
+	import { online } from '$lib/stores/online.svelte';
+	import { tick as hapticTick } from '$lib/util/haptics';
+	import { ListEnd, CircleAlert } from '@lucide/svelte';
+	import { t } from '$lib/i18n';
+	import { goto } from '$app/navigation';
+	import { resolveStub } from '$lib/services/discovery';
+	import { nameStub } from '$lib/services/similar';
+	import { sameSongKey, sameSongStrings } from '$lib/services/dedupe';
+	import { shuffle } from '$lib/services/shuffle';
+	import { downloadAlbum as downloadAlbumTracks } from '$lib/services/download-album';
+	import { downloadLabel } from '$lib/services/download-label';
+	// quick-261023-bulklock: bulk ZIP downloads are a supporter perk.
+	import { isSupporter } from '$lib/config/sponsored';
+	import { support } from '$lib/stores/support.svelte';
+	import { enrichAlbum, getAlbumTracklist, type EnrichResult } from '$lib/services/lastfm';
+	import { deezerAlbum, deezerAlbumTracks, type DeezerAlbumInfo } from '$lib/services/deezer';
+	import { mbTracks } from '$lib/services/musicbrainz';
+	import { hasCjk, lookupChineseName } from '$lib/services/name-rescue';
+	import { mergeEnrichAlbum } from '$lib/services/enrich-merge';
+	import { coverGradient } from '$lib/services/cover-gradient';
+	import { marquee } from '$lib/actions/marquee';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import DownloadRing from '$lib/components/DownloadRing.svelte';
+	import SongRow from '$lib/components/SongRow.svelte';
+	import SwipeReveal from '$lib/components/SwipeReveal.svelte';
+	import TrackMenu from '$lib/components/TrackMenu.svelte';
+	import PageOg from '$lib/components/PageOg.svelte';
+	import type { PageData } from './$types';
+	import type { Track } from '$lib/sources/types';
+
+	// `data.og` comes from the universal +page.ts load (album title/description derived at SSR) so
+	// the album page emits a crawler-correct OG card in the server HTML (GLN-4).
+	let { data }: { data: PageData } = $props();
+
+	// A Last.fm tracklist entry — NOT a Track (no uid/source/audioUrl). Resolved on tap.
+	type AlbumStub = { artist: string; title: string };
+
+	// OG-COMPAT-01 / Pitfall 1: read the param DIRECTLY — SvelteKit decoded it already
+	// (decode_params, utils/routing.js:304). Decoding a second time threw URIError on any album name
+	// containing a literal '%', which crashed the SSR render (`GET /album/50%25%20Off` → 500).
+	const name = $derived(page.params.name ?? '');
+	// The album artist is carried in the URL by the artist-page link (?artist=…). It is
+	// NOT derived from tracks[0] (the stubs have no resolved artist until tap, and the
+	// album.getInfo query NEEDS the artist up front). Absent param (deep link) → '' → the
+	// page still renders the hero + a graceful empty state instead of crashing.
+	// quick-261023-albumurl: on the 2-segment route (/album/{artist}/{name}) the artist rides
+	// path segment 1 — already dash-decoded by that route's loader into `data.artist`
+	// (page.params.artist still carries the raw dashes, so it is NOT read directly). The legacy
+	// `?artist=` carrier keeps working for old links, which still land on this route.
+	const albumArtist = $derived(
+		(data as { artist?: string }).artist || page.url.searchParams.get('artist') || ''
+	);
+	// quick-260831-qkx: the Deezer album id, carried by the artist page / discography page. When
+	// present it is the AUTHORITATIVE tracklist source — `album/{id}/tracks` returns the real
+	// ordered list. Absent (deep link, Last.fm-sourced album) → the old name-keyed Last.fm path.
+	const albumDzId = $derived(Number(page.url.searchParams.get('dzid')) || 0);
+	// quick-260831-re9: MusicBrainz release-group id, carried for CJK artists. Takes precedence
+	// over dzid — it is the source with the ORIGINAL-SCRIPT tracklist (最伟大的作品 / 说好不哭 /
+	// 不爱我就拉倒 …, where the Deezer path returns English titles).
+	const albumMbid = $derived(page.url.searchParams.get('mbid') ?? '');
+	// The tracklist key — and (debug download-state-lost-on-page-return) the key the STORE tracks
+	// this album's "Download all" job under, so a remounted page finds the job it started.
+	const albumKey = $derived(`${name}|${albumArtist}|${albumDzId}|${albumMbid}`);
+
+	let tracks = $state<AlbumStub[]>([]);
+	let loading = $state(true);
+	let loadedFor = '';
+
+	// quick-261031-dedup: an album tracklist is a shelf too — a source listing that repeats a
+	// song (deluxe/standard merge, a duplicated row upstream) must not render or queue it
+	// twice. Pairwise on the stub identity (sameSongStrings — script-folded, alias-aware);
+	// album lists are short, so the O(n²) scan is nothing.
+	function dedupeStubs(rows: AlbumStub[]): AlbumStub[] {
+		const out: AlbumStub[] = [];
+		for (const r of rows) {
+			if (!out.some((o) => sameSongStrings(o.artist, o.title, r.artist, r.title))) out.push(r);
+		}
+		return out;
+	}
+
+	// ---- Last.fm enrichment (Phase 8, ENRICH-01/02 · D-01c/D-03/D-04) ----
+	// Best-effort, AUGMENTS the page — never blocks/replaces the tracklist load. A SEPARATE
+	// $effect keyed on `name` + `albumArtist` with its own guard void-fires enrichAlbum
+	// (never awaited, never throws) and assigns the result only if the key still matches
+	// (race guard). An album with no Last.fm match / absent key resolves to the all-empty
+	// shape, so nothing extra renders (the listeners/playcount hero is gated on presence).
+	let enrich = $state<EnrichResult | null>(null);
+	let enrichedFor = '';
+	// In-flight flag for the cover/info skeletons (album art + listeners/playcount come ONLY
+	// from Last.fm enrich; tracked explicitly so an empty result / deep-link doesn't strand the
+	// skeleton — it stays false unless the enrich effect actually fires).
+	let enrichLoading = $state(false);
+
+	// ---- Deezer album info (Phase 17, ENRICH-04 / D-14·D-16) ----
+	// PARALLEL race-guarded effect cloning the enrichedFor idiom with its own `dzFor` guard.
+	// deezerAlbum never throws (own-origin /api/deezer/album proxy) — a miss settles `dz` to
+	// null → the Deezer info section is silently absent (D-14). Best-quality cover + counts +
+	// release/label/genres/tracks/duration are merged with the Last.fm enrich via mergeEnrichAlbum.
+	let dz = $state<DeezerAlbumInfo | null>(null);
+	let dzFor = '';
+	let dzLoading = $state(false);
+	// Proactive name-rescue guard (see the rescue effect below) — plain let like the other
+	// per-effect keys (house convention: internal guards are non-reactive).
+	let rescuedFor = '';
+	const merged = $derived(mergeEnrichAlbum(enrich, dz));
+
+	// Prefer the best-quality enrichment cover (Deezer hi-res > Last.fm art, via the merge).
+	// The stub tracklist carries no source cover, so this is the only hero art source.
+	const heroImg = $derived(merged.cover ?? null);
+	// Format Deezer total duration (seconds) → "M:SS" or "H:MM:SS" for the album info row.
+	function fmtDuration(sec: number): string {
+		const h = Math.floor(sec / 3600);
+		const m = Math.floor((sec % 3600) / 60);
+		const s = sec % 60;
+		const mm = h > 0 ? String(m).padStart(2, '0') : String(m);
+		const ss = String(s).padStart(2, '0');
+		return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+	}
+
+	// WR-06 / D-15: ALL feedback goes through the GLOBAL toast store (rendered once by
+	// ToastHost) — the local toastMsg/toastTimer copy was re-consolidated away so a single
+	// gesture never surfaces feedback through two different pipelines.
+
+	// ---- Real album.getInfo ordered tracklist (D-05) ----
+	// REPLACES the old searchAll-grouped-by-track.album approximation. Race-guarded on
+	// `name|albumArtist`; [] on absent key / absent artist / no match → the graceful empty
+	// state. The album.getInfo query needs the artist, so skip the fetch when it is absent.
+	$effect(() => {
+		const n = name;
+		const artist = albumArtist;
+		const dzid = albumDzId;
+		const mbid = albumMbid;
+		const key = albumKey;
+		// OFFL-03 / D-10: SHORT-CIRCUIT when offline — never fire getAlbumTracklist (which would
+		// hang and strand the tracklist skeleton). Clear `loading` so the inline offline state shows
+		// instead of a stuck spinner. No redirect (D-09). Resumes on the next online visit.
+		// WR-01: do NOT gate on `n` — an empty name AND offline (deep link `/album/`) must still
+		// clear the loader, else the skeleton is stuck forever (the fetch branch below never runs
+		// when `!n`).
+		if (!online.isOnline) {
+			loading = false;
+			return;
+		}
+		if (n && loadedFor !== key) {
+			loadedFor = key;
+			tracks = [];
+			// WR-08: SvelteKit reuses this component instance across same-route param navigation
+			// (history back/forward between two albums), so the per-action busy flag is reset here.
+			// debug download-state-lost-on-page-return: the resolved rows and the download job no
+			// longer need a reset — both are read from the store BY ALBUM / BY STUB (`resolvedRows`,
+			// `albumDownloading`), so another album's state can never bleed into this one.
+			busyAction = null;
+			if (!artist && !dzid && !mbid) {
+				// Deep link with neither ?artist= nor ?dzid= — nothing to query. Render the
+				// graceful "open from an artist" empty state, not a spinner.
+				loading = false;
+				return;
+			}
+			loading = true;
+			// quick-260831-qkx: PREFER the Deezer id. Matching an album by NAME is genuinely
+			// unreliable, not merely slower — a Deezer album search for
+			// artist:"Coldplay" album:"Parachutes" returns a single by a different act entirely,
+			// and Last.fm album.getInfo simply returns nothing when the name does not match, which
+			// is the reported "many of the time are empty inside". Fetching by the id taken from
+			// the artist's OWN discography returns the real thing (album/301663/tracks → all 10
+			// Parachutes tracks, in order). The Last.fm path stays as the fallback for entries with
+			// no id, and for the case where the id lookup comes back empty.
+			void (async () => {
+				try {
+					// MusicBrainz FIRST when present: it is only ever carried for CJK artists, and it is
+					// the one source with the original-script tracklist.
+					if (mbid) {
+						const rows = await mbTracks(mbid, artist);
+						if (loadedFor !== key) return; // race guard
+						if (rows.length) {
+							tracks = dedupeStubs(rows.map((tr) => ({ artist: tr.artist, title: tr.title })));
+							return;
+						}
+					}
+					if (dzid) {
+						const dzTracks = await deezerAlbumTracks(dzid);
+						if (loadedFor !== key) return; // race guard
+						if (dzTracks.length) {
+							// Same {artist,title} STUB contract the Last.fm path produces — resolve-on-tap
+							// via resolveStub is unchanged; only the source of the ordered list moved.
+							tracks = dedupeStubs(dzTracks.map((tr) => ({ artist: tr.artist, title: tr.title })));
+							return;
+						}
+					}
+					if (!artist) return; // both id paths empty and no name to fall back on
+					const lf = await getAlbumTracklist(n, artist).catch(() => []);
+					if (loadedFor === key) tracks = dedupeStubs(lf);
+				} finally {
+					if (loadedFor === key) loading = false;
+				}
+			})();
+		}
+	});
+
+	// SEPARATE enrichment effect (D-02: augment, never block/replace the tracklist load).
+	// Keyed on `name` + `albumArtist` with its own `enrichedFor` guard.
+	$effect(() => {
+		const n = name;
+		const artist = albumArtist;
+		const key = `${n} ${artist}`;
+		// OFFL-03: skip album enrichment offline (enrichLoading stays false → no stuck skeleton).
+		if (!online.isOnline) return;
+		if (n && artist && enrichedFor !== key) {
+			enrichedFor = key;
+			enrich = null;
+			enrichLoading = true;
+			void enrichAlbum(n, artist)
+				.then((r) => {
+					if (enrichedFor === key) enrich = r; // race guard — discard if key changed
+				})
+				.finally(() => {
+					if (enrichedFor === key) enrichLoading = false;
+				});
+		}
+	});
+
+	// SEPARATE Deezer-info effect (ENRICH-04, D-14). Clones the enrichedFor race guard with its
+	// own `dzFor` key. Fires even on a deep link with no ?artist= (deezerAlbum searches on title
+	// alone). A null settle → the Deezer info section is silently absent.
+	$effect(() => {
+		const n = name;
+		const artist = albumArtist;
+		const key = `${n}|${artist}`;
+		// OFFL-03: skip the Deezer-info fetch offline (dzLoading stays false → no stuck skeleton).
+		if (!online.isOnline) return;
+		if (n && dzFor !== key) {
+			dzFor = key;
+			dz = null;
+			dzLoading = true;
+			void deezerAlbum(n, artist)
+				.then((r) => {
+					if (dzFor === key) dz = r; // race guard — discard if key changed
+				})
+				.finally(() => {
+					if (dzFor === key) dzLoading = false;
+				});
+		}
+	});
+
+	// SEPARATE name-rescue effect (wa7 display follow-up). Proactively verifies the Chinese
+	// {artist, title} for CJK-free track rows right after the tracklist loads.
+	//
+	// WHY: shelves/charts/album pages often carry the LABEL's English name for a Chinese song
+	// ("Like The Snow — Gareth.T"). The wa7 rescue (name-rescue.ts) already verifies the real
+	// Chinese pair, but only ON TAP (resolveStub) — so a fresh tracklist shows English until every
+	// row is tapped once, and the CN catalogs resolve these songs far more reliably by their
+	// Chinese names. Running the same verified lookup eagerly fixes both: a hit writes the
+	// rescue cache (resolveStub reads it first → better future resolves) AND fires onRescueHit →
+	// names.recordAlias → rev++ → the rows repaint with the Chinese names, no tap needed.
+	//
+	// BOUNDS (same shape as the enrichment effects above): own `rescuedFor` key + race guard,
+	// OFFL-03 offline short-circuit, CJK-free rows only (an mbid tracklist is already
+	// original-script), 3-way fan-out. lookupChineseName is never-throw and cached (hit 30 d,
+	// miss 1 d), so a revisit costs zero lookups and a superseded album stops burning them.
+	$effect(() => {
+		const list = tracks;
+		const key = albumKey;
+		if (!online.isOnline) return;
+		if (!list.length || rescuedFor === key) return;
+		rescuedFor = key;
+		const latin = list.filter((t) => !hasCjk(t.title) && !hasCjk(t.artist));
+		if (!latin.length) return;
+		void (async () => {
+			const queue = [...latin];
+			await Promise.all(
+				Array.from({ length: 3 }, async () => {
+					for (;;) {
+						if (rescuedFor !== key) return; // superseded — stop burning lookups
+						const t = queue.shift();
+						if (!t) return;
+						await lookupChineseName(t.artist, t.title);
+					}
+				})
+			);
+		})();
+	});
+
+	// Resolve-on-tap (D-05/D-03) — OPTIMISTIC (FIX-A discipline, now via player.spliceStub):
+	// the now-bar locks the tapped {artist,title} with a loading indicator instantly (album
+	// stubs carry no cover), dedupes a same-song double-tap, and supersedes an in-flight
+	// resolve. Returns null for BOTH a miss AND a supersede; toast only on a genuine miss
+	// (pendingTrack cleared) — a supersede leaves pendingTrack on the newer song (no toast).
+	// quick-261103-tapsplice (Hector 2026-11-03): the resolved track now SPLICES into the
+	// listener's queue after current instead of installing the album around itself — a row
+	// tap behaves like a Related tap and played history survives. The album's own Play
+	// button (startAlbum) still installs the whole album. Supersedes the
+	// album-and-next-song install that used to follow the resolve here.
+	async function playRow(stub: AlbumStub) {
+		// quick-260831-t2g: hand the ALBUM cover to the player. Every track on an album shares the
+		// album's art, so resolving a cover per song was both wasted fetches and a source of
+		// inconsistency (siblings landing on different images). spliceStub attaches this to the
+		// resolved track, which makes play() skip cover resolution entirely.
+		const tr = await player.tapStub(stub.artist, stub.title, heroImg, 'album');
+		if (tr === null) {
+			if (player.pendingTrack == null) globalToast.show(t('home.unplayable'));
+			return;
+		}
+	}
+
+	// quick-261108-swp: row swipes moved into SongRow (settings.swipeRow via rowSwipe).
+
+	// ---- Album-level actions (between hero + tracklist) ----
+	// The tracklist is {artist,title} STUBS; the whole-album download
+	// needs playable Tracks, so they batch-resolve every stub via the SAME resolveStub path used
+	// on tap, concurrency-capped (album-scoped fan-out is user-initiated, not eager per Pitfall
+	// 11).
+	//
+	// ii6: `albumBusy: boolean` → `busyAction: AlbumAction | null`. Each handler sets/clears
+	// only its own id, so an in-flight Download doesn't disable Like — only THIS button
+	// re-fires are suppressed (double-fire protection retained). Other buttons stay live.
+	// quick-260930-uy0: 'shuffle' so the Shuffle-play button greys out only itself.
+	// debug download-state-lost-on-page-return: 'download' is NOT here on purpose — an album download
+	// outlives this page, so its busy state lives in `library.albumJobs` (see `albumDownloading`),
+	// never in component $state. Nothing that survives navigation may be keyed on `busyAction`.
+	// quick-261102-w2q: 'like' / 'addToPlaylist' went with their (long commented-out) buttons.
+	type AlbumAction = 'play' | 'shuffle' | 'share';
+	let busyAction = $state<AlbumAction | null>(null);
+
+	// quick-260930-uia: the resolved Track per row, index-aligned to `tracks` (null = not resolved /
+	// no match), handed to each SongRow as `resolved` so its DownloadControl keys on the real uid —
+	// that is what lights each row's own ring while "Download all" runs on the resolved uids.
+	// debug download-state-lost-on-page-return: a DERIVED read of the store's stub memory, not page
+	// $state — a remounted page maps every row to its real uid in the first render, so the rings of
+	// a download still running show live, and `resolveAll` below only re-tries what is not known.
+	const resolvedRows = $derived(tracks.map((s) => library.stubTrack(s.artist, s.title)));
+	/** This album's "Download all" is in flight (resolve → download → zip) — the header's busy source. */
+	const albumDownloading = $derived(library.albumJobs.has(albumKey));
+
+	// quick-261105-heal: how many of this album's rows are FAILED downloads — the rows painting
+	// the red alert glyph (a resolved uid whose download record is marked unavailable). Drives
+	// the Heal-all bar under the action row.
+	const failedAlbumCount = $derived(
+		resolvedRows.filter((tr) => tr !== null && library.isUnavailable(tr.uid)).length
+	);
+
+	// Long-press TrackMenu (ii6 #4): album rows are STUBS, so we resolve on long-press, then
+	// open the menu against the real Track. `menuLoading` shows the TrackMenu skeleton while
+	// the resolve is in flight, mirroring the home-shelf long-press idiom.
+	let menuTrack = $state<Track | null>(null);
+	let menuOpen = $state(false);
+	let menuLoading = $state(false);
+	async function openMenu(stub: AlbumStub) {
+		// User 2026-10-06: menu must open INSTANTLY — pass a stub Track (uid:'') so the
+		// menu renders immediately with title/artist; the resolve fills in the real
+		// Track behind the already-open menu (spinners show for loading cells).
+		// Setting menuTrack=null here would block {#if open && track} until resolve done.
+		menuTrack = {
+			uid: '', source: 'netease', songid: '', title: stub.title, artist: stub.artist, album: '',
+			cover: null, audioUrl: null, lrc: null, lrcUrl: null, detailsLoaded: false,
+			quality: null, qualityLabel: null, keyword: '', displayIndex: 0
+		} as Track;
+		menuLoading = true;
+		menuOpen = true;
+		try {
+			const tr = await resolveStub(stub.artist, stub.title).catch(() => null);
+			if (!menuOpen) return; // user dismissed during resolve — discard
+			if (!tr) { globalToast.show(t('home.unplayable')); return; } // quick-261115-uex: keep the menu open on the stub
+			menuTrack = tr;
+		} finally {
+			menuLoading = false;
+		}
+	}
+
+	// Resolve EVERY stub to a Track, order-preserved, max 4 concurrent searchAll fan-outs.
+	// debug download-state-lost-on-page-return: every hit goes to `library.rememberStub` — the memory
+	// `resolvedRows` and SongRow read — and a stub the store already knows (a row tap, an earlier
+	// whole-album action, a previous visit) is not resolved again. That replaces the old page-local
+	// `resolvedCache`: a second action is as instant, a transient miss is re-tried, and the mapping
+	// is keyed by stub so a resolve landing after navigating away can never label another album's rows.
+	async function resolveAll(): Promise<Track[]> {
+		const list = tracks;
+		const out: (Track | null)[] = list.map((s) => library.stubTrack(s.artist, s.title));
+		let next = 0;
+		const worker = async () => {
+			for (let i = next++; i < list.length; i = next++) {
+				if (out[i]) continue;
+				const tr = await resolveStub(list[i].artist, list[i].title).catch(() => null);
+				out[i] = tr;
+				if (tr) library.rememberStub(list[i].artist, list[i].title, tr);
+			}
+		};
+		await Promise.all(Array.from({ length: Math.min(4, list.length || 1) }, worker));
+		return out.filter((t): t is Track => t !== null);
+	}
+
+	// quick-260919-alb: the album tracklist as LAZY name-only Tracks — the SAME `resolveByName` stub
+	// shape Up Next is already built from (similar.ts nameStub), so the whole album can be installed
+	// as the queue with ZERO network: each entry resolves kuwo-first when it reaches the front, via
+	// ensureTrackDetails -> resolveNameStub. This is what makes Up Next populate in the same tick as
+	// the play tap instead of after the ~10s resolveAll fan-out.
+	//
+	// `at`/`real` drop the ALREADY-RESOLVED playing track into its own album slot so setListQueue's
+	// queueWithAnchor finds it by UID. Without that the anchor falls through to the sameSongKey path,
+	// which has to match the album tracklist's metadata against the source's — and on a miss it
+	// front-splices current AND leaves that track's own stub in the list as a duplicate.
+	// quick-260930-uy0: `list` defaults to the album order; Shuffle passes its shuffled copy.
+	function albumQueue(at = -1, real: Track | null = null, list: AlbumStub[] = tracks): Track[] {
+		return list
+			.map((s, i) => (i === at && real ? real : nameStub(s.artist, s.title)))
+			.filter((tr): tr is Track => tr !== null);
+	}
+
+	// Play the whole album: play track 1 instantly (optimistic now-bar) and install the rest of the
+	// album as Up Next in the same tick, in album order, so it plays straight through.
+	// quick-260930-uy0: the body is shared with Shuffle via startAlbum(list) — Play passes the album
+	// order, Shuffle a shuffled copy; everything else (sameList, album art, anchor) is identical.
+	function playAlbum() {
+		return startAlbum(tracks, 'play');
+	}
+
+	// quick-260930-uy0: play the album shuffled — a shuffled COPY of the tracklist, the same precedent
+	// as the library tab's `shuffleAll` (quick-260915-vb9). NOT player.toggleShuffle(): that only
+	// reorders the tail after current and is a no-op when shuffle is already on, so the result would
+	// depend on prior state.
+	function shuffleAlbum() {
+		return startAlbum(shuffle(tracks), 'shuffle');
+	}
+
+	async function startAlbum(list: AlbumStub[], action: 'play' | 'shuffle') {
+		if (!list.length || busyAction === action) return;
+		busyAction = action;
+		try {
+			// quick-260919-alb: `sameList` (quick-260915-vb9) — pressing Play ON a list is an explicit
+			// "this list IS my Up Next", so the fresh-play tail must not regenerate over the install
+			// below. It matters only for a user who overrode album -> generated (UPNEXT_DEFAULTS pins
+			// album to 'same-list'): the old code's regenerate was discarded by the ~10s install's
+			// queueGen bump, and installing in the same tick instead would have let regenerate win.
+			const first = await player.playStub(list[0].artist, list[0].title, heroImg, 'album', {
+				sameList: true
+			});
+			if (!first) {
+				if (player.pendingTrack == null) globalToast.show(t('home.unplayable'));
+				return;
+			}
+			// album-and-next-song-bug fix: `first` (player.current) was resolved by playStub's own
+			// resolveStub and may be a DIFFERENT source-variant uid than the album list's entry for
+			// track 0 (resolveStub is non-deterministic + dedupeBest collapses variants). A plain
+			// setQueue(list) would leave indexOf(current) === -1 → next() dead. setListQueue re-anchors
+			// current into the album list (by uid — albumQueue puts `first` ITSELF at slot 0 — then by
+			// same-song key) so the whole album plays straight through.
+			// quick-260910-piz: hand the album cover to the QUEUE install too, not just to playStub. The
+			// player seeds every queued entry's `track.cover` (so each Up Next tile paints the album art
+			// — Gap 3 removed the per-tile resolve) AND scopes the album-art attachment to the whole
+			// list (so the hero keeps it across every advance instead of flipping to the source's own
+			// thumbnail). quick-260919-alb: `heroImg` is now read at TAP time rather than ~10s later, so
+			// an enrich still in flight leaves the queue carrying no album art (accepted — the enrich
+			// effect fires on mount, long before a tap, and the optimistic now-bar reads the same value).
+			player.setListQueue(albumQueue(0, first, list), 'album', heroImg);
+		} finally {
+			busyAction = null;
+		}
+	}
+
+	// quick-260919-alb (feature): append the WHOLE album to the END of the queue, leaving the current
+	// track and position untouched. Stubs again, for the same reason as the play path — instant, zero
+	// upstream calls, each entry resolves when it reaches the front.
+	//
+	// No busyAction guard: this is SYNCHRONOUS (nothing can be in flight), and addToQueue dedupes by
+	// uid, so a double-tap is already a no-op. The sameSongKey skip covers the one case uid dedupe
+	// cannot — the currently playing track sits in the queue under its REAL source uid while the
+	// album hands us its synthetic stub uid, so without it "append the album you are playing" would
+	// tack a duplicate of the current song onto the end.
+	function queueAlbum() {
+		for (const tr of albumQueue()) {
+			if (player.queue.some((q) => sameSongKey(q, tr))) continue;
+			player.addToQueue(tr);
+		}
+		globalToast.show(t('toast.addedToQueue'));
+		hapticTick();
+	}
+
+	// Download the album → resolve all + hand the list to the shared album orchestrator
+	// (services/download-album.ts), which routes EACH track through the SHARED downloadTrack (29-03).
+	// DL-BUG-01: the old inline fetch → anchor → new-tab-stream fallback is DELETED — downloadTrack
+	// owns save now and NEVER navigates to a media page on failure (a failed track just stays in the
+	// library Downloads list, re-streams on tap). DL-FILE-01: the translated `{artist} - {title}.ext`
+	// filename path applies. hvu: the pre-29 implementation only added to library.
+	// 36-03: the track numbers written into the tags are the album positions (see download-album.ts).
+	// 40-D-04: album downloads now PERSIST like single songs — offline copy in library Downloads, and
+	// on native the public write lands under `Music/OpenMusic/<Artist>/<Album>/` (40-D-01). On web the
+	// songs are saved as ONE zip whose filename names the album (40-D-03). The old persist:false path
+	// was why an album download never produced a `Music/OpenMusic/` file. The folder names are the
+	// DISPLAY-language names (the same dnArtist/dnTitle pair the share sheet uses) — what the user sees.
+	// debug download-state-lost-on-page-return: the job is CLAIMED IN THE STORE (claim-once per album
+	// key), not in `busyAction` — this closure keeps running after the page unmounts, and the
+	// remounted page reads the same key for its header, so a tap while it runs is a no-op there too.
+	async function downloadAlbum() {
+		const key = albumKey;
+		if (!tracks.length || !library.beginAlbumJob(key)) return;
+		const artist = names.dnArtist(albumArtist);
+		const album = names.dnTitle(name);
+		const label = downloadLabel(artist, album); // quick-261001-grb: the toast names the album in flight
+		globalToast.show(t('toast.downloading', { label }));
+		try {
+			const resolved = await resolveAll();
+			if (!resolved.length) {
+				globalToast.show(t('home.unplayable'));
+				return;
+			}
+			// 40-D-06: count up while running, then the real saved count (failed songs are skipped).
+			const { saved, total } = await downloadAlbumTracks(
+				resolved,
+				{ artist, album },
+				(n, total) => globalToast.show(t('toast.albumProgress', { label, n, total }))
+			);
+			globalToast.show(t('toast.albumSaved', { label, saved, total }));
+		} finally {
+			library.endAlbumJob(key);
+		}
+	}
+
+	// quick-261023-bulklock: bulk ZIP downloads are a supporter perk — per-song
+	// download stays free for everyone. Non-supporters get the tip sheet instead
+	// (re-locks what quick-261020-nogate opened; Hector 2026-10-23).
+	// quick-261102-w2q: read in an effect, not at module time — this route SSRs (no localStorage
+	// there), so a top-level read would paint the dot on the server and drop it on hydration.
+	let supporter = $state(false);
+	$effect(() => {
+		supporter = isSupporter();
+	});
+	function onDownloadTap() {
+		if (!isSupporter()) {
+			globalToast.show(t('support.bulkLocked'));
+			support.openSheet();
+			return;
+		}
+		void downloadAlbum();
+	}
+
+	// quick-261105-heal: one-click Heal all for this album's failed songs. It re-runs the SAME
+	// album pipeline — re-click-safe by construction (songs already held are reused, never
+	// re-fetched), so only the failed ones actually download again, now with the multi-source
+	// donor pass when their own provider refuses. Deliberately NOT supporter-gated: healing a
+	// download the user already made is a repair, not a new bulk perk.
+	function healAlbum() {
+		void downloadAlbum();
+	}
+
+	// Share the album = the two-segment album page URL `/album/{artist}/{name}` (both halves of the
+	// tracklist key ride the path). Native share sheet when available, else copy to clipboard.
+	async function shareAlbum() {
+		if (busyAction === 'share') return;
+		busyAction = 'share';
+		try {
+			// SHARE-02 / D-04 / OG-PATH-02: the album entity link. The album route is the readable
+			// entity page (SSR-opted-in by 24-04 for the crawler OG head) and the AUTHORITATIVE
+			// round-trip key is the LITERAL album name + artist — which now both ride PATH SEGMENTS
+			// (`/album/{artist}/{name}`), so the former `?artist=` carrier is gone. Never an ASCII slug:
+			// entityShareUrl() slugifies CJK to '' (share.ts), which would yield a non-reopening link
+			// for the app's primary CJK catalog. No ?play= carrier either — an album page is an entity,
+			// not a now-playing restore (D-06).
+			//
+			// quick-260723-ry1 (match the song card) — the link is now CARRIER-FREE (no `?` at all):
+			//  - OG-EP-01: no `c` cover carrier; the card image is the own-origin /api/og endpoint,
+			//    which re-resolves the art server-side.
+			//  - OG-ZH-01 / RESEARCH §E.17: the `dn`/`da` DISPLAY QUERY CARRIERS are retired.
+			//
+			// quick-260808-urx: the PATH SEGMENTS now carry the DISPLAY-language names — the exact
+			// text on this user's screen — instead of the raw catalog metadata, per the user's ask
+			// ("zht user must not share zhs"). NOT a reversal of OG-ZH-01: the dn/da carriers stay
+			// dead; display text rides the PATH, the single value used for BOTH display and
+			// resolution, so there is no carrier left to diverge from the key.
+			//
+			// Reliability (verified — do not re-check): names.resolve() returns the cached display
+			// string and falls back to the raw text on a miss, so this is exactly what the page
+			// rendered; the zh-Hant s2t dict is boot-warmed (quick-260712-et3) → synchronous.
+			// The recipient-side Traditional-vs-Simplified resolution risk is closed by resolveStub's
+			// t2s rescue-on-miss (quick-260808-urx).
+			//
+			// albumArtist may be '' (unknown artist) — dnArtist('') returns '' unchanged, so the
+			// existing falsy branch of the share-sheet title below is untouched.
+			const dName = names.dnTitle(name);
+			const dArtist = names.dnArtist(albumArtist);
+			const url = entityCardUrl({ type: 'album', name: dName, artist: dArtist });
+			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
+			// quick-260808-vkd — the link rides `text`, NOT `url`. DO NOT "fix" this back.
+			// The Web Share API spec URL-PARSES `ShareData.url` and re-serializes it, and the WHATWG
+			// URL serializer percent-encodes every path code point above U+007E — so a `url` member
+			// silently undoes encodePathSegment's raw-CJK output (quick-260807-vl1) at the very last
+			// step. `ShareData.text` is NOT parsed; it is passed through verbatim. WhatsApp /
+			// iMessage / Slack auto-linkify a bare URL inside shared text and still fetch its OG
+			// card, so no preview is lost. Sending BOTH would duplicate the link in the message
+			// (once readable, once encoded) on every target that concatenates the two members.
+			// quick-260808-vzu — the title line is now OPT-IN (settings.shareIncludeTitle, default
+			// OFF). Concatenating targets (WhatsApp) render `title` and `text` as two separate lines,
+			// so an unconditional title showed the name above the link and then AGAIN inside the OG
+			// card the link unfurls into. It is a SETTING, not a deletion — some users want the
+			// context inline, so the old behavior is one toggle away in Settings → General. Tradeoff
+			// when OFF: targets that use `title` as a subject line (email, some Slack surfaces) get a
+			// barer share. No placeholder title in the OFF branch — the Web Share spec needs at least
+			// one of title/text/url, and `{ text: url }` satisfies it.
+			if (nav.share) await nav.share(settings.shareIncludeTitle ? { title: dArtist ? `${dName} • ${dArtist}` : dName, text: url } : { text: url });
+			else {
+				await navigator.clipboard.writeText(url);
+				globalToast.show(t('toast.shareCopied'));
+			}
+		} catch {
+			/* cancelled */
+		} finally {
+			busyAction = null;
+		}
+	}
+
+</script>
+
+<svelte:head><title>{t('album.title', { name: names.dnTitle(name) })}</title></svelte:head>
+{#if data.og}
+	<PageOg og={data.og} />
+{/if}
+
+<!-- quick-260919-hdr: this page's back is NOT history.back() and must not become it — an album is
+     reached from its artist, from search, from a shelf, and the chevron always means "up to the
+     artist" (falling back to Home when the album has no known artist). That is exactly why
+     PageHeader takes the action as a prop. -->
+<PageHeader
+	backLabel={t('album.back')}
+	onback={() => goto(albumArtist ? names.artistHref(albumArtist) : '/')}
+	showSettings
+/>
+
+<div class="hero">
+	<!-- quick-261102-w2q: the art paints OVER the seeded placeholder, so a dead cover URL shows the
+	     gradient rather than an empty square (was a hard-coded purple that ignored the theme). -->
+	{#if heroImg}
+		<div class="cover" style:background-image={`url(${heroImg}), ${coverGradient(name)}`}></div>
+	{:else if loading || enrichLoading}
+		<div class="cover sk" aria-hidden="true"></div>
+	{:else}
+		<div class="cover" style:background-image={coverGradient(name)}></div>
+	{/if}
+	<h1>{names.dnTitle(name)}</h1>
+	{#if albumArtist}<p class="artist">{names.dnArtist(albumArtist)}</p>{/if}
+
+	<!-- Deezer album info (ENRICH-04, D-14): release date / label / genres / track count /
+	     duration / fans, beside the Last.fm enrichment. Shape-matched skeleton while resolving
+	     (D-17); silently absent on a miss. Label uses use:marquee (long names, MEMORY rule). -->
+	{#if dzLoading}
+		<div class="dzinfo" aria-hidden="true">
+			<span class="sk sk-info"></span>
+			<span class="sk sk-info short"></span>
+		</div>
+	{:else if merged.releaseDate || merged.label || merged.genres.length || merged.tracks != null || merged.duration != null || merged.deezerFans != null}
+		<div class="dzinfo">
+			{#if merged.tracks != null}<span class="dzrow"><b>{t('deezer.tracks')}</b> {merged.tracks}</span>{/if}
+			{#if merged.releaseDate}<span class="dzrow"><b>{t('deezer.released')}</b> {merged.releaseDate}</span>{/if}
+			{#if merged.genres.length}<span class="dzrow"><b>{t('deezer.genres')}</b> {merged.genres.join(', ')}</span>{/if}
+			{#if merged.duration != null}<span class="dzrow"><b>{t('deezer.duration')}</b> {fmtDuration(merged.duration)}</span>{/if}
+			{#if merged.label}<span class="dzrow label"><b>{t('deezer.label')}</b> <span class="lbl" use:marquee><span class="marquee-inner">{merged.label}</span></span></span>{/if}
+		</div>
+	{/if}
+</div>
+
+{#if loading}
+	<ul class="list" aria-label={t('album.loading')}>
+		{#each Array(10) as _, i (i)}
+			<li>
+				<span class="row" aria-hidden="true">
+					<span class="art sk"></span>
+					<span class="meta"><span class="sk sk-rtitle"></span><span class="sk sk-rsub"></span></span>
+				</span>
+			</li>
+		{/each}
+	</ul>
+{:else if !online.isOnline && !tracks.length}
+	<!-- OFFL-03 inline offline state: the tracklist fetch short-circuits when offline (no stuck
+	     skeleton). Promote Downloads/Library; no redirect (D-09). Takes precedence over the
+	     no-tracks / open-from-artist empties so there's no dead screen. -->
+	<div class="offline-state">
+		<p class="offline-title">{t('offline.title')}</p>
+		<p class="offline-body">{t('offline.body')}</p>
+		<button type="button" class="offline-cta" onclick={() => goto('/library')} use:tapBounce>{t('offline.goToLibrary')}</button>
+	</div>
+{:else if tracks.length}
+	<!-- Album-level actions. ii6: PER-BUTTON disable (busyAction === id) so only the
+	     clicked button greys out while its action runs — other buttons stay live. -->
+	<div class="album-actions">
+		<!-- debug download-state-lost-on-page-return: busy = the STORE's album job (survives leaving and
+		     coming back), shown with the same DownloadRing the rows use so "still downloading" reads the
+		     same everywhere. -->
+		<!-- quick-261103-hdn: aria-disabled, not disabled — a disabled button drops focus and its
+		     aria-busy is never announced. A tap while busy is already a no-op (library.beginAlbumJob is
+		     claim-once per album key). -->
+		<!-- quick-261102-w2q: the album download is a supporter perk again (quick-261023-bulklock), so
+		     non-supporters see the accent dot that marks it as one — before, it looked like a plain
+		     download and only revealed the lock after the tap. -->
+		<button class="act" aria-label={t('support.downloadAlbum')} title={t('support.downloadAlbum')} aria-busy={albumDownloading} aria-disabled={albumDownloading} onclick={onDownloadTap} use:tapBounce>
+			{#if albumDownloading}<DownloadRing><Download size={20} /></DownloadRing>{:else}<Download size={20} />{/if}
+			{#if !supporter}<span class="sup-dot" aria-hidden="true"></span>{/if}
+		</button>
+		<button class="act" aria-label={t('nowplaying.shuffle')} title={t('nowplaying.shuffle')} disabled={busyAction === 'shuffle'} onclick={shuffleAlbum} use:tapBounce><Shuffle size={20} /></button>
+		<!-- quick-261102-w2q: named for what it does (play the album), not the transport toggle. -->
+		<button class="act play" aria-label={t('album.playAlbum')} title={t('album.playAlbum')} disabled={busyAction === 'play'} onclick={playAlbum} use:tapBounce><Play size={20} fill="currentColor" /></button>
+		<!-- quick-260930-uy0: the row balances 2 | PLAY | 2. -->
+		<!-- quick-260919-alb: append the whole album to the end of the queue. ListEnd is the same icon
+		     the row swipe-right (add-to-queue) reveal uses, so the two surfaces read as one action. -->
+		<button class="act" aria-label={t('menu.addToQueue')} title={t('menu.addToQueue')} onclick={queueAlbum} use:tapBounce><ListEnd size={20} /></button>
+		<button class="act" aria-label={t('menu.share')} title={t('menu.share')} disabled={busyAction === 'share'} onclick={shareAlbum} use:tapBounce><Share2 size={20} /></button>
+	</div>
+	<!-- quick-261105-heal: the failed songs are listed right below as the red-glyph rows; when
+	     any exist, this bar offers the one-click repair for all of them at once. Busy follows
+	     the same store album job as Download all, so the two can never run over each other. -->
+	{#if failedAlbumCount > 0}
+		<div class="heal-bar">
+			<CircleAlert size={18} />
+			<span class="heal-label">{t('heal.failedCount', { n: failedAlbumCount })}</span>
+			<button class="heal-btn" disabled={albumDownloading} onclick={healAlbum} use:tapBounce>{t('heal.all')}</button>
+		</div>
+	{/if}
+	<ul class="list">
+		{#each tracks as track, i (i)}
+			<!-- quick-260919-l9e: the shared row. A tracklist entry is an AlbumStub ({artist,title}),
+			     so it is lifted to a Track through the SAME `nameStub` albumQueue() already uses —
+			     one stub shape for the row and the queue, not two. A stub with an empty field yields
+			     null and renders nothing; `i` still comes from the {#each}, so the album index the
+			     tap and the queue install depend on is unaffected. -->
+			{@const rowTrack = nameStub(track.artist, track.title, heroImg)}
+			{#if rowTrack}
+				<li class="row-line">
+					<div class="swipe-wrap">
+						<!-- UX-04 reveal layers behind the row; the row translateX exposes them. -->
+						<SwipeReveal />
+						<!-- The tap path is untouched (quick-260919-alb): playStub installs the optimistic
+						     now-bar and albumQueue(i, real) slot-substitutes in the same tick. `lazy={false}`
+						     because every row on an album legitimately shares the one album cover, so N
+						     per-row resolve chains would buy nothing; `cover={heroImg}` is that shared art.
+						     No `index` prop: the album tracklist renders WITHOUT the rank number (user call
+						     2026-10-06) — SongRow's `{#if index != null}` guard then skips the `.rank` span
+						     entirely, so no gap is left behind. `i` is still the queue/album index for
+						     playStub and resolvedRows.
+						     quick-260919-l9e: the D-11 album-row DownloadControl that used to sit OUTSIDE
+						     this row is now INSIDE it — SongRow takes the very same `resolve` + `persist`
+						     pair and hands them straight to the same component, so the control is
+						     unchanged while `settings.rowActions` finally governs it (order included) as
+						     it does on every other surface. It also feeds the Like button, which could not
+						     exist here before: an album row's nameStub uid is TRUTHY, so liking it without
+						     resolving would persist an unplayable `similar-` uid. -->
+						<SongRow
+							track={rowTrack}
+							cover={heroImg}
+							lazy={false}
+							persist={false}
+							resolve={() => resolveStub(track.artist, track.title).catch(() => null)}
+							resolved={resolvedRows[i] ?? null}
+							onplay={() => playRow(track)}
+							onrequestmenu={() => openMenu(track)}
+						/>
+					</div>
+				</li>
+			{/if}
+		{/each}
+	</ul>
+{:else if !albumArtist}
+	<p class="muted">{t('album.openFromArtist')}</p>
+{:else}
+	<p class="muted">{t('album.noTracks', { name: names.dnTitle(name) })}</p>
+{/if}
+
+
+<!-- ii6 #4: long-press on a track row opens TrackMenu against the resolved track.
+     resolveStub runs while menuLoading=true → menu shows its skeleton placeholder. -->
+<TrackMenu track={menuTrack} open={menuOpen} loading={menuLoading} onclose={() => { menuOpen = false; menuTrack = null; menuLoading = false; }} />
+
+<style>
+	/* `position: relative` went with the absolutely-positioned .back (quick-260919-hdr) — the
+	   chevron is in-flow above the hero now, like every other page. */
+	.hero { padding: 0 0 12px; text-align: center; }
+	.cover { width: 160px; height: 160px; border-radius: 12px; margin: 4px auto; background-size: cover; background-position: center; } /* quick-261102-w2q: no shadow — Flat-Until-It-Floats */
+	/* quick-261103-2xk: a long unbroken title (German compound, URL-ish name) wraps instead of
+	   pushing the page sideways. */
+	.hero h1 { font-size: calc(1.5rem * var(--fs-title, 1)); margin: 0; overflow-wrap: anywhere; }
+	.artist { color: var(--color-text); font-size: calc(0.875rem * var(--fs-artist, 1)); margin: 4px 0 0; opacity: 0.85; overflow-wrap: anywhere; }
+	/* Deezer album info (ENRICH-04) — release/label/genres/tracks/duration/fans rows. */
+	.dzinfo { color: var(--color-text-muted); font-size: 0.75rem; margin-top: 8px; display: flex; gap: 6px 16px; justify-content: center; flex-wrap: wrap; }
+	.dzrow { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; }
+	.dzrow b { color: var(--color-text); font-weight: 600; }
+	.dzrow.label { max-width: 220px; }
+	.dzrow .lbl { display: inline-block; max-width: 150px; min-width: 0; overflow: hidden; white-space: nowrap; }
+	/* quick-261102-w2q: the size rule used to target `.info .sk-info` — the long-dead Last.fm row —
+	   so the live dzinfo skeleton bars had no width and never painted. */
+	.dzinfo .sk-info { display: inline-block; width: 150px; height: 12px; }
+	.dzinfo .sk-info.short { width: 90px; }
+	/* quick-261103-2xk: centred like .offline-state — a left-aligned line under the centred hero
+	   read as stray text, not as the page's answer. */
+	.muted { color: var(--color-text-muted); font-size: 0.875rem; text-align: center; padding: 24px 16px; margin: 0; }
+
+	/* OFFL-03 inline offline empty-state (shared idiom across online-only surfaces). */
+	.offline-state { text-align: center; padding: 32px 16px; color: var(--color-text-muted); }
+	.offline-title { font-size: 0.9375rem; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
+	.offline-body { font-size: 0.8125rem; margin: 0 0 16px; }
+	.offline-cta {
+		background: var(--color-primary); border: none; color: var(--color-on-primary); /* quick-261102-rrb */ border-radius: 999px;
+		padding: 9px 18px; font-size: 0.8125rem; font-weight: 600; cursor: pointer; position: relative;
+	}
+	/* quick-261103-2xk: the pill is ~34px tall; the invisible ring takes the hit area to 44px. */
+	.offline-cta::before { content: ''; position: absolute; inset: -5px 0; }
+	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+	/* D-11: each row is the swipe-wrap (flex 1). It used to carry a trailing DownloadControl as a
+	   sibling — quick-260919-l9e moved that control INSIDE SongRow so settings.rowActions governs it,
+	   and the flex column is kept because the row's own geometry depends on nothing else. */
+	.row-line { display: flex; align-items: center; gap: 6px; }
+	.row-line .swipe-wrap { flex: 1; min-width: 0; }
+	/* UX-04: positioning context for the swipe reveal layers. The reveal spans sit BEHIND the row
+	   (the row carries an opaque background); the row translateX (use:swipeAction) slides to expose
+	   the correct side. overflow:hidden masks the reveal at rest + clips the row travel. */
+	.swipe-wrap { position: relative; overflow: hidden; border-radius: 8px; }
+	/* quick-260919-l9e: the real tracklist row is SongRow.svelte now (its styles travelled with
+	   it). `.row` / `.art` / `.meta` are KEPT because the 10-row loading skeleton above still
+	   renders `<span class="row">` with them and the .sk-* bars. The rank number is gone from both
+	   the rows and the skeleton (user call 2026-10-06), so `.sk-rank` went with it. The
+	   interactive-only rules (:hover, .r-title, .r-sub) went with the markup. */
+	.row { width: 100%; text-align: start; background: var(--color-bg); position: relative; z-index: 1; border: none; padding: 6px; border-radius: 8px; display: flex; align-items: center; gap: 12px; color: var(--color-text); }
+	.art { width: 44px; height: 44px; border-radius: 6px; background-size: cover; background-position: center; flex: none; }
+	.meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+
+	/* ---- loading skeletons (global .sk in app.css supplies the grey + shimmer; these size the
+	   blocks to match the real content) ---- */
+	.meta .sk-rtitle { display: block; width: 80%; height: 13px; margin-bottom: 7px; }
+	.meta .sk-rsub { display: block; width: 45%; height: 11px; }
+
+	/* ---- album-level action toolbar (between hero + tracklist) ---- */
+	/* quick-260930-uy0: clamp keeps the gap at 12px on a 375px phone and 16px from ~500px up.
+	   quick-261103-2xk: 5 buttons since w2q (like / add-to-playlist went), so this no longer has to
+	   squeeze — 12px is still kept so the 44px hit areas (::before below) never overlap. */
+	.album-actions { display: flex; align-items: center; justify-content: center; gap: clamp(12px, 3.2vw, 16px); margin: 2px 0 20px; }
+	/* quick-261105-heal: the failed-downloads repair bar between the actions and the tracklist. */
+	.heal-bar { display: flex; align-items: center; gap: 10px; margin: -6px 0 14px; padding: 10px 12px; border-radius: 10px; background: var(--color-surface-2); color: var(--color-danger-text); }
+	.heal-label { flex: 1; min-width: 0; font-size: 0.8125rem; font-weight: 600; color: var(--color-text); }
+	.heal-btn { flex: none; background: var(--color-primary); border: none; color: #fff; border-radius: 999px; padding: 7px 14px; font-size: 0.8125rem; font-weight: 600; cursor: pointer; }
+	.heal-btn:disabled { opacity: 0.4; cursor: default; }
+	.act { position: relative; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--color-surface-2); border: 1px solid transparent; color: var(--color-text); cursor: pointer; transition: background 0.15s, transform 0.1s; }
+	/* quick-261102-w2q: the 34px circle stays the visual; the hit area grows to the 44px floor. */
+	.act::before { content: ''; position: absolute; inset: -5px; border-radius: 50%; }
+	@media (hover: hover) { .act:hover { background: var(--color-surface); } }
+	/* MENU-03 / D-12: hover-capable devices only — avoids the held-finger latch on touch
+	   (use:tapBounce supplies the one-shot touch press feedback). */
+	@media (hover: hover) { .act:active { transform: scale(0.92); } }
+	.act:disabled, .act[aria-disabled='true'] { opacity: 0.4; cursor: default; }
+	.act.play { width: 56px; height: 56px; background: var(--color-primary); border-color: transparent; color: var(--color-on-primary); /* quick-261102-rrb */ }
+	/* donor-wall-ui 2026-10-14, restored quick-261102-w2q: accent dot, top corner = supporter perk. */
+	.sup-dot { position: absolute; top: 2px; inset-inline-end: 2px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); }
+</style>

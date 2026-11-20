@@ -1,0 +1,136 @@
+<script lang="ts">
+	// quick-260927-2cy: this component IS the Library's "Your Radio" tab, mounted under
+	// /library?tab=radio only — the one-day-old /radio route was folded in so the desktop rail's
+	// one-entry-per-tab model lights it. Mounting is what makes the build lazy: a Library visit to
+	// any other tab never fetches. Every upstream call is memoised 6 h and quick-260926-lw8's
+	// session seed replays the same draw, so re-mounting on a tab flip costs zero requests.
+	// The host page owns the ONE track menu (its overlay id "trackmenu-menu" is fixed), so a row's menu
+	// request goes up through `onrequestmenu`.
+	import { onMount } from 'svelte';
+	import { Radio } from '@lucide/svelte';
+	import { buildRadio } from '$lib/services/radio';
+	import { clampShelfSize } from '$lib/services/home-layout';
+	import { resolveStub } from '$lib/services/discovery';
+	import { player } from '$lib/stores/player.svelte';
+	import { settings } from '$lib/stores/settings.svelte';
+	import { history as playHistory } from '$lib/stores/history.svelte';
+	import { toast } from '$lib/stores/toast.svelte';
+	import { t } from '$lib/i18n';
+	import SongRow from '$lib/components/SongRow.svelte';
+	import SwipeReveal from '$lib/components/SwipeReveal.svelte';
+	import type { Track } from '$lib/sources/types';
+
+	let { onrequestmenu }: { onrequestmenu: (t: Track) => void } = $props();
+
+	let tracks = $state<Track[]>([]);
+
+	const SKELETON_MIN_MS = 280;
+	let showSkeleton = $state(true);
+
+	function minDwell(startedAt: number): Promise<void> {
+		const remaining = SKELETON_MIN_MS - (Date.now() - startedAt);
+		return remaining > 0 ? new Promise((r) => setTimeout(r, remaining)) : Promise.resolve();
+	}
+
+	// quick-260927-1fx: same cap as the home shelf, and quick-260926-lw8's session seed replays the
+	// same draw, so this list IS the "Your Radio" shelf in full rows; every upstream call is memoised
+	// 6 h, so the SPA nav from the shelf title costs zero requests. Empty history → [] → the
+	// history.empty message (quick-260927-2cy: radio is seeded from history, so that is the true cause).
+	// Both loads stay: no layout loads history, and this child's onMount fires BEFORE the library
+	// page's own history.load(), so a cold /library?tab=radio would otherwise see no entries.
+	onMount(() => {
+		settings.load(); // both idempotent — the home does the same
+		playHistory.load();
+		const startedAt = Date.now();
+		void buildRadio(playHistory.entries, clampShelfSize(settings.homeShelfSize))
+			.then((r) => {
+				tracks = r;
+			})
+			.finally(async () => {
+				await minDwell(startedAt);
+				showSkeleton = false;
+			});
+	});
+
+	// Mirrors the home's playRadioTrack. quick-261103-tapsplice (Hector 2026-11-03): a row tap
+	// splices the resolved track into the listener's queue after current — played
+	// history and the existing tail survive, exactly like a Related tap; the pool no
+	// longer installs over the queue (supersedes the quick-261024-sets install).
+	// null = miss OR supersede; only a miss clears pendingTrack, so only a miss toasts.
+	async function play(tr: Track) {
+		const resolved = await player.tapStub(tr.artist, tr.title, tr.cover, 'home-discovery');
+		if (!resolved) {
+			if (player.pendingTrack == null) toast.show(t('home.unplayable'));
+			return;
+		}
+	}
+</script>
+
+{#snippet skeletonRows(count: number, label: string)}
+	<li class="skel-wrap" aria-label={label}>
+		<span class="vh">{label}</span>
+		{#each Array(count) as _, i (i)}
+			<span class="row skel" aria-hidden="true">
+				<span class="art motion-always"></span>
+				<span class="meta">
+					<span class="bar bar-title motion-always"></span>
+					<span class="bar bar-artist motion-always"></span>
+				</span>
+			</span>
+		{/each}
+	</li>
+{/snippet}
+
+{#if showSkeleton}
+	<ul class="list">{@render skeletonRows(12, t('settings.homeSectionRadio'))}</ul>
+{:else if tracks.length}
+	<ul class="list">
+		{#each tracks as tr (tr.uid)}
+			<!-- `resolve` is the album-tracklist seam (quick-260919-l9e): a nameStub's uid is truthy
+			     but synthetic, so Like/Download must key off the RESOLVED uid. `swipe` stays at its
+			     default: the generated Up Next already holds nameStub tracks, so addToQueue /
+			     playNext of a stub is the app's normal path. -->
+			<li class="row-wrap">
+				<SwipeReveal />
+				<SongRow
+					track={tr}
+					resolve={() => resolveStub(tr.artist, tr.title).catch(() => null)}
+					onplay={() => play(tr)}
+					onrequestmenu={() => onrequestmenu(tr)}
+				/>
+			</li>
+		{/each}
+	</ul>
+{:else}<p class="empty"><Radio size={28} /><span>{t('history.empty')}</span></p>{/if}
+
+<style>
+	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+	.row-wrap { position: relative; overflow: hidden; border-radius: var(--radius-md); }
+	/* `.row` / `.art` / `.meta` serve only the skeleton; the real rows are SongRow.svelte. */
+	.row {
+		position: relative; z-index: 1; width: 100%; display: flex; align-items: center; gap: 12px;
+		padding: 8px; background: var(--color-bg); border: none; border-radius: var(--radius-md);
+		text-align: start;
+	}
+	.art { width: 48px; height: 48px; border-radius: 8px; background-size: cover; background-position: center; flex: none; }
+	.meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+	.empty { display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--color-text-muted); padding: 48px 16px; text-align: center; font-size: 0.875rem; }
+	.skel-wrap { display: flex; flex-direction: column; gap: 6px; list-style: none; }
+	.skel { pointer-events: none; background: none; }
+	.skel .art { background: rgba(255, 255, 255, 0.11); }
+	.skel .meta { gap: 7px; }
+	.skel .bar { display: block; height: 11px; border-radius: 5px; background: rgba(255, 255, 255, 0.11); }
+	.skel .bar-title { width: 62%; }
+	.skel .bar-artist { width: 40%; height: 9px; }
+	.skel .art, .skel .bar { position: relative; overflow: hidden; }
+	.skel .art::after, .skel .bar::after {
+		content: ''; position: absolute; inset: 0;
+		background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.22) 50%, transparent 100%);
+		transform: translateX(-100%); animation: skel-shimmer 1.1s ease-in-out infinite;
+	}
+	@keyframes skel-shimmer { 100% { transform: translateX(100%); } }
+	.vh {
+		position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+		overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+	}
+</style>
