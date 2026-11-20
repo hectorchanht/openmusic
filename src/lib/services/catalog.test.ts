@@ -1680,18 +1680,18 @@ describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () =>
 		});
 	});
 
-	describe('31-D-06(c): the avail hints in the name-stub walk (resolveNameStub contract)', () => {
+	describe('resolveNameStub avail contract (retained half of 31-D-06(c) — RETIRED as edge threading 2026-11-20)', () => {
 		it('a source marked dry is SKIPPED in the name-stub walk', async () => {
-			// Hector 2026-11-20: this now pins resolveNameStub's OWN avail contract
+			// Hector 2026-11-20: this pins resolveNameStub's OWN avail contract
 			// directly. It used to run through ensureTrackDetails — but the sqn product
 			// call (DECISIONS.md §5, pinned by 'a name stub never reads the edge cache'
 			// above) bars name stubs from reading the cache at all, so an entry's avail
-			// can never reach the walk on that path; the old shape passed only because
+			// could never reach the walk on that path; the old shape passed only because
 			// the pre-correctness walk stopped at the joox hit before ever reaching
-			// kuwo. The 31-D-06(c)-vs-sqn conflict is a product decision, not settled
-			// here — the walk-level skip is what's pinned, and it now genuinely bites:
-			// the unverified joox hit no longer ends the walk, so without the skip
-			// kuwo WOULD be searched.
+			// kuwo. Hector settled the conflict the same day: 31-D-06(c) is RETIRED and
+			// its dead threading in ensureTrackDetails is removed; this walk-level skip
+			// is the retained half, and it genuinely bites — the unverified joox hit no
+			// longer ends the walk, so without the skip kuwo WOULD be searched.
 			const spies = spyAllSources();
 			const cand = mk('joox', 'j1', 1, { artist: 'Jay', title: 'Blue' });
 			spies.search.joox?.mockResolvedValue([cand]);
@@ -1709,6 +1709,12 @@ describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () =>
 		});
 
 		it('an all-dry hint never EMPTIES the walk order', async () => {
+			// Re-pinned onto resolveNameStub directly (2026-11-20, with the 31-D-06(c)
+			// retirement): this used to run through ensureTrackDetails with a mocked
+			// cache entry, but a name stub never reads the cache (§5), so the hint could
+			// never actually arrive on that path — the test asserted the right outcome
+			// for a fictional reason. The contract lives in the walk itself, so it is
+			// pinned here, where the hint genuinely arrives.
 			const spies = spyAllSources();
 			const cand = mk('kuwo', 'k1', 1, { artist: 'Jay', title: 'Blue' });
 			spies.search.kuwo?.mockResolvedValue([cand]);
@@ -1721,19 +1727,11 @@ describe('ensureTrackDetails — edge resolve cache (32-D-10 / 32-D-10b)', () =>
 			const avail = Object.fromEntries(
 				(Object.keys(SOURCES) as SourceId[]).map((id) => [id, 'dry' as const])
 			);
-			readResolveCache.mockResolvedValue({
-				source: null,
-				songid: null,
-				avail,
-				url: null,
-				urlExp: null,
-				urlQuality: null
-			});
 
-			const out = await ensureTrackDetails(nameStub());
+			const out = await resolveNameStub('Jay', 'Blue', undefined, avail);
 
 			// Every source is "dry" — the filter must degrade to the FULL order, not to nothing.
-			expect(out.audioUrl).toBe('https://cdn/kw.mp3');
+			expect(out?.audioUrl).toBe('https://cdn/kw.mp3');
 			expect(spies.search.kuwo).toHaveBeenCalledOnce();
 		});
 	});

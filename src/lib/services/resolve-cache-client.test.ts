@@ -60,8 +60,10 @@ describe('readResolveCache (31-D-08 — advisory, never authoritative)', () => {
 	});
 
 	it('returns the entry even when it is a cached known-none (songid null, avail dry)', async () => {
-		// D-06(c): a clean "qq is dry" negative is the POINT of the avail layer — it must reach the
-		// caller so the source walk can skip that source, NOT be flattened to a miss.
+		// A clean "qq is dry" negative must reach the caller in its entry shape, NOT be
+		// flattened to a miss — the caller's adoption gates are defined over that shape.
+		// (The 31-D-06(c) stub-walk threading that once consumed `avail` was RETIRED
+		// 2026-11-20; this passthrough contract stands on its own.)
 		const dry: ResolveEntry = {
 			source: null,
 			songid: null,

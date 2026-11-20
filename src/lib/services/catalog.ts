@@ -276,9 +276,11 @@ export async function resolveNameStub(
 	const eligible = getEnabledAdapters({})
 		.map((a) => a.id)
 		.filter((id) => isAutoResolveEligible(id));
-	// 31-D-06(c): the edge entry remembers which sources came up DRY for this song. Searching a
-	// known-dry source is a wasted call, and skipping it is the entire point of caching the
-	// availability hint. Applied ONLY when at least one source survives — an all-dry (or stale)
+	// The avail contract (the retained half of 31-D-06(c); its edge-cache threading was
+	// RETIRED 2026-11-20 — name stubs never read the cache, so the hint could never arrive
+	// from there): a caller that legitimately holds per-source availability knowledge
+	// ("kuwo has it, netease is dry") may pass it here — searching a known-dry source is a
+	// wasted call. Applied ONLY when at least one source survives — an all-dry (or stale)
 	// hint must degrade to the full walk, never to an empty one that resolves nothing.
 	const kept = avail ? eligible.filter((id) => avail[id] !== 'dry') : eligible;
 	const order = kept.length ? kept : eligible;
@@ -583,8 +585,12 @@ async function resolveTrackDetails(
 	// (never-throw). A normal source-bearing, detailsLoaded track skips this branch unchanged.
 	// 32-D-10: skipped when the mid shortcut already produced a playable track.
 	if (!fromMid && track.resolveByName && !track.detailsLoaded) {
-		// 31-D-06(c): thread the cached availability hints so the walk can skip a known-dry source.
-		const named = await resolveNameStub(track.artist, track.title, sig, cachedEntry?.avail);
+		// No avail hint is threaded into the walk here, deliberately: name stubs never read
+		// the edge cache (the §5 sqn call — cacheMayLead above excludes resolveByName), so
+		// cachedEntry is structurally null on this path and the former 31-D-06(c) threading
+		// could only ever pass undefined. 31-D-06(c) RETIRED 2026-11-20 (Hector's ruling);
+		// resolveNameStub's avail parameter stays for callers that hold hints legitimately.
+		const named = await resolveNameStub(track.artist, track.title, sig);
 		return named ?? track;
 	}
 

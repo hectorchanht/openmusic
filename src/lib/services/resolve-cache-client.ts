@@ -132,8 +132,8 @@ async function readOrThrow(
 
 /**
  * Look the song up in the edge resolve cache. Returns the entry (including a cached known-none,
- * whose `avail` hints still save a source call) or null on a miss OR on any failure whatsoever.
- * Never rejects — 31-D-08.
+ * unflattened — the caller's gates are defined over the entry's shape) or null on a miss OR on
+ * any failure whatsoever. Never rejects — 31-D-08.
  */
 export async function readResolveCache(
 	artist: string,
