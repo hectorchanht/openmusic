@@ -54,8 +54,10 @@
 	import { playerSwipe } from '$lib/components/swipe-act';
 import VideoStage from '$lib/components/VideoStage.svelte';
 import NpAbout from '$lib/components/NpAbout.svelte';
-	import { scrub } from '$lib/actions/scrub';
-	import { seekTargetFraction, SEEK_STEP_SECONDS } from '$lib/services/transport-keys';
+	// quick-261119-seekbar: the progress bar is the shared SeekBar component (the bespoke
+	// use:scrub mount + local seekKey that lived here moved into it, so this surface and
+	// the Nowbar strip are the same bar — grey buffer layer included).
+	import SeekBar from '$lib/components/SeekBar.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -227,41 +229,24 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		return t ? coverGradient(t.uid) : 'linear-gradient(145deg, var(--color-surface-2), var(--color-bg))';
 	}
 
-	// ---- progress / scrubber (plan 002) ----
-	const frac = $derived(player.duration > 0 ? player.currentTime / player.duration : 0);
-	// While a live scrub is in flight, the UI shows the PREVIEW fraction (finger position) and the
-	// audio is NOT seeked until release — so playback never stutters mid-drag. displayFrac is what
-	// the rail + time readout render; it falls back to the real playback frac when not scrubbing.
+	// ---- progress / scrubber (plan 002 → quick-261119-seekbar) ----
+	// The bar itself is the shared SeekBar component: grey buffer layer, drag/tap
+	// seek-anywhere, ±5s focused arrows — identical to the Nowbar strip by
+	// construction. This host keeps ONLY the .times readout state: while a live
+	// scrub is in flight the left time shows the PREVIEW (finger) position and
+	// the audio is NOT seeked until release, so playback never stutters mid-drag.
 	let scrubbing = $state(false);
 	let scrubFrac = $state(0);
-	const displayFrac = $derived(scrubbing ? scrubFrac : frac);
 	const displayTime = $derived(
 		scrubbing && player.duration > 0 ? scrubFrac * player.duration : player.currentTime
 	);
-	function onScrubPreview(f: number) {
-		scrubFrac = f;
-		scrubbing = true;
-	}
-	function onScrubCommit(f: number) {
-		player.seekFraction(f); // clamps [0,1] internally; auto-plays if paused (same as tap-to-seek)
-	}
-	function onScrubEnd() {
-		scrubbing = false;
-	}
-	// Keyboard parity retained: arrows nudge ±5s via the store (unchanged behaviour).
-	// quick-260919-keys: the step and the arithmetic now come from services/transport-keys, which is
-	// also what the global Shift+arrows use — the two ±5s seeks in the app are the same ±5s by
-	// construction rather than by two copies of `(currentTime ± 5) / duration` staying in sync.
-	// Still only reached when the `.scrubber` itself has focus; the global listener yields arrows to
-	// role="slider", so a shifted OR plain arrow here seeks exactly once.
-	function seekKey(e: KeyboardEvent) {
-		if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-		const frac = seekTargetFraction(
-			player.currentTime,
-			player.duration,
-			e.key === 'ArrowRight' ? SEEK_STEP_SECONDS : -SEEK_STEP_SECONDS
-		);
-		if (frac !== null) player.seekFraction(frac);
+	function onScrubChange(f: number | null) {
+		if (f === null) {
+			scrubbing = false;
+		} else {
+			scrubFrac = f;
+			scrubbing = true;
+		}
 	}
 
 
@@ -1315,26 +1300,11 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	{/if}
 
 	<div class="prog">
-		<div
-			class="scrubber tip-host"
-			class:scrubbing
-			style:--scrub-frac={displayFrac}
-			role="slider"
-			tabindex="0"
-			aria-label={t('nowplaying.seek')}
-			aria-valuemin="0"
-			aria-valuemax="100"
-			aria-valuenow={Math.round(displayFrac * 100)}
-			aria-valuetext={`${fmtTime(displayTime)} / ${player.duration > 0 ? fmtTime(player.duration) : '--:--'}`}
-			onkeydown={seekKey}
-			use:scrub={{ onSeek: onScrubCommit, onPreview: onScrubPreview, onScrubEnd }}
-		>
-			<!-- quick-261008-keytip: focused arrows seek ±5s here; Shift+arrows seek ±5s globally
-			     (transport-keys.ts) — both badges, exactly those bindings, no invented keys. -->
-			<KeyTip label={t('nowplaying.seek')} keys={['← →', 'Shift ← →']} />
-			<div class="scrub-fill"></div>
-			<div class="scrub-knob"></div>
-		</div>
+		<!-- quick-261119-seekbar: the shared SeekBar (full variant) — same bar as the
+		     Nowbar strip, with the grey buffered layer. The scoped 44px hit band
+		     (.prog .scrubber::after below) still applies: SeekBar's root carries the
+		     .scrubber class. -->
+		<SeekBar variant="full" onScrubChange={onScrubChange} />
 		<div class="times">
 			<span>{fmtTime(displayTime)}</span>
 			<span>{player.duration > 0 ? fmtTime(player.duration) : '--:--'}</span>
@@ -1754,14 +1724,13 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	   only per-file pieces — the global rule animates them. (gmy unified the drift.) */
 	.np-error { color: var(--color-danger-text); font-size: 0.8125rem; text-align: center; margin: 2px 2px 10px; }
 	.prog { margin: 4px 0; }
-	/* quick-261102-s5t: the global .scrubber is 14px tall — too small a thumb target for the
-	   page's main gesture. A transparent 44px band centred on the rail is part of the element, so
-	   use:scrub receives its pointerdowns unchanged. Scoped here, not in app.css, because the
-	   Nowbar's scrubber sits beside buttons this band would cover. 44px stops ~1px short of the
-	   artist row above (meta margin 12 + prog margin 4). */
-	.prog .scrubber::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 44px; transform: translateY(-50%); }
-	/* plan 002: the seek rail is now the shared global `.scrubber` (app.css) driven by
-	   use:scrub — the old local `.track`/`.fill`/`.knob` rules were removed. */
+	/* quick-261102-s5t: the 44px thumb band that used to live here as
+	   `.prog .scrubber::after` moved INTO SeekBar with the element
+	   (quick-261119-seekbar) — scoped styles cannot reach a child component's
+	   root, so the band is now part of the full variant itself. */
+	/* plan 002: the seek rail is the shared global `.scrubber` (app.css) — the old local
+	   `.track`/`.fill`/`.knob` rules were removed; quick-261119-seekbar moved the element
+	   itself into the shared SeekBar component. */
 	/* plan 006: tabular-nums so the ticking current-time readout never jitters horizontally. */
 	.times { display: flex; justify-content: space-between; font-size: 0.6875rem; color: var(--color-text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
 	/* quick-260910-tqw: the bottom margin glides with the .cover/.meta reflow (byte-identical

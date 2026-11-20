@@ -41,6 +41,8 @@
     // quick-261115-inj: desktop bar — right-click / long-press opens the TrackMenu, plus Like +
     // Download beside the track info (the same per-song pair NowPlaying's transport carries).
     import { longpress } from "$lib/actions/longpress";
+    // quick-261119-seekbar: the top-edge progress rail is the shared SeekBar (mini variant).
+    import SeekBar from "$lib/components/SeekBar.svelte";
     import { library } from "$lib/stores/library.svelte";
     import { toast } from "$lib/stores/toast.svelte";
     import { tick as hapticTick } from "$lib/util/haptics";
@@ -360,8 +362,17 @@
             {#if player.loading}
                 <!-- quick-260809-mvz: `.motion-always` — the indeterminate loader rail is the same
                      kind of "still working" signal as the spinner, so neither reduce-motion gate
-                     may touch it. Full speed everywhere; see the .sliver rule below. -->
+                     may touch it. Full speed everywhere; see the .sliver rule below. This stays
+                     the bar's loading indication (quick-261119-seekbar): a seek into unbuffered
+                     territory lands here while the player re-buffers. -->
                 <i class="sliver motion-always"></i>
+            {:else if player.current}
+                <!-- quick-261119-seekbar: the shared SeekBar, mini variant — grey buffered
+                     layer + a draggable/tappable seek strip on the bar's top edge (24px
+                     invisible hit height, 3px visual line, knob included). It sits OUTSIDE
+                     .np-open, so its gestures never reach tap-to-expand, coverSwipe or the
+                     cover double-tap; its own claim threshold yields vertical scrolls. -->
+                <SeekBar variant="mini" />
             {:else}
                 <i
                     style:width={`${player.duration > 0 ? (player.currentTime / player.duration) * 100 : 0}%`}

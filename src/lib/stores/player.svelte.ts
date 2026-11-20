@@ -37,6 +37,9 @@ import {
 	SLOW_RESUME_TARGET_SEC,
 	SLOW_RESUME_TIMEOUT_MS
 } from '$lib/services/buffer-gate';
+// quick-261119-seekbar: the shared SeekBar's buffered-ranges snapshot (grey buffer layer).
+import { readBufferedRanges, sameBufferedRanges } from '$lib/services/seekbar';
+import type { BufferedRange } from '$lib/services/seekbar';
 import { tryFallback } from '$lib/services/fallback';
 import { onApiPipelineIdle } from '$lib/services/api-base';
 import { reportDeadUrl } from '$lib/services/resolve-cache-client';
@@ -1881,6 +1884,14 @@ class Player {
 	currentTime = $state(0);
 	/** 0 until loadedmetadata; never NaN. */
 	duration = $state(0);
+	/**
+	 * quick-261119-seekbar: snapshot of the audio element's buffered TimeRanges, feeding
+	 * the shared SeekBar's grey buffer layer on every surface. Refreshed by syncBuffered()
+	 * (progress / timeupdate / seeked); reset alongside currentTime/duration on a track
+	 * change. Plain {start,end} pairs — never the live TimeRanges — so components read
+	 * them one-way like every other store field.
+	 */
+	bufferedRanges = $state<BufferedRange[]>([]);
 
 	/**
 	 * quick-260919-et3: the USER's volume level, [0,1]. Reactive — the desktop Nowbar slider reads
@@ -2326,6 +2337,16 @@ class Player {
 		return typeof navigator !== 'undefined' && 'mediaSession' in navigator
 			? navigator.mediaSession
 			: null;
+	}
+
+	/**
+	 * quick-261119-seekbar: refresh the bufferedRanges $state from the element, but only
+	 * when the snapshot moved materially (sameBufferedRanges) — progress events arrive in
+	 * bursts and the bars must not re-render 4×/sec for sub-frame buffer growth.
+	 */
+	private syncBuffered() {
+		const next = readBufferedRanges(this.audio);
+		if (!sameBufferedRanges(this.bufferedRanges, next)) this.bufferedRanges = next;
 	}
 
 	/** Push the current finite, in-range position to the OS media UI (guarded, MS-04). */
@@ -3002,6 +3023,10 @@ class Player {
 		// (first bytes) → loadedmetadata/canplay (decodable) → stalled/suspend/waiting (why not).
 		for (const ev of ['loadstart', 'progress', 'loadedmetadata', 'canplay', 'stalled', 'suspend', 'waiting'])
 			el.addEventListener(ev, () => this.logMedia(ev));
+		// quick-261119-seekbar: keep the SeekBar grey buffer layer current — progress is the
+		// byte-arrival signal, seeked is where a second range appears after a far seek.
+		el.addEventListener('progress', () => this.syncBuffered());
+		el.addEventListener('seeked', () => this.syncBuffered());
 		el.addEventListener('playing', () => {
 			logAction('playing', { uid: this.current?.uid, ms: this.srcSetAt ? Date.now() - this.srcSetAt : -1 });
 			// `playing` is the event that means audio is ACTUALLY producing output (CR-01).
@@ -3152,6 +3177,7 @@ class Player {
 				return;
 			}
 			this.currentTime = el.currentTime || 0;
+			this.syncBuffered(); // quick-261119-seekbar: timeupdate is the buffer layer's floor refresh
 			// IDLE-PREFETCH backstop (quick-261102-idle1): play()'s src-set arms the idle
 			// prefetch itself; this timeupdate hook only re-arms when no arm exists — the
 			// restore()/resume paths that never ran play()'s arming points, or a repeat-one
@@ -4708,6 +4734,7 @@ class Player {
 		this.hasPlayedSinceSrc = false;
 		this.currentTime = 0;
 		this.duration = 0;
+		this.bufferedRanges = []; // quick-261119-seekbar: the old track's buffer is not the new one's
 		// quick-260910-piz: a FRESH user play of a song OUTSIDE the attached list is a context switch,
 		// so the album art stops applying. Needed in addition to setQueue's clear because the home
 		// shelves call play({fresh}) directly with no queue install (quick-260831-sp9). A fresh play of

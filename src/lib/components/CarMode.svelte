@@ -30,7 +30,9 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { playRandomDiscovery } from '$lib/services/random-discovery';
 	import { CHART_GENRE_LABEL } from '$lib/services/home-charts';
-	import { progressFraction, reliabilityDot } from '$lib/services/car-mode';
+	import { reliabilityDot } from '$lib/services/car-mode';
+	// quick-261119-seekbar: the sliver is the shared SeekBar's read-only thin form.
+	import SeekBar from '$lib/components/SeekBar.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import { t } from '$lib/i18n';
@@ -42,7 +44,6 @@
 	const dot = $derived(
 		reliabilityDot({ hasTrack: !!np, isLocal: player.currentLocal })
 	);
-	const frac = $derived(progressFraction(player.currentTime, player.duration));
 	const liked = $derived(player.current ? library.isLikedTrack(player.current) : false);
 
 	function fallbackCover(): string {
@@ -72,12 +73,15 @@
 <section class="car" aria-label={t('home.carMode')}>
 	<!-- Progress sliver: the Nowbar .np-prog idiom (determinate fill, or the
 	     indeterminate sliver while loading — spinner XOR skeleton doctrine: this
-	     rail is the panel's ONE loading indicator for track changes). -->
+	     rail is the panel's ONE loading indicator for track changes).
+	     quick-261119-seekbar: the determinate form is the shared SeekBar's
+	     read-only thin variant — same grey buffered layer as everywhere else,
+	     no knob and no seek (a driving surface never seeks). -->
 	<div class="cm-prog" class:indet={player.loading}>
 		{#if player.loading}
 			<i class="sliver motion-always"></i>
 		{:else}
-			<i style:width={`${frac * 100}%`}></i>
+			<SeekBar variant="thin" />
 		{/if}
 	</div>
 
