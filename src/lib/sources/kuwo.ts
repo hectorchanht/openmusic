@@ -144,13 +144,14 @@ export const kuwo: SourceAdapter = {
 		const eq = effectiveQuality(quality ?? settings.defaultQuality);
 		const level = eq === '128' ? '128k' : eq === '320' ? '320k' : 'zp';
 
-		// quick-261119-mcache: serve a still-fresh PERSISTED url instead of re-resolving. Kuwo's
+		// quick-261119-mcache: serve a PERSISTED url instead of re-resolving. Kuwo's
 		// resolver mints a fresh signed url on EVERY detail call, and the browser media cache is
 		// keyed by url — so an un-cached re-resolve can never hit it, and every replay re-downloads
 		// the whole file from the China CDN (the first-play-stutter asymmetry). The persisted url
-		// (audio-url-cache, TTL inside the probed signed-url lifetime) makes a replay attach the
-		// IDENTICAL url, so the media cache + ETag revalidation finally apply and the ~2.5 s
-		// resolver leg is skipped. The trade is the detail body's lyric/metadata, handled exactly
+		// (audio-url-cache, cache-until-death: the bytes behind a uid+tier never change, so the
+		// entry is served until the url actually dies and reportDeadAudioUrl evicts it) makes a
+		// replay attach the IDENTICAL url, so the media cache + ETag revalidation finally apply
+		// and the ~2.5 s resolver leg is skipped. The trade is the detail body's lyric/metadata, handled exactly
 		// as catalog's 32-D-20 url-hit handles it: lrcUnresolved marks the lyric for the player's
 		// off-critical-path back-fill; search already supplied title/artist/album/cover. A dead
 		// persisted url self-heals via reportDeadAudioUrl on the player's error path.

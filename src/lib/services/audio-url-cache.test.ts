@@ -1,19 +1,21 @@
 // Tests for the persisted resolved-audio-url cache (quick-261119-mcache).
 //
-// Contract: a successful resolve is persisted per (uid, quality tier) and served inside the
-// 45-min TTL — across a "reload" (mirror reset, storage kept) — so a replay attaches the SAME
-// url and the browser media cache can hit. Past the TTL it is never served. A dead url is
-// evicted via reportDeadAudioUrl (self-gating — unknown urls are a no-op). Tiers never leak
-// into each other; non-https urls are never stored; the record is bounded.
+// Contract (CACHE-UNTIL-DEATH, Hector 2026-11-19 — supersedes the shipped 45-min TTL): a
+// successful resolve is persisted per (uid, quality tier) and served with NO age limit —
+// across a "reload" (mirror reset, storage kept), at 24h, at 7d — so a replay attaches the
+// SAME url and the browser media cache can hit. An entry leaves only when its url is reported
+// dead via reportDeadAudioUrl (self-gating — unknown urls are a no-op) or under cap pressure.
+// Tiers never leak into each other; non-https urls are never stored; the record is bounded.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
 	getCachedAudioUrl,
 	setCachedAudioUrl,
 	reportDeadAudioUrl,
 	__resetAudioUrlCache,
-	__dropAudioUrlMirrorForTest,
-	AUDIO_URL_TTL_MS
+	__dropAudioUrlMirrorForTest
 } from './audio-url-cache';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const KUWO_URL_A = 'https://car-er.kuwo.cn/aaaa1111/6affbba9/resource/30106/trackmedia/M800002D6AwU0KgO4w.mp3';
 const KUWO_URL_B = 'https://car-lv.kuwo.cn/bbbb2222/6affbbbd/resource/30106/trackmedia/M5000000MxZk0noO3l.mp3';
@@ -57,7 +59,7 @@ describe('audio-url-cache', () => {
 		expect(getCachedAudioUrl('kuwo:493469900', '320k')).toBeNull();
 	});
 
-	it('serves the persisted url within the TTL (the replay hit)', () => {
+	it('serves the persisted url (the replay hit)', () => {
 		setCachedAudioUrl('kuwo:493469900', '320k', KUWO_URL_A);
 		expect(getCachedAudioUrl('kuwo:493469900', '320k')).toBe(KUWO_URL_A);
 	});
@@ -71,16 +73,27 @@ describe('audio-url-cache', () => {
 		expect(getCachedAudioUrl('kuwo:493469900', '320k')).toBe(KUWO_URL_A);
 	});
 
-	it('never serves a url past the TTL', () => {
+	it('cache-until-death: still serves an entry 24h old (past the retired 45-min TTL)', () => {
 		setCachedAudioUrl('kuwo:493469900', '320k', KUWO_URL_A);
-		vi.setSystemTime(1_700_000_000_000 + AUDIO_URL_TTL_MS + 1);
-		expect(getCachedAudioUrl('kuwo:493469900', '320k')).toBeNull();
+		vi.setSystemTime(1_700_000_000_000 + DAY_MS);
+		expect(getCachedAudioUrl('kuwo:493469900', '320k')).toBe(KUWO_URL_A);
 	});
 
-	it('serves a url one ms inside the TTL', () => {
+	it('cache-until-death: still serves an entry 7 days old, even across a reload', () => {
 		setCachedAudioUrl('kuwo:493469900', '320k', KUWO_URL_A);
-		vi.setSystemTime(1_700_000_000_000 + AUDIO_URL_TTL_MS - 1);
+		vi.setSystemTime(1_700_000_000_000 + 7 * DAY_MS);
+		__dropAudioUrlMirrorForTest(); // a page reload a week later: storage is the only memory
 		expect(getCachedAudioUrl('kuwo:493469900', '320k')).toBe(KUWO_URL_A);
+	});
+
+	it('a dead-reported entry is never served again, however old it is', () => {
+		setCachedAudioUrl('kuwo:493469900', '320k', KUWO_URL_A);
+		vi.setSystemTime(1_700_000_000_000 + 7 * DAY_MS);
+		expect(getCachedAudioUrl('kuwo:493469900', '320k')).toBe(KUWO_URL_A); // alive until reported
+		reportDeadAudioUrl(KUWO_URL_A); // death is the only expiry
+		expect(getCachedAudioUrl('kuwo:493469900', '320k')).toBeNull();
+		__dropAudioUrlMirrorForTest(); // and the eviction is persisted, not just in-memory
+		expect(getCachedAudioUrl('kuwo:493469900', '320k')).toBeNull();
 	});
 
 	it('tiers never leak: a lossless url does not serve a 320k caller', () => {
@@ -116,11 +129,11 @@ describe('audio-url-cache', () => {
 		expect(getCachedAudioUrl('kuwo:493469900', '320k')).toBeNull();
 	});
 
-	it('a re-resolve overwrites the old url and refreshes the TTL', () => {
+	it('a re-resolve overwrites the old url (the fresh url is the one served)', () => {
 		setCachedAudioUrl('kuwo:493469900', '320k', KUWO_URL_A);
-		vi.setSystemTime(1_700_000_000_000 + AUDIO_URL_TTL_MS - 1000);
+		vi.setSystemTime(1_700_000_000_000 + 3 * DAY_MS);
 		setCachedAudioUrl('kuwo:493469900', '320k', KUWO_URL_B);
-		vi.setSystemTime(1_700_000_000_000 + AUDIO_URL_TTL_MS + 1000);
+		vi.setSystemTime(1_700_000_000_000 + 6 * DAY_MS);
 		expect(getCachedAudioUrl('kuwo:493469900', '320k')).toBe(KUWO_URL_B);
 	});
 

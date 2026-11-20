@@ -13,21 +13,26 @@
 // play was only ever the in-memory track object surviving, never the browser cache.
 //
 // THE FIX. Persist the resolved url per (uid, quality tier) in localStorage and let the adapter
-// serve it inside a conservative TTL instead of re-resolving. A replay — even after a full page
-// reload — then attaches the identical url, so the browser media cache and ETag revalidation
-// can finally do their job, and the ~2.5 s resolver leg is skipped entirely.
+// serve it until it DIES instead of re-resolving. A replay — even after a full page reload —
+// then attaches the identical url, so the browser media cache and ETag revalidation can finally
+// do their job, and the ~2.5 s resolver leg is skipped entirely.
 //
-// TTL EVIDENCE (measured 2026-11-19/20, see ~/workspace/openmusic-mediacache/audit.md): the
-// token's hex segment is the ISSUE time (== resolve time + ~3 s), not an expiry — lifetime
-// cannot be parsed out of the url, so it was probed empirically: a url resolved at 03:19:07Z was
-// range-probed every 10 min and stayed 206-alive for the full probe window recorded in the
-// audit. AUDIO_URL_TTL_MS sits well inside that proven floor with margin, and the two safety
-// nets below cover the tail:
+// CACHE-UNTIL-DEATH (Hector's ruling, 2026-11-19, supersedes the 45-min TTL this cache shipped
+// with hours earlier): "signed url cache can be as long till it dies, since the data we fetch
+// back is always same, same data never change after init." The bytes behind a (uid, tier) NEVER
+// change, so a cached url is either still valid (a pure win — the resolver leg is skipped) or
+// dead — and death is already detected and self-healed:
 //   - reportDeadAudioUrl(url) — SELF-GATING like reportDeadUrl / reportDeadDirectUrl: the
-//     player calls it unconditionally on every audio.error; only urls THIS cache served are
-//     evicted, so a stale entry self-heals on first failure and is never re-served.
+//     player calls it unconditionally on every audio.error (play-start AND mid-play — the call
+//     sits in the central error handler before the hasPlayed branch); only urls THIS cache
+//     served are evicted, so a dead entry is evicted on its first failure and never re-served.
 //   - The player's own re-resolve path is untouched: an eviction just means the next play
-//     resolves fresh, exactly the pre-cache behaviour.
+//     resolves fresh, exactly the pre-cache behaviour. A dead-but-unreported url therefore
+//     costs at most one failed attempt that the existing dead-url failover already absorbs.
+// Entries leave ONLY via (a) a dead report, (b) LRU pressure at the cap below, or (c) a storage
+// schema/version change. (History: the original 45-min TTL came from an empirical probe — a url
+// resolved 2026-11-19 03:19:07Z stayed 206-alive for the full 50.5+ min probe window, see
+// ~/workspace/openmusic-mediacache/audit.md; the ruling above makes the number moot.)
 //
 // SCOPE. Kuwo is wired today (the measured rotating case). The cache is deliberately generic —
 // keyed by uid + tier, source-agnostic — so another rotating-url adapter can adopt it with a
@@ -36,22 +41,18 @@
 // must NOT be added: a second cache over a working one is how TTLs start disagreeing.
 //
 // House shape (mirrors cover-cache.ts): one JSON record in localStorage, {u,t} entries,
-// read-side TTL, write-side oldest-first cap eviction, every storage touch try/catch — a
-// storage failure degrades to "no cache", never a throw into the resolve path.
+// no read-side expiry (cache-until-death), write-side oldest-first cap eviction, every storage
+// touch try/catch — a storage failure degrades to "no cache", never a throw into the resolve
+// path.
 import { hasHttpsScheme } from './url-safety';
-
-/**
- * 45 minutes — inside the empirically probed kuwo signed-url lifetime floor (audit.md) with
- * margin; deliberately NOT longer: the cost of a too-short TTL is one re-resolve, the cost of a
- * too-long one is a dead url served to <audio> (mitigated, but not free — see header).
- */
-export const AUDIO_URL_TTL_MS = 45 * 60 * 1000;
 
 const CACHE_KEY = 'openmusic:audio-url-cache:v1';
 
 /** A replay-heavy session touches a handful of distinct songs; the cap only bounds growth. */
 const MAX_ENTRIES = 128;
 
+/** `t` is the last-WRITE time — under cache-until-death it is no longer an expiry input; it
+ *  only orders entries for oldest-first eviction when the cap bites. */
 type AudioUrlEntry = { u: string; t: number };
 type AudioUrlRecord = Record<string, AudioUrlEntry>;
 
@@ -88,27 +89,22 @@ function keyOf(uid: string, quality: string): string {
 }
 
 /**
- * The persisted url for (uid, quality tier), or null on miss/expiry. Expired entries are
- * evicted on read (and the eviction persisted) so a later reportDeadAudioUrl scan never trips
- * over them. Tier is part of the key: a lossless url must never serve a 128k caller.
+ * The persisted url for (uid, quality tier), or null on miss. CACHE-UNTIL-DEATH: there is no
+ * age check — an entry written days ago is served exactly like a fresh one, and leaves only
+ * via reportDeadAudioUrl, cap pressure, or a schema change (see header). Tier is part of the
+ * key: a lossless url must never serve a 128k caller.
  */
 export function getCachedAudioUrl(uid: string, quality: string): string | null {
 	const record = load();
-	const key = keyOf(uid, quality);
-	const entry = record[key];
+	const entry = record[keyOf(uid, quality)];
 	if (!entry || typeof entry.u !== 'string' || typeof entry.t !== 'number') return null;
-	if (Date.now() - entry.t >= AUDIO_URL_TTL_MS) {
-		delete record[key];
-		persist();
-		return null;
-	}
 	return entry.u;
 }
 
 /**
  * Persist a SUCCESSFUL resolve. Only https urls are stored (the url-safety house rule — a
  * mixed-content url must never be replayed from cache later). Re-writing a key refreshes its
- * TTL and its eviction recency; beyond the cap the oldest-written entries go first.
+ * eviction recency; beyond the cap the oldest-written entries go first.
  */
 export function setCachedAudioUrl(uid: string, quality: string, url: string): void {
 	if (!url || !hasHttpsScheme(url)) return;

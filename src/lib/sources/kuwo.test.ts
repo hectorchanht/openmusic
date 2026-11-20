@@ -6,7 +6,11 @@ import searchFixture from './__fixtures__/kuwo.search.json';
 import detailFixture from './__fixtures__/kuwo.detail.json';
 import { kuwoHealth } from '$lib/services/kuwo-health';
 import { DEFAULT_THRESHOLD } from '$lib/services/source-health';
-import { __resetAudioUrlCache, reportDeadAudioUrl } from '$lib/services/audio-url-cache';
+import {
+	__resetAudioUrlCache,
+	__dropAudioUrlMirrorForTest,
+	reportDeadAudioUrl
+} from '$lib/services/audio-url-cache';
 
 const ac = new AbortController();
 
@@ -229,6 +233,26 @@ describe('kuwo.resolve audio-url cache (quick-261119-mcache)', () => {
 		expect(second.detailsLoaded).toBe(true);
 		expect(second.lrcUnresolved).toBe(true); // lyric back-filled off the critical path (32-D-20 shape)
 		expect(spy).toHaveBeenCalledTimes(1); // NO second detail call
+	});
+
+	it('cache-until-death: a week-old persisted url is still served with no fetch', async () => {
+		const spy = mockFetchOnce(detailFixture);
+		vi.stubGlobal('fetch', spy);
+
+		const t0 = 1_700_000_000_000;
+		const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(t0);
+		try {
+			await kuwo.resolve(stubTrack(), ac.signal);
+			expect(spy).toHaveBeenCalledTimes(1);
+
+			nowSpy.mockReturnValue(t0 + 7 * 24 * 60 * 60 * 1000); // 7 days later…
+			__dropAudioUrlMirrorForTest(); // …in a fresh page load (storage only)
+			const again = await kuwo.resolve(stubTrack(), ac.signal);
+			expect(again.audioUrl).toBe(detailFixture.data.url); // same url — no age expiry
+			expect(spy).toHaveBeenCalledTimes(1); // still NO second detail call
+		} finally {
+			nowSpy.mockRestore();
+		}
 	});
 
 	it('re-resolves after the persisted url is reported dead', async () => {
