@@ -1,0 +1,18 @@
+feat(player): adaptive quality ladder — fluent-first streaming steps down under pressure (Hector 2026-11-19)
+
+Streaming lives in the light band (per-source 128k-320k via the existing
+quality machinery); a session pressure state beside the buffer gate —
+fed only by gate/hold telemetry, no new probing — steps upcoming
+resolves down (320 -> 128) on gate/hold timeouts, and a current track
+that times out in a hold re-resolves the SAME song one tier lower and
+resumes at position, once per track per pressure episode (no ping-pong).
+120s of continuous smooth playback (capped-tick banking) clears the
+step-down. Explicit lossless is a force and is never overridden;
+downloads (explicit per-call quality) bypass the ladder whole; the
+signed-url cache stays keyed uid|tier so a downgrade never poisons the
+preferred tier. Quality tag shows the actual tier (derived from the
+live track). Settings > Playback gains an Auto quality toggle
+(default ON, all 15 locales); OFF restores the pre-ladder fixed-tier
+behaviour exactly.
+
+Defence order: buffer gate -> quality downgrade -> proxy rescue / skip.

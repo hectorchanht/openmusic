@@ -1,0 +1,10645 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { makeUid, type SourceId, type Track } from '$lib/sources/types';
+import { matchKey } from '$lib/services/dedupe';
+
+// FIX-A: player.playStub is the optimistic resolve-on-tap path. A discovery tile is a
+// Last.fm {artist,title} stub (NOT a Track), so it must be resolved via resolveStub
+// (searchAll+dedupeBest, ~5-10s) before play. playStub locks the tapped stub into
+// pendingTrack + loading SYNCHRONOUSLY, dedupes a same-song double-tap, and supersedes an
+// in-flight resolve when a different song is tapped (generation guard). We mock resolveStub
+// with DEFERRED promises so the generation-timing test is deterministic, and play() (which
+// touches the real <audio>/Media Session) is stubbed so these run headless in node.
+
+// Mock the resolve-on-tap shim so we control settle order + timing.
+vi.mock('$lib/services/discovery', () => ({ resolveStub: vi.fn() }));
+// Mock the detail resolver so prefetchNext's pre-resolve is observable/controllable in node.
+// 37-D-03: lyricByName is the NAME-ONLY lyric walk backfillLyrics routes a `device:` uid to. It is
+// a REAL import in player.svelte.ts, so this factory has to declare it or the device branch calls
+// `undefined` — the miss the offline-served enrichment suite below asserts against.
+vi.mock('$lib/services/catalog', () => ({
+	ensureTrackDetails: vi.fn(),
+	searchAll: vi.fn(),
+	lyricByName: vi.fn(async () => null),
+	// quick-260926-l69: retryUnplayable evicts the song's cached single-source searches.
+	evictSearch: vi.fn()
+}));
+// 37-D-04: the zero-network embedded tag read is the GATE for the name-based network fallbacks, so
+// the enrichment suite drives it directly — a hit, a miss, or a DEFERRED promise (supersedence).
+// Default is the "this file carries nothing" miss, which is what every other suite wants.
+vi.mock('$lib/services/local-tags', () => ({
+	localEnrichment: vi.fn(async () => ({ lrc: null, art: null })),
+	__resetLocalTagsMemo: vi.fn()
+}));
+// Mock the cross-source fallback so the resilience tests drive runFallback's total-failure exit
+// (null = all sources exhausted) without real network.
+vi.mock('$lib/services/fallback', () => ({ tryFallback: vi.fn(), fallbackOrder: vi.fn(() => []) }));
+// PLAY-10: restore()/persist() early-return under !browser. Flip browser ON so the restore
+// migration path (persisted repeatMode → 'off'|'one') actually executes in node, and provide a
+// minimal in-memory localStorage so persist()/restore() have a backing store to read/write.
+vi.mock('$app/environment', () => ({ browser: true }));
+// WR-02/CR-02: mock the IDB blob store so the offline-blob read in reresolveCurrent/play can be a
+// DEFERRED promise (controls the await window the gen re-check guards). Defaults to a miss.
+vi.mock('$lib/services/blob-store', () => ({
+	blobStore: { get: vi.fn(async () => null), put: vi.fn(), del: vi.fn(), has: vi.fn(async () => false) }
+}));
+// QUEUE-05 (17-02): mock the two up-next generators so a test can OBSERVE the exclude/`have` Set
+// passed to them (the removedUids-exclusion assertions) without real network. Both default to []
+// — the same "sources dry → adds nothing" outcome the real fns hit headless, so the existing
+// end-of-queue / ensureAhead tests keep their behaviour (they already assert "adds nothing").
+// 31-D-12: the corrupt-blob branch queues a SILENT background re-download. player.svelte.ts reaches
+// it through a dynamic import (download-track imports the player singleton — a static import there
+// would close a module cycle); vi.mock intercepts the dynamic import all the same.
+vi.mock('$lib/services/download-track', () => ({ downloadTrack: vi.fn(async () => 'saved') }));
+// 31-D-09/31-D-11: the cache-bust suite drives the REAL resolve-cache-client (its served-url
+// registry is the self-gate the player relies on), so the ONE seam to control is apiFetch.
+// importOriginal keeps every other api-base export real; the default resolve keeps any incidental
+// caller harmless.
+const { mockApiFetch } = vi.hoisted(() => ({
+	mockApiFetch: vi.fn<(path: string, init?: RequestInit) => Promise<Response>>(
+		async () => new Response('{}', { status: 200 })
+	)
+}));
+vi.mock('$lib/services/api-base', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/services/api-base')>();
+	return { ...actual, apiFetch: mockApiFetch };
+});
+vi.mock('$lib/services/similar', () => ({ buildSimilarQueue: vi.fn(async () => []) }));
+vi.mock('$lib/services/picks', () => ({ buildDiversePicks: vi.fn(async () => []) }));
+// COVER-01 (21-03): mock the two cover-cache sync reads (uid layer then name layer) so the
+// resolvedCover sync-set read order is observable, and the single-item async resolve helper so the
+// tier-chain land + generation guard can be driven with a deferred promise. importOriginal keeps
+// every OTHER export (setCachedCover, clearCoverCache, …) real so unrelated suites are untouched.
+vi.mock('$lib/services/cover-cache', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/services/cover-cache')>();
+	// quick-260915-w4f: getPinnedCover is mocked too — it now leads every cover seed in the store, so
+	// the pin tests drive it directly while every OTHER suite keeps the unpinned default (null).
+	return {
+		...actual,
+		getCachedCoverByUid: vi.fn(() => null),
+		getCachedCover: vi.fn(() => null),
+		getPinnedCover: vi.fn((): string | null => null),
+		// Phase 40: call-through wrapper — the crowd family is driven through the REAL localStorage
+		// record, so a writeCrowdCover in the store is visible to the very next getCrowdCover read.
+		getCrowdCover: vi.fn(actual.getCrowdCover)
+	};
+});
+// Phase 40 D-16: the crowd cover pick client. Default: no keys → no fetch, so every other suite stays
+// network-silent.
+vi.mock('$lib/services/cover-pick-shared', () => ({
+	coverPickKeys: vi.fn(async (): Promise<{ u: string | null; n: string | null } | null> => null),
+	fetchCoverPick: vi.fn(async (): Promise<{ u: string | null; n: string | null } | null> => null),
+	submitCoverPick: vi.fn(async () => {})
+}));
+vi.mock('$lib/services/cover-backfill', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/services/cover-backfill')>();
+	// resolveCoverForTrack is the only per-play cover fetch left (the HQ upgrade was removed in
+	// Phase 40 D-11a). Mocked so the tests can assert when it is and is NOT made.
+	// quick-261020-hcvr: collectCoverCandidates is healCover's fan-out fallback — mocked to [] so
+	// only the suites that drive it opt in (no other suite calls it).
+	return {
+		...actual,
+		resolveCoverForTrack: vi.fn(async () => null),
+		collectCoverCandidates: vi.fn(async () => [])
+	};
+});
+// quick-260704-20e: spy on the BOTH-layers evictor so healCover's dead-probe eviction is observable.
+// importOriginal keeps writeCoverBoth/bumpCoverVersion (+ the reactive read helpers) real so the
+// player store's existing cover-write sites (Site A/Site C) still behave.
+vi.mock('$lib/stores/cover-version.svelte', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/stores/cover-version.svelte')>();
+	// quick-260915-w4f: unpinCover is wrapped (call-through) so healCover's ONE pin-removing path —
+	// a genuinely failed image load — is observable.
+	return {
+		...actual,
+		removeCoverBoth: vi.fn(actual.removeCoverBoth),
+		unpinCover: vi.fn(actual.unpinCover),
+		writeCrowdCover: vi.fn(actual.writeCrowdCover),
+		removeCrowdCover: vi.fn(actual.removeCrowdCover),
+		writeCoverBoth: vi.fn(actual.writeCoverBoth)
+	};
+});
+// 26-09 (Gap 2): spy on logAction so regenerate()'s `upnext.source` formation-source event is
+// observable. importOriginal keeps the real actionLog singleton + throttled persist for every OTHER
+// call site (play/ended/stall/…); we only WRAP logAction (call-through) so it still records calls.
+// quick-260919-3j1 (F3): the app-wide tag-rewrite serializer. The player's automatic lyric embed is
+// the ONLY automatic file writer in the app, so its gates are asserted against this mock directly.
+vi.mock('$lib/services/file-tag-sync', () => ({ syncFileTags: vi.fn(async () => 'tagged') }));
+vi.mock('$lib/stores/actionLog.svelte', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/stores/actionLog.svelte')>();
+	return { ...actual, logAction: vi.fn(actual.logAction) };
+});
+
+const memStore = new Map<string, string>();
+const localStorageMock: Storage = {
+	get length() {
+		return memStore.size;
+	},
+	clear: () => memStore.clear(),
+	getItem: (k: string) => (memStore.has(k) ? (memStore.get(k) as string) : null),
+	key: (i: number) => Array.from(memStore.keys())[i] ?? null,
+	removeItem: (k: string) => void memStore.delete(k),
+	setItem: (k: string, v: string) => void memStore.set(k, String(v))
+};
+vi.stubGlobal('localStorage', localStorageMock);
+
+import { player, type SkipReason } from './player.svelte';
+import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
+import { settings } from './settings.svelte';
+import { library } from '$lib/stores/library.svelte';
+import { resolveStub } from '$lib/services/discovery';
+import { ensureTrackDetails, lyricByName, evictSearch } from '$lib/services/catalog';
+import { localEnrichment } from '$lib/services/local-tags';
+import type { LocalEnrichment } from '$lib/services/local-tags';
+import { deviceUid } from '$lib/services/device-track';
+import { tryFallback } from '$lib/services/fallback';
+import { apiPipelineBusyCount, __resetGovernor } from '$lib/services/api-base';
+import { blobStore } from '$lib/services/blob-store';
+import { downloadTrack } from '$lib/services/download-track';
+import { buildSimilarQueue } from '$lib/services/similar';
+import { buildDiversePicks } from '$lib/services/picks';
+import { qualityLadder } from '$lib/services/quality-ladder';
+// quick-260809-38i: the two READ helpers are vi.fn()s in this file, so adoptCover's cache write is
+// asserted against the RAW localStorage record instead — uidCoverCacheKey/coverCacheKey are the real
+// (spread-from-actual) key builders, so they give the exact stored key shape for both layers.
+import {
+	getCachedCoverByUid,
+	getCachedCover,
+	getPinnedCover,
+	uidCoverCacheKey,
+	coverCacheKey,
+	setCrowdCoverByUid,
+	setCrowdCoverByName
+} from '$lib/services/cover-cache';
+import { coverPickKeys, fetchCoverPick, submitCoverPick } from '$lib/services/cover-pick-shared';
+import { resolveCoverForTrack, collectCoverCandidates } from '$lib/services/cover-backfill';
+import {
+	markCoverUrlDead,
+	isCoverUrlDead,
+	__resetDeadCoverUrls
+} from '$lib/services/dead-cover-urls';
+import {
+	removeCoverBoth,
+	unpinCover,
+	writeCrowdCover,
+	removeCrowdCover,
+	writeCoverBoth
+} from '$lib/stores/cover-version.svelte';
+import { logAction } from '$lib/stores/actionLog.svelte';
+import { syncFileTags } from '$lib/services/file-tag-sync';
+// quick-261116-lyrux: the REAL pin service (unmocked in this suite — pins read as
+// null by default) so the translated-sync pin-precedence case can set one.
+import { setPinnedLyrics, removePinnedLyrics } from '$lib/services/lyric-pins';
+import {
+	registerServedResolve,
+	__resetResolveCacheClient
+} from '$lib/services/resolve-cache-client';
+
+const mockResolve = vi.mocked(resolveStub);
+const mockEnsure = vi.mocked(ensureTrackDetails);
+const mockTryFallback = vi.mocked(tryFallback);
+const mockBlobGet = vi.mocked(blobStore.get);
+const mockBlobPut = vi.mocked(blobStore.put);
+const mockBlobDel = vi.mocked(blobStore.del);
+const mockBlobHas = vi.mocked(blobStore.has);
+const mockDownloadTrack = vi.mocked(downloadTrack);
+const mockSimilar = vi.mocked(buildSimilarQueue);
+const mockPicks = vi.mocked(buildDiversePicks);
+const mockUidCover = vi.mocked(getCachedCoverByUid);
+// quick-260831-t2g: the full tier chain — the only cover-fetch path (Phase 40 D-11a removed the HQ upgrade).
+const mockCoverResolve = vi.mocked(resolveCoverForTrack);
+const mockNameCover = vi.mocked(getCachedCover);
+const mockResolveCover = vi.mocked(resolveCoverForTrack);
+const mockCandidates = vi.mocked(collectCoverCandidates);
+const mockRemoveCoverBoth = vi.mocked(removeCoverBoth);
+// quick-260915-w4f: the user's pinned cover + the one path that removes it.
+const mockGetPinned = vi.mocked(getPinnedCover);
+const mockUnpinCover = vi.mocked(unpinCover);
+const mockLogAction = vi.mocked(logAction);
+// Phase 37: the embedded tag read and the name-only lyric walk it gates.
+const mockLocal = vi.mocked(localEnrichment);
+const mockLyricByName = vi.mocked(lyricByName);
+// quick-260919-3j1: the ONE automatic file writer.
+const mockSyncFileTags = vi.mocked(syncFileTags);
+
+function mk(source: SourceId, songid: string, artist: string, title: string): Track {
+	return {
+		uid: makeUid(source, songid),
+		source,
+		songid,
+		title,
+		artist,
+		album: '',
+		cover: null,
+		audioUrl: 'https://cdn.example.com/a.mp3',
+		lrc: null,
+		lrcUrl: null,
+		detailsLoaded: true,
+		// Shared readiness guard now requires a FRESH url, so the factory's "already resolved" track
+		// carries a resolve stamp — that is what `detailsLoaded: true` alone used to mean.
+		resolvedAt: Date.now(),
+		quality: null,
+		qualityLabel: null,
+		keyword: 'x',
+		displayIndex: 1
+	};
+}
+
+// COVER-01: a module-scope fake MediaMetadata (hoisted to avoid the Svelte nested-class perf
+// warning). Each instance exposes `.artwork` like the real one and pushes itself into whichever log
+// the active resolvedCover suite points `coverMetadataSink` at, so a test can assert a FRESH object
+// was assigned on the async cover land (Pitfall 4).
+let coverMetadataSink: Array<{ artwork: unknown[] }> = [];
+class FakeMediaMetadata {
+	title: string;
+	artist: string;
+	album: string;
+	artwork: unknown[];
+	constructor(init: { title: string; artist: string; album: string; artwork: unknown[] }) {
+		this.title = init.title;
+		this.artist = init.artist;
+		this.album = init.album;
+		this.artwork = init.artwork;
+		coverMetadataSink.push(this);
+	}
+}
+
+/** A deferred promise so a test can control exactly WHEN a resolve settles. */
+function deferred<T>() {
+	let resolve!: (v: T) => void;
+	let reject!: (e: unknown) => void;
+	const promise = new Promise<T>((res, rej) => {
+		resolve = res;
+		reject = rej;
+	});
+	return { promise, resolve, reject };
+}
+
+// Let queued microtasks (the await in playStub + the void play() handoff) flush.
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+/** An unresolved search stub: detailsLoaded:false + audioUrl:null so the readiness guard does NOT short-circuit. */
+function stub(source: SourceId, songid: string, artist: string, title: string): Track {
+	return { ...mk(source, songid, artist, title), detailsLoaded: false, audioUrl: null };
+}
+
+function installAssetPreloadMocks() {
+	const audios: Array<{
+		preload: string;
+		muted: boolean;
+		src: string;
+		setAttribute: ReturnType<typeof vi.fn>;
+		load: ReturnType<typeof vi.fn>;
+	}> = [];
+	const images: Array<{ decoding: string; referrerPolicy: string; src: string }> = [];
+	const AudioCtor = vi.fn(function () {
+		const audio = {
+			preload: '',
+			muted: false,
+			src: '',
+			setAttribute: vi.fn(),
+			load: vi.fn()
+		};
+		audios.push(audio);
+		return audio;
+	});
+	const ImageCtor = vi.fn(function () {
+		const img = { decoding: '', referrerPolicy: '', src: '' };
+		images.push(img);
+		return img;
+	});
+	vi.stubGlobal('Audio', AudioCtor);
+	vi.stubGlobal('Image', ImageCtor);
+	return { audios, images, AudioCtor, ImageCtor };
+}
+
+/** Mirror of Player.FAILURE_CAP (private static = 5) for the loop-guard tests. */
+const Player_FAILURE_CAP = 5;
+/** Mirror of Player.SYSTEMIC_SKIP_CAP (private static = 5) — the systemic-failure ceiling
+ *  (debug-nowbar-frozen-audius-spam); since quick-261116-nstop it triggers the Fallback
+ *  Interlude instead of the old STOP. */
+const Player_SYSTEMIC_SKIP_CAP = 5;
+/** Mirror of Player.STALL_TIMEOUT_MS (private static = 15000) for the stall-watchdog tests. */
+const Player_STALL_TIMEOUT_MS = 15000;
+/**
+ * Mirror of Player.STRIKE_CAP (private static = 3 after 31-D-16 raised it from 2). NOTHING in the
+ * compiler checks that this mirror agrees with the source — before 31-02 every strike suite hardcoded
+ * the number inline, so a cap change silently rewrote what those suites meant. Drive strike walks off
+ * THIS constant so a future re-tune fails loudly (a walk that no longer reaches the cap) instead of
+ * quietly asserting the wrong contract.
+ */
+const Player_STRIKE_CAP = 3;
+
+/**
+ * Minimal fake <audio> for attach(): records addEventListener handlers so a test can `.fire()`
+ * a named event, and stubs the methods/props attach() + the listeners touch. navigator.mediaSession
+ * is absent in node, so the `ms` accessor returns null and the Media Session calls early-return.
+ */
+function makeFakeAudio() {
+	const handlers = new Map<string, Array<() => void>>();
+	return {
+		_handlers: handlers,
+		paused: true,
+		currentTime: 0,
+		duration: NaN,
+		readyState: 0,
+		src: '',
+		setAttribute() {},
+		addEventListener(type: string, cb: () => void) {
+			const arr = handlers.get(type) ?? [];
+			arr.push(cb);
+			handlers.set(type, arr);
+		},
+		play: vi.fn(() => Promise.resolve()),
+		pause: vi.fn(),
+		fire(type: string) {
+			for (const cb of handlers.get(type) ?? []) cb();
+		}
+	};
+}
+
+beforeEach(() => {
+	mockResolve.mockReset();
+	mockEnsure.mockReset();
+	memStore.clear();
+	player.queue = [];
+	// play() touches the real <audio>/Media Session — stub it so playStub's success handoff
+	// is observable (current set) without a DOM. We assert play() is CALLED with the track.
+	vi.spyOn(player, 'play').mockImplementation(async (track: Track) => {
+		// Mirror the bits of play() the now-bar observes: take ownership of current/loading.
+		player.current = track;
+		player.loading = false;
+	});
+	// Reset the optimistic state between tests (private fields reset via a fresh miss path).
+	player.current = null;
+	player.pendingTrack = null;
+	player.loading = false;
+	player.error = null;
+	const internals = player as unknown as {
+		prefetchingUid: string | null;
+		prefetchController: AbortController | null;
+		preloadedAudio: HTMLAudioElement | null;
+		preloadedAudioUid: string | null;
+		preloadedAudioUrl: string | null;
+		preloadedCover: HTMLImageElement | null;
+		preloadedCoverUid: string | null;
+		preloadedCoverUrl: string | null;
+		growPromise: Promise<void> | null;
+		growing: boolean;
+		// quick-260615-i9u: unplayableUids is now a SvelteSet — structurally compatible for the
+		// .clear()/.add()/.has()/.delete() surface the tests touch.
+		unplayableUids: { clear(): void; add(u: string): void; has(u: string): boolean; delete(u: string): boolean };
+		retriedDeadUids: Set<string>;
+		pendingHistory: Track[] | null;
+		// debug-playback-skip-and-autoplay: the strike map (Bug 1) + the autoplay-retry arm (Bug 2)
+		// are session/per-src internal state that must not leak across tests.
+		unplayableStrikes: Map<string, number>;
+		autoplayRetryArmed: boolean;
+		// quick-260627-huo: the delayed re-resolve timers + per-uid attempt budget are session-scoped
+		// internal state that must not leak across tests (an orphan timer firing in a later test would
+		// re-run prefetchNext against a stale queue).
+		retryResolveTimers: Map<string, ReturnType<typeof setTimeout>>;
+		retryResolveAttempts: Map<string, number>;
+	};
+	internals.prefetchingUid = null;
+	internals.prefetchController?.abort();
+	internals.prefetchController = null;
+	internals.unplayableUids.clear(); // PLAY-RESILIENCE: session-scoped dead-track set leaks across tests
+	internals.retriedDeadUids.clear(); // NEVER-STOP (quick-260630-q03): one-retry record is session-scoped too
+	internals.preloadedAudio = null;
+	internals.preloadedAudioUid = null;
+	internals.preloadedAudioUrl = null;
+	internals.preloadedCover = null;
+	internals.preloadedCoverUid = null;
+	internals.preloadedCoverUrl = null;
+	internals.growPromise = null;
+	internals.growing = false;
+	internals.pendingHistory = null; // quick-260615-i9u: one-shot history carrier must not leak across tests
+	internals.unplayableStrikes.clear(); // Bug 1: strike budget is session-scoped — reset between tests
+	internals.autoplayRetryArmed = false; // Bug 2: autoplay-retry arm is per-src — reset between tests
+	// quick-260627-huo: clear every pending delayed re-resolve timer THEN both maps so no orphan timer
+	// (and no carried attempt budget) leaks into the next test.
+	for (const timer of internals.retryResolveTimers.values()) clearTimeout(timer);
+	internals.retryResolveTimers.clear();
+	internals.retryResolveAttempts.clear();
+	// debug-nowbar-freeze-reresolve-loop: the raw-audio-error ceiling + rapid-fire brake counters are
+	// session-scoped (reset by a real `playing` / play() / recoverFromStop in production). They must not
+	// leak across tests now that a ceiling reads them — a stale burst could trip the skip early.
+	const burst = player as unknown as { errorBurst: number; reresolveBurst: number; rapidErrorBurst: number; lastAudioErrorAt: number; failoverSkips: number; consecutiveFailures: number };
+	burst.errorBurst = 0;
+	burst.reresolveBurst = 0;
+	burst.rapidErrorBurst = 0;
+	burst.lastAudioErrorAt = 0;
+	(player as unknown as { loadRetryBurst: number }).loadRetryBurst = 0; // per-src load-retry budget
+	// debug-nowbar-frozen-audius-spam: the cross-track systemic-failure skip counter is session-scoped
+	// too (reset by a real `playing` / recoverFromStop). Reset it (and the legacy consecutiveFailures)
+	// so a leaked count from a prior storm/ceiling test can't falsely trip the SYSTEMIC STOP.
+	burst.failoverSkips = 0;
+	burst.consecutiveFailures = 0;
+	// quick-261116-nstop: the Never-Stop interlude state is session-scoped on the singleton too —
+	// a cap trip in one suite must not leave an active interlude / retry timer / probe mark that
+	// reroutes next() in the next suite. clearInterludeState drops all of it; the cooldown
+	// tracker is a long-lived object, so it is reset in place.
+	const ns = player as unknown as {
+		clearInterludeState(): void;
+		nsCooldowns: { __reset(): void };
+	};
+	ns.clearInterludeState();
+	ns.nsCooldowns.__reset();
+	// bg-lockscreen-stall-noskip: the bounded prebuffer + one-shot stall-retry flag are session-scoped
+	// on the singleton — reset so a prebuffered blob / retried flag from a prior test can't leak.
+	const bg = player as unknown as { prebufferedUid: string | null; prebufferedBlobUrl: string | null; stallRetried: boolean; audibleThisHide: boolean; stallRecheckOnVisible: boolean };
+	bg.prebufferedUid = null;
+	bg.prebufferedBlobUrl = null;
+	bg.stallRetried = false;
+	// bg-lockscreen-stall-noskip (round 2): the hidden-stint discriminator + parked-recheck flag are
+	// session-scoped on the singleton too — reset so a hidden test can't leak a park into the next.
+	bg.audibleThisHide = false;
+	bg.stallRecheckOnVisible = false;
+	// quick-261116-prebuf: the car-buffer arm + registry are session-scoped on the singleton
+	// too — a walk armed by one suite must not fire resolves/fetches inside the next.
+	// Disarm (bumps the walk generation + aborts), clear the registry in place, and drop
+	// the persisted copy so a later load can't resurrect it.
+	const cb = player as unknown as {
+		disarmCarBuffer(): void;
+		cbEntries: Map<string, unknown>;
+	};
+	cb.disarmCarBuffer();
+	cb.cbEntries.clear();
+	localStorageMock.removeItem('openmusic:carbuffer:v1');
+	// The blob mocks the car-buffer walk/probes read: reset to factory behaviour so a
+	// suite's keyed implementation can't leak into the next (has defaults to "no bytes").
+	mockBlobPut.mockReset();
+	mockBlobDel.mockReset();
+	mockBlobHas.mockReset();
+	mockBlobHas.mockResolvedValue(false);
+});
+
+afterEach(() => {
+	vi.restoreAllMocks();
+	// IN-02: vi.restoreAllMocks() does NOT undo vi.stubGlobal — without this, a stubbed
+	// `navigator` (e.g. the offline suite's { onLine: false }) would persist into later suites in
+	// this worker, leaving a truthy-but-mediaSession-less navigator that the `ms` accessor's
+	// feature detection would see. Unstub globally after every test as the single safety net…
+	vi.unstubAllGlobals();
+	// …then re-establish the module-level localStorage stub that unstubAllGlobals also tears down
+	// (it is set once at import, not per-test; restore()/persist() tests depend on it).
+	vi.stubGlobal('localStorage', localStorageMock);
+});
+
+// quick-260831-t2g. A surface that already knows a track's art (every row of an album shares the
+// album cover) used to hand that art to playStub for the optimistic bar only — it was dropped
+// before play(), so each song still resolved its OWN cover. That is N wasted fetches per album
+// AND a source of visible inconsistency, since sibling tracks could land on different images.
+describe('player.playStub — attached cover skips cover fetching (quick-260831-t2g)', () => {
+	// The suite-wide beforeEach stubs play() so playStub's handoff is observable without a DOM.
+	// These cases need the REAL play(), because resolvedCover and the two cover-fetch branches all
+	// live inside it — the same restore idiom the regenerate describes use.
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockCoverResolve.mockReset().mockResolvedValue(null);
+		mockUidCover.mockReset().mockReturnValue(null);
+		player.current = null;
+		player.queue = [];
+		player.resolvedCover = null;
+		(player as unknown as { attachedCover: unknown }).attachedCover = null;
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+	});
+
+	it('carries the caller cover onto the RESOLVED track, so play() paints it with no fetch', async () => {
+		const bare = { ...mk('kuwo', 'K1', 'Coldplay', 'Shiver'), cover: null, audioUrl: 'https://cdn/k1.mp3' };
+		mockResolve.mockResolvedValue(bare);
+		// The cover branches live AFTER the ensureTrackDetails await — resolve it, or play() never
+		// reaches them and the assertions below pass vacuously.
+		mockEnsure.mockImplementation(async (t: Track) => t);
+
+		await player.playStub('Coldplay', 'Shiver', 'https://img/album.jpg', 'album');
+		await flush();
+
+		expect(player.current?.cover).toBe('https://img/album.jpg');
+		expect(player.resolvedCover).toBe('https://img/album.jpg');
+		// The full tier chain is for coverless tracks only — it must not run here.
+		expect(mockCoverResolve).not.toHaveBeenCalled();
+	});
+
+	it('Phase 40 D-09 / D-11a: a SOLID inline source cover is KEPT — no cover network call at all', async () => {
+		// No caller cover — the source supplied its own thumbnail. It used to be "HQ upgraded"; now
+		// an inline cover is never replaced automatically.
+		const withInline = {
+			...mk('kuwo', 'K3', 'Coldplay', 'Sparks'),
+			cover: 'https://kuwo/thumb.jpg',
+			audioUrl: 'https://cdn/k3.mp3'
+		};
+		mockResolve.mockResolvedValue(withInline);
+		mockEnsure.mockImplementation(async (t: Track) => t);
+
+		await player.playStub('Coldplay', 'Sparks', null, 'album');
+		await flush();
+
+		expect(mockCoverResolve).not.toHaveBeenCalled();
+		expect(player.resolvedCover).toBe('https://kuwo/thumb.jpg');
+	});
+
+	it('Phase 40 D-09: a ytmusic track keeps its OWN i.ytimg.com thumbnail', async () => {
+		const ytm = {
+			...mk('ytmusic', 'Y1', 'Coldplay', 'Viva'),
+			cover: 'https://i.ytimg.com/vi/abc/hqdefault.jpg',
+			audioUrl: 'https://cdn/y1.m4a'
+		};
+		mockResolve.mockResolvedValue(ytm);
+		mockEnsure.mockImplementation(async (t: Track) => t);
+
+		await player.playStub('Coldplay', 'Viva', null, 'album');
+		await flush();
+
+		expect(mockCoverResolve).not.toHaveBeenCalled();
+		expect(player.resolvedCover).toBe('https://i.ytimg.com/vi/abc/hqdefault.jpg');
+	});
+
+	it('a COVERLESS track still runs the full chain exactly once (miss path unchanged)', async () => {
+		const bare = { ...mk('joox', 'J1', 'Coldplay', 'Fix'), cover: null, audioUrl: 'https://cdn/j1.mp3' };
+		mockResolve.mockResolvedValue(bare);
+		mockEnsure.mockImplementation(async (t: Track) => t);
+
+		await player.playStub('Coldplay', 'Fix', null, 'album');
+		await flush();
+
+		expect(mockCoverResolve).toHaveBeenCalledTimes(1);
+	});
+
+	it('album siblings all end up on the SAME cover — the reported inconsistency', async () => {
+		// Two tracks whose sources return DIFFERENT art; the album cover must win for both.
+		mockEnsure.mockImplementation(async (t: Track) => t);
+		mockResolve.mockResolvedValue({
+			...mk('kuwo', 'S1', 'Coldplay', 'Yellow'),
+			cover: 'https://kuwo/a.jpg',
+			audioUrl: 'https://cdn/s1.mp3'
+		});
+		await player.playStub('Coldplay', 'Yellow', 'https://img/album.jpg', 'album');
+		await flush();
+		const first = player.resolvedCover;
+
+		mockResolve.mockResolvedValue({
+			...mk('qq', 'S2', 'Coldplay', 'Trouble'),
+			cover: 'https://qq/b.jpg',
+			audioUrl: 'https://cdn/s2.mp3'
+		});
+		await player.playStub('Coldplay', 'Trouble', 'https://img/album.jpg', 'album');
+		await flush();
+
+		expect(first).toBe('https://img/album.jpg');
+		expect(player.resolvedCover).toBe('https://img/album.jpg');
+	});
+
+	it('KEEPS the attached cover when the resolve returns the source\'s own art', async () => {
+		// The regression that made this fix incomplete: ensureTrackDetails returns a track carrying
+		// the SOURCE's cover, and assigning it to `current` discarded the attached album art — which
+		// is what the nowbar and persistence read. Observed live as an http y.gtimg.cn qq thumbnail
+		// replacing the album cover on every album row.
+		const stub = { ...mk('kuwo', 'R1', 'Coldplay', 'Clocks'), cover: null, audioUrl: null };
+		const resolvedWithSourceArt = {
+			...mk('qq', 'R1Q', 'Coldplay', 'Clocks'),
+			cover: 'http://y.gtimg.cn/thumb.jpg',
+			audioUrl: 'https://cdn/r1.mp3'
+		};
+		mockResolve.mockResolvedValue(stub);
+		mockEnsure.mockResolvedValue(resolvedWithSourceArt);
+
+		await player.playStub('Coldplay', 'Clocks', 'https://img/album.jpg', 'album');
+		await flush();
+
+		expect(player.current?.cover).toBe('https://img/album.jpg');
+		expect(player.resolvedCover).toBe('https://img/album.jpg');
+	});
+
+	it('ignores a non-https caller cover rather than attaching something unrenderable', async () => {
+		const bare = { ...mk('kuwo', 'K4', 'Coldplay', 'Trouble'), cover: null, audioUrl: 'https://cdn/k4.mp3' };
+		mockResolve.mockResolvedValue(bare);
+		mockEnsure.mockImplementation(async (t: Track) => t);
+
+		await player.playStub('Coldplay', 'Trouble', 'http://insecure/x.jpg', 'album');
+		await flush();
+
+		expect(player.current?.cover).toBeNull();
+	});
+});
+
+// quick-261103-tapsplice (Hector 2026-11-03): a song tap ANYWHERE behaves like a Related
+// tap — stub surfaces resolve through spliceStub, whose handoff splices the resolved track
+// after current instead of installing a one-track queue. The queue — played history
+// included — must survive every one of these taps.
+describe('player.spliceStub — resolve + splice, queue and history survive (quick-261103-tapsplice)', () => {
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockImplementation(async (t: Track) => t);
+		mockCoverResolve.mockReset().mockResolvedValue(null);
+		mockUidCover.mockReset().mockReturnValue(null);
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+	});
+
+	it('splices the resolved track after current; history and tail are untouched', async () => {
+		const hist = mk('kuwo', 'H1', '王菲', '紅豆');
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		const tail = mk('qq', 'T1', '周杰倫', '青花瓷');
+		const resolved = { ...mk('netease', 'R1', '林俊傑', '江南'), audioUrl: 'https://cdn/r1.mp3' };
+		player.queue = [hist, cur, tail];
+		player.current = cur;
+		mockResolve.mockResolvedValue(resolved);
+
+		const tr = await player.spliceStub('林俊傑', '江南');
+		await flush();
+
+		expect(tr?.uid).toBe(resolved.uid);
+		expect(player.queue.map((t) => t.uid)).toEqual([hist.uid, cur.uid, resolved.uid, tail.uid]);
+		expect(player.current?.uid).toBe(resolved.uid);
+		expect(player.pendingTrack).toBeNull();
+	});
+
+	it('a miss returns null, clears the overlay and leaves the queue alone', async () => {
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		player.queue = [cur];
+		player.current = cur;
+		mockResolve.mockResolvedValue(null);
+
+		const tr = await player.spliceStub('不存在', '的歌');
+		await flush();
+
+		expect(tr).toBeNull();
+		expect(player.pendingTrack).toBeNull();
+		expect(player.loading).toBe(false);
+		expect(player.queue.map((t) => t.uid)).toEqual([cur.uid]);
+		expect(player.current?.uid).toBe(cur.uid);
+	});
+
+	it('resolving to the ALREADY-CURRENT track is a no-op success, not a miss', async () => {
+		const cur = { ...mk('joox', 'C1', '陳奕迅', '孤勇者'), audioUrl: 'https://cdn/c1.mp3' };
+		player.queue = [cur];
+		player.current = cur;
+		mockResolve.mockResolvedValue(cur);
+
+		const tr = await player.spliceStub('陳奕迅', '孤勇者');
+		await flush();
+
+		expect(tr?.uid).toBe(cur.uid);
+		expect(player.queue.map((t) => t.uid)).toEqual([cur.uid]);
+		expect(player.loading).toBe(false);
+	});
+
+	it('the caller cover wins on the spliced track (album art rule)', async () => {
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		const resolved = { ...mk('kuwo', 'R2', '鄧紫棋', '光年之外'), cover: null, audioUrl: 'https://cdn/r2.mp3' };
+		player.queue = [cur];
+		player.current = cur;
+		mockResolve.mockResolvedValue(resolved);
+
+		await player.spliceStub('鄧紫棋', '光年之外', 'https://img/album.jpg');
+		await flush();
+
+		const spliced = player.queue.find((t) => t.uid === resolved.uid);
+		expect(spliced?.cover).toBe('https://img/album.jpg');
+	});
+});
+
+describe('player.tapPlay / tapStub — the settings.tapUpnext decider (quick-261103-tapsplice)', () => {
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockImplementation(async (t: Track) => t);
+		mockCoverResolve.mockReset().mockResolvedValue(null);
+		mockUidCover.mockReset().mockReturnValue(null);
+		mockSimilar.mockReset().mockResolvedValue([]);
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+	});
+	afterEach(() => {
+		settings.tapUpnext = 'preserve';
+	});
+
+	it('preserve: tapPlay splices after current; history and tail untouched', async () => {
+		settings.tapUpnext = 'preserve';
+		const hist = mk('kuwo', 'H1', '王菲', '紅豆');
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		const tail = mk('qq', 'T1', '周杰倫', '青花瓷');
+		const tapped = { ...mk('netease', 'X1', '林俊傑', '江南'), audioUrl: 'https://cdn/x1.mp3' };
+		player.queue = [hist, cur, tail];
+		player.current = cur;
+
+		player.tapPlay(tapped);
+		await flush();
+
+		expect(player.queue.map((t) => t.uid)).toEqual([hist.uid, cur.uid, tapped.uid, tail.uid]);
+		expect(player.current?.uid).toBe(tapped.uid);
+		// (buildSimilarQueue may still fire from ensureAhead's append-only top-up when
+		// the queue runs short — that grows the END; the existing tail above is intact,
+		// which is what Preserve promises. Regeneration would have REPLACED it.)
+	});
+
+	it('generate: tapPlay rebuilds the tail from the tapped song and KEEPS the history', async () => {
+		settings.tapUpnext = 'generate';
+		const hist = mk('kuwo', 'H1', '王菲', '紅豆');
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		const stale = mk('qq', 'T9', '周杰倫', '青花瓷');
+		const tapped = { ...mk('netease', 'X1', '林俊傑', '江南'), audioUrl: 'https://cdn/x1.mp3' };
+		const sim = mk('joox', 'S1', '林俊傑', '修煉愛情');
+		mockSimilar.mockResolvedValue([sim]);
+		player.queue = [hist, cur, stale];
+		player.current = cur;
+
+		player.tapPlay(tapped);
+		await flush();
+		await flush();
+
+		const uids = player.queue.map((t) => t.uid);
+		expect(player.current?.uid).toBe(tapped.uid);
+		expect(uids[0]).toBe(hist.uid); // history kept at the head
+		expect(uids).toContain(sim.uid); // tail generated from the tapped song
+		expect(uids).not.toContain(stale.uid); // the old tail was replaced
+	});
+
+	it('generate: upNextPending is set on tap and cleared once the new tail lands (quick-261108-h3w)', async () => {
+		settings.tapUpnext = 'generate';
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		const tapped = { ...mk('netease', 'X1', '林俊傑', '江南'), audioUrl: 'https://cdn/x1.mp3' };
+		mockSimilar.mockResolvedValue([mk('joox', 'S1', '林俊傑', '修煉愛情')]);
+		player.queue = [cur, mk('qq', 'T9', '周杰倫', '青花瓷')];
+		player.current = cur;
+
+		player.tapPlay(tapped);
+		expect(player.upNextPending).toBe(true);
+		await flush();
+		await flush();
+		expect(player.upNextPending).toBe(false);
+	});
+
+	it('preserve: a tap never shows the pending state', () => {
+		settings.tapUpnext = 'preserve';
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		player.queue = [cur];
+		player.current = cur;
+		player.tapPlay({ ...mk('netease', 'X1', '林俊傑', '江南'), audioUrl: 'https://cdn/x1.mp3' });
+		expect(player.upNextPending).toBe(false);
+	});
+
+	it('preserve: tapStub resolves then splices — the queue survives', async () => {
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		const tail = mk('qq', 'T1', '周杰倫', '青花瓷');
+		const resolved = { ...mk('netease', 'R1', '林俊傑', '江南'), audioUrl: 'https://cdn/r1.mp3' };
+		player.queue = [cur, tail];
+		player.current = cur;
+		mockResolve.mockResolvedValue(resolved);
+
+		const tr = await player.tapStub('林俊傑', '江南', undefined, 'search');
+		await flush();
+
+		expect(tr?.uid).toBe(resolved.uid);
+		expect(player.queue.map((t) => t.uid)).toEqual([cur.uid, resolved.uid, tail.uid]);
+	});
+
+	it('generate: tapStub installs the resolved song and generates the tail around it', async () => {
+		settings.tapUpnext = 'generate';
+		const cur = mk('joox', 'C1', '陳奕迅', '孤勇者');
+		const resolved = { ...mk('netease', 'R1', '林俊傑', '江南'), audioUrl: 'https://cdn/r1.mp3' };
+		const sim = mk('joox', 'S1', '林俊傑', '修煉愛情');
+		mockSimilar.mockResolvedValue([sim]);
+		player.queue = [cur];
+		player.current = cur;
+		mockResolve.mockResolvedValue(resolved);
+
+		const tr = await player.tapStub('林俊傑', '江南', undefined, 'search');
+		await flush();
+		await flush();
+
+		expect(tr?.uid).toBe(resolved.uid);
+		expect(player.current?.uid).toBe(resolved.uid);
+		expect(player.queue.map((t) => t.uid)).toContain(sim.uid);
+	});
+});
+
+// quick-260910-piz: t2g attached the album cover for the ONE tapped song only, so the very next
+// advance had no match — `this.current = resolved` then committed the SOURCE's thumbnail and the
+// hero flipped — while the Up Next tiles (Gap 3: `resolvedCovers[uid] ?? track.cover`, no per-tile
+// resolve) painted a gradient because nothing seeded `track.cover`. The attachment is now scoped to
+// the whole INSTALLED LIST and the queue entries are seeded at the same install seam.
+describe('album-scoped attached cover — every track, every advance (quick-260910-piz)', () => {
+	const A = 'https://img/albumA.jpg';
+	const B = 'https://img/albumB.jpg';
+	const albumA = () => [
+		{ ...mk('kuwo', 'A1', 'Coldplay', 'Yellow'), cover: null },
+		{ ...mk('kuwo', 'A2', 'Coldplay', 'Trouble'), cover: null },
+		{ ...mk('kuwo', 'A3', 'Coldplay', 'Spies'), cover: null }
+	];
+
+	// Same restore idiom as the t2g describe: these need the REAL play(), because both consumption
+	// sites (the sync resolvedCover read and the pre-`current = resolved` re-apply) live inside it.
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockCoverResolve.mockReset().mockResolvedValue(null);
+		mockUidCover.mockReset().mockReturnValue(null);
+		player.current = null;
+		player.queue = [];
+		player.resolvedCover = null;
+		(player as unknown as { attachedCover: unknown }).attachedCover = null;
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+	});
+
+	/** Start album A the way the album page does: tap → playStub, then back-fill the full list. */
+	async function startAlbumA(tracks = albumA()) {
+		mockResolve.mockResolvedValue({ ...tracks[0] });
+		mockEnsure.mockImplementation(async (t: Track) => t);
+		await player.playStub('Coldplay', 'Yellow', A, 'album');
+		await flush();
+		player.setListQueue(tracks, 'album', A);
+		return tracks;
+	}
+
+	it('SYMPTOM 1: every queued entry carries the album cover, identity untouched', async () => {
+		const tracks = await startAlbumA();
+
+		expect(player.queue.every((t) => t.cover === A)).toBe(true);
+		expect(player.queue.map((t) => t.uid)).toEqual(tracks.map((t) => t.uid));
+	});
+
+	it('SYMPTOM 2: advancing keeps the album art even when the resolve carries source art', async () => {
+		const tracks = await startAlbumA();
+		// The exact live shape: ensureTrackDetails returns the SOURCE's own http thumbnail.
+		mockEnsure.mockImplementation(async (t: Track) => ({
+			...t,
+			cover: 'http://y.gtimg.cn/thumb.jpg',
+			audioUrl: 'https://cdn/' + t.songid + '.mp3'
+		}));
+
+		player.next();
+		await flush();
+		await flush();
+
+		expect(player.current?.uid).toBe(tracks[1].uid);
+		expect(player.current?.cover).toBe(A);
+		expect(player.resolvedCover).toBe(A);
+		expect(player.queue[1].cover).toBe(A);
+
+		player.next();
+		await flush();
+		await flush();
+
+		expect(player.current?.uid).toBe(tracks[2].uid);
+		expect(player.current?.cover).toBe(A);
+		expect(player.resolvedCover).toBe(A);
+		// Zero cover network: the full tier chain does not run.
+		expect(mockCoverResolve).not.toHaveBeenCalled();
+	});
+
+	it('a DIFFERENT album replaces the attachment — never the previous album art', async () => {
+		await startAlbumA();
+		const albumB = [mk('kuwo', 'B1', 'Radiohead', 'Creep'), mk('kuwo', 'B2', 'Radiohead', 'Karma Police')].map(
+			(t) => ({ ...t, cover: null })
+		);
+		mockEnsure.mockImplementation(async (t: Track) => ({ ...t, cover: 'http://y.gtimg.cn/thumb.jpg' }));
+
+		player.setListQueue(albumB, 'album', B);
+		void player.play(albumB[0], { fresh: true });
+		await flush();
+		await flush();
+
+		expect(player.resolvedCover).toBe(B);
+		expect(player.current?.cover).toBe(B);
+
+		player.next();
+		await flush();
+		await flush();
+
+		expect(player.resolvedCover).toBe(B);
+		expect(player.current?.cover).toBe(B);
+	});
+
+	it('a fresh play from SEARCH does not inherit the album art (same song key on purpose)', async () => {
+		await startAlbumA();
+		// Same song as A1 — only the cleared attachment can keep the album cover off it.
+		const s1 = { ...mk('kuwo', 'S1', 'Coldplay', 'Yellow'), cover: 'https://kuwo/s1.jpg' };
+		mockEnsure.mockImplementation(async (t: Track) => ({ ...t, cover: 'https://kuwo/s1.jpg' }));
+
+		player.setListQueue([s1], 'search');
+		void player.play(s1, { fresh: true });
+		await flush();
+		await flush();
+
+		expect(player.current?.cover).toBe('https://kuwo/s1.jpg');
+		expect(player.resolvedCover).toBe('https://kuwo/s1.jpg');
+		expect((player as unknown as { attachedCover: unknown }).attachedCover).toBeNull();
+	});
+
+	it('a fresh play with NO queue install (home shelf path) clears the attachment', async () => {
+		await startAlbumA();
+		const liked = { ...mk('kuwo', 'L1', 'Oasis', 'Wonderwall'), cover: null };
+		mockEnsure.mockImplementation(async (t: Track) => t);
+
+		// quick-260831-sp9: the home shelves call play({fresh}) DIRECTLY — setQueue never runs.
+		void player.play(liked, { fresh: true, context: 'liked' });
+		await flush();
+		await flush();
+
+		expect((player as unknown as { attachedCover: unknown }).attachedCover).toBeNull();
+		expect(player.resolvedCover).not.toBe(A);
+	});
+
+	it('a null album cover is a pure no-op, and clearQueue drops the attachment', async () => {
+		const tracks = albumA();
+
+		player.setListQueue(tracks, 'album', null);
+
+		expect(player.queue.every((t) => t.cover === null)).toBe(true);
+		expect((player as unknown as { attachedCover: unknown }).attachedCover).toBeNull();
+
+		player.setListQueue(tracks, 'album', A);
+		expect((player as unknown as { attachedCover: unknown }).attachedCover).not.toBeNull();
+		player.clearQueue();
+		expect((player as unknown as { attachedCover: unknown }).attachedCover).toBeNull();
+	});
+});
+
+// quick-260910-qjv: a Related-row TAP used to run play({ fresh: true }) — the fresh branch weaves
+// history, re-anchors upNextAnchorUid, clears removedUids and regenerates the tail, i.e. it threw
+// the user's Up Next away. The component now composes two EXISTING store methods instead:
+// playNext(track) (the swipe-left affordance on this very list) + play(track, { fresh: false })
+// (the path next()/auto-advance use). These tests pin the store-side invariants that composition
+// relies on: queue order, anchor, context, no regenerate, de-dupe, and the cold-start guard.
+// DRY-GROW NEVER-STOP (user report 2026-09-12). The action log showed the whole failure in three
+// lines: `ended` → `grow.request` → `grow.added count:0`, then five minutes of silence. next() grew
+// the queue, got nothing back, fell out of the `.then` and left the player dead — no advance, no
+// notice, no state change. A dry grow was an unguarded dead end.
+describe('player.next — a dry grow must never dead-end silently', () => {
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockImplementation(async (t: Track) => t);
+		mockSimilar.mockReset().mockResolvedValue([]); // every generator dry
+		mockPicks.mockReset().mockResolvedValue([]);
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.notice = null;
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+		(player as unknown as { dryGrowRetries: number }).dryGrowRetries = 0;
+	});
+
+	afterEach(() => {
+		(player as unknown as { clearDryGrowTimer(): void }).clearDryGrowTimer();
+		vi.useRealTimers();
+	});
+
+	/** Last track of the queue is current, so next() has nowhere to advance and must grow. */
+	function atEndOfQueue() {
+		const only = mk('kuwo', 'LAST', 'A', 'Last');
+		player.queue = [only];
+		player.current = only;
+	}
+
+	it('retries a dry grow instead of stopping on the first one', async () => {
+		vi.useFakeTimers();
+		atEndOfQueue();
+
+		player.next();
+		await vi.advanceTimersByTimeAsync(0);
+
+		// Still trying — a single dry grow is usually a transient upstream flake, not the end.
+		expect(player.notice).toBeNull();
+		expect((player as unknown as { dryGrowRetries: number }).dryGrowRetries).toBe(1);
+	});
+
+	it('after the retry budget it STOPS VISIBLY with a sticky Retry notice', async () => {
+		vi.useFakeTimers();
+		atEndOfQueue();
+
+        // First grow + both retries, each separated by the retry delay.
+		player.next();
+		await vi.advanceTimersByTimeAsync(0);
+		await vi.advanceTimersByTimeAsync(6000);
+		await vi.advanceTimersByTimeAsync(6000);
+
+		expect(player.notice).not.toBeNull();
+		expect(player.notice?.kind).toBe('stopped');
+		expect(player.notice?.reason).toBe('up-next-dry');
+		// The whole point: the user gets a way out, not silence.
+		expect(typeof player.notice?.action).toBe('function');
+		expect(player.playing).toBe(false);
+	});
+
+	it('a successful grow clears the retry budget and advances', async () => {
+		atEndOfQueue();
+		const grown = mk('kuwo', 'NEW', 'B', 'Grown');
+		mockSimilar.mockResolvedValue([grown]);
+
+		player.next();
+		await flush();
+		await flush();
+
+		expect(player.queue.map((t) => t.uid)).toContain(grown.uid);
+		expect((player as unknown as { dryGrowRetries: number }).dryGrowRetries).toBe(0);
+		expect(player.notice).toBeNull();
+	});
+});
+
+describe('Related tap — playNext + non-fresh play preserves Up Next (quick-260910-qjv)', () => {
+	const q1 = () => mk('kuwo', 'Q1', 'Coldplay', 'Yellow');
+	const q2 = () => mk('kuwo', 'Q2', 'Coldplay', 'Trouble');
+	const q3 = () => mk('kuwo', 'Q3', 'Coldplay', 'Spies');
+	const q4 = () => mk('kuwo', 'Q4', 'Coldplay', 'Shiver');
+	const rel = () => mk('kuwo', 'R9', 'Oasis', 'Wonderwall');
+	const uids = (ts: Track[]) => ts.map((t) => t.uid);
+
+	// Same restore idiom as the piz suite: these need the REAL play(), because the fresh-vs-non-fresh
+	// branch under test lives inside it.
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockImplementation(async (t: Track) => t);
+		mockSimilar.mockReset().mockResolvedValue([]);
+		mockPicks.mockReset().mockResolvedValue([]);
+		player.current = null;
+		player.queue = [];
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+	});
+
+	/** Queue of four with q2 playing, anchored one row ABOVE current (a played row still in view). */
+	async function startQueue() {
+		const tracks = [q1(), q2(), q3(), q4()];
+		player.setQueue(tracks, 'search');
+		await player.play(tracks[1]); // non-fresh — nothing regenerates
+		await flush();
+		player.upNextAnchorUid = tracks[0].uid;
+		player.queueContext = 'search';
+		mockSimilar.mockClear();
+		return tracks;
+	}
+
+	it('a NEW track lands right after current and every other row survives in order', async () => {
+		const [t1, t2, t3, t4] = await startQueue();
+		const R = rel();
+
+		player.playNext(R);
+		await player.play(R, { fresh: false });
+		await flush();
+
+		expect(uids(player.queue)).toEqual([t1.uid, t2.uid, R.uid, t3.uid, t4.uid]);
+		expect(player.current?.uid).toBe(R.uid);
+		expect(player.upNextAnchorUid).toBe(t1.uid); // NOT re-anchored to the tapped song
+		expect(player.queueContext).toBe('search');
+		expect(mockSimilar).not.toHaveBeenCalled(); // no regenerate — the tail is untouched
+	});
+
+	it('an ALREADY-QUEUED track moves to right-after-current, never duplicated', async () => {
+		const [t1, t2, t3, t4] = await startQueue();
+
+		player.playNext(t4);
+		await player.play(t4, { fresh: false });
+		await flush();
+
+		expect(uids(player.queue)).toEqual([t1.uid, t2.uid, t4.uid, t3.uid]);
+		expect(uids(player.queue).filter((u) => u === t4.uid)).toHaveLength(1);
+		expect(player.current?.uid).toBe(t4.uid);
+		expect(player.upNextAnchorUid).toBe(t1.uid);
+	});
+
+	it('cold start: playNext plays it itself — the guard stops a SECOND play()', async () => {
+		player.current = null;
+		player.queue = [];
+		const R = rel();
+		const spy = vi.spyOn(player, 'play').mockImplementation(async (t: Track) => {
+			player.current = t;
+			player.loading = false;
+		});
+
+		// The exact three statements of NowPlaying's relatedTapPlay. Read `current` through a
+		// getter so TS control-flow does not narrow it to the `null` assigned above — playNext
+		// mutates it synchronously, which is the whole point of the guard.
+		const cur = () => player.current;
+		if (cur()?.uid !== R.uid) {
+			player.playNext(R); // no current → playNext calls play() itself, synchronously
+			if (cur()?.uid !== R.uid) void player.play(R, { fresh: false });
+		}
+		await flush();
+
+		expect(cur()?.uid).toBe(R.uid);
+		expect(uids(player.queue)).toEqual([R.uid]);
+		expect(spy).toHaveBeenCalledTimes(1); // exactly once — no double start
+		spy.mockRestore();
+	});
+});
+
+describe('player.spliceAndPlay — splice after current + non-fresh play (38-D-02/D-03/D-07)', () => {
+	const q1 = () => mk('kuwo', 'P1', 'Coldplay', 'Yellow');
+	const q2 = () => mk('kuwo', 'P2', 'Coldplay', 'Trouble');
+	const q3 = () => mk('kuwo', 'P3', 'Coldplay', 'Spies');
+	const q4 = () => mk('kuwo', 'P4', 'Coldplay', 'Shiver');
+	const rel = () => mk('kuwo', 'P9', 'Oasis', 'Wonderwall');
+	const uids = (ts: Track[]) => ts.map((t) => t.uid);
+	// Tests may cast to read a private field; production code must not.
+	const manual = () => (player as unknown as { manualUids: Set<string> }).manualUids;
+
+	// Same restore idiom as the qjv suite above: the fresh-vs-non-fresh branch under test lives
+	// inside the REAL play(), so the suite-wide play spy is restored here.
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockImplementation(async (t: Track) => t);
+		mockSimilar.mockReset().mockResolvedValue([]);
+		mockPicks.mockReset().mockResolvedValue([]);
+		player.current = null;
+		player.queue = [];
+		manual().clear();
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+	});
+
+	/** Queue of four with q2 playing, anchored one row ABOVE current (a played row still in view). */
+	async function startQueue() {
+		const tracks = [q1(), q2(), q3(), q4()];
+		player.setQueue(tracks, 'search');
+		await player.play(tracks[1]); // non-fresh — nothing regenerates
+		await flush();
+		player.upNextAnchorUid = tracks[0].uid;
+		manual().clear();
+		mockSimilar.mockClear();
+		return tracks;
+	}
+
+	it('splices after current, plays it non-fresh, never pins, and returns true', async () => {
+		const [t1, t2, t3, t4] = await startQueue();
+		const R = rel();
+
+		expect(player.spliceAndPlay(R)).toBe(true);
+		await flush();
+
+		expect(uids(player.queue)).toEqual([t1.uid, t2.uid, R.uid, t3.uid, t4.uid]);
+		expect(player.current?.uid).toBe(R.uid);
+		expect(manual().has(R.uid)).toBe(false); // pin:false — does not survive a later queue reset
+		expect(player.upNextAnchorUid).toBe(t1.uid); // NOT re-anchored
+		expect(mockSimilar).not.toHaveBeenCalled(); // non-fresh — the tail is untouched
+	});
+
+	it('a track already sitting in Up Next MOVES to just after current — never a duplicate', async () => {
+		// quick-260920-oja depends on exactly this: the share CTA re-seats through spliceAndPlay, and
+		// the shared song is often still somewhere in the queue from the arrival. spliceAfterCurrent
+		// de-dupes by uid BEFORE it splices, so the row relocates instead of doubling.
+		const [t1, t2, t3, t4] = await startQueue();
+
+		expect(player.spliceAndPlay(t4)).toBe(true);
+		await flush();
+
+		expect(uids(player.queue)).toEqual([t1.uid, t2.uid, t4.uid, t3.uid]);
+		expect(player.queue.filter((x) => x.uid === t4.uid)).toHaveLength(1);
+		expect(player.current?.uid).toBe(t4.uid);
+	});
+
+	it('re-opening the song that is ALREADY current is a no-op returning false (38-D-03)', async () => {
+		const [t1, t2, t3, t4] = await startQueue();
+		const spy = vi.spyOn(player, 'play');
+
+		expect(player.spliceAndPlay(t2)).toBe(false);
+		await flush();
+
+		expect(uids(player.queue)).toEqual([t1.uid, t2.uid, t3.uid, t4.uid]);
+		expect(spy).not.toHaveBeenCalled();
+		spy.mockRestore();
+	});
+
+	it('cold + empty queue: playNext plays it ITSELF — exactly one play(), never two', async () => {
+		player.current = null;
+		player.queue = [];
+		const R = rel();
+		const spy = vi.spyOn(player, 'play').mockImplementation(async (t: Track) => {
+			player.current = t;
+			player.loading = false;
+		});
+
+		// Read `current` through a getter so TS control-flow does not narrow it to the `null`
+		// assigned above — spliceAndPlay mutates it synchronously, which is the point of the guard.
+		const cur = () => player.current;
+		expect(player.spliceAndPlay(R)).toBe(true);
+		await flush();
+
+		expect(cur()?.uid).toBe(R.uid);
+		expect(uids(player.queue)).toEqual([R.uid]);
+		// 38-D-29: this autoplay IS why spliceAndPlay is NOT the cold share-arrival path. The guard
+		// keeps it from firing a second play(); armTrack is what a cold arrival uses instead.
+		expect(spy).toHaveBeenCalledTimes(1);
+		spy.mockRestore();
+	});
+
+	it('playNext still pins by default after the spliceAfterCurrent extraction', async () => {
+		const [t1, t2, t3, t4] = await startQueue();
+		const R = rel();
+
+		player.playNext(R);
+
+		expect(uids(player.queue)).toEqual([t1.uid, t2.uid, R.uid, t3.uid, t4.uid]);
+		expect(manual().has(R.uid)).toBe(true);
+	});
+
+	it('playNext({ pin: false }) splices identically without pinning', async () => {
+		const [t1, t2, t3, t4] = await startQueue();
+		const R = rel();
+
+		player.playNext(R, { pin: false });
+
+		expect(uids(player.queue)).toEqual([t1.uid, t2.uid, R.uid, t3.uid, t4.uid]);
+		expect(manual().has(R.uid)).toBe(false);
+	});
+});
+
+
+// 38-D-05/D-06/D-29: armTrack is the COLD share-arrival seat — the exact state restore() builds for
+// a PWA reopen (cover seed → syncMetadata → resolve → audio.src) minus everything persistence-
+// specific, and it must NEVER call play(). The empty-queue test below is the regression that pins
+// D-29: playNext autoplays when the queue is empty, which is precisely the trap a first-time share
+// visitor (nothing persisted → restore() returns early → current is null) would otherwise fall into.
+describe('player.armTrack — cold seat: resolved + armed + paused, never plays (38-D-05/D-06/D-29)', () => {
+	const S = () => stub('kuwo', 'A9', 'Oasis', 'Live Forever');
+	const A = () => mk('kuwo', 'AA', 'Coldplay', 'Yellow');
+	const B = () => mk('kuwo', 'AB', 'Coldplay', 'Trouble');
+	const C = () => mk('kuwo', 'AC', 'Coldplay', 'Spies');
+	const uids = (ts: Track[]) => ts.map((t) => t.uid);
+	const manual = () => (player as unknown as { manualUids: Set<string> }).manualUids;
+	const ARM_STATE_KEY = 'openmusic:player:v1';
+	let fake: ReturnType<typeof makeFakeAudio>;
+
+	// The suite-wide play spy is KEPT here on purpose — `expect(player.play).not.toHaveBeenCalled()`
+	// is a stronger statement of D-06 than "the fake audio never got a play() call" alone.
+	beforeEach(() => {
+		mockEnsure.mockReset();
+		mockGetPinned.mockReset().mockReturnValue(null);
+		mockUidCover.mockReset().mockReturnValue(null);
+		mockNameCover.mockReset().mockReturnValue(null);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		player.current = null;
+		player.queue = [];
+		player.loading = false;
+		manual().clear();
+		fake = makeFakeAudio();
+		player.attach(fake as unknown as HTMLAudioElement);
+	});
+
+	it('cold + empty queue: seats the track armed and paused — NO audio.play(), ever', async () => {
+		const s = S();
+		mockEnsure.mockResolvedValue({ ...s, audioUrl: 'https://cdn/s.mp3', detailsLoaded: true });
+
+		const resolved = await player.armTrack(s);
+
+		expect(resolved?.uid).toBe(s.uid);
+		expect(fake.play).not.toHaveBeenCalled();
+		expect(player.play).not.toHaveBeenCalled();
+		expect(player.current?.uid).toBe(s.uid);
+		expect(fake.src).toBe('https://cdn/s.mp3');
+		expect(uids(player.queue)).toEqual([s.uid]);
+		expect(player.loading).toBe(false);
+		expect(player.playing).toBe(false);
+	});
+
+	it('over a paused restored session: splices after current and keeps the queue shape (38-D-02)', async () => {
+		const [a, b, c] = [A(), B(), C()];
+		player.queue = [a, c, b];
+		player.current = c;
+		player.upNextAnchorUid = a.uid;
+		player.repeatMode = 'one';
+		player.shuffle = true;
+		const s = S();
+		mockEnsure.mockResolvedValue({ ...s, audioUrl: 'https://cdn/s.mp3', detailsLoaded: true });
+
+		await player.armTrack(s);
+
+		expect(uids(player.queue)).toEqual([a.uid, c.uid, s.uid, b.uid]);
+		expect(player.current?.uid).toBe(s.uid);
+		expect(player.upNextAnchorUid).toBe(a.uid); // NOT re-anchored
+		expect(player.repeatMode).toBe('one');
+		expect(player.shuffle).toBe(true);
+		expect(manual().has(s.uid)).toBe(false); // pin:false semantics
+	});
+
+	it('persists the armed seat so a reload restores the SHARED song (38-D-04)', async () => {
+		const s = S();
+		mockEnsure.mockResolvedValue({ ...s, audioUrl: 'https://cdn/s.mp3', detailsLoaded: true });
+
+		await player.armTrack(s);
+
+		const raw = localStorage.getItem(ARM_STATE_KEY) as string;
+		expect(JSON.parse(raw).current.uid).toBe(s.uid);
+	});
+
+	it('seeds resolvedCover from the uid cache SYNCHRONOUSLY, before the resolve settles', async () => {
+		const s = S();
+		mockUidCover.mockReturnValue('https://img/x.jpg');
+		const d = deferred<Track>();
+		mockEnsure.mockReturnValue(d.promise);
+
+		const p = player.armTrack(s); // do NOT await — the seat is synchronous
+
+		expect(player.resolvedCover).toBe('https://img/x.jpg');
+		expect(player.current?.uid).toBe(s.uid);
+		d.resolve({ ...s, audioUrl: 'https://cdn/s.mp3', detailsLoaded: true });
+		await p;
+	});
+
+	it('a carrier miss (no playable url) returns null and leaves no dead row in the queue (38-D-10)', async () => {
+		const s = S();
+		mockEnsure.mockResolvedValue(s); // still audioUrl:null — nothing to arm
+
+		const resolved = await player.armTrack(s);
+
+		expect(resolved).toBeNull();
+		expect(fake.src).toBe('');
+		expect(uids(player.queue)).not.toContain(s.uid);
+		expect(player.loading).toBe(false);
+	});
+
+	it('a newer play() supersedes an in-flight arm: no src, and loading is left to the newer call', async () => {
+		const s = S();
+		const d = deferred<Track>();
+		mockEnsure.mockReturnValue(d.promise);
+
+		const p = player.armTrack(s);
+		(player as unknown as { playGen: number }).playGen++; // a user tap started something else
+		d.resolve({ ...s, audioUrl: 'https://cdn/s.mp3', detailsLoaded: true });
+
+		await expect(p).resolves.toBeNull();
+		expect(fake.src).toBe('');
+		expect(player.loading).toBe(true); // NOT flipped — the newer call owns it
+	});
+
+	it('never throws: a rejecting resolve settles to null with loading cleared', async () => {
+		const s = S();
+		mockEnsure.mockRejectedValue(new Error('upstream down'));
+
+		await expect(player.armTrack(s)).resolves.toBeNull();
+		expect(player.loading).toBe(false);
+	});
+});
+
+describe('player.playStub — optimistic resolve-on-tap (FIX-A)', () => {
+	it('locks the tapped stub into pendingTrack + loading SYNCHRONOUSLY, before resolve', () => {
+		const d = deferred<Track | null>();
+		mockResolve.mockReturnValue(d.promise);
+
+		// Do NOT await — assert the state set synchronously, before resolveStub settles.
+		void player.playStub('周杰伦', '稻香', 'https://img/cover.png');
+
+		expect(player.pendingTrack).toEqual({
+			artist: '周杰伦',
+			title: '稻香',
+			cover: 'https://img/cover.png'
+		});
+		expect(player.loading).toBe(true);
+		expect(player.current).toBeNull(); // not played yet — still resolving
+		d.resolve(null); // cleanup
+	});
+
+	it('dedupes a same-song double-tap: resolveStub is called ONCE', async () => {
+		const d = deferred<Track | null>();
+		mockResolve.mockReturnValue(d.promise);
+
+		const p1 = player.playStub('Ed Sheeran', 'Perfect');
+		const p2 = player.playStub('Ed Sheeran', 'Perfect'); // same key, still in flight
+
+		expect(mockResolve).toHaveBeenCalledTimes(1);
+		await expect(p2).resolves.toBeNull(); // the deduped second tap returns null immediately
+
+		d.resolve(mk('netease', '1', 'Ed Sheeran', 'Perfect'));
+		await p1;
+		await flush();
+	});
+
+	it('a DIFFERENT-song tap supersedes: the stale resolve never plays', async () => {
+		const dA = deferred<Track | null>();
+		const dB = deferred<Track | null>();
+		mockResolve.mockReturnValueOnce(dA.promise).mockReturnValueOnce(dB.promise);
+
+		const trackA = mk('netease', 'A', 'Artist A', 'Song A');
+		const trackB = mk('qq', 'B', 'Artist B', 'Song B');
+
+		const pA = player.playStub('Artist A', 'Song A'); // gen 1
+		const pB = player.playStub('Artist B', 'Song B'); // gen 2 — supersedes gen 1
+
+		// The now-bar shows the NEWER song while both resolve.
+		expect(player.pendingTrack).toEqual({ artist: 'Artist B', title: 'Song B', cover: null });
+
+		// The STALE (gen 1) resolve settles FIRST → must be discarded (not played).
+		dA.resolve(trackA);
+		await expect(pA).resolves.toBeNull();
+		await flush();
+		expect(player.current).toBeNull(); // stale result never played
+
+		// The CURRENT (gen 2) resolve settles → it plays.
+		dB.resolve(trackB);
+		await expect(pB).resolves.toBe(trackB);
+		await flush();
+		expect(player.current?.uid).toBe(trackB.uid);
+		expect(player.play).toHaveBeenCalledWith(trackB, { fresh: true });
+		// The stale track was NEVER handed to play().
+		expect(player.play).not.toHaveBeenCalledWith(trackA, expect.anything());
+	});
+
+	it('on success: plays the resolved Track + clears pendingTrack', async () => {
+		const track = mk('netease', 'hit', '周杰伦', '稻香');
+		mockResolve.mockResolvedValue(track);
+
+		const out = await player.playStub('周杰伦', '稻香');
+		await flush();
+
+		expect(out).toBe(track);
+		expect(player.pendingTrack).toBeNull(); // overlay cleared on handoff
+		expect(player.play).toHaveBeenCalledWith(track, { fresh: true });
+		expect(player.current?.uid).toBe(track.uid);
+	});
+
+	it('on a miss (null): clears pendingTrack, loading false, returns null', async () => {
+		mockResolve.mockResolvedValue(null);
+
+		const out = await player.playStub('Nobody', 'Nothing');
+
+		expect(out).toBeNull();
+		expect(player.pendingTrack).toBeNull();
+		expect(player.loading).toBe(false);
+		expect(player.play).not.toHaveBeenCalled();
+	});
+
+	it('never throws even when resolveStub rejects (returns null, clears overlay)', async () => {
+		mockResolve.mockRejectedValue(new Error('search down'));
+
+		await expect(player.playStub('X', 'Y')).resolves.toBeNull();
+		expect(player.pendingTrack).toBeNull();
+		expect(player.loading).toBe(false);
+	});
+
+	it('after a miss, the SAME song can be tapped again (key cleared, not stuck deduped)', async () => {
+		mockResolve.mockResolvedValueOnce(null);
+		await player.playStub('Retry', 'Me'); // miss clears pendingKey
+
+		const track = mk('kuwo', '2', 'Retry', 'Me');
+		mockResolve.mockResolvedValueOnce(track);
+		const out = await player.playStub('Retry', 'Me'); // not deduped — fresh attempt
+		await flush();
+
+		expect(out).toBe(track);
+		expect(mockResolve).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe('player.prefetchNext — pre-resolve next track for gapless-ish play', () => {
+	// prefetchNext is private + fired from the real play(); drive it directly (bracket access)
+	// after seeding current + queue, so timing stays deterministic regardless of play()'s stub.
+	const prefetch = () => (player as unknown as { prefetchNext(): Promise<void> })['prefetchNext']();
+	const primeNext = () => (player as unknown as { primeNext(): Promise<void> })['primeNext']();
+	const ensureAhead = () => (player as unknown as { ensureAhead(): Promise<void> })['ensureAhead']();
+
+	it("pre-resolves the next track's details and warms its cover (no audio byte-warm)", async () => {
+		const assets = installAssetPreloadMocks();
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next'); // unresolved — readiness guard does NOT short-circuit
+		player.queue = [cur, next];
+		player.current = cur;
+
+		const resolved: Track = {
+			...next,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/next.mp3',
+			cover: 'https://img/next.jpg'
+		};
+		mockEnsure.mockResolvedValue(resolved);
+
+		await prefetch();
+		await flush();
+
+		// Called once, with the next stub and an AbortSignal.
+		expect(mockEnsure).toHaveBeenCalledTimes(1);
+		expect(mockEnsure).toHaveBeenCalledWith(next, expect.any(AbortSignal));
+		// Resolved track written back into queue[1] (so a later play() no-ops).
+		expect(player.queue[1].detailsLoaded).toBe(true);
+		expect(player.queue[1].audioUrl).toBe('https://cdn/next.mp3');
+		// No audio byte-warm at all — the zero-fetch blob pre-buffer was removed
+		// (debug-nowbar-frozen-audius-spam) and there was never a throwaway <audio preload=auto> either,
+		// so no HTMLAudioElement is constructed for warming. Only the cover Image is warmed.
+		expect(assets.AudioCtor).not.toHaveBeenCalled();
+		expect(assets.ImageCtor).toHaveBeenCalledTimes(1);
+		expect(assets.images[0].src).toBe('https://img/next.jpg');
+		expect(assets.images[0].decoding).toBe('async');
+		expect(assets.images[0].referrerPolicy).toBe('no-referrer');
+	});
+
+	it('no-op at end of queue (no next track)', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		player.queue = [cur]; // current is the last entry
+		player.current = cur;
+
+		await prefetch();
+		await flush();
+
+		expect(mockEnsure).not.toHaveBeenCalled();
+	});
+
+	it('warms the cover even when next track is already detailsLoaded (no audio byte-warm)', async () => {
+		const assets = installAssetPreloadMocks();
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = { ...mk('qq', '1', 'B', 'Next'), cover: 'https://img/already.jpg' };
+		player.queue = [cur, next];
+		player.current = cur;
+
+		await prefetch();
+		await flush();
+
+		expect(mockEnsure).not.toHaveBeenCalled();
+		expect(assets.AudioCtor).not.toHaveBeenCalled(); // no audio byte-warm (blob pre-buffer removed)
+		expect(assets.ImageCtor).toHaveBeenCalledTimes(1);
+		expect(assets.images[0].src).toBe('https://img/already.jpg');
+	});
+
+	it('DEPTH-2 WARM: after landing the immediate-next, also pre-resolves the FOLLOWING entry (bg-resolve-gap-stall)', async () => {
+		// Freeze 1 prevention: if the landed immediate-next 403s at play-time (region-lock), the never-stop
+		// chain SKIPS to the entry after it. warmAfter() pre-resolves that entry so its play() short-circuits
+		// ensureTrackDetails — no cold network resolve to hang in a frozen background WebView (the 0:00 freeze).
+		installAssetPreloadMocks();
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next'); // immediate-next — landed by the probe walk
+		const after = stub('kuwo', '2', 'C', 'After'); // the skip-target if `next` dies at play-time
+		player.queue = [cur, next, after];
+		player.current = cur;
+
+		// Resolve each stub to a DISTINCT playable url so the two writebacks are distinguishable.
+		mockEnsure.mockImplementation(async (t: Track) => ({
+			...t,
+			detailsLoaded: true,
+			audioUrl: `https://cdn/${t.songid}.mp3`
+		}));
+
+		await prefetch();
+		await flush(); // warmAfter is fire-and-forget from inside the walk
+
+		// Landed immediate-next AND the following entry both resolved (the latter via warmAfter, no probe).
+		expect(mockEnsure).toHaveBeenCalledWith(next, expect.any(AbortSignal));
+		expect(mockEnsure).toHaveBeenCalledWith(after, expect.any(AbortSignal));
+		// Both written back so a later play()/skip short-circuits with NO cold background resolve.
+		expect(player.queue[1].detailsLoaded).toBe(true);
+		expect(player.queue[1].audioUrl).toBe('https://cdn/1.mp3');
+		expect(player.queue[2].detailsLoaded).toBe(true);
+		expect(player.queue[2].audioUrl).toBe('https://cdn/2.mp3');
+	});
+
+	it('DEPTH-2 WARM is a no-op when the landed track is the queue tail (nothing after it to warm)', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next'); // last entry — no following track
+		player.queue = [cur, next];
+		player.current = cur;
+		mockEnsure.mockResolvedValue({ ...next, detailsLoaded: true, audioUrl: 'https://cdn/1.mp3' });
+
+		await prefetch();
+		await flush();
+
+		// Only the landed immediate-next resolved — warmAfter found no following entry (growth = ensureAhead).
+		expect(mockEnsure).toHaveBeenCalledTimes(1);
+	});
+
+	it('dedupes in-flight: a second prefetchNext for the same next track does not start a second resolve', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next');
+		player.queue = [cur, next];
+		player.current = cur;
+
+		const d = deferred<Track>();
+		mockEnsure.mockReturnValue(d.promise); // never settles until we resolve it
+
+		void prefetch();
+		void prefetch(); // same current/queue, still in flight → must NOT start a second resolve
+
+		expect(mockEnsure).toHaveBeenCalledTimes(1);
+
+		d.resolve({ ...next, detailsLoaded: true, audioUrl: 'https://cdn/next.mp3' }); // cleanup
+		await flush();
+	});
+
+	it('discards a stale resolve when current changes mid-resolve', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next');
+		player.queue = [cur, next];
+		player.current = cur;
+
+		const d = deferred<Track>();
+		mockEnsure.mockReturnValue(d.promise);
+
+		void prefetch(); // captures seedUid = cur.uid
+
+		// Current changes away mid-resolve → the just-prefetched result is now stale.
+		player.current = mk('kuwo', '9', 'Z', 'Unrelated');
+
+		const resolved: Track = { ...next, detailsLoaded: true, audioUrl: 'https://cdn/stale.mp3' };
+		d.resolve(resolved);
+		await flush();
+
+		// queue[1] must NOT be overwritten — the stale resolve was discarded.
+		expect(player.queue[1]).toBe(next);
+		expect(player.queue[1].audioUrl).toBeNull();
+	});
+
+	it('ended → next() auto-advance reaches play() (which fires prefetchNext) — PLAY-09/D-15', () => {
+		// The ended listener (repeatMode 'off') calls next(); next() → play(queue[i+1]); play()'s
+		// tail fires `void this.prefetchNext()`. play() is stubbed here so we assert the advance
+		// hand-off: ended drives next() which calls play() with the next queue entry. That play()
+		// in production is the unconditional prefetchNext trigger on the auto-advance path.
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = mk('qq', '1', 'B', 'Next');
+		player.queue = [cur, next];
+		player.current = cur;
+		player.repeatMode = 'off';
+
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+
+		el.fire('ended');
+
+		expect(playSpy).toHaveBeenCalledWith(next);
+	});
+
+	it('next() waits for an already in-flight ensureAhead grow before advancing', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const grown = mk('qq', '1', 'B', 'Grown Next');
+		player.queue = [cur];
+		player.current = cur;
+
+		const d = deferred<Track[]>();
+		mockPicks.mockReset().mockReturnValue(d.promise);
+		const grow = ensureAhead();
+
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+		player.next();
+		await flush();
+		expect(playSpy).not.toHaveBeenCalled();
+
+		d.resolve([grown]);
+		await grow;
+		await flush();
+
+		expect(player.queue.map((t) => t.uid)).toEqual([cur.uid, grown.uid]);
+		expect(playSpy).toHaveBeenCalledWith(grown);
+	});
+
+	it('primeNext grows an exhausted queue (ensureAhead only — does NOT pre-resolve)', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next');
+		player.queue = [cur];
+		player.current = cur;
+		mockPicks.mockReset().mockResolvedValue([next]);
+		mockEnsure.mockResolvedValue({ ...next, detailsLoaded: true, audioUrl: 'https://cdn/next.mp3' });
+
+		await primeNext();
+		await flush();
+
+		// RELAX-PREFETCH: primeNext now only tops up the queue — it no longer fires the prefetch
+		// resolve on play() entry (that is the timeupdate gate's job ~5s into playback).
+		expect(mockPicks).toHaveBeenCalledTimes(1);
+		expect(player.queue.map((t) => t.uid)).toEqual([cur.uid, next.uid]);
+		expect(mockEnsure).not.toHaveBeenCalled();
+		expect(player.queue[1].audioUrl).toBeNull(); // still an unresolved stub — resolved later
+	});
+
+	it('quick-260618-fiz Fix 3: ensureAhead seeds the continuation from the CURRENT track via buildSimilarQueue', async () => {
+		const cur = mk('netease', '0', 'Adele', 'Hello');
+		const similarPick = mk('qq', 'S', 'Someone', 'Like You');
+		player.queue = [cur]; // queue.length - i = 1 → within 2 of end → grows
+		player.current = cur;
+		mockSimilar.mockReset().mockResolvedValue([similarPick]);
+		mockPicks.mockReset().mockResolvedValue([mk('kuwo', 'D', 'Diverse', 'Random')]);
+
+		await ensureAhead();
+		await flush();
+
+		// buildSimilarQueue was seeded from the CURRENT (last-played) track, not random picks.
+		expect(mockSimilar).toHaveBeenCalledTimes(1);
+		expect(mockSimilar.mock.calls[0][0]).toBe(cur);
+		// the exclude/`have` set unions the queue uids (so the continuation never duplicates queued songs).
+		const haveArg = mockSimilar.mock.calls[0][1] as Set<string>;
+		expect(haveArg.has(cur.uid)).toBe(true);
+		// similar returned picks → buildDiversePicks (the random fallback) is NOT called.
+		expect(mockPicks).not.toHaveBeenCalled();
+		expect(player.queue.map((t) => t.uid)).toEqual([cur.uid, similarPick.uid]);
+	});
+
+	it('quick-260618-fiz Fix 3: ensureAhead falls back to buildDiversePicks only when buildSimilarQueue is dry', async () => {
+		const cur = mk('netease', '0', 'Obscure', 'Bootleg');
+		const diversePick = mk('kuwo', 'D', 'Diverse', 'Random');
+		player.queue = [cur];
+		player.current = cur;
+		mockSimilar.mockReset().mockResolvedValue([]); // Last.fm + same-artist search both dry
+		mockPicks.mockReset().mockResolvedValue([diversePick]);
+
+		await ensureAhead();
+		await flush();
+
+		// similar seeded first (and from current), then the diverse fallback fired (never-stop).
+		expect(mockSimilar).toHaveBeenCalledTimes(1);
+		expect(mockSimilar.mock.calls[0][0]).toBe(cur);
+		expect(mockPicks).toHaveBeenCalledTimes(1);
+		expect(player.queue.map((t) => t.uid)).toEqual([cur.uid, diversePick.uid]);
+	});
+
+	it('a direct prefetchNext pre-resolves the newly added next track + warms its assets', async () => {
+		const assets = installAssetPreloadMocks();
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next');
+		const resolved: Track = {
+			...next,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn/next.mp3',
+			cover: 'https://img/prime.jpg'
+		};
+		player.queue = [cur, next];
+		player.current = cur;
+		mockEnsure.mockResolvedValue(resolved);
+
+		await prefetch();
+		await flush();
+
+		expect(mockEnsure).toHaveBeenCalledWith(next, expect.any(AbortSignal));
+		expect(player.queue[1].audioUrl).toBe('https://cdn/next.mp3');
+		expect(assets.images[0].src).toBe('https://img/prime.jpg'); // cover still warmed
+		expect(assets.AudioCtor).not.toHaveBeenCalled(); // no audio byte-warm (blob pre-buffer removed)
+	});
+
+	it('BOUNDED-prebuffers the immediate-next to local bytes, once, claiming prebufferedUid (bg-lockscreen-stall-noskip)', async () => {
+		// The blob pre-buffer is REINTRODUCED but BOUNDED: prefetch pre-resolves AND fetches the next
+		// track's bytes into a blob so a backgrounded src-swap plays LOCAL bytes (no network load that can
+		// hang). prebufferedUid is claimed so the same uid is fetched at most once (the f7c2580 flood fix).
+		const fetchMock = vi.fn(async () => ({ ok: true, blob: async () => new Blob(['audio-bytes']) }));
+		vi.stubGlobal('fetch', fetchMock);
+		const createObjSpy = vi.fn(() => 'blob:next-bytes');
+		vi.stubGlobal('URL', {
+			createObjectURL: createObjSpy,
+			revokeObjectURL: vi.fn()
+		} as unknown as typeof URL);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		const state = player as unknown as { prebufferedUid: string | null; prebufferedBlobUrl: string | null };
+		state.prebufferedUid = null;
+		state.prebufferedBlobUrl = null;
+
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next');
+		const resolvedNext: Track = { ...next, detailsLoaded: true, audioUrl: 'https://cdn/next.mp3' };
+		player.queue = [cur, next];
+		player.current = cur;
+		mockEnsure.mockResolvedValue(resolvedNext);
+
+		await prefetch();
+		await flush();
+
+		// Pre-resolved into the queue…
+		expect(player.queue[1].audioUrl).toBe('https://cdn/next.mp3');
+		// …AND its bytes pre-buffered to a local blob, keyed by uid.
+		expect(fetchMock).toHaveBeenCalledWith(
+			'https://cdn/next.mp3',
+			expect.objectContaining({ referrerPolicy: 'no-referrer' })
+		);
+		expect(createObjSpy).toHaveBeenCalled();
+		expect(state.prebufferedUid).toBe(next.uid);
+
+		// Bounded: a SECOND prewarm for the same uid does NOT re-fetch (dedupe).
+		fetchMock.mockClear();
+		await prefetch();
+		await flush();
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('SKIPS the prebuffer blob above the 32-D-15 size ceiling, keeping the uid claimed', async () => {
+		// A FLAC-weight advance (measured sq = 55397039 bytes) must NOT become a ~53MB Blob on a low-end
+		// phone. The head is read, the stream is cancelled, and prebufferedUid stays CLAIMED — the same
+		// f7c2580 at-most-once contract as the !resp.ok branch — so churn never re-fetches and play()
+		// falls back to streaming the CDN URL.
+		const cancelSpy = vi.fn(async () => {});
+		const blobSpy = vi.fn(async () => new Blob(['audio-bytes']));
+		const fetchMock = vi.fn(async () => ({
+			ok: true,
+			headers: { get: (h: string) => (h === 'content-length' ? '55397039' : null) },
+			body: { cancel: cancelSpy },
+			blob: blobSpy
+		}));
+		vi.stubGlobal('fetch', fetchMock);
+		const createObjSpy = vi.fn(() => 'blob:next-bytes');
+		vi.stubGlobal('URL', {
+			createObjectURL: createObjSpy,
+			revokeObjectURL: vi.fn()
+		} as unknown as typeof URL);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		const state = player as unknown as { prebufferedUid: string | null; prebufferedBlobUrl: string | null };
+		state.prebufferedUid = null;
+		state.prebufferedBlobUrl = null;
+
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next');
+		player.queue = [cur, next];
+		player.current = cur;
+		mockEnsure.mockResolvedValue({ ...next, detailsLoaded: true, audioUrl: 'https://cdn/next.flac' });
+
+		await prefetch();
+		await flush();
+
+		expect(blobSpy).not.toHaveBeenCalled(); // no bytes downloaded
+		expect(createObjSpy).not.toHaveBeenCalled(); // no blob: URL held
+		expect(cancelSpy).toHaveBeenCalled(); // stream released
+		expect(state.prebufferedUid).toBe(next.uid); // still claimed — no re-fetch on churn
+		expect(state.prebufferedBlobUrl).toBeNull();
+	});
+
+	it("drops the previous uid's blob when a new next is claimed — never plays A's bytes as F (quick-261108-h3w)", async () => {
+		// Up Next a..e was buffered for `a`, then rebuilt to f..j. F's own prebuffer fails (here: a
+		// dead URL) — the slot must not end up as { uid: F, blob: A's bytes }.
+		vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
+		const revokeSpy = vi.fn();
+		vi.stubGlobal('URL', { createObjectURL: vi.fn(), revokeObjectURL: revokeSpy } as unknown as typeof URL);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		const state = player as unknown as { prebufferedUid: string | null; prebufferedBlobUrl: string | null };
+		state.prebufferedUid = 'qq:A';
+		state.prebufferedBlobUrl = 'blob:a-bytes';
+
+		const cur = mk('netease', '0', 'A', 'Now');
+		const f = stub('qq', 'F', 'F', 'Fresh');
+		player.queue = [cur, f];
+		player.current = cur;
+		mockEnsure.mockResolvedValue({ ...f, detailsLoaded: true, audioUrl: 'https://cdn/f.mp3' });
+
+		await prefetch();
+		await flush();
+
+		expect(state.prebufferedUid).toBe(f.uid);
+		expect(state.prebufferedBlobUrl).toBeNull();
+		expect(revokeSpy).toHaveBeenCalledWith('blob:a-bytes');
+	});
+
+	it('prebuffers when the CDN exposes no Content-Length (unknown size falls through — 32-D-15)', async () => {
+		// Content-Length is not CORS-safelisted; a provider without access-control-expose-headers returns
+		// null. That MUST behave exactly as before the ceiling existed, or a header-less CDN silently
+		// loses the bg-lockscreen-stall-noskip protection.
+		const fetchMock = vi.fn(async () => ({
+			ok: true,
+			headers: { get: () => null },
+			blob: async () => new Blob(['audio-bytes'])
+		}));
+		vi.stubGlobal('fetch', fetchMock);
+		const createObjSpy = vi.fn(() => 'blob:next-bytes');
+		vi.stubGlobal('URL', {
+			createObjectURL: createObjSpy,
+			revokeObjectURL: vi.fn()
+		} as unknown as typeof URL);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		const state = player as unknown as { prebufferedUid: string | null; prebufferedBlobUrl: string | null };
+		state.prebufferedUid = null;
+		state.prebufferedBlobUrl = null;
+
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next');
+		player.queue = [cur, next];
+		player.current = cur;
+		mockEnsure.mockResolvedValue({ ...next, detailsLoaded: true, audioUrl: 'https://cdn/next.mp3' });
+
+		await prefetch();
+		await flush();
+
+		expect(createObjSpy).toHaveBeenCalled();
+	});
+
+	// PLAY-RESILIENCE: bounded FORWARD-RESOLVE-AND-PROBE walk (restored from the pre-76b3e6f design).
+	// A reject on the immediate-next is TRANSIENT — the walk skips it (without marking it dead) and
+	// advances to the next candidate so a single-source hiccup never leaves the queue with a dead
+	// next-up. A no-audioUrl resolve is a DEFINITIVE failure — the candidate is marked unplayable so
+	// next() routes past it. Either way the walk lands the first probe-verified playable track.
+	const unplayable = () =>
+		(player as unknown as { unplayableUids: Set<string> }).unplayableUids;
+
+	it('a REJECTING immediate-next is skipped (not marked dead) and the walk advances to a later candidate', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const bad = stub('qq', '1', 'B', 'Bad'); // immediate-next: resolve rejects (transient proxy failure)
+		const good = stub('kuwo', '2', 'C', 'Good'); // later candidate — the walk MUST reach it
+		player.queue = [cur, bad, good];
+		player.current = cur;
+
+		mockEnsure.mockImplementation(async (t: Track) => {
+			if (t.uid === bad.uid) throw new Error('qq upstream 503');
+			if (t.uid === good.uid) return { ...good, detailsLoaded: true, audioUrl: 'https://cdn/good.mp3' };
+			return t;
+		});
+
+		await prefetch();
+		await flush();
+
+		// The walk advanced PAST the rejecting immediate-next to the next candidate.
+		expect(mockEnsure).toHaveBeenCalledWith(bad, expect.any(AbortSignal));
+		expect(mockEnsure).toHaveBeenCalledWith(good, expect.any(AbortSignal));
+		// A reject is transient — bad is NOT marked dead (retried on demand) and is left untouched.
+		expect(player.queue[1]).toBe(bad);
+		expect(player.queue[1].audioUrl).toBeNull();
+		expect(unplayable().has(bad.uid)).toBe(false);
+		// The later playable candidate landed (pre-resolved + written back into its slot).
+		expect(player.queue[2].audioUrl).toBe('https://cdn/good.mp3');
+		expect(player.queue[2].detailsLoaded).toBe(true);
+	});
+
+	it('an immediate-next that resolves WITHOUT an audioUrl is STRIKED (not yet dead on the first failure) and the walk advances', async () => {
+		// Over-aggressive-skip fix: a SINGLE definitive failure (no-url resolve) is now treated as
+		// transient — it records a strike but is NOT promoted into unplayableUids until STRIKE_CAP. The
+		// walk still advances past it this round (the "next song is always playable" guarantee holds),
+		// but a once-failing track is not falsely sidelined for the whole session.
+		const cur = mk('netease', '0', 'A', 'Now');
+		const bad = stub('qq', '1', 'B', 'NoUrl'); // immediate-next: resolves but unplayable
+		const good = stub('kuwo', '2', 'C', 'Good'); // later candidate — the walk MUST reach it
+		player.queue = [cur, bad, good];
+		player.current = cur;
+
+		mockEnsure.mockImplementation(async (t: Track) => {
+			if (t.uid === bad.uid) return { ...bad, detailsLoaded: true, audioUrl: null }; // resolved, no url
+			if (t.uid === good.uid) return { ...good, detailsLoaded: true, audioUrl: 'https://cdn/good.mp3' };
+			return t;
+		});
+
+		await prefetch();
+		await flush();
+
+		// Both resolved: bad first (struck, not yet dead), then the walk advanced to good.
+		expect(mockEnsure).toHaveBeenCalledWith(bad, expect.any(AbortSignal));
+		expect(mockEnsure).toHaveBeenCalledWith(good, expect.any(AbortSignal));
+		// bad took ONE strike but is NOT yet in unplayableUids — retryable on demand (the fix).
+		expect(player.queue[1]).toBe(bad);
+		expect(player.queue[1].audioUrl).toBeNull();
+		expect(unplayable().has(bad.uid)).toBe(false);
+		// The later playable candidate landed.
+		expect(player.queue[2].audioUrl).toBe('https://cdn/good.mp3');
+		expect(player.queue[2].detailsLoaded).toBe(true);
+	});
+
+	it('writes nothing when current changes mid-resolve (single-candidate stale-guard)', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next');
+		player.queue = [cur, next];
+		player.current = cur;
+
+		const d = deferred<Track>();
+		mockEnsure.mockReturnValue(d.promise); // immediate-next resolve in flight
+
+		void prefetch(); // seedUid = cur.uid
+
+		// Current changes away mid-resolve → the result is now stale and must be discarded.
+		player.current = mk('joox', '9', 'Z', 'Unrelated');
+		d.resolve({ ...next, detailsLoaded: true, audioUrl: 'https://cdn/next.mp3' });
+		await flush();
+
+		// queue[1] untouched — the stale-guard after the await discarded the write.
+		expect(mockEnsure).toHaveBeenCalledTimes(1);
+		expect(player.queue[1]).toBe(next);
+		expect(player.queue[1].audioUrl).toBeNull();
+	});
+
+	// IDLE-PREFETCH (quick-261102-idle1, supersedes the RELAX-PREFETCH ~5s elapsed gate —
+	// user requirement 2026-11-02): the trigger is /api PIPELINE IDLENESS, not playback
+	// elapsed time. While a governed request is in flight the arm waits; the moment the
+	// pipeline drains, exactly one walk fires for the src — and never re-fires. Drives the
+	// REAL governor via importActual (this file's api-base mock replaces only apiFetch)
+	// with a hung global fetch standing in for a user search burst.
+	it('prefetch waits while the /api pipeline is busy, fires once when it drains, never re-fires for the same src', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next');
+		player.queue = [cur, next];
+		player.current = cur;
+		mockEnsure.mockResolvedValue({ ...next, detailsLoaded: true, audioUrl: 'https://cdn/next.mp3' });
+
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		// A fresh src loads → re-arm the one-shot (mirrors play()'s initial-load arming point).
+		(player as unknown as { prefetchArmedForSrc: boolean }).prefetchArmedForSrc = false;
+
+		// Occupy the REAL governor with one hung request (a user-initiated search's shape).
+		const { apiFetch: realApiFetch } = await vi.importActual<typeof import('$lib/services/api-base')>(
+			'$lib/services/api-base'
+		);
+		let releaseFetch!: (r: Response) => void;
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(
+				() =>
+					new Promise<Response>((res) => {
+						releaseFetch = res;
+					})
+			)
+		);
+		const hanging = realApiFetch('/api/qq/search?key=busy');
+		await flush();
+		expect(apiPipelineBusyCount()).toBe(1);
+
+		// The backstop arm lands while the pipeline is busy → NO walk yet.
+		el.fire('timeupdate');
+		await flush();
+		expect(mockEnsure).not.toHaveBeenCalled();
+
+		// Drain the pipeline → the idle arm fires exactly one walk for this src.
+		releaseFetch(new Response('{}', { status: 200 }));
+		await hanging;
+		await flush();
+		expect(mockEnsure).toHaveBeenCalledTimes(1);
+		expect(mockEnsure).toHaveBeenCalledWith(next, expect.any(AbortSignal));
+
+		// A later timeupdate for the SAME src must NOT re-fire — one-shot per src.
+		el.fire('timeupdate');
+		await flush();
+		expect(mockEnsure).toHaveBeenCalledTimes(1);
+
+		vi.unstubAllGlobals();
+		__resetGovernor();
+	});
+});
+
+// 26-09 (Gap 2 — UPNEXT-01): regenerate() runs on EVERY fresh click-to-play in the default
+// 'generated' up-next mode. Before this plan it installed whatever buildSimilarQueue returned —
+// including [] — with no safety net (unlike ensureAhead, which falls back to buildDiversePicks).
+// These tests prove: (1) a non-empty similar result installs + logs its reported `via`, no diverse
+// call; (2) an empty similar result triggers the buildDiversePicks safety net + logs via:'diverse';
+// (3+4) the WR-06 queueGen guard discards a stale regenerate across BOTH awaits (buildSimilarQueue
+// AND the new buildDiversePicks) so a superseding setQueue() is never clobbered.
+describe('player.regenerate — never-empty safety net + upnext.source log (26-09, Gap 2)', () => {
+	const regenerate = (seed: Track) =>
+		(player as unknown as { regenerate(seed: Track): Promise<void> })['regenerate'](seed);
+
+	it('non-empty similar → installs the tail, logs upnext.source with the reported via, no buildDiversePicks', async () => {
+		const seed = mk('netease', '0', 'Adele', 'Hello');
+		const similarPick = mk('qq', 'S', 'Someone', 'Like You');
+		player.queue = [seed];
+		player.current = seed;
+		// buildSimilarQueue reports its terminal path (26-07 report callback) then returns a tail.
+		mockSimilar
+			.mockReset()
+			.mockImplementation(async (_t, _ex, report) => {
+				report?.('similar');
+				return [similarPick];
+			});
+		mockPicks.mockReset();
+		mockLogAction.mockClear();
+
+		await regenerate(seed);
+		await flush();
+
+		// Primary produced candidates → the diverse safety net is NOT reached.
+		expect(mockPicks).not.toHaveBeenCalled();
+		expect(player.queue.map((t) => t.uid)).toEqual([seed.uid, similarPick.uid]);
+		// The formation source is logged with the via buildSimilarQueue reported + the tail count.
+		expect(mockLogAction).toHaveBeenCalledWith('upnext.source', { via: 'similar', count: 1 });
+	});
+
+	it('empty similar → buildDiversePicks safety net installs a non-empty tail, logs upnext.source {via:diverse}', async () => {
+		const seed = mk('netease', '0', 'Obscure', 'Bootleg');
+		const diversePick = mk('kuwo', 'D', 'Diverse', 'Random');
+		player.queue = [seed];
+		player.current = seed;
+		mockSimilar
+			.mockReset()
+			.mockImplementation(async (_t, _ex, report) => {
+				report?.('empty');
+				return [];
+			});
+		mockPicks.mockReset().mockResolvedValue([diversePick]);
+		mockLogAction.mockClear();
+
+		await regenerate(seed);
+		await flush();
+
+		// The empty primary triggered the ensureAhead-style safety net — Up-Next is NOT left empty.
+		expect(mockPicks).toHaveBeenCalledTimes(1);
+		expect(mockPicks).toHaveBeenCalledWith(8, expect.any(Set));
+		expect(player.queue.map((t) => t.uid)).toEqual([seed.uid, diversePick.uid]);
+		expect(mockLogAction).toHaveBeenCalledWith('upnext.source', { via: 'diverse', count: 1 });
+	});
+
+	it('WR-06: a setQueue() during the buildSimilarQueue await discards the stale regenerate', async () => {
+		const seed = mk('netease', '0', 'A', 'Seed');
+		player.queue = [seed];
+		player.current = seed;
+		const d = deferred<Track[]>();
+		mockSimilar.mockReset().mockReturnValue(d.promise); // park on the FIRST await
+		mockPicks.mockReset();
+
+		const p = regenerate(seed);
+		// An explicit list lands while buildSimilarQueue is still in flight (bumps queueGen).
+		const explicit = [mk('qq', 'X', 'Exp', 'Explicit'), mk('kuwo', 'Y', 'Exp2', 'Explicit2')];
+		player.setQueue(explicit);
+		d.resolve([mk('kuwo', 'S', 'Sim', 'Pick')]); // a non-empty (but STALE) result resolves
+		await p;
+		await flush();
+
+		// The stale regenerate returned at the WR-06 guard — the explicit queue is preserved intact,
+		// and the diverse safety net was never reached (tail was non-empty before the guard).
+		expect(player.queue.map((t) => t.uid)).toEqual(explicit.map((t) => t.uid));
+		expect(mockPicks).not.toHaveBeenCalled();
+	});
+
+	it('WR-06: a setQueue() during the buildDiversePicks safety-net await discards the stale regenerate', async () => {
+		const seed = mk('netease', '0', 'A', 'Seed');
+		player.queue = [seed];
+		player.current = seed;
+		mockSimilar
+			.mockReset()
+			.mockImplementation(async (_t, _ex, report) => {
+				report?.('empty');
+				return []; // empty primary → falls into the buildDiversePicks safety net
+			});
+		const d = deferred<Track[]>();
+		mockPicks.mockReset().mockReturnValue(d.promise); // park on the SECOND await
+
+		const p = regenerate(seed);
+		await flush(); // let the empty primary settle and reach the buildDiversePicks await
+		const explicit = [mk('qq', 'X', 'Exp', 'Explicit')];
+		player.setQueue(explicit);
+		d.resolve([mk('kuwo', 'D', 'Div', 'Pick')]); // a stale diverse result resolves
+		await p;
+		await flush();
+
+		// The SECOND (safety-net) await re-checks the WR-06 guard, so the explicit queue wins.
+		expect(mockPicks).toHaveBeenCalledTimes(1);
+		expect(player.queue.map((t) => t.uid)).toEqual(explicit.map((t) => t.uid));
+	});
+});
+
+// quick-261103-upnext (Hector's bug, reproduced live 2026-11-03): with Search sourcing set to
+// Genre-generated, Up Next stayed the raw search list forever. The fresh tap's regenerate is
+// slow and any skip/advance discards it (WR-06); the landed track's play is NON-fresh, and
+// postPlayQueue never regenerated on a non-fresh play — so no tail was ever built (the live
+// log had no upnext.source at all). The repair: a non-fresh landing whose context mode is
+// 'generated' (and whose list is not sameList-pinned) rebuilds the tail for the LANDED track
+// when no generated tail exists for it.
+describe('player postPlayQueue — generated-tail repair on non-fresh landings (quick-261103-upnext)', () => {
+	const postPlayQueue = (t: Track, opts?: { fresh?: boolean; sameList?: boolean }) =>
+		(player as unknown as { postPlayQueue(t: Track, opts?: { fresh?: boolean; sameList?: boolean }): void })[
+			'postPlayQueue'
+		](t, opts);
+	const regenerateDirect = (seed: Track) =>
+		(player as unknown as { regenerate(seed: Track): Promise<void> })['regenerate'](seed);
+
+	it('the Hector sequence: fresh build superseded by a skip → the landing repairs the tail', async () => {
+		const tapped = mk('ytmusic', 'T0', 'Jason Chan', '車匙 - Car Key');
+		const landed = mk('kuwo', 'L1', '陳柏宇', '車匙');
+		const listRow3 = mk('joox', 'L3', '路人', '車匙');
+		const pick = mk('netease', 'P1', 'Similar Artist', 'Similar Song');
+		const stalePick = mk('qq', 'PS', 'Stale', 'Pick');
+		player.queue = [tapped, landed, listRow3];
+		player.current = tapped;
+		const d = deferred<Track[]>();
+		mockSimilar
+			.mockReset()
+			.mockReturnValueOnce(d.promise) // the tapped seed's build parks (the slow ladder)
+			.mockImplementation(async (_t, _ex, report) => {
+				report?.('similar');
+				return [pick];
+			});
+		mockPicks.mockReset();
+		mockLogAction.mockClear();
+
+		postPlayQueue(tapped, { fresh: true }); // arms the intent; build for the tapped seed in flight
+		player.current = landed;
+		postPlayQueue(landed, undefined); // the skip lands — non-fresh — repair fires for the LANDED track
+		await flush();
+
+		expect(mockSimilar).toHaveBeenCalledWith(landed, expect.any(Set), expect.any(Function));
+		expect(player.queue.map((t) => t.uid)).toEqual([tapped.uid, landed.uid, pick.uid]);
+		expect(mockLogAction).toHaveBeenCalledWith('upnext.source', { via: 'similar', count: 1 });
+
+		d.resolve([stalePick]); // the tapped seed's slow build finally returns — discarded (regenGen)
+		await flush();
+		expect(player.queue.map((t) => t.uid)).toEqual([tapped.uid, landed.uid, pick.uid]);
+	});
+
+	it('no repair once the generated tail has installed (advances inside it are untouched)', async () => {
+		const seed = mk('netease', '0', 'Adele', 'Hello');
+		const pick = mk('qq', 'S', 'Someone', 'Like You');
+		player.queue = [seed];
+		player.current = seed;
+		mockSimilar
+			.mockReset()
+			.mockImplementation(async (_t, _ex, report) => {
+				report?.('similar');
+				return [pick];
+			});
+		mockPicks.mockReset().mockResolvedValue([]);
+		mockLogAction.mockClear();
+
+		postPlayQueue(seed, { fresh: true }); // generated branch: builds + installs, intent fulfilled
+		await flush();
+		expect(player.queue.map((t) => t.uid)).toEqual([seed.uid, pick.uid]);
+		expect(mockLogAction).toHaveBeenCalledWith('upnext.source', { via: 'similar', count: 1 });
+		mockLogAction.mockClear();
+		// Dry pools for the advance phase: a wrongful repair would install an EMPTY tail
+		// (queue shrinks to [seed]) and log via:'diverse' — ensureAhead growth with dry
+		// pools appends nothing and logs nothing, so both signals separate the two paths.
+		mockSimilar.mockReset().mockResolvedValue([]);
+
+		postPlayQueue(seed, undefined); // non-fresh landing on the same track (retry/replay)
+		await flush();
+
+		expect(player.queue.map((t) => t.uid)).toEqual([seed.uid, pick.uid]);
+		expect(mockLogAction).not.toHaveBeenCalledWith('upnext.source', expect.anything());
+	});
+
+	it('a sameList fresh play PINS the list — a later advance does not regenerate over it', async () => {
+		const first = mk('qq', 'A1', 'Album Artist', 'Track One');
+		const second = mk('qq', 'A2', 'Album Artist', 'Track Two');
+		player.queue = [first, second];
+		player.current = first;
+		mockSimilar.mockReset().mockResolvedValue([]);
+		mockPicks.mockReset().mockResolvedValue([]);
+		mockLogAction.mockClear();
+
+		postPlayQueue(first, { fresh: true, sameList: true });
+		await flush();
+		postPlayQueue(second, undefined); // auto-advance inside the pinned list
+		await flush();
+
+		// The list survives verbatim and no regenerate ever logged a formation source
+		// (ensureAhead's dry top-up attempts change nothing and log nothing).
+		expect(player.queue.map((t) => t.uid)).toEqual([first.uid, second.uid]);
+		expect(mockLogAction).not.toHaveBeenCalledWith('upnext.source', expect.anything());
+	});
+
+	it('regenGen: a slow build for a skipped seed never installs over the newer seed’s tail', async () => {
+		const seed1 = mk('netease', '1', 'Old', 'Skipped');
+		const seed2 = mk('netease', '2', 'New', 'Landed');
+		const pickOld = mk('qq', 'PO', 'Old', 'Pick');
+		const pickNew = mk('qq', 'PN', 'New', 'Pick');
+		player.queue = [seed1, seed2];
+		player.current = seed2;
+		const d = deferred<Track[]>();
+		mockSimilar
+			.mockReset()
+			.mockReturnValueOnce(d.promise) // seed1's build parks
+			.mockImplementation(async (_t, _ex, report) => {
+				report?.('similar');
+				return [pickNew];
+			});
+		mockPicks.mockReset();
+
+		const p1 = regenerateDirect(seed1);
+		await regenerateDirect(seed2); // the newer build lands first
+		await flush();
+		expect(player.queue.map((t) => t.uid)).toEqual([seed1.uid, seed2.uid, pickNew.uid]);
+
+		d.resolve([pickOld]); // the stale build finally returns — must be discarded
+		await p1;
+		await flush();
+		expect(player.queue.map((t) => t.uid)).toEqual([seed1.uid, seed2.uid, pickNew.uid]);
+	});
+});
+
+// quick-260627-huo (HUO-RETRY): the user reported a genuinely-playable Next-up song being marked
+// non-playable (a dimmed ✗ row) because TWO quick transient upstream blips reached STRIKE_CAP. The fix
+// replaces "strike → promote to dead" with "strike → schedule a delayed fresh re-resolve → only
+// promote to dead after the delayed re-resolves are exhausted". These fake-timer tests prove the
+// delayed-retry recovery, the bounded promote-after-exhaustion, and that every armed timer is
+// cancellable so nothing leaks across tracks/tests.
+describe('player delayed re-resolve — transient next-up failure recovers without permanent skip', () => {
+	const prefetch = () => (player as unknown as { prefetchNext(): Promise<void> })['prefetchNext']();
+	const unplayable = () => (player as unknown as { unplayableUids: Set<string> }).unplayableUids;
+	type RetryInternals = {
+		retryResolveTimers: Map<string, ReturnType<typeof setTimeout>>;
+		retryResolveAttempts: Map<string, number>;
+	};
+	const retry = () => player as unknown as RetryInternals;
+	// Mirror of Player.RETRY_RESOLVE_MAX / RETRY_RESOLVE_DELAY_MS for driving the fake-timer clock.
+	const Player_RETRY_RESOLVE_MAX = 2;
+	const Player_RETRY_RESOLVE_DELAY_MS = 4000;
+
+	beforeEach(() => {
+		// Drive prefetchNext directly (private; play() is mocked) — no real <audio>, so probePlayable
+		// degrades to {ok:true} (the asset Audio stub has no addEventListener). That means a NO-URL
+		// resolve is the definitive-failure lever these tests pull (a hard probe error needs an
+		// event-capable Audio, which the probePlayable suite already covers).
+		mockEnsure.mockReset();
+	});
+
+	it('a no-url definitive failure schedules a delayed re-resolve instead of immediately marking dead; after the delay a fresh resolve returns a url and the candidate is NOT in unplayableUids', async () => {
+		vi.useFakeTimers();
+		try {
+			const cur = mk('netease', '0', 'A', 'Now');
+			const bad = stub('qq', '1', 'B', 'WasFlaky'); // genuinely playable, just blipping upstream
+			const good = stub('kuwo', '2', 'C', 'Good');
+			player.queue = [cur, bad, good];
+			player.current = cur;
+
+			// The FIRST Player_STRIKE_CAP resolves of `bad` blip (no url) so it reaches the cap; AFTER
+			// that a fresh resolve returns a real url — the genuinely-playable song the user complained
+			// about. Driven off the mirrored constant, not a literal, so a cap re-tune cannot silently
+			// leave this walk short of the cap (31-D-16).
+			let badCalls = 0;
+			mockEnsure.mockImplementation(async (t: Track) => {
+				if (t.uid === bad.uid) {
+					badCalls++;
+					return badCalls <= Player_STRIKE_CAP
+						? { ...bad, detailsLoaded: true, audioUrl: null } // transient blip
+						: { ...bad, detailsLoaded: true, audioUrl: 'https://cdn/bad-now.mp3' }; // recovered
+				}
+				if (t.uid === good.uid) return { ...good, detailsLoaded: true, audioUrl: 'https://cdn/good.mp3' };
+				return t;
+			});
+
+			// Drive the walk to STRIKE_CAP. Note: with fake timers, flush()'s own setTimeout(0) is a fake
+			// timer — advance by 0 to drain the microtask-flush macrotask between/after the awaits.
+			await driveToCapFake();
+
+			// Reached the cap → but NOT promoted to dead: a delayed re-resolve is armed instead (the fix).
+			expect(unplayable().has(bad.uid)).toBe(false);
+			expect(retry().retryResolveTimers.has(bad.uid)).toBe(true);
+			expect(retry().retryResolveAttempts.get(bad.uid)).toBe(1);
+
+			// A few seconds later the delayed re-resolve fires: clears the strike, re-runs the walk, the
+			// now-playable song resolves with a url and lands in its slot — NEVER marked dead.
+			await vi.advanceTimersByTimeAsync(Player_RETRY_RESOLVE_DELAY_MS);
+
+			expect(unplayable().has(bad.uid)).toBe(false);
+			// A fresh re-resolve for bad occurred (the post-cap call returns the recovered url).
+			expect(badCalls).toBeGreaterThanOrEqual(Player_STRIKE_CAP + 1);
+			expect(player.queue[1].audioUrl).toBe('https://cdn/bad-now.mp3');
+			// The timer cleaned up after firing (no orphan).
+			expect(retry().retryResolveTimers.has(bad.uid)).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('a candidate that stays dead across all RETRY_RESOLVE_MAX delayed attempts is eventually promoted into unplayableUids (bounded — no infinite skip-stall)', async () => {
+		vi.useFakeTimers();
+		try {
+			const cur = mk('netease', '0', 'A', 'Now');
+			const bad = stub('qq', '1', 'B', 'TrulyDead'); // never resolves a url, ever
+			player.queue = [cur, bad];
+			player.current = cur;
+			mockEnsure.mockImplementation(async (t: Track) => {
+				if (t.uid === bad.uid) return { ...bad, detailsLoaded: true, audioUrl: null };
+				return t;
+			});
+
+			// Round 0: drive to cap → schedules delayed attempt #1 (not yet dead).
+			await driveToCapFake();
+			expect(unplayable().has(bad.uid)).toBe(false);
+			expect(retry().retryResolveAttempts.get(bad.uid)).toBe(1);
+
+			// Drive every delayed round. Each fires a re-resolve that re-strikes to cap; while budget
+			// remains it re-schedules (with backoff), and on the final round it promotes to dead. Advance
+			// generously past the longest backed-off delay (DELAY * MAX) to drain them all.
+			await vi.advanceTimersByTimeAsync(Player_RETRY_RESOLVE_DELAY_MS * (Player_RETRY_RESOLVE_MAX + 2));
+
+			// Bounded: budget fully consumed and the genuinely-dead track is finally promoted so
+			// nextPlayableIndex routes past it and the ✗ row renders. No timer remains pending.
+			expect(retry().retryResolveAttempts.get(bad.uid)).toBe(Player_RETRY_RESOLVE_MAX);
+			expect(unplayable().has(bad.uid)).toBe(true);
+			expect(retry().retryResolveTimers.has(bad.uid)).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('clearQueue cancels pending delayed-retry timers and empties the attempt budget (no leak)', async () => {
+		vi.useFakeTimers();
+		try {
+			const cur = mk('netease', '0', 'A', 'Now');
+			const bad = stub('qq', '1', 'B', 'Flaky');
+			player.queue = [cur, bad];
+			player.current = cur;
+			mockEnsure.mockImplementation(async (t: Track) =>
+				t.uid === bad.uid ? { ...bad, detailsLoaded: true, audioUrl: null } : t
+			);
+
+			await driveToCapFake();
+			expect(retry().retryResolveTimers.has(bad.uid)).toBe(true);
+
+			player.clearQueue();
+
+			expect(retry().retryResolveTimers.size).toBe(0);
+			expect(retry().retryResolveAttempts.size).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('recoverFromStop cancels pending delayed-retry timers and empties the attempt budget (no leak)', async () => {
+		vi.useFakeTimers();
+		try {
+			const cur = mk('netease', '0', 'A', 'Now');
+			const bad = stub('qq', '1', 'B', 'Flaky');
+			player.queue = [cur, bad];
+			player.current = cur;
+			mockEnsure.mockImplementation(async (t: Track) =>
+				t.uid === bad.uid ? { ...bad, detailsLoaded: true, audioUrl: null } : t
+			);
+
+			await driveToCapFake();
+			expect(retry().retryResolveTimers.has(bad.uid)).toBe(true);
+
+			// recoverFromStop is private; drive it via the same bracket-access seam other suites use.
+			(player as unknown as { recoverFromStop(): void })['recoverFromStop']();
+
+			expect(retry().retryResolveTimers.size).toBe(0);
+			expect(retry().retryResolveAttempts.size).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('retryUnplayable cancels a pending delayed retry for that uid (manual retry supersedes)', async () => {
+		vi.useFakeTimers();
+		try {
+			const cur = mk('netease', '0', 'A', 'Now');
+			const bad = stub('qq', '1', 'B', 'Flaky');
+			player.queue = [cur, bad];
+			player.current = cur;
+			mockEnsure.mockImplementation(async (t: Track) =>
+				t.uid === bad.uid ? { ...bad, detailsLoaded: true, audioUrl: null } : t
+			);
+
+			await driveToCapFake();
+			expect(retry().retryResolveTimers.has(bad.uid)).toBe(true);
+
+			player.retryUnplayable(bad);
+
+			expect(retry().retryResolveTimers.has(bad.uid)).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// Local driveToCap that drains microtasks under fake timers (the suite-level driveToCap uses the
+	// real-timer flush() which never settles while fake timers are installed). Walks exactly
+	// Player_STRIKE_CAP rounds — the mirrored constant, never a literal (31-D-16).
+	async function driveToCapFake() {
+		for (let round = 0; round < Player_STRIKE_CAP; round++) {
+			await prefetch();
+			await vi.advanceTimersByTimeAsync(0);
+		}
+	}
+});
+
+// quick-260629-nyl Task 2: prefetchNext's two never-stop additions —
+//  (2a) a probe TIMEOUT (transient, NOT a hard error) arms a delayed re-resolve via scheduleRetryResolve
+//       instead of being skipped-and-forgotten, and the candidate is NOT marked dead (no ✗ row);
+//  (2b) when the forward walk lands NO playable candidate (all ahead resolve with no url), prefetchNext
+//       eagerly calls ensureAhead so the queue is extended (buildSimilarQueue → buildDiversePicks).
+// Driving prefetchNext directly (private; play() is the top-level mock) keeps these unit-isolated.
+describe('player.prefetchNext — never-stop (timeout retry + walk-exhaustion grow) [quick-260629-nyl]', () => {
+	const prefetch = () => (player as unknown as { prefetchNext(): Promise<void> })['prefetchNext']();
+	const unplayable = () => (player as unknown as { unplayableUids: Set<string> }).unplayableUids;
+	const probe = () =>
+		player as unknown as {
+			probePlayable(url: string): Promise<{ ok: boolean; errored: boolean }>;
+		};
+	type RetryInternals = {
+		retryResolveTimers: Map<string, ReturnType<typeof setTimeout>>;
+		retryResolveAttempts: Map<string, number>;
+	};
+	const retry = () => player as unknown as RetryInternals;
+	const Player_RETRY_RESOLVE_DELAY_MS = 4000;
+
+	beforeEach(() => {
+		mockEnsure.mockReset();
+		mockSimilar.mockReset();
+		mockPicks.mockReset();
+	});
+
+	it('(2a) a probe TIMEOUT on a Next-up candidate arms a delayed re-resolve and does NOT mark it dead', async () => {
+		vi.useFakeTimers();
+		// Stub probePlayable to a TIMEOUT verdict (ok:false, errored:false) — the transient class.
+		const probeSpy = vi
+			.spyOn(probe(), 'probePlayable')
+			.mockResolvedValue({ ok: false, errored: false });
+		try {
+			const cur = mk('netease', '0', 'A', 'Now');
+			const flaky = stub('qq', '1', 'B', 'TimesOutNowPlayableLater');
+			player.queue = [cur, flaky];
+			player.current = cur;
+
+			let flakyCalls = 0;
+			mockEnsure.mockImplementation(async (t: Track) => {
+				if (t.uid === flaky.uid) {
+					flakyCalls++;
+					// Always resolves a URL — the failure is the (stubbed) probe TIMEOUT, not a no-url miss.
+					return { ...flaky, detailsLoaded: true, audioUrl: 'https://cdn/flaky.mp3' };
+				}
+				return t;
+			});
+
+			await prefetch();
+			await vi.advanceTimersByTimeAsync(0);
+
+			// Transient timeout → NOT dead, but a delayed retry IS armed (the fix; previously a bare continue).
+			expect(unplayable().has(flaky.uid)).toBe(false);
+			expect(retry().retryResolveTimers.has(flaky.uid)).toBe(true);
+			expect(retry().retryResolveAttempts.get(flaky.uid)).toBe(1);
+			const callsBeforeDelay = flakyCalls;
+
+			// After the delay the armed retry re-runs prefetchNext → a fresh resolve for the same uid.
+			await vi.advanceTimersByTimeAsync(Player_RETRY_RESOLVE_DELAY_MS);
+			expect(flakyCalls).toBeGreaterThan(callsBeforeDelay);
+			// Still never promoted to dead across the transient-timeout path.
+			expect(unplayable().has(flaky.uid)).toBe(false);
+		} finally {
+			probeSpy.mockRestore();
+			vi.useRealTimers();
+		}
+	});
+
+	it('(2b) when the forward walk lands NO playable candidate, prefetchNext eagerly extends the queue via ensureAhead', async () => {
+		// No fake timers needed — the grow is awaited microtask work. The lone candidate ahead resolves
+		// with NO url (definitive-failure path, not a timeout) so the walk lands nothing and falls out.
+		// A SHORT tail (queue.length - indexOf(current) <= 2) is required for ensureAhead to actually
+		// grow (its own guard) — exactly the consecutive-unplayable-near-the-end stall scenario.
+		const cur = mk('netease', '0', 'A', 'Now');
+		const d1 = stub('qq', '1', 'B', 'Dead1');
+		player.queue = [cur, d1];
+		player.current = cur;
+
+		mockEnsure.mockImplementation(async (t: Track) => {
+			if (t.uid === d1.uid) return { ...t, detailsLoaded: true, audioUrl: null };
+			return t;
+		});
+		// ensureAhead seeds from buildSimilarQueue first; return a fresh related song so the grow appends.
+		const grown = mk('netease', '99', 'A', 'Grown');
+		mockSimilar.mockResolvedValue([grown]);
+		mockPicks.mockResolvedValue([]);
+
+		const startLen = player.queue.length;
+		await prefetch();
+		// Let ensureAhead's growPromise (a microtask chain) settle.
+		await flush();
+
+		// The exhausted walk eagerly grew the queue: ensureAhead → buildSimilarQueue was invoked and the
+		// related song was appended so next()/track-end always has somewhere to advance.
+		expect(mockSimilar).toHaveBeenCalled();
+		expect(player.queue.length).toBeGreaterThan(startLen);
+		expect(player.queue.some((t) => t.uid === grown.uid)).toBe(true);
+	});
+});
+
+// quick-260627-huo (HUO-PREFETCH / HUO-NONSTOP): the immediate-next song must be pre-resolved +
+// probe-verified BEFORE the current track ends — including for SHORT tracks / FAST skips that never
+// cross the ~5s timeupdate prefetch gate. The fix fires an EAGER one-shot prefetchNext at play()'s
+// src-set (not gated on 5s, NOT gated on the `playing` event — memory: that froze iOS). These tests
+// use the REAL play() (restored from the global mock) + a fake <audio> so the src-set path runs.
+// debug-song-click-lrc-flood-noplay (single-authority simplification): the EAGER prefetch-probe fire
+// on every src-set was REMOVED — prefetch now runs ONLY via the timeupdate playback-elapsed gate (~5s
+// into REAL playback). A track that never starts (the failure case) therefore never triggers the
+// speculative probe/resolve walk that fed the api storm.
+describe('player prefetch — idle-armed single walk (quick-261102-idle1)', () => {
+	let el: ReturnType<typeof makeFakeAudio>;
+	// Spy on the private prefetchNext so we can count walks regardless of what they resolve.
+	let prefetchSpy: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		// Restore the REAL play() (the top-level beforeEach mocks it) so the eager src-set path executes.
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		// Online + a minimal Media Session surface (attach wires transport handlers) so play() runs
+		// headless without the offline gate or a null-deref.
+		vi.stubGlobal('navigator', {
+			onLine: true,
+			mediaSession: { metadata: null, playbackState: 'none', setPositionState() {}, setActionHandler() {} }
+		});
+		vi.stubGlobal('MediaMetadata', FakeMediaMetadata);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		vi.spyOn(library, 'adoptCover').mockImplementation(() => {});
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		// Spy on prefetchNext AFTER attach so we count only play()-driven walks. Keep the real impl so
+		// prefetchArmedForSrc dedupe + the actual resolve still happen.
+		prefetchSpy = vi.spyOn(
+			player as unknown as { prefetchNext(): Promise<void> },
+			'prefetchNext'
+		);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	const armedForSrc = () =>
+		(player as unknown as { prefetchArmedForSrc: boolean }).prefetchArmedForSrc;
+
+	// quick-261102-idle1 (user requirement 2026-11-02) SUPERSEDES this describe's old contract
+	// ("no prefetch at src-set; one walk only after ~5s of playback" — the RELAX-PREFETCH gate).
+	// The new rule: play() arms at src-set and the walk fires as soon as the /api pipeline is
+	// idle — in this harness the pipeline is always idle (apiFetch is mocked at the catalog
+	// seam), so the walk lands within a flush of play(), with NO timeupdate and NO 5s wait.
+	it('play() arms at src-set — on an idle pipeline the walk fires immediately (no elapsed-playback wait)', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next');
+		player.queue = [cur, next];
+		mockEnsure.mockImplementation(async (t: Track) => ({
+			...t,
+			detailsLoaded: true,
+			audioUrl: `https://cdn/${t.songid}.mp3`
+		}));
+
+		await player.play(cur, { fresh: false });
+		await flush();
+
+		expect(prefetchSpy).toHaveBeenCalledTimes(1);
+		expect(armedForSrc()).toBe(true);
+		expect(player.queue[1].audioUrl).toBe('https://cdn/1.mp3'); // immediate-next pre-resolved
+		expect(el.currentTime).toBe(0); // …with zero playback elapsed — idleness, not time, is the gate
+	});
+
+	it('one walk per src — repeated timeupdates after the arm never re-fire it', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const next = stub('qq', '1', 'B', 'Next');
+		player.queue = [cur, next];
+		mockEnsure.mockImplementation(async (t: Track) => ({
+			...t,
+			detailsLoaded: true,
+			audioUrl: `https://cdn/${t.songid}.mp3`
+		}));
+
+		await player.play(cur, { fresh: false });
+		await flush();
+		expect(prefetchSpy).toHaveBeenCalledTimes(1);
+
+		// Further timeupdates for the SAME src are no-ops (the arm's one-shot is spent).
+		el.currentTime += 1;
+		el.fire('timeupdate');
+		await flush();
+		el.fire('timeupdate');
+		await flush();
+		expect(prefetchSpy).toHaveBeenCalledTimes(1);
+	});
+});
+
+// quick-261102-idle1 (Bug 3, user requirement 2026-11-02): the OUTCOMES the idle scheduling
+// exists for — a Next tap after a completed prefetch starts without re-resolving; a queue
+// edit that changes the next song discards the stale warm and prefetches the NEW next; a
+// downloaded next triggers no network prefetch at all; repeat-one arms nothing.
+describe('player prefetch — idle scheduling outcomes (quick-261102-idle1)', () => {
+	let el: ReturnType<typeof makeFakeAudio>;
+	let prefetchSpy: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		player.repeatMode = 'off';
+		vi.stubGlobal('navigator', {
+			onLine: true,
+			mediaSession: { metadata: null, playbackState: 'none', setPositionState() {}, setActionHandler() {} }
+		});
+		vi.stubGlobal('MediaMetadata', FakeMediaMetadata);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		vi.spyOn(library, 'adoptCover').mockImplementation(() => {});
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		prefetchSpy = vi.spyOn(
+			player as unknown as { prefetchNext(): Promise<void> },
+			'prefetchNext'
+		);
+		__resetGovernor();
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		player.repeatMode = 'off';
+	});
+
+	const ensureFor = (uid: string) =>
+		mockEnsure.mock.calls.filter((c) => (c[0] as Track).uid === uid).length;
+	const resolveAll = async (t: Track) => ({
+		...t,
+		detailsLoaded: true,
+		audioUrl: `https://cdn/${t.songid}.mp3`
+	});
+
+	it('a Next tap after a completed prefetch does NOT re-resolve the prefetched song', async () => {
+		const a = mk('netease', 'a', 'A', 'First');
+		const b = stub('qq', 'b', 'B', 'Second');
+		const c = stub('kuwo', 'c', 'C', 'Third');
+		player.queue = [a, b, c];
+		mockEnsure.mockImplementation(resolveAll);
+
+		await player.play(a, { fresh: false });
+		await flush();
+		expect(ensureFor(b.uid)).toBe(1); // the idle walk pre-resolved B
+		expect(player.queue[1].audioUrl).toBe('https://cdn/b.mp3');
+
+		player.next();
+		await flush();
+		expect(player.current?.uid).toBe(b.uid);
+		// play() hands ensureTrackDetails the PREFETCHED queue entry — already detailsLoaded
+		// with its URL — so the real catalog guard short-circuits it with zero network (the
+		// mock counts calls, so assert on the ARGUMENT: a cold re-resolve would receive the
+		// raw URL-less stub instead).
+		const bCalls = mockEnsure.mock.calls.filter((call) => (call[0] as Track).uid === b.uid);
+		expect(bCalls.length).toBe(2); // the walk's resolve + play()'s guarded hand-off
+		expect((bCalls[1][0] as Track).detailsLoaded).toBe(true);
+		expect((bCalls[1][0] as Track).audioUrl).toBe('https://cdn/b.mp3');
+	});
+
+	it('reorder changes the next song → the stale prefetch is discarded and the NEW next is prefetched', async () => {
+		const a = mk('netease', 'a', 'A', 'First');
+		const b = stub('qq', 'b', 'B', 'Second');
+		const c = stub('kuwo', 'c', 'C', 'Third');
+		const d = stub('joox', 'd', 'D', 'Fourth');
+		player.queue = [a, b, c, d];
+		mockEnsure.mockImplementation(resolveAll);
+
+		await player.play(a, { fresh: false });
+		await flush();
+		expect(ensureFor(b.uid)).toBe(1); // B was the prefetched next
+		el.fire('timeupdate'); // the current src has actually played (re-arm precondition)
+
+		// Drag D (index 3) to right after current (index 1) — D becomes the next song.
+		player.reorderQueue(3, 1);
+		await flush();
+
+		expect(player.queue[1].uid).toBe(d.uid);
+		expect(ensureFor(d.uid)).toBe(1); // the NEW next got prefetched
+		expect(player.queue[1].audioUrl).toBe('https://cdn/d.mp3');
+		expect(ensureFor(b.uid)).toBe(1); // B was not walked again — its stale warm is simply unused
+		expect(prefetchSpy).toHaveBeenCalledTimes(2); // one walk per next-song version
+	});
+
+	it('a DOWNLOADED next song triggers no network prefetch at all', async () => {
+		const a = mk('netease', 'a', 'A', 'First');
+		const next = stub('qq', 'b', 'B', 'Second');
+		player.queue = [a, next];
+		vi.spyOn(library, 'downloadUidFor').mockImplementation((t: Track) =>
+			t.uid === next.uid ? next.uid : null
+		);
+		mockEnsure.mockImplementation(resolveAll);
+
+		await player.play(a, { fresh: false });
+		await flush();
+
+		expect(prefetchSpy).toHaveBeenCalledTimes(1); // the walk ran…
+		expect(ensureFor(next.uid)).toBe(0); // …but never resolved the downloaded next
+		expect(player.queue[1].audioUrl).toBeNull(); // queue entry untouched — local blob serves it
+	});
+
+	it('repeat-one arms nothing — the next song IS the current song', async () => {
+		const a = mk('netease', 'a', 'A', 'First');
+		const b = stub('qq', 'b', 'B', 'Second');
+		player.queue = [a, b];
+		player.repeatMode = 'one';
+		mockEnsure.mockImplementation(resolveAll);
+
+		await player.play(a, { fresh: false });
+		await flush();
+		el.fire('timeupdate'); // the backstop must also refuse under repeat-one
+		await flush();
+
+		expect(prefetchSpy).not.toHaveBeenCalled();
+		expect(ensureFor(b.uid)).toBe(0);
+	});
+});
+
+// debug-song-click-lrc-flood-noplay: the SINGLE audio.src AUTHORITY. The "api loop hell" was the SAME
+// track's src re-driven in a tight loop — `<audio>` `(cancels)` the prior load before firing `error`,
+// so the error-based ceiling never engaged and the flood was unbounded. driveSrc() brakes a rapid
+// same-uid re-drive → STOP (sticky Retry), while distinct uids (normal fast-skipping) never trip it.
+describe('player single audio.src authority — re-drive brake (debug-song-click-lrc-flood-noplay)', () => {
+	const CAP = 4; // mirror Player.SRC_REDRIVE_CAP
+	const drive = (uid: string, url: string) =>
+		(player as unknown as { driveSrc(u: string, x: string): boolean }).driveSrc(uid, url);
+
+	beforeEach(() => {
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		player.notice = null;
+		player.error = null;
+		const p = player as unknown as { driveBurst: number; lastDriveUid: string | null };
+		p.driveBurst = 0;
+		p.lastDriveUid = null;
+	});
+
+	it('brakes a rapid SAME-uid re-drive storm → STOP (sticky Retry notice), and returns false', () => {
+		let braked = false;
+		for (let i = 0; i < CAP + 1; i++) {
+			if (!drive('netease:299942', 'https://cdn.example/299942.mp3')) braked = true;
+		}
+		expect(braked).toBe(true); // the storm was cut off, not left to flood
+		expect(player.notice?.kind).toBe('stopped');
+		expect(player.notice?.reason).toBe('loop-guard');
+	});
+
+	it('distinct uids (normal fast-skipping through songs) never trip the brake', () => {
+		let allSet = true;
+		for (let i = 0; i < CAP + 3; i++) {
+			if (!drive(`netease:${i}`, `https://cdn.example/${i}.mp3`)) allSet = false;
+		}
+		expect(allSet).toBe(true); // every distinct-track src was attached
+		expect(player.notice?.kind).not.toBe('stopped');
+	});
+
+	it('a real `playing` resets the brake so a later re-drive of the same track is not falsely stopped', () => {
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		player.current = mk('netease', '299942', '王菲', '原谅自己');
+		// Drive up to just under the cap, then a real `playing` (output = not looping) resets the burst.
+		for (let i = 0; i < CAP - 1; i++) drive('netease:299942', 'https://cdn.example/299942.mp3');
+		el.fire('playing');
+		let braked = false;
+		for (let i = 0; i < CAP - 1; i++) {
+			if (!drive('netease:299942', 'https://cdn.example/299942.mp3')) braked = true;
+		}
+		expect(braked).toBe(false); // the reset prevented a false STOP after real playback
+	});
+});
+
+describe('player repeat — 2-state (PLAY-10)', () => {
+	// Seed the persisted player-state blob the way persist() writes it: a serialized `current`
+	// with a real uid (restore early-returns without one), an empty queue, and the target
+	// repeatMode. restore() then resolves the track via the mocked ensureTrackDetails so it
+	// doesn't hang on the network — and audio is null in node, so restore returns right after
+	// the repeatMode migration assignment we're asserting.
+	const STATE_KEY = 'openmusic:player:v1';
+	function seedState(repeatMode: 'off' | 'one' | 'all' | undefined) {
+		const cur = mk('netease', 'r1', 'Artist', 'Title');
+		const payload: Record<string, unknown> = {
+			v: 1,
+			current: {
+				uid: cur.uid,
+				source: cur.source,
+				songid: cur.songid,
+				title: cur.title,
+				artist: cur.artist,
+				album: cur.album,
+				cover: cur.cover,
+				quality: cur.quality,
+				qualityLabel: cur.qualityLabel,
+				keyword: cur.keyword,
+				displayIndex: cur.displayIndex
+			},
+			queue: [],
+			currentTime: 0,
+			shuffle: false
+		};
+		if (repeatMode !== undefined) payload.repeatMode = repeatMode;
+		localStorage.setItem(STATE_KEY, JSON.stringify(payload));
+		// ensureTrackDetails is awaited inside restore(); resolve a complete track so it settles.
+		mockEnsure.mockResolvedValue(mk('netease', 'r1', 'Artist', 'Title'));
+	}
+
+	beforeEach(() => {
+		player.repeatMode = 'off';
+	});
+
+	it("cycleRepeat from 'off' yields 'one'", () => {
+		player.repeatMode = 'off';
+		player.cycleRepeat();
+		expect(player.repeatMode).toBe('one');
+	});
+
+	it("cycleRepeat from 'one' yields 'off' (never 'all')", () => {
+		player.repeatMode = 'one';
+		player.cycleRepeat();
+		expect(player.repeatMode).toBe('off');
+	});
+
+	it("cycleRepeat is a strict 2-state toggle (off→one→off→one)", () => {
+		player.repeatMode = 'off';
+		player.cycleRepeat();
+		expect(player.repeatMode).toBe('one');
+		player.cycleRepeat();
+		expect(player.repeatMode).toBe('off');
+		player.cycleRepeat();
+		expect(player.repeatMode).toBe('one');
+	});
+
+	it("restore() with persisted repeatMode 'all' migrates to 'off' (D-11)", async () => {
+		seedState('all' as 'off');
+		await player.restore();
+		expect(player.repeatMode).toBe('off');
+	});
+
+	it("restore() with persisted repeatMode 'one' stays 'one'", async () => {
+		seedState('one');
+		await player.restore();
+		expect(player.repeatMode).toBe('one');
+	});
+
+	it("restore() with missing repeatMode defaults to 'off'", async () => {
+		seedState(undefined);
+		await player.restore();
+		expect(player.repeatMode).toBe('off');
+	});
+
+	it('next() at end-of-queue does NOT wrap to queue[0]; it grows via ensureAhead (no repeat-all path)', async () => {
+		const a = mk('netease', 'qa', 'A', 'First');
+		const b = mk('qq', 'qb', 'B', 'Last');
+		player.queue = [a, b];
+		player.current = b; // current is the last entry → end of queue
+		// Even if a stale 'all' value were somehow present, there is no wrap branch any more.
+		(player as unknown as { repeatMode: string }).repeatMode = 'off';
+
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+
+		player.next();
+		await flush();
+
+		// next() must NOT have played queue[0] (the removed repeat-all wrap). The end-of-queue
+		// path is solely ensureAhead().then(...); with sources dry/empty it adds nothing and the
+		// post-grow advance finds no next track, so play() is never called with queue[0].
+		expect(playSpy).not.toHaveBeenCalledWith(a);
+	});
+});
+
+// quick-260630-q03 changed the never-stop contract: a known-dead up-next is no longer skipped
+// outright — it is RETRIED ONCE on advance (a transient probe failure recovers), and only routed
+// past / grown once that one retry has been spent. These two tests assert the new behavior.
+describe('player.next() — never-stop: retries a dead up-next ONCE, then routes past / grows (PLAY-RESILIENCE)', () => {
+	const markDead = (uid: string) =>
+		(player as unknown as { unplayableUids: Set<string> }).unplayableUids.add(uid);
+
+	it('retries a known-dead immediate-next ONCE, then routes past it to the next playable entry', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const dead = mk('qq', '1', 'B', 'Dead'); // probe-confirmed unplayable
+		const good = mk('kuwo', '2', 'C', 'Good');
+		player.queue = [cur, dead, good];
+		player.current = cur;
+		markDead(dead.uid);
+
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+
+		player.next(); // never-stop: give the dead immediate-next its ONE retry first
+		await flush();
+		expect(playSpy).toHaveBeenCalledWith(dead, { fresh: false });
+
+		// The retry failed (re-marked dead) → the next advance now routes PAST it to the playable entry.
+		markDead(dead.uid);
+		player.next();
+		await flush();
+		expect(playSpy).toHaveBeenCalledWith(good);
+	});
+
+	it('with the whole tail dead it RETRIES the dead track once, then grows via ensureAhead (never silently no-ops)', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const dead = mk('qq', '1', 'B', 'Dead');
+		player.queue = [cur, dead];
+		player.current = cur;
+		markDead(dead.uid);
+
+		const ensureSpy = vi.spyOn(
+			player as unknown as { ensureAhead(): Promise<void> },
+			'ensureAhead'
+		);
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+
+		player.next(); // first: retry the dead track in place (NOT a grow yet)
+		await flush();
+		expect(playSpy).toHaveBeenCalledWith(dead, { fresh: false });
+		expect(ensureSpy).not.toHaveBeenCalled();
+
+		// Retry failed → dead re-marked AND now already-retried → no in-queue candidate remains, so the
+		// next advance grows instead of stalling on the dead tail.
+		markDead(dead.uid);
+		ensureSpy.mockClear();
+		player.next();
+		await flush();
+		expect(ensureSpy).toHaveBeenCalled();
+	});
+});
+
+describe('player.probePlayable — silent ~1s muted test-play (PLAY-RESILIENCE)', () => {
+	const probe = (url: string) =>
+		(player as unknown as { probePlayable(u: string): Promise<{ ok: boolean; errored: boolean }> })[
+			'probePlayable'
+		](url);
+
+	// Event-capable Audio stub (the asset-warming mock has no addEventListener, so the probe degrades
+	// to ok there; here we drive canplay/error/timeout explicitly). addEventListener on the prototype
+	// satisfies probePlayable's capability gate.
+	class ProbeAudio {
+		muted = false;
+		preload = '';
+		src = '';
+		static last: ProbeAudio | null = null;
+		private listeners: Record<string, Array<() => void>> = {};
+		setAttribute() {}
+		removeAttribute() {}
+		load() {}
+		pause() {}
+		play() {
+			return Promise.resolve();
+		}
+		addEventListener(ev: string, cb: () => void) {
+			(this.listeners[ev] ||= []).push(cb);
+			ProbeAudio.last = this;
+		}
+		removeEventListener(ev: string, cb: () => void) {
+			this.listeners[ev] = (this.listeners[ev] ?? []).filter((f) => f !== cb);
+		}
+		fire(ev: string) {
+			(this.listeners[ev] ?? []).forEach((f) => f());
+		}
+	}
+
+	beforeEach(() => {
+		ProbeAudio.last = null;
+		vi.stubGlobal('Audio', ProbeAudio);
+	});
+
+	it('resolves {ok:true} on canplay', async () => {
+		const p = probe('https://cdn/ok.mp3');
+		ProbeAudio.last?.fire('canplay');
+		await expect(p).resolves.toEqual({ ok: true, errored: false });
+		expect(ProbeAudio.last?.muted).toBe(true); // muted test-play — never audible
+		expect(ProbeAudio.last?.src).toBe('https://cdn/ok.mp3');
+	});
+
+	it('resolves {ok:false, errored:true} on a hard error (caller marks the track dead)', async () => {
+		const p = probe('https://cdn/dead.mp3');
+		ProbeAudio.last?.fire('error');
+		await expect(p).resolves.toEqual({ ok: false, errored: true });
+	});
+
+	it('resolves {ok:false, errored:false} on timeout (transient — NOT marked dead)', async () => {
+		vi.useFakeTimers();
+		try {
+			const p = probe('https://cdn/slow.mp3');
+			vi.advanceTimersByTime(2000); // past PROBE_TIMEOUT_MS (1500)
+			await expect(p).resolves.toEqual({ ok: false, errored: false });
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
+describe('player resilience — loop-guard + skip-on-failure (PLAY-07/08)', () => {
+	// runFallback is private + driven by the audio `error` path in production; drive it directly
+	// (bracket access) with tryFallback mocked to null = "all sources exhausted for this song".
+	const runFallback = (failed: Track) =>
+		(player as unknown as { runFallback(f: Track): Promise<void> })['runFallback'](failed);
+	// Internal counter for asserting the increment/reset behavior (it's a private loop-guard budget).
+	const failures = () => (player as unknown as { consecutiveFailures: number })['consecutiveFailures'];
+	const setFailures = (n: number) => {
+		(player as unknown as { consecutiveFailures: number })['consecutiveFailures'] = n;
+	};
+	// SYSTEMIC-FAILURE STOP ceiling (debug-nowbar-frozen-audius-spam): the cross-track skip counter.
+	const setFailoverSkips = (n: number) => {
+		(player as unknown as { failoverSkips: number })['failoverSkips'] = n;
+	};
+
+	beforeEach(() => {
+		mockTryFallback.mockReset();
+		mockTryFallback.mockResolvedValue(null); // every source exhausted → total failure
+		setFailures(0);
+		setFailoverSkips(0); // persists on the singleton across tests — reset so a leak can't early-trip
+
+		// Reset the skip-burst batch state (private; persists on the singleton across tests).
+		const p = player as unknown as {
+			skipBurst: number;
+			skipBurstTimer: ReturnType<typeof setTimeout> | null;
+		};
+		if (p.skipBurstTimer) clearTimeout(p.skipBurstTimer);
+		p.skipBurst = 0;
+		p.skipBurstTimer = null;
+		player.notice = null;
+		player.repeatMode = 'off';
+		player.current = null;
+		player.queue = [];
+		// online by default so the offline gate (Task 3) does not short-circuit these tests.
+		vi.stubGlobal('navigator', { onLine: true });
+	});
+
+	it('below the cap: increments the counter, emits a skip notice, and calls next()', async () => {
+		const a = mk('netease', 'a', 'A', 'Dead Song');
+		const b = mk('qq', 'b', 'B', 'Next Song');
+		player.queue = [a, b];
+		player.current = a;
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+
+		await runFallback(a);
+		await flush();
+
+		expect(failures()).toBe(1);
+		expect(player.notice?.kind).toBe('skip');
+		expect(player.notice?.count).toBe(1);
+		expect(player.notice?.title).toBe('Dead Song');
+		// next() auto-skipped to queue[1].
+		expect(playSpy).toHaveBeenCalledWith(b);
+	});
+
+	it('batches consecutive skips into one notice with a rising count (D-02)', async () => {
+		const a = mk('netease', 'a', 'A', 'One');
+		const b = mk('qq', 'b', 'B', 'Two');
+		player.queue = [a, b];
+		player.current = a;
+
+		await runFallback(a);
+		await runFallback(b);
+		await flush();
+
+		expect(failures()).toBe(2);
+		expect(player.notice?.kind).toBe('skip');
+		expect(player.notice?.count).toBe(2); // collapsed, not two separate notices
+	});
+
+	it('NEVER-STOP (quick-261116-nstop): at the skip cap with no local pool it enters the zero-asset retrying state — no pause, no sticky Retry, no advance into the streaming queue, prefetch still aborted', async () => {
+		// debug-nowbar-frozen-audius-spam: N distinct tracks failing back-to-back is a systemic outage —
+		// keep skipping and the never-stop chain spams /api/* (resolve + 8× similar-search per cycle) until
+		// the pool saturates and the app freezes. The failoverSkips ceiling still cuts the churn, but
+		// since quick-261116-nstop it enters the Fallback Interlude instead of halting; with no
+		// Downloads/Cached/prebuffered track to play, that is the Q14 retrying state.
+		const a = mk('netease', 'a', 'A', 'Dead');
+		const b = mk('qq', 'b', 'B', 'Next');
+		player.queue = [a, b];
+		player.current = a;
+		library.downloads = [];
+		setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1); // one more failover trips the ceiling
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+		// A live prefetch controller must be aborted by the interlude entry so no further resolves fire.
+		const aborted = { value: false };
+		(player as unknown as { prefetchController: AbortController | null }).prefetchController = {
+			abort: () => {
+				aborted.value = true;
+			}
+		} as unknown as AbortController;
+
+		await runFallback(a);
+		await flush();
+
+		expect(player.notice?.kind).toBe('never-stop'); // quiet auto-dismissing indicator, NOT the sticky stop
+		expect(player.notice?.msg).toBe('toast.playbackRetrying');
+		expect(player.notice?.action).toBeUndefined(); // recovery needs no tap — no Retry action
+		expect(player.error).not.toBe('toast.playbackStopped');
+		expect(playSpy).not.toHaveBeenCalled(); // no advance into another streaming resolve burst
+		expect(aborted.value).toBe(true); // in-flight prefetch cut off — no more /api/* fetches
+		const ns = player as unknown as { nsRetrying: boolean; nsInterlude: unknown };
+		expect(ns.nsRetrying).toBe(true);
+		expect(ns.nsInterlude).not.toBeNull(); // the saved queue waits for the 60s probe
+	});
+
+	it('NEVER-STOP recovery (quick-261116-nstop): the retrying state auto-probes the saved queue with no tap; a real `playing` on the probe track exits the interlude and resets the counters', async () => {
+		const a = mk('netease', 'a', 'A', 'Dead');
+		const b = mk('qq', 'b', 'B', 'Next');
+		player.queue = [a, b];
+		player.current = a;
+		library.downloads = [];
+		setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1);
+		await runFallback(a);
+		await flush();
+		expect(player.notice?.msg).toBe('toast.playbackRetrying');
+
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+		// The 60s retry timer calls exactly this — drive it directly (no user tap exists).
+		(player as unknown as { attemptRevivalProbe(): void }).attemptRevivalProbe();
+		await flush();
+
+		expect(playSpy).toHaveBeenCalledWith(b); // skipped AHEAD to the next track, not retry-current
+
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		el.fire('playing');
+
+		expect(failures()).toBe(0); // consecutive-failure budget reset by real audio
+		expect(player.notice).toBeNull(); // retrying indicator cleared on recovery
+		const ns = player as unknown as { nsInterlude: unknown; nsRetrying: boolean };
+		expect(ns.nsInterlude).toBeNull();
+		expect(ns.nsRetrying).toBe(false);
+	});
+
+	it('NEVER-STOP interlude (quick-261116-nstop): at the cap with Downloads present it plays the local pool (least-recently-played order) instead of stopping', async () => {
+		const a = mk('netease', 'a', 'A', 'Dead');
+		const b = mk('qq', 'b', 'B', 'Next');
+		const d1 = mk('kuwo', 'dl1', 'DL', 'Downloaded One');
+		const d2 = mk('kuwo', 'dl2', 'DL', 'Downloaded Two');
+		player.queue = [a, b];
+		player.current = a;
+		library.downloads = [d1, d2];
+		setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1);
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+
+		await runFallback(a);
+		await flush();
+
+		expect(playSpy).toHaveBeenCalledWith(d1, { fresh: false }); // pool head plays — playback never stopped
+		expect(player.current?.uid).toBe(d1.uid);
+		expect(player.notice?.kind).not.toBe('stopped');
+		expect(player.error).not.toBe('toast.playbackStopped');
+		const ns = player as unknown as { nsInterlude: { plays: number } | null; nsPoolTracks: Track[] };
+		expect(ns.nsInterlude?.plays).toBe(1);
+		expect(ns.nsPoolTracks.map((t) => t.uid)).toEqual([d1.uid, d2.uid]);
+		library.downloads = [];
+	});
+
+	it('NEVER-STOP probe budget (quick-261116-nstop): one probe per interlude track — a failed probe returns to the pool, extends the source cooldown, and does NOT re-probe at the next boundary while cooling', async () => {
+		const a = mk('netease', 'a', 'A', 'Dead');
+		const b = mk('qq', 'b', 'B', 'Next');
+		const d1 = mk('kuwo', 'dl1', 'DL', 'Downloaded One');
+		const d2 = mk('kuwo', 'dl2', 'DL', 'Downloaded Two');
+		player.queue = [a, b];
+		player.current = a;
+		library.downloads = [d1, d2];
+		setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1);
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		await runFallback(a);
+		await flush();
+		expect(player.current?.uid).toBe(d1.uid); // interlude playing the pool
+
+		// Force the marked source's cooldown to have elapsed, then hit a track boundary:
+		// the ONE probe earned by d1 is spent on the saved queue's resume track.
+		const ns = player as unknown as {
+			nsCooldowns: { markOk(s: string): void; isCooling(s: string, n: number): boolean };
+			nsProbeUid: string | null;
+		};
+		ns.nsCooldowns.markOk('netease');
+		playSpy.mockClear();
+		player.next();
+		await flush();
+		expect(playSpy).toHaveBeenCalledWith(b); // probe = resume track of the saved queue
+		expect(ns.nsProbeUid).toBe(b.uid);
+
+		// The probe track fails totally → back to the pool's next unplayed track, the marked
+		// source is cooling again (extended), and the probe uid is cleared.
+		playSpy.mockClear();
+		await runFallback(b);
+		await flush();
+		expect(playSpy).toHaveBeenCalledWith(d2, { fresh: false });
+		expect(ns.nsProbeUid).toBeNull();
+		expect(ns.nsCooldowns.isCooling('netease', Date.now())).toBe(true);
+
+		// Next boundary while the source still cools: NO second probe — the pool wraps instead.
+		playSpy.mockClear();
+		player.next();
+		await flush();
+		expect(playSpy).not.toHaveBeenCalledWith(b);
+		expect(playSpy).toHaveBeenCalledWith(d1, { fresh: false }); // wrapped to the pool head
+		library.downloads = [];
+	});
+
+	it('DOUBLE-TAP local dive (quick-261116-dtap): playRandomPoolTrack plays a random pool track (never the current), keeps the interlude alive, and registers the play; outside an interlude it is a null no-op', async () => {
+		// Outside any interlude: no pool to dive into.
+		expect(player.inInterlude).toBe(false);
+		expect(player.inRetrying).toBe(false);
+		expect(player.playRandomPoolTrack(() => 0)).toBeNull();
+
+		const a = mk('netease', 'a', 'A', 'Dead');
+		const b = mk('qq', 'b', 'B', 'Next');
+		const d1 = mk('kuwo', 'dl1', 'DL', 'Downloaded One');
+		const d2 = mk('kuwo', 'dl2', 'DL', 'Downloaded Two');
+		const d3 = mk('kuwo', 'dl3', 'DL', 'Downloaded Three');
+		player.queue = [a, b];
+		player.current = a;
+		library.downloads = [d1, d2, d3];
+		setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1);
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		await runFallback(a);
+		await flush();
+		expect(player.inInterlude).toBe(true);
+		expect(player.current?.uid).toBe(d1.uid); // interlude opened on the pool head
+
+		// rng () => 0 → the first candidate that is not the current track (d2), played
+		// through the pool registration (play count bumps, interlude survives).
+		playSpy.mockClear();
+		const played = player.playRandomPoolTrack(() => 0);
+		expect(played?.uid).toBe(d2.uid);
+		expect(playSpy).toHaveBeenCalledWith(d2, { fresh: false });
+		expect(player.inInterlude).toBe(true);
+		const ns = player as unknown as { nsInterlude: { plays: number } | null };
+		expect(ns.nsInterlude?.plays).toBe(2); // d1 (entry) + d2 (the dive)
+		library.downloads = [];
+	});
+
+	it('NEVER-STOP queue restore (quick-261116-nstop): a successful probe restores the saved queue at the boundary and exits with the one-time recovered summary', async () => {
+		const a = mk('netease', 'a', 'A', 'Dead');
+		const b = mk('qq', 'b', 'B', 'Next');
+		const d1 = mk('kuwo', 'dl1', 'DL', 'Downloaded One');
+		player.queue = [a, b];
+		player.current = a;
+		library.downloads = [d1];
+		setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1);
+		await runFallback(a);
+		await flush();
+		expect(player.current?.uid).toBe(d1.uid);
+
+		const ns = player as unknown as { nsCooldowns: { markOk(s: string): void }; nsInterlude: unknown };
+		ns.nsCooldowns.markOk('netease');
+		player.next(); // boundary → probe spends on b, restoring the saved queue
+		await flush();
+		expect(player.current?.uid).toBe(b.uid);
+		expect(player.queue.map((t) => t.uid)).toEqual([a.uid, b.uid]); // saved queue restored verbatim
+
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		el.fire('playing'); // probe track produced real audio → interlude over
+
+		expect(ns.nsInterlude).toBeNull();
+		expect(player.notice?.kind).toBe('never-stop');
+		expect(player.notice?.msg).toBe('toast.playbackRecovered');
+		expect(player.notice?.count).toBe(1); // one local track carried the session
+		library.downloads = [];
+	});
+
+	it('NEVER-STOP zero-asset timer (quick-261116-nstop): the 60s retry timer probes the saved queue with no tap', async () => {
+		vi.useFakeTimers();
+		try {
+			const a = mk('netease', 'a', 'A', 'Dead');
+			const b = mk('qq', 'b', 'B', 'Next');
+			player.queue = [a, b];
+			player.current = a;
+			library.downloads = [];
+			setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1);
+			const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+			playSpy.mockClear();
+
+			await runFallback(a);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(playSpy).not.toHaveBeenCalled(); // retrying — nothing local to play
+
+			await vi.advanceTimersByTimeAsync(60_000); // NS_RETRY_PROBE_MS elapses
+			expect(playSpy).toHaveBeenCalledWith(b); // auto-probe, no user action
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	// ─── ADAPTIVE PRE-BUFFER (quick-261116-prebuf, Phase 2, Q7/Q15) ─────────────────────
+	// The walk byte-buffers upcoming queue tracks into blobStore as CACHE (never library
+	// Downloads) until the local pool reaches the 30-minute target — and spends nothing
+	// when the user's Downloads already reach it.
+
+	const cbState = () =>
+		player as unknown as {
+			cbArmed: boolean;
+			cbEntries: Map<string, { track: Track; at: number; sec: number }>;
+			evictCarBuffer(): void;
+			buildInterludePool(): Promise<Track[]>;
+		};
+
+	const bufferFetchStub = () =>
+		vi.fn(
+			async () =>
+				({
+					ok: true,
+					headers: { get: () => null },
+					blob: async () => new Blob(['audio-bytes'])
+				}) as unknown as Response
+		);
+
+	const resolveAtTier = () =>
+		mockEnsure.mockImplementation(
+			async (t: Track) =>
+				({ ...t, detailsLoaded: true, audioUrl: `https://cdn.example.com/${t.uid}.mp3` }) as Track
+		);
+
+	it('CAR-BUFFER gate (quick-261116-prebuf): Downloads already ≥30 min — arm is a no-op, zero data spent', async () => {
+		const fetchSpy = bufferFetchStub();
+		vi.stubGlobal('fetch', fetchSpy);
+		resolveAtTier();
+		const cur = mk('netease', 'cur', 'A', 'Now');
+		const n1 = { ...mk('qq', 'n1', 'B', 'Next'), duration: 600 };
+		library.downloads = [1, 2, 3].map((i) => ({
+			...mk('kuwo', `dl${i}`, 'DL', `Downloaded ${i}`),
+			duration: 700
+		})); // 2100s ≥ 1800s target
+		player.queue = [cur, n1];
+		player.current = cur;
+
+		player.armCarBuffer();
+		await flush();
+		await flush();
+
+		expect(mockBlobPut).not.toHaveBeenCalled();
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect(mockEnsure).not.toHaveBeenCalled();
+		expect(cbState().cbEntries.size).toBe(0);
+		library.downloads = [];
+	});
+
+	it('CAR-BUFFER walk (quick-261116-prebuf): buffers upcoming tracks at the 320 tier into cache, topping the pool up to 30 min', async () => {
+		const fetchSpy = bufferFetchStub();
+		vi.stubGlobal('fetch', fetchSpy);
+		resolveAtTier();
+		mockBlobPut.mockResolvedValue(true);
+		// Bytes the walk stores are present afterwards — the pool measurement probes
+		// blobStore.has, so answer from the live registry.
+		mockBlobHas.mockImplementation(async (uid: string) => cbState().cbEntries.has(uid));
+		const prevQuality = settings.downloadQuality;
+		settings.downloadQuality = 'lossless'; // a FLAC user — the buffer must still cap at 320 (Q7)
+		try {
+			const cur = mk('netease', 'cur', 'A', 'Now');
+			const n1 = { ...mk('qq', 'n1', 'B', 'One'), duration: 600 };
+			const n2 = { ...mk('qq', 'n2', 'B', 'Two'), duration: 600 };
+			const n3 = { ...mk('qq', 'n3', 'B', 'Three'), duration: 600 };
+			const n4 = { ...mk('qq', 'n4', 'B', 'Four'), duration: 600 };
+			library.downloads = [];
+			player.queue = [cur, n1, n2, n3, n4];
+			player.current = cur;
+
+			player.armCarBuffer();
+			await flush();
+			await flush();
+			await flush();
+
+			// Exactly the 1800s gap is buffered (3 × 600s); n4 is never touched.
+			expect([...cbState().cbEntries.keys()].sort()).toEqual([n1.uid, n2.uid, n3.uid].sort());
+			expect(mockBlobPut).toHaveBeenCalledTimes(3);
+			// Every buffer resolve was tier-capped at '320' despite the lossless setting.
+			const tiers = mockEnsure.mock.calls.map((c) => c[2]);
+			expect(tiers.length).toBeGreaterThan(0);
+			expect(tiers.every((tier) => tier === '320')).toBe(true);
+			// Cache, not Downloads: the library gained nothing.
+			expect(library.downloads).toEqual([]);
+		} finally {
+			settings.downloadQuality = prevQuality;
+		}
+	});
+
+	it('CAR-BUFFER pool (quick-261116-prebuf): buffered tracks join the interlude pool as cached filler', async () => {
+		const n1 = { ...mk('qq', 'n1', 'B', 'Buffered One'), duration: 600 };
+		cbState().cbEntries.set(n1.uid, { track: n1, at: Date.now(), sec: 600 });
+		mockBlobHas.mockImplementation(async (uid: string) => uid === n1.uid);
+		library.downloads = [];
+
+		const pool = await cbState().buildInterludePool();
+		expect(pool.map((t) => t.uid)).toContain(n1.uid);
+	});
+
+	it('CAR-BUFFER play (quick-261116-prebuf): a buffered track plays from its blob with the network dead, as prebuffer-blob', async () => {
+		const buf = { ...mk('qq', 'buf', 'B', 'Buffered'), duration: 300 };
+		cbState().cbEntries.set(buf.uid, { track: buf, at: Date.now(), sec: 300 });
+		mockBlobGet.mockImplementation(async (uid: string) =>
+			uid === buf.uid ? new Blob(['audio-bytes']) : null
+		);
+		mockEnsure.mockRejectedValue(new Error('offline')); // any network resolve would die
+		vi.stubGlobal('URL', {
+			createObjectURL: () => 'blob:local-bytes',
+			revokeObjectURL: vi.fn()
+		});
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		// The global beforeEach stubs play() — restore the REAL one for this test.
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		player.queue = [buf];
+
+		await player.play(buf);
+		await flush();
+
+		expect(player.current?.uid).toBe(buf.uid);
+		expect(el.src).toBe('blob:local-bytes');
+		expect(
+			(player as unknown as { lastSrcKind: string }).lastSrcKind
+		).toBe('prebuffer-blob');
+	});
+
+	it('CAR-BUFFER eviction (quick-261116-prebuf): LRU evicts cache bytes but NEVER a real download', async () => {
+		const dl = { ...mk('kuwo', 'dlx', 'DL', 'Became A Download'), duration: 900 };
+		const old1 = { ...mk('qq', 'o1', 'B', 'Old One'), duration: 900 };
+		const old2 = { ...mk('qq', 'o2', 'B', 'Old Two'), duration: 900 };
+		const old3 = { ...mk('qq', 'o3', 'B', 'Old Three'), duration: 900 };
+		library.downloads = [dl];
+		const st = cbState();
+		st.cbEntries.set(dl.uid, { track: dl, at: 50, sec: 900 }); // buffered BEFORE it was downloaded
+		st.cbEntries.set(old1.uid, { track: old1, at: 100, sec: 900 });
+		st.cbEntries.set(old2.uid, { track: old2, at: 200, sec: 900 });
+		st.cbEntries.set(old3.uid, { track: old3, at: 300, sec: 900 });
+
+		st.evictCarBuffer();
+
+		// The download's bytes are untouched and its registry entry is simply dropped;
+		// the remaining 2700s of cache LRU-evicts the single oldest entry to reach 1800s.
+		expect(mockBlobDel).not.toHaveBeenCalledWith(dl.uid);
+		expect(mockBlobDel).toHaveBeenCalledTimes(1);
+		expect(mockBlobDel).toHaveBeenCalledWith(old1.uid);
+		expect([...st.cbEntries.keys()].sort()).toEqual([old2.uid, old3.uid].sort());
+		library.downloads = [];
+	});
+
+	it('CAR-BUFFER trigger (quick-261116-prebuf): the first interlude entry arms the buffer and caches the saved queue', async () => {
+		const fetchSpy = bufferFetchStub();
+		vi.stubGlobal('fetch', fetchSpy);
+		resolveAtTier();
+		mockBlobPut.mockResolvedValue(true);
+		const a = mk('netease', 'a', 'A', 'Dead');
+		const b = { ...mk('qq', 'b', 'B', 'Next'), duration: 900 };
+		const d1 = { ...mk('kuwo', 'dl1', 'DL', 'Downloaded One'), duration: 300 };
+		player.queue = [a, b];
+		player.current = a;
+		library.downloads = [d1];
+		setFailoverSkips(Player_SYSTEMIC_SKIP_CAP - 1);
+
+		await runFallback(a);
+		await flush();
+		await flush();
+		await flush();
+
+		expect(cbState().cbArmed).toBe(true);
+		expect(cbState().cbEntries.has(b.uid)).toBe(true); // saved queue's next track got cached
+		expect(mockBlobPut).toHaveBeenCalledWith(b.uid, expect.anything());
+		library.downloads = [];
+	});
+
+	it('a real `playing` event resets the counter and clears a stopped notice (D-06)', () => {
+		setFailures(3);
+		player.notice = { kind: 'stopped', reason: 'loop-guard', msg: 'toast.playbackStopped' };
+		// Simulate the audio element firing `playing` by invoking the bound listener via a fake element.
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		el.fire('playing');
+
+		expect(failures()).toBe(0);
+		expect(player.notice).toBeNull();
+	});
+
+	it('CR-01: the `play` event alone does NOT reset the counter (it fires before audio loads)', () => {
+		setFailures(3);
+		player.notice = { kind: 'stopped', reason: 'loop-guard', msg: 'toast.playbackStopped' };
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		// `play` fires the instant audio.play() is called, before any byte loads — it must NOT be
+		// treated as a success. Only `playing` (real output) resets the loop-guard budget.
+		el.fire('play');
+
+		expect(failures()).toBe(3); // untouched by `play`
+		expect(player.notice?.kind).toBe('stopped'); // sticky notice survives a bare `play`
+	});
+
+	// it('CR-01: error-event failures still reach the cap even when each play fires a `play` event', async () => {
+	// 	// Regression for the dominant failure mode: a URL resolves but the <audio> errors. Each
+	// 	// auto-skip's play() fires `play` instantly; before the fix that reset consecutiveFailures
+	// 	// 0↔1 forever and the cap of 5 was unreachable. With the fix, `play` no longer resets, so a
+	// 	// run of total failures (tryFallback → null) climbs to the cap and trips the loop-guard.
+	// 	const dead = mk('netease', 'dead', 'A', 'Region Locked');
+	// 	player.queue = [dead];
+	// 	player.current = dead;
+	// 	const el = makeFakeAudio();
+	// 	player.attach(el as unknown as HTMLAudioElement);
+
+	// 	// Simulate FAILURE_CAP consecutive failures, each preceded by a bare `play` event (the
+	// 	// transport flipped to playing) but NO `playing` event (audio never actually started).
+	// 	for (let i = 0; i < Player_FAILURE_CAP; i++) {
+	// 		el.fire('play'); // transport intent — must not reset the counter
+	// 		await runFallback(dead); // tryFallback → null → handleTotalFailure increments
+	// 		await flush();
+	// 	}
+
+	// 	expect(failures()).toBe(Player_FAILURE_CAP);
+	// 	expect(player.notice?.kind).toBe('stopped');
+	// 	expect(player.notice?.reason).toBe('loop-guard');
+	// });
+
+	// it('CR-03: a resolve-but-unplayable ping-pong (tryFallback keeps succeeding) trips the cap via errorBurst', async () => {
+	// 	// The audio `error` listener routes into runFallback; tryFallback keeps "succeeding"
+	// 	// (resolving a swap whose URL also 403s), so handleTotalFailure NEVER runs and
+	// 	// consecutiveFailures stays 0 — the classic unbounded loop. The errorBurst backstop counts
+	// 	// raw error events and trips the loop-guard at the cap regardless. play() is the global
+	// 	// mock, so the swap never fires a real `playing` (errorBurst is never reset).
+	// 	const a = mk('netease', 'a', 'A', 'Pingpong');
+	// 	const swap = mk('qq', 'a2', 'A', 'Pingpong'); // same song, different (also-dead) source
+	// 	mockTryFallback.mockResolvedValue(swap); // ALWAYS finds a resolvable-but-unplayable source
+	// 	player.queue = [a];
+	// 	player.current = a;
+	// 	const el = makeFakeAudio();
+	// 	player.attach(el as unknown as HTMLAudioElement);
+	// 	// lastSeekAt defaults to 0, so Date.now()-lastSeekAt ≫ SEEK_ERROR_WINDOW_MS → the error
+	// 	// takes the non-seek cross-source branch (not reresolveCurrent).
+
+	// 	const errorBurst = () => (player as unknown as { errorBurst: number })['errorBurst'];
+
+		// Fire FAILURE_CAP error events outside the seek window. Each increments errorBurst; the
+		// Nth (== cap) routes straight into handleTotalFailure (the loop-guard) instead of yet
+		// another fallback.
+		// for (let i = 0; i < Player_FAILURE_CAP; i++) {
+		// 	el.fire('error');
+		// 	await flush();
+		// }
+
+	// 	expect(player.notice?.kind).toBe('stopped');
+	// 	expect(player.notice?.reason).toBe('loop-guard');
+	// 	expect(errorBurst()).toBe(0); // reset after tripping the guard
+
+	// 	mockTryFallback.mockResolvedValue(null); // restore the suite default
+	// });
+
+	it('repeat-one breaks to off on a failing loop before skipping (D-12)', async () => {
+		const a = mk('netease', 'a', 'A', 'Looping Dead');
+		const b = mk('qq', 'b', 'B', 'Next');
+		player.queue = [a, b];
+		player.current = a;
+		player.repeatMode = 'one';
+
+		await runFallback(a);
+		await flush();
+
+		expect(player.repeatMode).toBe('off'); // never-stop wins over explicit repeat
+		expect(player.notice?.kind).toBe('skip');
+	});
+
+	// ── 31-D-18: no more silent skips ───────────────────────────────────────────────────────────────
+	// handleTotalFailure was the ONLY skip path that told the user. Three others advanced in silence,
+	// and "I don't know a skip happened" is half the original complaint. Two of them are user-visible
+	// and now feed the SAME batched emitSkipNotice channel (never a second toast channel — three
+	// feeders must not be able to stack three toasts). The third, bg-error-skip, stays silent on
+	// purpose: it only runs while document.hidden, so nobody sees the toast and the burst window would
+	// replay it as a stale burst on foreground return.
+
+	/** Attach a fake <audio> with document/navigator stubbed to a visible, online foreground. */
+	function attachForeground(current: Track, rest: Track[]) {
+		vi.stubGlobal('document', { hidden: false, addEventListener() {} });
+		vi.stubGlobal('navigator', { onLine: true });
+		const el = makeFakeAudio();
+		player.queue = [current, ...rest];
+		player.current = current;
+		player.attach(el as unknown as HTMLAudioElement);
+		return el;
+	}
+	type SkipInternals = {
+		errorBurst: number;
+		failoverSkips: number;
+		hasPlayedSinceSrc: boolean;
+		deliberatePause: boolean;
+		stallRetried: boolean;
+		lastSeekAt: number;
+		lastSrcKind: string;
+		recoverLoadStall(): void;
+	};
+	const skipInternals = () => player as unknown as SkipInternals;
+
+	it('the error-ceiling skip now emits a skip notice (it advanced silently before, 31-D-18)', () => {
+		const cur = mk('netease', 'ceil', 'A', 'Dead One');
+		const el = attachForeground(cur, [mk('qq', 'ceil2', 'B', 'Next')]);
+		skipInternals().errorBurst = Player_FAILURE_CAP - 1; // the next raw error trips the ceiling
+
+		el.fire('error');
+
+		expect(player.notice?.kind).toBe('skip');
+		expect(player.notice?.title).toBe('Dead One');
+		expect(player.notice?.count).toBe(1);
+		// failoverSkips accounting is byte-identical to before — this path always counted.
+		expect(skipInternals().failoverSkips).toBe(1);
+	});
+
+	it('the second-stall skip now emits a skip notice, without touching failoverSkips', () => {
+		const cur = mk('netease', 'stall', 'A', 'Stalled Out');
+		attachForeground(cur, [mk('qq', 'stall2', 'B', 'Next')]);
+		skipInternals().hasPlayedSinceSrc = false;
+		skipInternals().deliberatePause = false;
+		skipInternals().stallRetried = true; // the single re-resolve retry is already spent → this SKIPS
+
+		skipInternals().recoverLoadStall();
+
+		expect(player.notice?.kind).toBe('skip');
+		expect(player.notice?.title).toBe('Stalled Out');
+		// This path never counted toward the systemic ceiling and still must not (31-D-17).
+		expect(skipInternals().failoverSkips).toBe(0);
+	});
+
+	it('a BACKGROUND (bg-error-skip) advance stays silent AND un-counted (31-D-17/31-D-18)', () => {
+		const cur = mk('netease', 'bg', 'A', 'Hidden');
+		const el = attachForeground(cur, [mk('qq', 'bg2', 'B', 'Next')]);
+		vi.stubGlobal('document', { hidden: true, addEventListener() {} }); // …now backgrounded
+		skipInternals().hasPlayedSinceSrc = true; // already produced audio → the bg-skip branch
+		skipInternals().lastSeekAt = 0; // not the seek window
+		skipInternals().lastSrcKind = 'url'; // not the corrupt-blob branch
+		player.notice = null;
+
+		el.fire('error');
+
+		expect(player.notice).toBeNull(); // nobody is looking — a queued toast would burst on return
+		// The load-bearing omission: counting this would let an unattended locked device reach
+		// SYSTEMIC_SKIP_CAP and PAUSE playback — a never-stop violation in exactly the scenario that
+		// must not break. Do NOT "fix" this into an increment.
+		expect(skipInternals().failoverSkips).toBe(0);
+	});
+
+	it('three skips inside one burst window collapse into ONE notice carrying count 3', () => {
+		const a = mk('netease', 'b1', 'A', 'One');
+		const el = attachForeground(a, [
+			mk('qq', 'b2', 'B', 'Two'),
+			mk('kuwo', 'b3', 'C', 'Three'),
+			mk('joox', 'b4', 'D', 'Four')
+		]);
+
+		for (let i = 0; i < 3; i++) {
+			skipInternals().errorBurst = Player_FAILURE_CAP - 1; // re-arm: each trip zeroes the burst
+			el.fire('error');
+		}
+
+		expect(player.notice?.kind).toBe('skip');
+		expect(player.notice?.count).toBe(3); // one notice, not three stacked toasts
+		expect(skipInternals().failoverSkips).toBe(3); // still under SYSTEMIC_SKIP_CAP — no STOP
+	});
+});
+
+describe('player direct-first — proxy fallback on direct-url error', () => {
+	function attachForegroundDirect(current: Track, rest: Track[]) {
+		vi.stubGlobal('document', { hidden: false, addEventListener() {} });
+		vi.stubGlobal('navigator', { onLine: true });
+		const el = makeFakeAudio();
+		player.queue = [current, ...rest];
+		player.current = current;
+		player.attach(el as unknown as HTMLAudioElement);
+		return el;
+	}
+	type DirectInternals = {
+		hasPlayedSinceSrc: boolean;
+		lastSeekAt: number;
+		lastSrcKind: string;
+		runFallback(f: Track): Promise<void>;
+	};
+	const directInternals = () => player as unknown as DirectInternals;
+
+	it('a direct-url error re-drives the proxy URL (kind url) before cross-source fallback', () => {
+		const cur = mk('netease', 'd1', 'A', 'Direct Fail');
+		cur.audioUrl = 'https://m8.music.126.net/direct.mp3';
+		cur.proxyUrl = '/api/netease/url?id=d1';
+		const el = attachForegroundDirect(cur, [mk('qq', 'd2', 'B', 'Next')]);
+		const st = directInternals();
+		st.lastSrcKind = 'direct-url';
+		st.hasPlayedSinceSrc = false;
+		st.lastSeekAt = 0;
+		const fb = vi.spyOn(st, 'runFallback').mockResolvedValue(undefined);
+
+		el.fire('error');
+
+		expect(el.src).toBe('/api/netease/url?id=d1');
+		expect(st.lastSrcKind).toBe('url');
+		expect(fb).not.toHaveBeenCalled();
+	});
+
+	it('a second error on the proxy URL falls through to cross-source fallback (single-shot)', () => {
+		const cur = mk('netease', 'd1', 'A', 'Direct Fail');
+		cur.audioUrl = 'https://m8.music.126.net/direct.mp3';
+		cur.proxyUrl = '/api/netease/url?id=d1';
+		const el = attachForegroundDirect(cur, [mk('qq', 'd2', 'B', 'Next')]);
+		const st = directInternals();
+		st.lastSrcKind = 'direct-url';
+		st.hasPlayedSinceSrc = false;
+		st.lastSeekAt = 0;
+		const fb = vi.spyOn(st, 'runFallback').mockResolvedValue(undefined);
+
+		el.fire('error'); // → proxy re-drive
+		expect(el.src).toBe('/api/netease/url?id=d1');
+		el.fire('error'); // proxy also dead → cross-source
+
+		expect(fb).toHaveBeenCalledTimes(1);
+		expect(fb).toHaveBeenCalledWith(cur);
+	});
+
+	it('no proxyUrl → a direct-url error goes straight to cross-source fallback', () => {
+		const cur = mk('kuwo', 'd1', 'A', 'No Proxy');
+		cur.audioUrl = 'https://cdn.example.com/direct.mp3';
+		// proxyUrl undefined — a source with no proxied route.
+		const el = attachForegroundDirect(cur, [mk('qq', 'd2', 'B', 'Next')]);
+		const st = directInternals();
+		st.lastSrcKind = 'direct-url';
+		st.hasPlayedSinceSrc = false;
+		st.lastSeekAt = 0;
+		const fb = vi.spyOn(st, 'runFallback').mockResolvedValue(undefined);
+
+		el.fire('error');
+
+		expect(fb).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('player resilience — stall watchdog (PLAY-07 / D-13/D-14)', () => {
+	// armStall/disarmStall are private; drive them directly + observe via a runFallback spy.
+	const armStall = () => (player as unknown as { armStall(): void })['armStall']();
+	const setPlayed = (v: boolean) => {
+		(player as unknown as { hasPlayedSinceSrc: boolean })['hasPlayedSinceSrc'] = v;
+	};
+	let runFallbackSpy: ReturnType<typeof vi.spyOn>;
+	let reresolveSpy: ReturnType<typeof vi.spyOn>;
+	let stallEl: ReturnType<typeof makeFakeAudio>;
+
+	beforeEach(() => {
+		vi.useFakeTimers();
+		player.current = mk('netease', 's', 'A', 'Stalling');
+		player.queue = [player.current];
+		setPlayed(false);
+		// bg-lockscreen-stall-noskip: the stall watchdog now routes through recoverLoadStall (retry the
+		// SAME song ONCE via reresolveCurrent, then SKIP on a second stall) instead of straight to
+		// runFallback. Attach a NO-BYTES fake audio (readyState 0, paused) so recoverLoadStall reaches
+		// the retry branch, and reset the one-shot per-src stall-retry flag so the first stall retries.
+		stallEl = makeFakeAudio();
+		stallEl.readyState = 0;
+		stallEl.paused = true;
+		player.attach(stallEl as unknown as HTMLAudioElement);
+		(player as unknown as { stallRetried: boolean })['stallRetried'] = false;
+		(player as unknown as { deliberatePause: boolean })['deliberatePause'] = false; // recoverLoadStall bails on a user pause
+		runFallbackSpy = vi
+			.spyOn(player as unknown as { runFallback(f: Track): Promise<void> }, 'runFallback')
+			.mockResolvedValue(undefined);
+		reresolveSpy = vi
+			.spyOn(player as unknown as { reresolveCurrent(): Promise<void> }, 'reresolveCurrent')
+			.mockResolvedValue(undefined);
+	});
+
+	afterEach(() => {
+		(player as unknown as { disarmStall(): void })['disarmStall']();
+		vi.useRealTimers();
+	});
+
+	it('after src-set with no audio, the stall watchdog RETRIES the same song ONCE (bg-lockscreen-stall-noskip)', () => {
+		armStall();
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS);
+		// First stall on this src → retry the SAME song once (fresh URL + re-attach), NOT cross-source.
+		expect(reresolveSpy).toHaveBeenCalledTimes(1);
+		expect(runFallbackSpy).not.toHaveBeenCalled();
+	});
+
+	it('a SECOND stall after the one retry SKIPS to the next track — retry-once-then-skip (never stops)', () => {
+		const next = mk('qq', 's2', 'B', 'Next');
+		player.queue = [player.current as Track, next];
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear?.();
+		armStall();
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS); // 1st stall → retry the same song
+		armStall();
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS); // 2nd stall, still no `playing` → SKIP
+		expect(reresolveSpy).toHaveBeenCalledTimes(1); // retried exactly once, not again
+		expect(playSpy).toHaveBeenCalledWith(next); // advanced to the next track
+		expect(runFallbackSpy).not.toHaveBeenCalled();
+	});
+
+	it('a timeupdate before the timeout disarms the watchdog (no failover)', () => {
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		armStall();
+		// Audio starts producing — the first timeupdate disarms.
+		el.fire('timeupdate');
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS);
+		expect(runFallbackSpy).not.toHaveBeenCalled();
+	});
+
+	it('a playing event before the timeout disarms the watchdog (no failover)', () => {
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		armStall();
+		el.fire('playing');
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS);
+		expect(runFallbackSpy).not.toHaveBeenCalled();
+	});
+
+	it('CR-01: a bare `play` event does NOT disarm the watchdog (it precedes real audio)', () => {
+		armStall();
+		// `play` is transport intent, not real output — the watchdog must still fire if no audio
+		// (`playing`/`timeupdate`) follows within the timeout. It now retries the same song once.
+		stallEl.fire('play');
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS);
+		expect(reresolveSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it('does NOT fail over when hasPlayedSinceSrc is true at fire time (mid-track buffer-dry, D-14)', () => {
+		armStall();
+		setPlayed(true); // audio already played — a later buffer stall is NOT a load failure
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS);
+		expect(runFallbackSpy).not.toHaveBeenCalled();
+	});
+
+	it('WR-05: an explicit pause during initial load disarms the watchdog (no auto-failover)', () => {
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		armStall();
+		// User taps pause within the 15s initial-load window — opting out of this load. The
+		// watchdog must NOT, 15s later, runFallback → play(swap) and start audio over the pause.
+		el.fire('pause');
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS);
+		expect(runFallbackSpy).not.toHaveBeenCalled();
+	});
+
+	// ── bg-lockscreen-stall-noskip (round 2, bg-stall-burndown-log-1): hidden-tab burn-down guard ──
+	// A hidden Android tab with no audible playback DEFERS media byte-loads, so `stalled` is the
+	// platform's NORMAL state there — the rescue must PARK (no retry, no strike, no skip) and resume
+	// on foreground, where a re-drive actually works. While hidden WITH audible playback (July capture
+	// played 8.6min locked) loads work, so retry-then-skip stays live — but a bg skip clears the
+	// audible flag, bounding any cascade to ONE hop until real audio re-arms it.
+	const bgInternals = () =>
+		player as unknown as { audibleThisHide: boolean; stallRecheckOnVisible: boolean; stallRetried: boolean };
+
+	it('HIDDEN + not audible this stint: the stall PARKS — no retry, no skip, recheck armed', () => {
+		vi.stubGlobal('document', { hidden: true, addEventListener() {} });
+		bgInternals().audibleThisHide = false;
+		stallEl.fire('stalled'); // first stalled event — would have retried before the fix
+		stallEl.fire('stalled'); // second — would have struck + skipped (the burn-down)
+		expect(reresolveSpy).not.toHaveBeenCalled();
+		expect(runFallbackSpy).not.toHaveBeenCalled();
+		expect(player.play).not.toHaveBeenCalled(); // no advance — the queue is not burned down
+		expect(bgInternals().stallRecheckOnVisible).toBe(true); // parked for foreground
+	});
+
+	it('HIDDEN + audible this stint: retry-then-skip stays live, and the skip clears the audible flag (one bg hop max)', () => {
+		vi.stubGlobal('document', { hidden: true, addEventListener() {} });
+		const next = mk('qq', 's2', 'B', 'Next');
+		player.queue = [player.current as Track, next];
+		bgInternals().audibleThisHide = true; // music was flowing while hidden — loads work in bg
+		stallEl.fire('stalled'); // 1st → retry the same song once
+		expect(reresolveSpy).toHaveBeenCalledTimes(1);
+		stallEl.fire('stalled'); // 2nd → genuine track-specific stall → skip
+		expect(player.play).toHaveBeenCalledWith(next);
+		expect(bgInternals().audibleThisHide).toBe(false); // skip spends the audible streak…
+		bgInternals().stallRetried = false; // simulate the new src's fresh budget (play() is mocked)
+		stallEl.fire('stalled'); // …so the NEXT hidden stall PARKS instead of burning another track
+		expect(reresolveSpy).toHaveBeenCalledTimes(1); // no second retry
+		expect(bgInternals().stallRecheckOnVisible).toBe(true);
+	});
+
+	it('foreground return resumes a PARKED rescue with a fresh retry budget (stall.fg-recheck)', () => {
+		// Capture the visibilitychange listener attach() registers so the test can flip visibility.
+		let visHandler: (() => void) | null = null;
+		const doc = {
+			hidden: false,
+			addEventListener(ev: string, fn: () => void) {
+				if (ev === 'visibilitychange') visHandler = fn;
+			}
+		};
+		vi.stubGlobal('document', doc);
+		const el = makeFakeAudio();
+		el.readyState = 0;
+		el.paused = true;
+		player.attach(el as unknown as HTMLAudioElement);
+		player.playing = false; // nothing audible when the screen locks…
+		doc.hidden = true;
+		visHandler!(); // …so the hide snapshot records audibleThisHide=false
+		expect(bgInternals().audibleThisHide).toBe(false);
+		bgInternals().stallRetried = true; // even a spent budget must not block the fg recheck
+		el.fire('stalled'); // hidden + silent → parks
+		expect(bgInternals().stallRecheckOnVisible).toBe(true);
+		expect(reresolveSpy).not.toHaveBeenCalled();
+		doc.hidden = false;
+		visHandler!(); // foreground: loading un-defers — the rescue re-runs with a fresh budget
+		expect(bgInternals().stallRecheckOnVisible).toBe(false);
+		expect(reresolveSpy).toHaveBeenCalledTimes(1); // fg retry of the SAME song, not a skip
+		expect(player.play).not.toHaveBeenCalled();
+	});
+
+	// ── stall-kills-healthy-tracks (device capture 2026-09-12, FOREGROUND) ─────────────────────────
+	// Chrome fires `stalled` ONCE per load, ~3s after the last progress — with no bytes yet that is
+	// ~3.2s after src.set. Device first-byte is 1.8–2.9s, so the event overlaps the HEALTHY
+	// distribution: ten stalls landed in a 24ms band across five sources, every one rs:0, and each
+	// healthy track was retried (re-attach destroys the in-flight load) then skipped. In the
+	// foreground the un-throttled 15s watchdog already covers "never gets bytes", so `stalled` must
+	// be observability only there — it is the BACKGROUND trigger, and nothing else.
+	const strikesOf = (uid: string) =>
+		(player as unknown as { unplayableStrikes: Map<string, number> }).unplayableStrikes.get(uid) ?? 0;
+
+	it('FOREGROUND: a pre-first-byte `stalled` (rs:0) is NOT a fault — no retry, no strike, no skip; the track goes on to play', () => {
+		vi.stubGlobal('document', { hidden: false, addEventListener() {} });
+		const next = mk('qq', 's2', 'B', 'Next');
+		player.queue = [player.current as Track, next];
+		const uid = (player.current as Track).uid;
+		armStall(); // what play() does at src-set
+		vi.advanceTimersByTime(3240); // the device's stall band
+		stallEl.fire('stalled'); // readyState 0, no bytes yet — the healthy-but-slow shape
+		expect(reresolveSpy).not.toHaveBeenCalled(); // no stall.retry (a re-attach would kill the load)
+		expect(player.play).not.toHaveBeenCalled(); // no stall.skip
+		expect(strikesOf(uid)).toBe(0);
+		// …and the bytes arrive a moment later, exactly as the surviving track did at 2,781ms.
+		stallEl.fire('progress');
+		stallEl.fire('playing');
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS); // watchdog was disarmed by `playing`
+		expect(reresolveSpy).not.toHaveBeenCalled();
+		expect(player.play).not.toHaveBeenCalled();
+	});
+
+	it('FOREGROUND: a genuinely dead src (no bytes, no error, no playing) still goes retry → skip on the 15s watchdog alone — never-stop intact', () => {
+		vi.stubGlobal('document', { hidden: false, addEventListener() {} });
+		const next = mk('qq', 's2', 'B', 'Next');
+		player.queue = [player.current as Track, next];
+		armStall(); // ONE arm, as play() does — the retry must re-arm by itself
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS); // 1st expiry → retry the SAME song once
+		expect(reresolveSpy).toHaveBeenCalledTimes(1);
+		expect(player.play).not.toHaveBeenCalled();
+		stallEl.fire('stalled'); // fg `stalled` on the re-attached src must not short-circuit the budget
+		expect(player.play).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS); // 2nd expiry, still silent → SKIP
+		expect(reresolveSpy).toHaveBeenCalledTimes(1);
+		expect(player.play).toHaveBeenCalledWith(next);
+		expect(runFallbackSpy).not.toHaveBeenCalled();
+	});
+});
+
+describe('player resilience — offline gate + downloads switch (PLAY-09 / D-07/D-08)', () => {
+	const runFallback = (failed: Track) =>
+		(player as unknown as { runFallback(f: Track): Promise<void> })['runFallback'](failed);
+	const failures = () => (player as unknown as { consecutiveFailures: number })['consecutiveFailures'];
+	const setFailures = (n: number) => {
+		(player as unknown as { consecutiveFailures: number })['consecutiveFailures'] = n;
+	};
+
+	beforeEach(() => {
+		mockTryFallback.mockReset();
+		mockTryFallback.mockResolvedValue(null);
+		setFailures(0);
+		player.notice = null;
+		player.error = null;
+		player.current = null;
+		player.queue = [];
+		library.downloads = [];
+		// Offline for this block.
+		vi.stubGlobal('navigator', { onLine: false });
+	});
+
+	afterEach(() => {
+		library.downloads = [];
+		// IN-02: the top-level afterEach unstubs navigator globally — no need to re-stub onLine:true
+		// here (which would itself leave a lingering stub).
+	});
+
+	it('offline: does NOT call tryFallback and does NOT increment the counter (D-08)', async () => {
+		const a = mk('netease', 'a', 'A', 'Song');
+		player.queue = [a];
+		player.current = a;
+
+		await runFallback(a);
+		await flush();
+
+		expect(mockTryFallback).not.toHaveBeenCalled();
+		expect(failures()).toBe(0); // offline ≠ failure — the loop-guard budget is untouched
+	});
+
+	it('offline WITH downloads: switches up-next to downloads and continues playing (D-07)', async () => {
+		const a = mk('netease', 'a', 'A', 'Failed');
+		const dl1 = mk('qq', 'd1', 'D1', 'Downloaded One');
+		const dl2 = mk('kuwo', 'd2', 'D2', 'Downloaded Two');
+		player.queue = [a];
+		player.current = a;
+		library.downloads = [dl1, dl2];
+
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+
+		await runFallback(a);
+		await flush();
+
+		// First downloaded track is played; the queue now holds the downloads.
+		expect(playSpy).toHaveBeenCalledWith(dl1);
+		expect(player.queue.some((t) => t.uid === dl1.uid)).toBe(true);
+		expect(failures()).toBe(0); // still no counter burn
+	});
+
+	it('offline with NO downloads: pauses + sets a sticky offline notice (D-08)', async () => {
+		const a = mk('netease', 'a', 'A', 'Failed');
+		player.queue = [a];
+		player.current = a;
+		library.downloads = [];
+
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+
+		await runFallback(a);
+		await flush();
+
+		expect(playSpy).not.toHaveBeenCalled();
+		expect(player.notice?.kind).toBe('stopped');
+		expect(player.notice?.reason).toBe('offline');
+		expect(player.error).toBeTruthy();
+		expect(failures()).toBe(0);
+	});
+});
+
+describe('player.play — generation guard against stale slow resolves (CR-02)', () => {
+	// These exercise the REAL play() (the global beforeEach spies it; we restore the original
+	// here so the generation re-checks actually run). ensureTrackDetails is mocked with deferred
+	// promises so we control settle order: a slow play(A) and a fast play(B), then settle A LAST.
+	let el: ReturnType<typeof makeFakeAudio>;
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		vi.stubGlobal('navigator', { onLine: true });
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		// Downloaded-lookup off so play() takes the network/CDN branch (no IDB).
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('a slow play(A) that settles AFTER a fast play(B) is discarded — current + src stay on B', async () => {
+		const stubA = stub('netease', 'A', 'Artist A', 'Song A');
+		const stubB = stub('qq', 'B', 'Artist B', 'Song B');
+		const resolvedA: Track = { ...mk('netease', 'A', 'Artist A', 'Song A'), audioUrl: 'https://cdn/a.mp3' };
+		const resolvedB: Track = { ...mk('qq', 'B', 'Artist B', 'Song B'), audioUrl: 'https://cdn/b.mp3' };
+
+		const dA = deferred<Track>();
+		const dB = deferred<Track>();
+		// First ensureTrackDetails call (A) gets the slow deferred; second (B) the fast one.
+		mockEnsure.mockReturnValueOnce(dA.promise).mockReturnValueOnce(dB.promise);
+
+		void player.play(stubA); // gen → 1, awaits A's slow resolve
+		void player.play(stubB); // gen → 2, supersedes A
+
+		// B resolves first and starts playing.
+		dB.resolve(resolvedB);
+		await flush();
+		expect(player.current?.uid).toBe(resolvedB.uid);
+		expect(el.src).toBe('https://cdn/b.mp3');
+
+		// A's slow resolve settles LAST — its continuation must bail on the gen re-check and NOT
+		// clobber current/src with the stale, earlier-tapped track.
+		dA.resolve(resolvedA);
+		await flush();
+		expect(player.current?.uid).toBe(resolvedB.uid); // still B — A discarded
+		expect(el.src).toBe('https://cdn/b.mp3');
+	});
+});
+
+describe('player.resolvedCover — single-field artwork guarantee (COVER-01 / D-09)', () => {
+	// resolvedCover is the ONE field that NowPlaying, Nowbar, and MediaSession all read (D-09). On
+	// play() entry it is set SYNCHRONOUSLY from track.cover ?? name-cache ?? uid-cache ?? null; on a
+	// total sync miss the Plan-02 single-item resolve helper runs and, generation-guarded, sets it +
+	// re-fires MediaSession metadata via a NEW MediaMetadata object (Pitfall 4). A fake MediaSession
+	// + MediaMetadata global (absent in node) lets us assert the OS-art repaint.
+	let el: ReturnType<typeof makeFakeAudio>;
+	// Records every MediaMetadata constructed so a test can assert a FRESH object was assigned.
+	let metadataLog: Array<{ artwork: unknown[] }>;
+	let fakeMediaSession: {
+		metadata: unknown;
+		playbackState: string;
+		setPositionState: () => void;
+		setActionHandler: () => void;
+	};
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockUidCover.mockReset().mockReturnValue(null);
+		mockNameCover.mockReset().mockReturnValue(null);
+		mockResolveCover.mockReset().mockResolvedValue(null);
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = null;
+
+		metadataLog = [];
+		coverMetadataSink = metadataLog; // point the module-level FakeMediaMetadata at this run's log
+		fakeMediaSession = {
+			metadata: null,
+			playbackState: 'none',
+			setPositionState: () => {},
+			setActionHandler: () => {} // attach() wires transport handlers — accept + ignore them
+		};
+		vi.stubGlobal('navigator', { onLine: true, mediaSession: fakeMediaSession });
+		vi.stubGlobal('MediaMetadata', FakeMediaMetadata);
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		vi.spyOn(library, 'adoptCover').mockImplementation(() => {});
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	const rc = () => (player as unknown as { resolvedCover: string | null }).resolvedCover;
+
+	it('sets resolvedCover === track.cover SYNCHRONOUSLY on play() entry (no await)', () => {
+		const t = { ...stub('netease', 'A', 'Artist', 'Song'), cover: 'https://cdn/has-cover.jpg' };
+		// quick-260920-nyq: the SEED's precedence is what this test pins — track.cover short-circuits
+		// the uid/name cache lookup in play()'s synchronous seed. It can no longer be expressed as
+		// `expect(mockUidCover).not.toHaveBeenCalled()`, because the display READER (displayCover, via
+		// syncMetadata) now consults the shared cache on every play by design. Seeding the cache with
+		// a DIFFERENT url and asserting the seed ignored it is the stronger statement anyway.
+		mockUidCover.mockReturnValue('https://cdn/cache-not-used-by-seed.jpg');
+		mockEnsure.mockReturnValue(new Promise(() => {})); // never settles — prove the set is sync
+		void player.play(t);
+		expect(rc()).toBe('https://cdn/has-cover.jpg');
+	});
+
+	it('falls back to the name-cache hit when track.cover is null (name BEFORE uid — latest wins)', () => {
+		mockUidCover.mockReturnValue('https://cdn/uid-cached.jpg');
+		mockNameCover.mockReturnValue('https://cdn/name-cached.jpg');
+		const t = { ...stub('netease', 'B', 'Artist', 'Song'), cover: null };
+		mockEnsure.mockReturnValue(new Promise(() => {}));
+		void player.play(t);
+		expect(rc()).toBe('https://cdn/name-cached.jpg'); // name layer wins: it holds the latest write (quick-261020-latest)
+	});
+
+	it('falls back to the name-cache hit when track.cover and uid-cache both miss', () => {
+		mockUidCover.mockReturnValue(null);
+		mockNameCover.mockReturnValue('https://cdn/name-cached.jpg');
+		const t = { ...stub('netease', 'C', 'Artist', 'Song'), cover: null };
+		mockEnsure.mockReturnValue(new Promise(() => {}));
+		void player.play(t);
+		expect(rc()).toBe('https://cdn/name-cached.jpg');
+	});
+
+	it('is null synchronously on a total miss, then === the async-resolved SOLID URL', async () => {
+		const t = { ...stub('netease', 'D', 'Artist', 'Song'), cover: null };
+		const resolved: Track = { ...mk('netease', 'D', 'Artist', 'Song'), cover: null, audioUrl: 'https://cdn/d.mp3' };
+		mockEnsure.mockResolvedValue(resolved);
+		const dCover = deferred<string | null>();
+		mockResolveCover.mockReturnValue(dCover.promise);
+
+		void player.play(t);
+		expect(rc()).toBeNull(); // synchronous total miss — gradient shows until the chain lands
+
+		await flush();
+		expect(mockResolveCover).toHaveBeenCalled(); // the async tier chain fired on the miss
+		dCover.resolve('https://cdn/resolved-async.jpg');
+		await flush();
+		expect(rc()).toBe('https://cdn/resolved-async.jpg');
+	});
+
+	it('the async land assigns a FRESH MediaMetadata whose artwork derives from resolvedCover (Pitfall 4)', async () => {
+		const t = { ...stub('netease', 'E', 'Artist', 'Song'), cover: null };
+		const resolved: Track = { ...mk('netease', 'E', 'Artist', 'Song'), cover: null, audioUrl: 'https://cdn/e.mp3' };
+		mockEnsure.mockResolvedValue(resolved);
+		mockResolveCover.mockResolvedValue('https://cdn/fresh-art.jpg');
+
+		void player.play(t);
+		await flush();
+		// The network-path write produced metadata #0 (favicon, cover was null). The async land must
+		// produce a NEW MediaMetadata object (#1) — not mutate #0's artwork in place.
+		expect(metadataLog.length).toBeGreaterThanOrEqual(2);
+		const landed = metadataLog[metadataLog.length - 1] as { artwork: Array<{ src: string }> };
+		expect(landed).not.toBe(metadataLog[0]); // a genuinely fresh object
+		expect(fakeMediaSession.metadata).toBe(landed); // ms.metadata points at the fresh object
+		expect(landed.artwork.some((a) => a.src === 'https://cdn/fresh-art.jpg')).toBe(true);
+	});
+
+	it('a superseded play()s async cover land does NOT overwrite the newer track (generation guard)', async () => {
+		const tA = { ...stub('netease', 'GA', 'Artist A', 'Song A'), cover: null };
+		const tB = { ...stub('qq', 'GB', 'Artist B', 'Song B'), cover: 'https://cdn/b-has-cover.jpg' };
+		const resolvedA: Track = { ...mk('netease', 'GA', 'Artist A', 'Song A'), cover: null, audioUrl: 'https://cdn/a.mp3' };
+		const resolvedB: Track = { ...mk('qq', 'GB', 'Artist B', 'Song B'), cover: 'https://cdn/b-has-cover.jpg', audioUrl: 'https://cdn/b.mp3' };
+
+		const dEnsureA = deferred<Track>();
+		mockEnsure.mockReturnValueOnce(dEnsureA.promise).mockReturnValueOnce(Promise.resolve(resolvedB));
+		const dCoverA = deferred<string | null>();
+		mockResolveCover.mockReturnValue(dCoverA.promise);
+
+		void player.play(tA); // gen → 1; resolvedCover null sync, fires the async chain under gen 1
+		void player.play(tB); // gen → 2; supersedes A, resolvedCover = B's cover synchronously
+		dEnsureA.resolve(resolvedA);
+		await flush();
+		expect(rc()).toBe('https://cdn/b-has-cover.jpg'); // B's cover, not A's pending resolve
+
+		// A's slow cover lands LAST — the gen guard must discard it.
+		dCoverA.resolve('https://cdn/a-stale-art.jpg');
+		await flush();
+		expect(rc()).toBe('https://cdn/b-has-cover.jpg'); // still B — stale A art discarded
+	});
+
+	it('switching tracks repoints resolvedCover (no stale cover from the prior track)', async () => {
+		const t1 = { ...stub('netease', 'S1', 'Artist', 'Song 1'), cover: 'https://cdn/cover-1.jpg' };
+		const t2 = { ...stub('qq', 'S2', 'Artist', 'Song 2'), cover: 'https://cdn/cover-2.jpg' };
+		mockEnsure.mockResolvedValueOnce({ ...mk('netease', 'S1', 'Artist', 'Song 1'), cover: 'https://cdn/cover-1.jpg', audioUrl: 'https://cdn/1.mp3' });
+		await player.play(t1);
+		expect(rc()).toBe('https://cdn/cover-1.jpg');
+
+		mockEnsure.mockResolvedValueOnce({ ...mk('qq', 'S2', 'Artist', 'Song 2'), cover: 'https://cdn/cover-2.jpg', audioUrl: 'https://cdn/2.mp3' });
+		await player.play(t2);
+		expect(rc()).toBe('https://cdn/cover-2.jpg'); // repointed — no stale cover-1
+	});
+
+	it('cover-hero-mediacard-missing (Issue 2): play() writes media metadata title/artist SYNCHRONOUSLY from the stub (before resolve)', () => {
+		const t = { ...stub('netease', 'MC', '林家謙', '每當變幻時'), cover: null };
+		mockEnsure.mockReturnValue(new Promise(() => {})); // never settles — prove the metadata write is sync
+		void player.play(t);
+		// The OS media card must already carry the SONG identity during the resolve gap — not the bare
+		// app/PWA name (the reported Issue 2). Title/artist come off the stub, independent of any cover.
+		const md = fakeMediaSession.metadata as { title: string; artist: string } | null;
+		expect(md).not.toBeNull();
+		expect(md?.title).toBe('每當變幻時');
+		expect(md?.artist).toBe('林家謙');
+	});
+
+	it('cover-hero-mediacard-missing (Issue 2): restore() writes media metadata title/artist so a PWA reopen shows the song, not the app name', async () => {
+		const cur = mk('netease', 'RC', '林家謙', '每當變幻時');
+		localStorage.setItem(
+			'openmusic:player:v1',
+			JSON.stringify({
+				v: 1,
+				current: {
+					uid: cur.uid,
+					source: cur.source,
+					songid: cur.songid,
+					title: cur.title,
+					artist: cur.artist,
+					album: cur.album,
+					cover: cur.cover,
+					quality: cur.quality,
+					qualityLabel: cur.qualityLabel,
+					keyword: cur.keyword,
+					displayIndex: cur.displayIndex
+				},
+				queue: [],
+				currentTime: 0,
+				shuffle: false
+			})
+		);
+		mockEnsure.mockResolvedValue({ ...cur, audioUrl: 'https://cdn/rc.mp3', detailsLoaded: true });
+		await player.restore();
+		// restore() never calls play(), yet the media card must carry title/artist so the resume shows
+		// the song instead of falling back to the document/PWA name.
+		const md = fakeMediaSession.metadata as { title: string; artist: string } | null;
+		expect(md).not.toBeNull();
+		expect(md?.title).toBe('每當變幻時');
+		expect(md?.artist).toBe('林家謙');
+	});
+
+	it('cover-hero-mediacard-missing (Issue 2, media-card): syncMetadata() builds artwork from the SHARED cover cache when resolvedCover is null', () => {
+		// The SAME cache asymmetry the hero had: resolveCoverAsync fires ONLY when resolvedCover starts
+		// null + is gen-guarded, so a cover that lands in the shared cache via ANOTHER surface (up-next
+		// lazyCover, backfill, sibling tile) AFTER that window never reaches resolvedCover. The OS
+		// media-card artwork must still pick it up from the cache — reading resolvedCover alone would
+		// leave the lock screen on the favicon even though the cache has the real cover.
+		const cur = mk('netease', 'MCC', '林家謙', '每當變幻時');
+		player.current = cur;
+		// resolvedCover was NEVER set (the miss/late-land case), but the shared cover cache HAS the cover
+		// (readCoverByUidOrName reads getCachedCoverByUid ?? getCachedCover — both mocked here).
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = null;
+		mockUidCover.mockReturnValue('https://cdn/cache-landed-art.jpg');
+		mockNameCover.mockReturnValue(null);
+
+		(player as unknown as { syncMetadata(): void }).syncMetadata();
+
+		const md = fakeMediaSession.metadata as
+			| { title: string; artist: string; artwork: Array<{ src: string }> }
+			| null;
+		expect(md).not.toBeNull();
+		// Title/artist behavior unchanged — always the song identity off the current track.
+		expect(md?.title).toBe('每當變幻時');
+		expect(md?.artist).toBe('林家謙');
+		// The media-card fix: artwork reflects the cached cover even though resolvedCover was null.
+		expect(md?.artwork.some((a) => a.src === 'https://cdn/cache-landed-art.jpg')).toBe(true);
+	});
+
+	it('quick-260920-nyq: the SHARED cache now WINS over resolvedCover when both are present', () => {
+		// Precedence guard for `displayCover`. This assertion is INVERTED from its original form
+		// (`resolvedCover ?? readCoverByUidOrName(...)`, resolvedCover winning) — that precedence WAS
+		// the "same song, different cover in different places" bug: resolvedCover is only refreshed in
+		// play()'s narrow gen-guarded windows, so a cover written by a sibling surface (up-next
+		// lazyCover, a backfill, another tile, a user PIN) reached every list row and never reached the
+		// hero, the Nowbar or the media card. The cache leads on all of them now; resolvedCover is the
+		// synchronous seed and the last resort.
+		const cur = mk('netease', 'MCP', '林家謙', '每當變幻時');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/resolved-is-last-resort.jpg';
+		mockUidCover.mockReturnValue('https://cdn/cache-now-wins.jpg');
+
+		(player as unknown as { syncMetadata(): void }).syncMetadata();
+
+		const md = fakeMediaSession.metadata as { artwork: Array<{ src: string }> } | null;
+		expect(md?.artwork.some((a) => a.src === 'https://cdn/cache-now-wins.jpg')).toBe(true);
+		expect(md?.artwork.some((a) => a.src === 'https://cdn/resolved-is-last-resort.jpg')).toBe(false);
+	});
+
+	it('quick-260920-nyq: an embedded local-file data: cover still outranks the shared cache (37-D-02)', () => {
+		// The one exception in displayCover. An embedded cover is the file's OWN truth and is never
+		// written to the https-only cover cache, so cache-first would let a streaming version's
+		// NAME-layer art displace it. "Embedded first" is a locked decision.
+		const cur = mk('netease', 'MCD', '林家謙', '每當變幻時');
+		player.current = cur;
+		const embedded = 'data:image/jpeg;base64,/9j/EMBEDDED';
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = embedded;
+		mockUidCover.mockReturnValue('https://cdn/cache-must-not-displace-embedded.jpg');
+
+		(player as unknown as { syncMetadata(): void }).syncMetadata();
+
+		const md = fakeMediaSession.metadata as { artwork: Array<{ src: string }> } | null;
+		expect(md?.artwork.some((a) => a.src === embedded)).toBe(true);
+		expect(
+			md?.artwork.some((a) => a.src === 'https://cdn/cache-must-not-displace-embedded.jpg')
+		).toBe(false);
+	});
+
+	// ---- player.adoptCover — the ONE promotion seam (quick-260809-38i) ----
+	// The Last.fm hi-res swap used to live in NowPlaying-local $state, so it won on the hero ONLY:
+	// Nowbar (player.resolvedCover ?? np.cover) and the OS media card (resolvedCover ?? cache) could
+	// not see it, and the shared cache never learned it — three surfaces, three covers. adoptCover is
+	// the seam a surface calls once it has VERIFIED a better cover (onload): it promotes into the one
+	// shared field + BOTH cache layers, under the same guards as every other cover writer.
+	// The cache assertions read the raw localStorage record because the two getCached* readers are
+	// mocked module-wide in this file.
+	const rawCover = (key: string): string | null => {
+		const rec = JSON.parse(localStorage.getItem('openmusic:cover-cache:v1') ?? '{}');
+		const v = rec[key];
+		if (typeof v === 'string') return v;
+		return v && typeof v.u === 'string' ? v.u : null;
+	};
+
+	it('adoptCover(uid, url) for the CURRENT track sets resolvedCover AND writes both cache layers', () => {
+		const cur = mk('netease', 'AD1', '方大同', '紅豆');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/source-small.jpg';
+
+		player.adoptCover(cur.uid, 'https://lastfm.freetls.fastly.net/i/u/300x300/big.jpg');
+
+		expect(rc()).toBe('https://lastfm.freetls.fastly.net/i/u/300x300/big.jpg');
+		// BOTH layers — the uid layer (exact song) and the name layer (the cross-uid bridge every
+		// sibling surface reads), so up-next rows / search tiles / backfill reuse the adopted art.
+		expect(rawCover(uidCoverCacheKey(cur.uid))).toBe('https://lastfm.freetls.fastly.net/i/u/300x300/big.jpg');
+		expect(rawCover(coverCacheKey(cur.artist, cur.title))).toBe(
+			'https://lastfm.freetls.fastly.net/i/u/300x300/big.jpg'
+		);
+	});
+
+	it('adoptCover re-fires a FRESH MediaMetadata so the OS lock screen repaints (never an in-place mutate)', () => {
+		const cur = mk('netease', 'AD2', '方大同', '紅豆');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/source-small.jpg';
+		(player as unknown as { syncMetadata(): void }).syncMetadata(); // metadata #0 — the source cover
+		const before = metadataLog.length;
+
+		player.adoptCover(cur.uid, 'https://lastfm.freetls.fastly.net/i/u/300x300/big.jpg');
+
+		expect(metadataLog.length).toBe(before + 1);
+		const landed = metadataLog[metadataLog.length - 1] as { artwork: Array<{ src: string }> };
+		expect(fakeMediaSession.metadata).toBe(landed); // a genuinely fresh object, assigned
+		expect(landed.artwork.some((a) => a.src === 'https://lastfm.freetls.fastly.net/i/u/300x300/big.jpg')).toBe(true);
+	});
+
+	it('adoptCover for a STALE uid (track already changed) is a no-op — supersedence guard', () => {
+		const cur = mk('qq', 'AD-NEW', 'Artist B', 'Song B');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/new-track.jpg';
+
+		player.adoptCover('netease:AD-OLD', 'https://lastfm.freetls.fastly.net/i/u/300x300/stale.jpg');
+
+		expect(rc()).toBe('https://cdn/new-track.jpg'); // untouched — the old track's enrichment landed late
+		expect(rawCover(uidCoverCacheKey('netease:AD-OLD'))).toBeNull(); // nothing written anywhere
+		expect(rawCover(coverCacheKey(cur.artist, cur.title))).toBeNull();
+	});
+
+	it('adoptCover rejects a non-https / empty url (httpsOnly gate, T-0bb-01 parity)', () => {
+		const cur = mk('netease', 'AD3', 'Artist AD3', 'Song AD3');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/keep-me.jpg';
+
+		player.adoptCover(cur.uid, '');
+		expect(rc()).toBe('https://cdn/keep-me.jpg');
+		player.adoptCover(cur.uid, 'http://insecure/art.jpg');
+		expect(rc()).toBe('https://cdn/keep-me.jpg');
+		player.adoptCover(cur.uid, 'data:image/png;base64,AAAA');
+		expect(rc()).toBe('https://cdn/keep-me.jpg');
+		expect(rawCover(coverCacheKey(cur.artist, cur.title))).toBeNull();
+	});
+
+	it('adoptCover with the url already === resolvedCover is idempotent (no re-write, no extra metadata)', () => {
+		const cur = mk('netease', 'AD4', 'Artist AD4', 'Song AD4');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/same.jpg';
+		(player as unknown as { syncMetadata(): void }).syncMetadata();
+		const before = metadataLog.length;
+
+		player.adoptCover(cur.uid, 'https://cdn/same.jpg');
+
+		expect(rc()).toBe('https://cdn/same.jpg');
+		expect(metadataLog.length).toBe(before); // no repaint churn for a no-change adopt
+	});
+
+	it('adoptCover with NO current track is a no-op and never throws (component onload handler)', () => {
+		player.current = null;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = null;
+		expect(() => player.adoptCover('netease:ORPHAN', 'https://cdn/art.jpg')).not.toThrow();
+		expect(rc()).toBeNull();
+	});
+
+	// ---- player.adoptMetadata — the same seam, for the NAME fields (quick-260919-1eh) ----
+	// The hero and the OS media card read `player.current` (+ resolvedCover) DIRECTLY, not the
+	// library, so a metadata edit that only wrote library.applyMetadata would repaint the list rows
+	// and leave the now-playing surfaces showing the old title until the next track change. Same
+	// guards as adoptCover: uid identity, in-place field writes, a FRESH MediaMetadata object.
+
+	it('adoptMetadata(uid, patch) for the CURRENT track rewrites its fields in place', () => {
+		const cur = mk('netease', 'MD1', 'Old Artist', 'Old Title');
+		player.current = cur;
+
+		player.adoptMetadata(cur.uid, { title: 'New Title', artist: 'New Artist', album: 'New Album' });
+
+		expect(player.current?.title).toBe('New Title');
+		expect(player.current?.artist).toBe('New Artist');
+		expect(player.current?.album).toBe('New Album');
+	});
+
+	it('adoptMetadata re-fires a FRESH MediaMetadata carrying the new name fields', () => {
+		const cur = mk('netease', 'MD2', 'Old Artist', 'Old Title');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/art.jpg';
+		(player as unknown as { syncMetadata(): void }).syncMetadata(); // metadata #0 — the old names
+		const before = metadataLog.length;
+
+		player.adoptMetadata(cur.uid, { title: 'New Title', artist: 'New Artist' });
+
+		expect(metadataLog.length).toBe(before + 1);
+		const landed = metadataLog[metadataLog.length - 1] as unknown as { title: string; artist: string };
+		expect(fakeMediaSession.metadata).toBe(landed); // a genuinely fresh object, assigned (A2/Pitfall 4)
+		expect(landed.title).toBe('New Title');
+		expect(landed.artist).toBe('New Artist');
+	});
+
+	it('adoptMetadata for a STALE uid is a no-op — the user edited a song that is not playing', () => {
+		const cur = mk('qq', 'MD-NEW', 'Artist B', 'Song B');
+		player.current = cur;
+		(player as unknown as { syncMetadata(): void }).syncMetadata();
+		const before = metadataLog.length;
+
+		player.adoptMetadata('netease:MD-OLD', { title: 'Should Not Land', artist: 'Nope' });
+
+		expect(player.current?.title).toBe('Song B');
+		expect(player.current?.artist).toBe('Artist B');
+		expect(metadataLog.length).toBe(before); // no repaint churn for another song's edit
+	});
+
+	it('adoptMetadata skips empty/absent fields — blank means KEEP, never blank it out (D-4)', () => {
+		const cur = mk('netease', 'MD3', 'Keep Artist', 'Keep Title');
+		cur.album = 'Keep Album';
+		player.current = cur;
+
+		player.adoptMetadata(cur.uid, { title: '', artist: '   ', album: undefined });
+
+		expect(player.current?.title).toBe('Keep Title');
+		expect(player.current?.artist).toBe('Keep Artist');
+		expect(player.current?.album).toBe('Keep Album');
+	});
+
+	it('adoptMetadata with NO current track never throws (called straight from a DOM handler)', () => {
+		player.current = null;
+		expect(() => player.adoptMetadata('netease:ORPHAN', { title: 'x' })).not.toThrow();
+		expect(player.current).toBeNull();
+	});
+});
+
+describe('player.healCover — dead current-cover self-heal (quick-260704-20e)', () => {
+	// healCover repairs a DEAD (non-null but unloadable) resolvedCover for the CURRENT track — the
+	// counterpart to resolveCoverAsync (which fires only when resolvedCover is null). It mirrors
+	// lazyCover's per-row heal: probe the displayed cover with new Image(); on error evict both cache
+	// layers (removeCoverBoth) + re-resolve via the shared tier chain (resolveCoverForTrack) under the
+	// playGen supersedence guard; on load it is a no-op. One-shot per uid+url; never throws.
+
+	// A controllable Image stub: each instance captures its src and exposes settable onload/onerror so
+	// a test can flip the probe outcome synchronously (the last-constructed instance is the probe's).
+	let images: Array<{ src: string; onload: (() => void) | null; onerror: (() => void) | null; decoding: string; referrerPolicy: string }>;
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockUidCover.mockReset().mockReturnValue(null);
+		mockNameCover.mockReset().mockReturnValue(null);
+		mockResolveCover.mockReset().mockResolvedValue(null);
+		mockCandidates.mockReset().mockResolvedValue([]);
+		__resetDeadCoverUrls();
+		mockRemoveCoverBoth.mockClear();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = null;
+		(player as unknown as { healProbed: Set<string> }).healProbed.clear();
+
+		images = [];
+		const ImageCtor = vi.fn(function (this: Record<string, unknown>) {
+			const img = { src: '', onload: null, onerror: null, decoding: '', referrerPolicy: '' };
+			images.push(img);
+			return img;
+		});
+		vi.stubGlobal('Image', ImageCtor);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	const rc = () => (player as unknown as { resolvedCover: string | null }).resolvedCover;
+	const setCurrent = (t: Track, cover: string | null) => {
+		player.current = t;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = cover;
+	};
+	/** Fire the most-recently-constructed probe Image's onload/onerror. */
+	const fireProbe = (ok: boolean) => {
+		const img = images[images.length - 1];
+		if (ok) img.onload?.();
+		else img.onerror?.();
+	};
+
+	it('Test 1 — dead cover self-heals: onerror evicts both layers + re-resolves fresh art', async () => {
+		const t = mk('netease', 'H1', 'Artist', 'Song');
+		setCurrent(t, 'https://cdn/dead.jpg');
+		mockResolveCover.mockResolvedValue('https://cdn/fresh.jpg');
+
+		const p = player.healCover(t.uid);
+		await flush(); // dead-url probe Image constructed; its onerror is armed
+		fireProbe(false); // dead url
+		await flush(); // chain settles → fresh-url verification probe constructed
+		fireProbe(true); // chain hit loads → verified real, committed
+		await p;
+		await flush();
+
+		expect(mockRemoveCoverBoth).toHaveBeenCalledWith(t.uid, 'Artist', 'Song');
+		expect(mockResolveCover).toHaveBeenCalled();
+		expect(rc()).toBe('https://cdn/fresh.jpg');
+	});
+
+	it('Test 2 — healthy cover kept: onload → zero re-resolve, resolvedCover unchanged', async () => {
+		const t = mk('netease', 'H2', 'Artist', 'Song');
+		setCurrent(t, 'https://cdn/alive.jpg');
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(true); // loads fine
+		await p;
+		await flush();
+
+		expect(mockRemoveCoverBoth).not.toHaveBeenCalled();
+		expect(mockResolveCover).not.toHaveBeenCalled();
+		expect(rc()).toBe('https://cdn/alive.jpg');
+	});
+
+	it('Test 3 — generation guard: a superseded heal does NOT clobber the current cover', async () => {
+		const tA = mk('netease', 'HA', 'Artist A', 'Song A');
+		setCurrent(tA, 'https://cdn/a-dead.jpg');
+		const dCoverA = deferred<string | null>();
+		mockResolveCover.mockReturnValue(dCoverA.promise);
+
+		const p = player.healCover(tA.uid);
+		await flush();
+		fireProbe(false); // A's cover is dead → evict + start re-resolve (pending)
+		await flush();
+		expect(mockResolveCover).toHaveBeenCalled();
+
+		// A newer play() bumps playGen + repoints current to B with its own cover.
+		const tB = { ...mk('qq', 'HB', 'Artist B', 'Song B'), cover: 'https://cdn/b.jpg' };
+		mockEnsure.mockReturnValue(new Promise(() => {})); // never settles
+		void player.play(tB);
+		expect(rc()).toBe('https://cdn/b.jpg'); // B's cover set synchronously
+
+		// A's slow re-resolve lands LAST — the gen guard must discard it.
+		dCoverA.resolve('https://cdn/a-stale.jpg');
+		await p;
+		await flush();
+		expect(rc()).toBe('https://cdn/b.jpg'); // still B — stale A heal discarded
+	});
+
+	it('Test 4 — miss keeps gradient: dead probe → null re-resolve → resolvedCover stays (no throw)', async () => {
+		const t = mk('netease', 'H4', 'Artist', 'Song');
+		setCurrent(t, 'https://cdn/dead4.jpg');
+		mockResolveCover.mockResolvedValue(null); // total miss
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(false);
+		await expect(p).resolves.toBeUndefined(); // never throws
+		await flush();
+
+		expect(mockResolveCover).toHaveBeenCalled();
+		// Never re-commit the dead url; the gradient stands (resolvedCover keeps the DEAD value — the
+		// component paints the gradient because effectiveCover's image fails, and no fresh art landed).
+		expect(rc()).toBe('https://cdn/dead4.jpg');
+	});
+
+	it('Test 5 — one-shot per uid/url: two calls for the same uid+url probe/re-resolve at most once', async () => {
+		const t = mk('netease', 'H5', 'Artist', 'Song');
+		setCurrent(t, 'https://cdn/dead5.jpg');
+		mockResolveCover.mockResolvedValue('https://cdn/fresh5.jpg');
+
+		const p1 = player.healCover(t.uid);
+		await flush();
+		fireProbe(false);
+		await flush(); // chain settles → fresh5 verification probe constructed
+		fireProbe(true); // fresh5 loads → verified, committed
+		await p1;
+		await flush();
+
+		const probesAfterFirst = images.length;
+		const resolveCallsAfterFirst = mockResolveCover.mock.calls.length;
+
+		// Second call for the SAME uid — but resolvedCover is now the fresh url, a DIFFERENT key, so it
+		// probes the fresh url once. Fire that probe as healthy → no re-resolve.
+		const p2 = player.healCover(t.uid);
+		await flush();
+		if (images.length > probesAfterFirst) fireProbe(true);
+		await p2;
+		await flush();
+
+		// A THIRD call with the SAME (now-fresh) url must short-circuit — no new probe, no new resolve.
+		const probesBeforeThird = images.length;
+		const p3 = player.healCover(t.uid);
+		await p3;
+		await flush();
+		expect(images.length).toBe(probesBeforeThird); // no new probe for the already-probed uid+url
+		// The dead-url re-resolve fired exactly once (the fresh-url probe loaded → never re-resolved).
+		expect(mockResolveCover.mock.calls.length).toBe(resolveCallsAfterFirst);
+	});
+
+	it('Test 6 — chain re-offering the SAME dead url is not recommitted: iTunes candidate wins (quick-261020-hcvr)', async () => {
+		// The reported "broken cover forever": every upper tier misses, so the CN tier's dedupeBest
+		// re-offers the exact dead url. The old code committed it unverified and the one-shot guard
+		// then blocked every later heal. Now the fan-out runs and the iTunes candidate — verified
+		// live — wins (user: "iTunes usually have the best and accurate cover").
+		const t = mk('netease', 'H6b', 'Artist6', 'Song6');
+		setCurrent(t, 'https://cdn/dead6.jpg');
+		mockResolveCover.mockResolvedValue('https://cdn/dead6.jpg'); // chain re-offers the dead url
+		mockCandidates.mockResolvedValue([
+			{ url: 'https://qq/pink.jpg', source: 'qq' },
+			{ url: 'https://itunes/made.jpg', source: 'itunes' },
+			{ url: 'https://deezer/made.jpg', source: 'deezer' }
+		]);
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(false); // painted url dead → evict + chain (re-offers dead) → fan-out
+		await flush(); // 3 candidate probes constructed, iTunes first after the hcvr re-order
+		const n = images.length;
+		images[n - 3].onload?.(); // itunes loads
+		images[n - 2].onerror?.(); // qq dead
+		images[n - 1].onerror?.(); // deezer dead
+		await p;
+		await flush();
+
+		expect(rc()).toBe('https://itunes/made.jpg');
+		expect(rc()).not.toBe('https://cdn/dead6.jpg'); // the dead url is never recommitted
+		expect(mockRemoveCoverBoth).toHaveBeenCalledWith(t.uid, 'Artist6', 'Song6');
+	});
+
+	it('Test 7 — chain hit that fails its verification probe falls through to candidates (quick-261020-hcvr)', async () => {
+		const t = mk('kuwo', 'H7b', 'Artist7', 'Song7');
+		setCurrent(t, 'https://cdn/dead7.jpg');
+		mockResolveCover.mockResolvedValue('https://cdn/chain-dead.jpg'); // solid https, but unloadable
+		mockCandidates.mockResolvedValue([{ url: 'https://deezer/live7.jpg', source: 'deezer' }]);
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(false); // painted url dead
+		await flush(); // chain-hit verification probe constructed
+		fireProbe(false); // chain hit is dead too → fan-out
+		await flush(); // candidate probe constructed
+		fireProbe(true); // candidate alive → committed
+		await p;
+		await flush();
+
+		expect(rc()).toBe('https://deezer/live7.jpg');
+	});
+
+	it('Test 8 — probes the PAINTED cover: a dead pin heals even when resolvedCover is alive (quick-261020-hcvr)', async () => {
+		// displayCover (pin → uid → name → resolvedCover) is what the hero paints; the old code
+		// probed resolvedCover alone, so a dead pin over a live resolvedCover never healed.
+		const t = mk('qq', 'H8b', 'Artist8', 'Song8');
+		mockGetPinned.mockReturnValue('https://cdn/pin-dead.jpg'); // painted via the pin layer
+		setCurrent(t, 'https://cdn/alive8.jpg'); // ...while resolvedCover holds a live url
+		mockResolveCover.mockResolvedValue('https://cdn/fresh8.jpg');
+
+		const p = player.healCover(t.uid);
+		await flush();
+		expect(images[images.length - 1].src).toBe('https://cdn/pin-dead.jpg'); // probes the pin
+		fireProbe(false); // pin dead → the Q2 override drops it
+		await flush(); // fresh-url verification probe constructed
+		fireProbe(true);
+		await p;
+		await flush();
+
+		expect(mockUnpinCover).toHaveBeenCalledWith(t.uid);
+		expect(rc()).toBe('https://cdn/fresh8.jpg');
+		mockGetPinned.mockReturnValue(null); // restore the file-wide default
+	});
+
+	it('Test 9 — marks the dead painted URL so rows stop shadowing live cache art (quick-261020-dcvr)', async () => {
+		const t = mk('netease', 'H9b', 'Artist9', 'Song9');
+		setCurrent(t, 'https://cdn/dead9.jpg');
+		mockResolveCover.mockResolvedValue(null); // chain misses too — total miss
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(false); // painted url dead → evict → chain miss → fan-out (empty) → gradient
+		await p;
+		await flush();
+
+		expect(isCoverUrlDead('https://cdn/dead9.jpg')).toBe(true);
+	});
+
+	it('Test 10 — a URL that proves alive is unmarked (quick-261020-dcvr)', async () => {
+		const t = mk('netease', 'HAb', 'ArtistA', 'SongA');
+		markCoverUrlDead('https://cdn/flaky-a.jpg');
+		setCurrent(t, 'https://cdn/flaky-a.jpg');
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(true); // alive → nothing to heal, dead mark cleared
+		await p;
+		await flush();
+
+		expect(isCoverUrlDead('https://cdn/flaky-a.jpg')).toBe(false);
+		expect(rc()).toBe('https://cdn/flaky-a.jpg');
+	});
+
+	it('bails when the passed uid no longer matches the current track (track already changed)', async () => {
+		const t = mk('netease', 'H6', 'Artist', 'Song');
+		setCurrent(t, 'https://cdn/dead6.jpg');
+		await player.healCover('netease-STALE-uid'); // mismatched uid → immediate bail
+		await flush();
+		expect(images.length).toBe(0); // never probed
+		expect(mockResolveCover).not.toHaveBeenCalled();
+		expect(rc()).toBe('https://cdn/dead6.jpg');
+	});
+
+	it('bails when resolvedCover is null (the resolveCoverAsync MISSING path, not a heal target)', async () => {
+		const t = mk('netease', 'H7', 'Artist', 'Song');
+		setCurrent(t, null);
+		await player.healCover(t.uid);
+		await flush();
+		expect(images.length).toBe(0);
+		expect(mockResolveCover).not.toHaveBeenCalled();
+		expect(rc()).toBeNull();
+	});
+
+	it('bails when resolvedCover is a non-https URL (not a probe target)', async () => {
+		const t = mk('netease', 'H8', 'Artist', 'Song');
+		setCurrent(t, 'http://cdn/insecure.jpg');
+		await player.healCover(t.uid);
+		await flush();
+		expect(images.length).toBe(0);
+		expect(mockResolveCover).not.toHaveBeenCalled();
+	});
+});
+
+describe('player.reresolveCurrent — gen guard after the blob await (WR-02)', () => {
+	// reresolveCurrent re-attaches the SAME track after a stale-URL seek error. It already
+	// gen-checks after ensureTrackDetails, but a downloaded track has a SECOND await (blobStore.get)
+	// before audio.src is written; a play() landing in that window would otherwise get its fresh src
+	// overwritten. Drive reresolveCurrent (private) with a deferred blob read and bump playGen
+	// mid-read.
+	const reresolve = () =>
+		(player as unknown as { reresolveCurrent(): Promise<void> })['reresolveCurrent']();
+	let el: ReturnType<typeof makeFakeAudio>;
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockBlobGet.mockReset();
+		vi.stubGlobal('navigator', { onLine: true });
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('a newer play() landing during the IDB blob read discards the stale src write', async () => {
+		const cur = mk('netease', 'X', 'Artist', 'Song');
+		player.current = cur;
+		player.queue = [cur];
+		el.src = 'NEW-SRC-FROM-PLAY'; // stand-in for the src a concurrent play() already set
+
+		// Resolve returns a downloaded track so reresolveCurrent enters the blob branch.
+		const resolved: Track = { ...cur, audioUrl: 'https://cdn/old-reresolved.mp3' };
+		mockEnsure.mockResolvedValue(resolved);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(true);
+		const dBlob = deferred<Blob | null>();
+		mockBlobGet.mockReturnValue(dBlob.promise);
+
+		const p = reresolve(); // captures myGen = current playGen
+		await flush(); // run up to the awaited blobStore.get
+
+		// A newer play() bumps playGen while the blob read is in flight.
+		(player as unknown as { playGen: number }).playGen++;
+
+		dBlob.resolve(null);
+		await p;
+		await flush();
+
+		// reresolveCurrent must have bailed on the post-blob gen re-check — the src a concurrent
+		// play() set is NOT clobbered with the stale re-resolved URL.
+		expect(el.src).toBe('NEW-SRC-FROM-PLAY');
+	});
+});
+
+describe('player.adoptDownloadedCurrent — hot-swap to a downloaded upgrade (quick-261020-hqswitch)', () => {
+	// The user streams a song at a standard tier, downloads the SAME song at 320k, and the
+	// loaded src must swap to the local file in place: same position, same play/pause
+	// state, queue untouched. The decision gate is the pure shouldAdoptDownloaded; these
+	// tests drive the store side (blob read, gen guard, driveSrc re-attach, quality refresh).
+	let el: ReturnType<typeof makeFakeAudio>;
+	const createObjSpy = vi.fn(() => 'blob:adopted');
+	const revokeSpy = vi.fn();
+
+	beforeEach(() => {
+		mockBlobGet.mockReset();
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		vi.stubGlobal('URL', {
+			createObjectURL: createObjSpy,
+			revokeObjectURL: revokeSpy
+		} as unknown as typeof URL);
+		createObjSpy.mockClear();
+		revokeSpy.mockClear();
+		library.downloads = [];
+		// The re-drive brake + held blob URL are session state on the singleton — reset so a
+		// prior suite's drive can't make this suite's single swap look like a storm.
+		const drv = player as unknown as {
+			lastDriveUid: string | null;
+			lastDriveAt: number;
+			driveBurst: number;
+			cachedBlobUrl: string | null;
+		};
+		drv.lastDriveUid = null;
+		drv.lastDriveAt = 0;
+		drv.driveBurst = 0;
+		drv.cachedBlobUrl = null;
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		library.downloads = [];
+	});
+
+	/** Seat `cur` as the loaded streaming track and (optionally) its download record. */
+	function seat(streamingQuality: string | null, recordQuality: string | null): Track {
+		const cur: Track = {
+			...mk('netease', 'hq1', 'Artist', 'Song'),
+			quality: streamingQuality,
+			qualityLabel: streamingQuality
+		};
+		player.current = cur;
+		player.queue = [cur];
+		library.downloads =
+			recordQuality == null
+				? []
+				: [{ ...cur, quality: recordQuality, qualityLabel: recordQuality }];
+		el.src = 'https://cdn.example.com/stream.mp3';
+		return cur;
+	}
+
+	it('swaps to the downloaded blob, preserving position + playing state, and refreshes quality', async () => {
+		const cur = seat('standard', '320k');
+		el.paused = false; // playing
+		el.currentTime = 42;
+		el.duration = 200;
+		mockBlobGet.mockResolvedValue(new Blob(['hq-bytes']));
+
+		const ok = await player.adoptDownloadedCurrent(cur.uid);
+
+		expect(ok).toBe(true);
+		expect(mockBlobGet).toHaveBeenCalledWith(cur.uid);
+		expect(el.src).toBe('blob:adopted');
+		expect(el.currentTime).toBe(42); // position preserved via the clamped immediate seek
+		expect(el.play).toHaveBeenCalled(); // was playing → resumed on the new src
+		expect(player.current?.quality).toBe('320k'); // UI quality now describes the file playing
+		expect(player.queue[0].quality).toBe('320k');
+	});
+
+	it('swaps while paused WITHOUT resuming (the resume will use the better file)', async () => {
+		const cur = seat('standard', 'lossless');
+		el.paused = true;
+		el.currentTime = 7;
+		el.duration = 100;
+		mockBlobGet.mockResolvedValue(new Blob(['flac-bytes']));
+
+		const ok = await player.adoptDownloadedCurrent(cur.uid);
+
+		expect(ok).toBe(true);
+		expect(el.src).toBe('blob:adopted');
+		expect(el.currentTime).toBe(7);
+		expect(el.play).not.toHaveBeenCalled();
+	});
+
+	it('no-ops for a download of a DIFFERENT track (never reads the blob)', async () => {
+		seat('standard', '320k');
+		const ok = await player.adoptDownloadedCurrent('qq:other');
+		expect(ok).toBe(false);
+		expect(mockBlobGet).not.toHaveBeenCalled();
+		expect(el.src).toBe('https://cdn.example.com/stream.mp3');
+	});
+
+	it('no-ops when the saved tier is not higher than the stream (gate runs before any read)', async () => {
+		const cur = seat('320k', '320k');
+		const ok = await player.adoptDownloadedCurrent(cur.uid);
+		expect(ok).toBe(false);
+		expect(mockBlobGet).not.toHaveBeenCalled();
+		expect(el.src).toBe('https://cdn.example.com/stream.mp3');
+	});
+
+	it('no-ops near the end of the track (remaining < 2s — the next play takes the blob anyway)', async () => {
+		const cur = seat('standard', '320k');
+		el.currentTime = 99;
+		el.duration = 100;
+		const ok = await player.adoptDownloadedCurrent(cur.uid);
+		expect(ok).toBe(false);
+		expect(mockBlobGet).not.toHaveBeenCalled();
+	});
+
+	it('no-ops when the record exists but the blob bytes are gone', async () => {
+		const cur = seat('standard', '320k');
+		mockBlobGet.mockResolvedValue(null);
+		const ok = await player.adoptDownloadedCurrent(cur.uid);
+		expect(ok).toBe(false);
+		expect(el.src).toBe('https://cdn.example.com/stream.mp3');
+	});
+
+	it('a newer play() landing during the blob read discards the swap (gen guard)', async () => {
+		const cur = seat('standard', '320k');
+		el.paused = false;
+		const dBlob = deferred<Blob | null>();
+		mockBlobGet.mockReturnValue(dBlob.promise);
+
+		const p = player.adoptDownloadedCurrent(cur.uid);
+		await flush(); // run up to the awaited blobStore.get
+		(player as unknown as { playGen: number }).playGen++; // a newer play() superseded
+		dBlob.resolve(new Blob(['hq-bytes']));
+		const ok = await p;
+
+		expect(ok).toBe(false);
+		expect(el.src).toBe('https://cdn.example.com/stream.mp3'); // not clobbered
+		expect(createObjSpy).not.toHaveBeenCalled();
+	});
+});
+
+describe('player.queueContext — context-threaded setQueue/playStub (Phase 17 QUEUE-03)', () => {
+	// These use the global beforeEach's MOCKED play() — we only assert queueContext + that play
+	// is handed the resolved track. setQueue is a synchronous field set, no real <audio> needed.
+	it("setQueue(tracks, 'search') sets queueContext to 'search'", () => {
+		player.setQueue([mk('netease', '1', 'A', 'S')], 'search');
+		expect(player.queueContext).toBe('search');
+	});
+
+	it('setQueue(tracks) with no context defaults queueContext to null', () => {
+		player.setQueue([mk('netease', '1', 'A', 'S')], 'liked'); // first set a non-null context
+		player.setQueue([mk('qq', '2', 'B', 'T')]); // then call with no arg
+		expect(player.queueContext).toBeNull();
+	});
+
+	it("playStub threads its context arg through the internal setQueue", async () => {
+		const track = mk('netease', 'hit', '周杰伦', '稻香');
+		mockResolve.mockResolvedValue(track);
+		await player.playStub('周杰伦', '稻香', null, 'home-discovery');
+		await flush();
+		expect(player.queueContext).toBe('home-discovery');
+		expect(player.play).toHaveBeenCalledWith(track, { fresh: true });
+	});
+
+	it('queueContext is NOT written to the persisted player snapshot', () => {
+		player.current = mk('netease', '1', 'A', 'S');
+		player.setQueue([mk('netease', '1', 'A', 'S')], 'album');
+		const raw = localStorage.getItem('openmusic:player:v1');
+		expect(raw).toBeTruthy();
+		expect(JSON.parse(raw as string)).not.toHaveProperty('queueContext');
+	});
+
+	// Phase 19 (QUEUE-04 / D-04/D-05): a Remix-context regenerate plays the seed first, keeps
+	// manual pins, and DISCARDS the prior generated tail — reusing the existing regenerate path
+	// (no new queue mechanism). We drive regenerate() directly (mirroring the D-10 regenerate
+	// tests below) with a 'remix' setup: seed + a manual-pinned entry + a stale generated tail
+	// in the queue, and a mocked buildSimilarQueue returning a FRESH auto tail.
+	it("a Remix regenerate preserves a manual-pinned uid and discards the prior generated tail (D-05)", async () => {
+		const seed = mk('netease', 'SEED', 'A', 'Seed');
+		const pinned = mk('qq', 'PIN', 'B', 'Pinned'); // user-added → survives regen
+		const staleAuto = mk('kuwo', 'OLD', 'C', 'OldGenerated'); // prior generated tail → discarded
+		const freshAuto = mk('joox', 'NEW', 'D', 'FreshGenerated'); // buildSimilarQueue's new picks
+
+		// Force-generate context (D-06): setQueue records queueContext='remix'.
+		player.setQueue([seed], 'remix');
+		expect(player.queueContext).toBe('remix');
+		expect(settings.effectiveUpnextMode(player.queueContext)).toBe('generated');
+
+		// Queue now holds the seed, a manual pin, and a stale generated track.
+		player.current = seed;
+		player.queue = [seed, pinned, staleAuto];
+		// Pin `pinned` into manualUids (addToQueue does not auto-play since current=seed≠pinned).
+		player.addToQueue(pinned);
+		const manualUids = (player as unknown as { manualUids: Set<string> }).manualUids;
+		expect(manualUids.has(pinned.uid)).toBe(true);
+		expect(manualUids.has(staleAuto.uid)).toBe(false); // never manually pinned → eligible to drop
+
+		// buildSimilarQueue yields the fresh auto tail (the staleAuto is NOT in it).
+		mockSimilar.mockReset().mockResolvedValue([freshAuto]);
+
+		await (player as unknown as { regenerate(t: Track): Promise<void> }).regenerate(seed);
+
+		// Result = dedupeBest([seed, ...manualEntries, ...auto]): seed first, manual pin kept,
+		// prior generated tail (staleAuto) gone, fresh auto appended.
+		expect(player.queue.map((t) => t.uid)).toEqual([seed.uid, pinned.uid, freshAuto.uid]);
+		expect(player.queue.some((t) => t.uid === staleAuto.uid)).toBe(false);
+	});
+
+	it('regenerate keeps the exact current seed anchored when dedupeBest prefers another source', async () => {
+		// 32-D-08 DECISION CHANGE: the two fixture sources are SWAPPED (was seed=qq, variant=netease).
+		// The rank swap made qq the tie winner, so the old fixture had the seed BE the dedupe winner —
+		// the case would still have passed, but vacuously, proving nothing about anchoring. Keeping the
+		// test's actual intent ("the seed survives even when dedupeBest prefers the OTHER source")
+		// requires the seed to be the LOSING source under the new rank, which is now netease.
+		const seed = mk('netease', 'SEED-N', 'Adele', 'Hello');
+		const preferredVariant = mk('qq', 'SEED-Q', 'Adele', 'Hello');
+		const freshAuto = mk('joox', 'NEW', 'D', 'FreshGenerated');
+		player.current = seed;
+		player.queue = [seed];
+		mockSimilar.mockReset().mockResolvedValue([preferredVariant, freshAuto]);
+
+		await (player as unknown as { regenerate(t: Track): Promise<void> }).regenerate(seed);
+
+		expect(player.queue[0]).toBe(seed);
+		expect(player.queue.some((t) => t.uid === preferredVariant.uid)).toBe(false);
+		expect(player.queue.map((t) => t.uid)).toEqual([seed.uid, freshAuto.uid]);
+	});
+
+	it('quick-260615-i9u: history-aware regenerate preserves the head before+including the seed, replaces only the tail', async () => {
+		// A woven history prefix sits BEFORE the seed; regenerate must keep [h0, priorCurrent, seed]
+		// intact and only swap the stale generated tail for the fresh auto picks (history not dropped).
+		const h0 = mk('netease', 'H0', 'A', 'Played 0');
+		const priorCurrent = mk('netease', 'PC', 'A', 'Prior Current');
+		const seed = mk('qq', 'SEED', 'B', 'Clicked');
+		const staleAuto = mk('kuwo', 'OLD', 'C', 'OldGenerated'); // tail after seed → discarded
+		const freshAuto = mk('joox', 'NEW', 'D', 'FreshGenerated');
+		player.current = seed;
+		player.queue = [h0, priorCurrent, seed, staleAuto];
+		mockSimilar.mockReset().mockResolvedValue([freshAuto]);
+
+		await (player as unknown as { regenerate(t: Track): Promise<void> }).regenerate(seed);
+
+		// Head (history + seed) survives in order; only the tail after the seed is regenerated.
+		expect(player.queue.map((t) => t.uid)).toEqual([h0.uid, priorCurrent.uid, seed.uid, freshAuto.uid]);
+		expect(player.queue.some((t) => t.uid === staleAuto.uid)).toBe(false);
+		// The history head uids were handed to buildSimilarQueue's exclude set (no duplication).
+		const excludeArg = mockSimilar.mock.calls[0][1] as Set<string>;
+		expect(excludeArg.has(h0.uid)).toBe(true);
+		expect(excludeArg.has(priorCurrent.uid)).toBe(true);
+		expect(excludeArg.has(seed.uid)).toBe(true);
+	});
+});
+
+describe('quick-260618-fiz Fix 4 — explicit queue entries survive a fresh play; auto/context cleared', () => {
+	// Exercise the REAL play() (restore the global spy) with a fake <audio>, mocked resolve. The
+	// manual-provenance carrier (pendingManual) is captured at setQueue/setListQueue time and
+	// re-woven after the seed by weaveFreshHistory; the prior AUTO/context tail is dropped.
+	let el: ReturnType<typeof makeFakeAudio>;
+	const resolved = (s: SourceId, id: string): Track => ({
+		...mk(s, id, 'Artist', 'Song'),
+		audioUrl: `https://cdn/${id}.mp3`
+	});
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockSimilar.mockReset().mockResolvedValue([]);
+		mockPicks.mockReset().mockResolvedValue([]);
+		player.current = null;
+		player.queue = [];
+		player.queueContext = null;
+		player.error = null;
+		player.loading = false;
+		(player as unknown as { manualUids: Set<string> }).manualUids.clear();
+		(player as unknown as { pendingManual: Track[] | null }).pendingManual = null;
+		(player as unknown as { pendingHistory: Track[] | null }).pendingHistory = null;
+		vi.stubGlobal('navigator', { onLine: true });
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		settings.autoExpandOnPlay = false;
+		settings.upnextMode = 'generated';
+		settings.upnextPerContext = {};
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		(player as unknown as { manualUids: Set<string> }).manualUids.clear();
+		(player as unknown as { pendingManual: Track[] | null }).pendingManual = null;
+		(player as unknown as { pendingHistory: Track[] | null }).pendingHistory = null;
+		settings.upnextMode = 'generated';
+		settings.upnextPerContext = {};
+	});
+
+	it("'generated' fresh play preserves a manual entry and drops the prior auto picks", async () => {
+		// Prior queue: [current, autoPickA, manualX, autoPickB]. The user explicitly pins manualX,
+		// then plays a NEW song from a generated list. manualX must survive; autoPickA/B must not.
+		const current = mk('netease', 'CUR', 'A', 'Current');
+		const autoPickA = mk('qq', 'A', 'B', 'AutoA');
+		const manualX = mk('kuwo', 'X', 'C', 'ManualX');
+		const autoPickB = mk('joox', 'B', 'D', 'AutoB');
+		player.current = current;
+		player.queue = [current, autoPickA, manualX, autoPickB];
+		player.addToQueue(manualX); // pin manualX into manualUids (already present → dedupe)
+
+		const newSong = resolved('netease', 'NEW');
+		mockEnsure.mockResolvedValue(newSong);
+		// A 'search' context → global 'generated' default; setListQueue installs the new list.
+		player.setListQueue([newSong], 'search');
+		await player.play(stub('netease', 'NEW', 'Artist', 'Song'), { fresh: true });
+		await flush();
+
+		const uids = player.queue.map((t) => t.uid);
+		expect(uids).toContain(manualX.uid); // explicit pin preserved across the fresh rebuild
+		expect(uids).toContain(newSong.uid); // the new current is in the queue
+		expect(uids).not.toContain(autoPickA.uid); // prior auto/context tail dropped
+		expect(uids).not.toContain(autoPickB.uid);
+		// manualX sits AFTER the new seed (insert-after-current provenance).
+		expect(uids.indexOf(manualX.uid)).toBeGreaterThan(uids.indexOf(newSong.uid));
+	});
+
+	// The EXACT user-reported sequence. a1 playing with a2,a3,a4 up next; tap b1 in the RELATED list
+	// (→ a1, b1 playing, a2, a3, a4); then play c1 from the main page. Expected c1, c2, c3… but the
+	// user got `c1, b1, c2` — b1 rode along through a full queue reset.
+	//
+	// Cause: relatedTapPlay borrowed playNext purely for its splice-after-current positioning and
+	// inherited manualUids too, so a plain TAP was recorded as an explicit user PIN — and pins are
+	// DESIGNED to survive a context switch (the test above proves that, and must keep passing). A tap
+	// means "play this now", not "keep this forever".
+	//
+	// These assert the pin decision itself, which is the new logic. What a pin then DOES across a
+	// fresh play is already covered by the surrounding quick-260618-fiz tests, so it is not re-tested
+	// here.
+	it('a related-list TAP (pin:false) splices in WITHOUT pinning', () => {
+		const a1 = mk('netease', 'A1', 'A', 'A1');
+		const a2 = mk('qq', 'A2', 'A', 'A2');
+		const b1 = mk('kuwo', 'B1', 'B', 'B1');
+		player.current = a1;
+		player.queue = [a1, a2];
+
+		player.playNext(b1, { pin: false }); // what relatedTapPlay now does
+
+		// Spliced directly after current so it plays next…
+		expect(player.queue.map((t) => t.uid)).toEqual([a1.uid, b1.uid, a2.uid]);
+		// …but NOT recorded as a user pin, so a later queue reset drops it.
+		expect((player as unknown as { manualUids: Set<string> }).manualUids.has(b1.uid)).toBe(false);
+	});
+
+	it('an explicit playNext (default) still pins — swipe-left / track menu are unchanged', () => {
+		const a1 = mk('netease', 'A1', 'A', 'A1');
+		const b1 = mk('kuwo', 'B1', 'B', 'B1');
+		player.current = a1;
+		player.queue = [a1];
+
+		player.playNext(b1);
+
+		expect(player.queue.map((t) => t.uid)).toEqual([a1.uid, b1.uid]);
+		expect((player as unknown as { manualUids: Set<string> }).manualUids.has(b1.uid)).toBe(true);
+	});
+
+	// quick-260831-sp9. The home shelves (liked / downloads / history / playlists) call
+	// play({fresh:true}) WITHOUT installing a queue — a simple tap is meant to generate a new
+	// Up-Next, not snapshot the shelf. But queueContext decides generated-vs-same-list, and with no
+	// context the player kept the PREVIOUS play's one: tap an album, go Home, tap a liked song, and
+	// the context was still 'album' → 'same-list' → regenerate never ran and Up-Next still showed
+	// the album's remaining tracks.
+	it('a shelf play with opts.context ADOPTS that context (the reported stale-context bug)', async () => {
+		player.queueContext = 'album'; // left over from a previous album play
+		const newSong = resolved('netease', 'NEW');
+		mockEnsure.mockResolvedValue(newSong);
+
+		await player.play(stub('netease', 'NEW', 'Artist', 'Song'), { fresh: true, context: 'liked' });
+		await flush();
+
+		expect(player.queueContext).toBe('liked');
+	});
+
+	it('regenerates on a shelf tap that would previously have inherited a same-list context', async () => {
+		// album → same-list; liked → the global 'generated' default.
+		settings.upnextPerContext = { album: 'same-list' };
+		player.queueContext = 'album';
+		const stale = mk('qq', 'STALE', 'Album', 'AlbumTrack');
+		const current = mk('netease', 'CUR', 'A', 'Current');
+		player.current = current;
+		player.queue = [current, stale];
+
+		const newSong = resolved('netease', 'NEW');
+		mockEnsure.mockResolvedValue(newSong);
+		await player.play(stub('netease', 'NEW', 'Artist', 'Song'), { fresh: true, context: 'liked' });
+		await flush();
+
+		// The album leftover is gone — proof the generated rebuild actually ran.
+		expect(player.queue.map((t) => t.uid)).not.toContain(stale.uid);
+		expect(player.queue.map((t) => t.uid)).toContain(newSong.uid);
+	});
+
+	it('a shelf tap does NOT discard Play-next / Add-to-queue entries', async () => {
+		// The explicit exception in the request: a simple tap regenerates Up-Next, but songs the
+		// user queued by hand must survive. This is why the fix sets queueContext directly instead
+		// of calling setQueue, which would replace the whole queue.
+		const current = mk('netease', 'CUR', 'A', 'Current');
+		const autoPick = mk('qq', 'AUTO', 'B', 'AutoPick');
+		const manualX = mk('kuwo', 'X', 'C', 'ManualX');
+		player.current = current;
+		player.queue = [current, autoPick, manualX];
+		player.addToQueue(manualX); // pin it
+
+		const newSong = resolved('netease', 'NEW');
+		mockEnsure.mockResolvedValue(newSong);
+		await player.play(stub('netease', 'NEW', 'Artist', 'Song'), { fresh: true, context: 'downloads' });
+		await flush();
+
+		const uids = player.queue.map((t) => t.uid);
+		expect(uids).toContain(manualX.uid); // hand-queued entry survives the regenerate
+		expect(uids).not.toContain(autoPick.uid); // an auto pick does not
+	});
+
+	it('omitting opts.context leaves the existing context untouched (no behaviour change elsewhere)', async () => {
+		player.queueContext = 'search';
+		const newSong = resolved('netease', 'NEW');
+		mockEnsure.mockResolvedValue(newSong);
+		await player.play(stub('netease', 'NEW', 'Artist', 'Song'), { fresh: true });
+		await flush();
+		expect(player.queueContext).toBe('search');
+	});
+
+	it("'same-list' fresh play still drops stale auto/context entries while keeping the manual one", async () => {
+		const current = mk('netease', 'CUR', 'A', 'Current');
+		const autoPickA = mk('qq', 'A', 'B', 'AutoA');
+		const manualX = mk('kuwo', 'X', 'C', 'ManualX');
+		player.current = current;
+		player.queue = [current, autoPickA, manualX];
+		player.addToQueue(manualX);
+
+		settings.upnextPerContext = { liked: 'same-list' };
+		const newSong: Track = { ...mk('netease', 'NEW', 'NewArtist', 'NewSong'), audioUrl: 'https://cdn/NEW.mp3' };
+		const listMate: Track = { ...mk('qq', 'MATE', 'MateArtist', 'MateSong'), audioUrl: 'https://cdn/MATE.mp3' };
+		mockEnsure.mockResolvedValue(newSong);
+		// same-list install: [newSong, listMate] becomes the snapshot; manualX must re-weave after seed.
+		player.setListQueue([newSong, listMate], 'liked');
+		await player.play(stub('netease', 'NEW', 'NewArtist', 'NewSong'), { fresh: true });
+		await flush();
+
+		const uids = player.queue.map((t) => t.uid);
+		expect(uids).toContain(manualX.uid); // explicit pin survives even in same-list mode
+		expect(uids).toContain(newSong.uid);
+		expect(uids).toContain(listMate.uid); // the same-list snapshot remainder is kept
+		expect(uids).not.toContain(autoPickA.uid); // prior auto/context entry dropped
+		expect(uids.indexOf(manualX.uid)).toBeGreaterThan(uids.indexOf(newSong.uid));
+	});
+
+	it('a NON-fresh advance never rebuilds the queue (no manual re-weave / no auto drop)', async () => {
+		const current = mk('netease', 'CUR', 'A', 'Current');
+		const autoPickA = mk('qq', 'A', 'B', 'AutoA');
+		const next = resolved('kuwo', 'NXT');
+		player.current = current;
+		player.queue = [current, autoPickA, next];
+		const before = player.queue.map((t) => t.uid);
+		mockEnsure.mockResolvedValue(next);
+
+		// Non-fresh play (auto-advance/failover) — no opts.fresh → no weave, queue untouched.
+		await player.play(next);
+		await flush();
+		expect(player.queue.map((t) => t.uid)).toEqual(before);
+	});
+
+	it('weaveManualAfterSeed re-inserts a captured manual entry right after the seed (unit)', () => {
+		// Drive the carrier path directly: pendingManual holds the explicit entry captured pre-wipe.
+		const seed = mk('netease', 'SEED', 'A', 'Seed');
+		const manualX = mk('qq', 'X', 'B', 'ManualX');
+		const listMate = mk('kuwo', 'M', 'C', 'Mate');
+		(player as unknown as { manualUids: Set<string> }).manualUids.add(manualX.uid);
+		player.current = seed;
+		player.queue = [seed, listMate]; // freshly installed list snapshot (manualX wiped from it)
+		(player as unknown as { pendingManual: Track[] | null }).pendingManual = [manualX];
+
+		(player as unknown as { weaveManualAfterSeed(t: Track): void }).weaveManualAfterSeed(seed);
+
+		expect(player.queue.map((t) => t.uid)).toEqual([seed.uid, manualX.uid, listMate.uid]);
+		// carrier consumed
+		expect((player as unknown as { pendingManual: Track[] | null }).pendingManual).toBeNull();
+	});
+});
+
+describe('player.setListQueue — current-anchored queue install (album-and-next-song-bug)', () => {
+	// Regression coverage for the album queue/next-song bug: the album play paths must install the
+	// FULL list as the queue while keeping the now-playing track a MEMBER of it, so up-next is the
+	// list remainder and next() can advance. These assert the synchronous queue state (no <audio>).
+	beforeEach(() => {
+		player.current = null;
+		player.queue = [];
+		player.queueContext = null;
+	});
+
+	it('re-anchors current INTO the list by uid so indexOf(current) is valid (next() can advance)', () => {
+		const t1 = mk('netease', '1', 'A', 'Track One');
+		const t2 = mk('netease', '2', 'A', 'Track Two');
+		const t3 = mk('netease', '3', 'A', 'Track Three');
+		player.current = t1; // already playing track 1 (e.g. tapped on the album page)
+		player.setListQueue([t1, t2, t3], 'album');
+		expect(player.queueContext).toBe('album');
+		// current is a member at its real position → up-next IS the album remainder.
+		const idx = player.queue.findIndex((t) => t.uid === t1.uid);
+		expect(idx).toBe(0);
+		expect(player.queue.map((t) => t.uid)).toEqual([t1.uid, t2.uid, t3.uid]);
+	});
+
+	it('matches current by same-song key when the list entry is a different SOURCE variant (Bug 2)', () => {
+		// playAlbum: `first` (current) came from one resolveStub; the list re-resolved track 0 to a
+		// different-source variant of the SAME song. dedupeBest collapses them; setListQueue must keep
+		// the EXACT current object in the surviving slot so indexOf(current) stays valid.
+		const currentNetease = mk('netease', 'X', 'Adele', 'Hello');
+		const variantQQ = mk('qq', 'Y', 'Adele', 'Hello'); // same song, different source → dedup-collapses
+		const other = mk('kuwo', 'Z', 'Adele', 'Someone Like You');
+		player.current = currentNetease;
+		player.setListQueue([variantQQ, other], 'album');
+		// The exact current object survives in the queue (so audio keeps playing + next() works).
+		expect(player.queue.includes(currentNetease)).toBe(true);
+		expect(player.queue.some((t) => t.uid === variantQQ.uid && t !== currentNetease)).toBe(false);
+		// next() target exists after current.
+		const i = player.queue.findIndex((t) => t.uid === currentNetease.uid);
+		expect(player.queue[i + 1]?.uid).toBe(other.uid);
+	});
+
+	it('splices current at the front when it is NOT in its own list (stays a member)', () => {
+		const current = mk('netease', 'C', 'A', 'Current');
+		const a = mk('qq', 'a', 'B', 'Other A');
+		const b = mk('kuwo', 'b', 'C', 'Other B');
+		player.current = current;
+		player.setListQueue([a, b], 'album'); // current's song absent from the list
+		expect(player.queue[0].uid).toBe(current.uid);
+		expect(player.queue.map((t) => t.uid)).toEqual([current.uid, a.uid, b.uid]);
+	});
+
+	it('delegates to setQueue when there is no current track (nothing to anchor)', () => {
+		player.current = null;
+		const a = mk('netease', '1', 'A', 'S');
+		player.setListQueue([a], 'album');
+		expect(player.queue.map((t) => t.uid)).toEqual([a.uid]);
+		expect(player.queueContext).toBe('album');
+	});
+
+	it('quick-260615-i9u: captures a non-empty pre-current head so a later fresh play preserves it', () => {
+		// The synchronous setListQueue result is the anchored list (history is woven later by play()).
+		// Here we assert the CAPTURE: with a pre-current head [h0, current], setListQueue snapshots
+		// pendingHistory=[h0, current] (up to+including the prior current) before installing the list.
+		const h0 = mk('netease', 'H0', 'A', 'Played');
+		const current = mk('netease', 'C', 'A', 'Current');
+		const a = mk('qq', 'a', 'B', 'List A');
+		player.current = current;
+		player.queue = [h0, current]; // a real pre-current head exists
+		player.setListQueue([current, a], 'album');
+		// The installed queue is still the anchored list (weave happens in play(), not here).
+		expect(player.queue.map((t) => t.uid)).toEqual([current.uid, a.uid]);
+		// The pre-wipe head was captured for the next fresh play to re-weave.
+		const pending = (player as unknown as { pendingHistory: Track[] | null }).pendingHistory;
+		expect(pending?.map((t) => t.uid)).toEqual([h0.uid, current.uid]);
+		// cleanup so the carrier doesn't leak into the next test's fresh play.
+		(player as unknown as { pendingHistory: Track[] | null }).pendingHistory = null;
+	});
+
+	it('bumps queueGen so a racing ensureAhead grow is discarded (up-next stays the list, not generated)', async () => {
+		// Reproduces the single-tap "same-list still generated" residual race: a fresh play fires
+		// ensureAhead against the optimistic one-track queue; while buildDiversePicks is in flight the
+		// album page installs the full album via setListQueue (bumps queueGen). The stale grow must be
+		// discarded so generated picks never get appended to the album queue.
+		const tapped = mk('netease', '1', 'A', 'Tapped');
+		const albumB = mk('netease', '2', 'A', 'Album B');
+		const albumC = mk('netease', '3', 'A', 'Album C');
+		const generated = mk('joox', 'GEN', 'Z', 'Generated Pick');
+
+		player.current = tapped;
+		player.queue = [tapped]; // optimistic one-track queue (playStub state)
+
+		// Make buildDiversePicks resolve AFTER setListQueue lands.
+		const d = deferred<Track[]>();
+		mockPicks.mockReset().mockReturnValue(d.promise);
+
+		const aheadPromise = (
+			player as unknown as { ensureAhead(): Promise<void> }
+		).ensureAhead(); // queue.length - i = 1, not > 2 → it grows
+
+		// Album finishes resolving → install the full album.
+		player.setListQueue([tapped, albumB, albumC], 'album');
+
+		// Now the stale grow settles — it must be discarded (queueGen advanced).
+		d.resolve([generated]);
+		await aheadPromise;
+		await flush();
+
+		expect(player.queue.map((t) => t.uid)).toEqual([tapped.uid, albumB.uid, albumC.uid]);
+		expect(player.queue.some((t) => t.uid === generated.uid)).toBe(false);
+	});
+
+	it('list-tap pattern (search/artist/library): tapped lower-ranked variant survives dedupe drop so next() has a target (fail-to-move-to-next-track)', () => {
+		// Regression: search/artist/library taps used `setQueue(list); play(t)` — dedupeBest could
+		// drop the tapped variant in favor of a higher-ranked same-song source, orphaning `current`
+		// (indexOf === -1) so next()/ensureAhead went silently dead at track end. The call sites now
+		// use `play(t); setListQueue(list, ctx)`, which must keep the EXACT tapped object a member.
+		// 32-D-08 DECISION CHANGE: the tapped/variant sources are SWAPPED (was tapped=qq,
+		// variant=netease). Which source is "lower-ranked" INVERTED with the rank swap — qq now
+		// outranks netease. The regression this case guards is about the TAPPED row being the dedupe
+		// LOSER, so the tapped fixture has to move to whichever source now loses, i.e. netease.
+		const tappedNetease = mk('netease', 'N1', 'Adele', 'Hello');
+		const variantQQ = mk('qq', 'Q1', 'Adele', 'Hello'); // outranks netease (32-D-08) → dedupe winner slot
+		const after = mk('kuwo', 'K1', 'Adele', 'Skyfall');
+		player.current = tappedNetease; // play(t) sets current synchronously before setListQueue runs
+		player.setListQueue([variantQQ, tappedNetease, after], 'search');
+		expect(player.queue.includes(tappedNetease)).toBe(true);
+		const i = player.queue.findIndex((t) => t.uid === tappedNetease.uid);
+		expect(i).toBeGreaterThanOrEqual(0);
+		expect(player.queue[i + 1]?.uid).toBe(after.uid); // next() can advance
+		expect(player.queueContext).toBe('search');
+	});
+});
+
+describe('player.play — auto-expand fresh-only guard + per-context branch (Phase 17 QUEUE-01/D-05)', () => {
+	// Exercise the REAL play() (restore the global spy) with a fake <audio>, mocked resolve, and
+	// spies on the private regenerate/ensureAhead so we observe the branch without real network.
+	let el: ReturnType<typeof makeFakeAudio>;
+	const resolved = (s: SourceId, id: string): Track => ({
+		...mk(s, id, 'Artist', 'Song'),
+		audioUrl: `https://cdn/${id}.mp3`
+	});
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		player.current = null;
+		player.queue = [];
+		player.queueContext = null;
+		player.expanded = false;
+		player.error = null;
+		player.loading = false;
+		vi.stubGlobal('navigator', { onLine: true });
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		// Restore default settings so each case controls them explicitly.
+		settings.autoExpandOnPlay = false;
+		settings.upnextMode = 'generated';
+		settings.upnextPerContext = {};
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		settings.autoExpandOnPlay = false;
+		settings.upnextMode = 'generated';
+		settings.upnextPerContext = {};
+	});
+
+	it('autoExpandOnPlay=true: a fresh play expands; a non-fresh play does NOT (D-05)', async () => {
+		settings.autoExpandOnPlay = true;
+		const r = resolved('netease', 'F');
+		mockEnsure.mockResolvedValue(r);
+
+		await player.play(stub('netease', 'F', 'Artist', 'Song'), { fresh: true });
+		await flush();
+		expect(player.expanded).toBe(true);
+
+		// Reset, then a non-fresh play (auto-advance/failover path) must leave expanded unchanged.
+		player.expanded = false;
+		mockEnsure.mockResolvedValue(resolved('qq', 'N'));
+		await player.play(stub('qq', 'N', 'Artist', 'Song')); // no opts.fresh
+		await flush();
+		expect(player.expanded).toBe(false);
+	});
+
+	it("a fresh play in a 'generated' context regenerates (similar-queue path)", async () => {
+		const regenSpy = vi
+			.spyOn(player as unknown as { regenerate(t: Track): Promise<void> }, 'regenerate')
+			.mockResolvedValue(undefined);
+		const aheadSpy = vi
+			.spyOn(player as unknown as { ensureAhead(): Promise<void> }, 'ensureAhead')
+			.mockResolvedValue(undefined);
+		player.queueContext = 'search'; // 'search' resolves to global 'generated' default
+		mockEnsure.mockResolvedValue(resolved('netease', 'G'));
+
+		await player.play(stub('netease', 'G', 'Artist', 'Song'), { fresh: true });
+		await flush();
+		expect(regenSpy).toHaveBeenCalledTimes(1);
+		expect(aheadSpy).toHaveBeenCalledTimes(1); // after regenerate, prime the next slot
+	});
+
+	it("a fresh play in a 'same-list' context does NOT regenerate (snapshot survives)", async () => {
+		const regenSpy = vi
+			.spyOn(player as unknown as { regenerate(t: Track): Promise<void> }, 'regenerate')
+			.mockResolvedValue(undefined);
+		const aheadSpy = vi
+			.spyOn(player as unknown as { ensureAhead(): Promise<void> }, 'ensureAhead')
+			.mockResolvedValue(undefined);
+		settings.upnextPerContext = { liked: 'same-list' };
+		player.queueContext = 'liked';
+		mockEnsure.mockResolvedValue(resolved('netease', 'S'));
+
+		await player.play(stub('netease', 'S', 'Artist', 'Song'), { fresh: true });
+		await flush();
+		expect(regenSpy).not.toHaveBeenCalled();
+		expect(aheadSpy).toHaveBeenCalledTimes(1); // snapshot still grows on exhaust (D-03)
+	});
+
+	// quick-260915-vb9: the Library tab's Play/Shuffle buttons install the tab's list then fresh-play
+	// its first track. Every library context resolves to 'generated' by default, so WITHOUT the
+	// sameList opt regenerate() replaces the tail and the list the user pressed Play on never reaches
+	// Up Next (both similar/diverse generators are mocked dry here, so that truncation is observable).
+	// No spy on regenerate — the assertion is the QUEUE the Up-Next pane slices from.
+	it('opts.sameList keeps the installed list as Up Next in a generated context', async () => {
+		vi.spyOn(
+			player as unknown as { ensureAhead(): Promise<void> },
+			'ensureAhead'
+		).mockResolvedValue(undefined);
+		const list = [
+			resolved('netease', 'L1'),
+			resolved('netease', 'L2'),
+			resolved('netease', 'L3')
+		].map((t, i) => ({ ...t, title: `Song ${i}` }));
+		player.queueContext = null;
+		player.setQueue(list, 'liked'); // 'liked' → global 'generated' default
+		mockEnsure.mockResolvedValue(list[0]);
+
+		await player.play(list[0], { fresh: true, sameList: true });
+		await flush();
+
+		// The Up-Next pane renders queue.slice(indexOf(upNextAnchorUid)) — assert on exactly that.
+		const from = player.queue.findIndex((t) => t.uid === player.upNextAnchorUid);
+		expect(from).toBeGreaterThanOrEqual(0);
+		expect(player.queue.slice(from).map((t) => t.title)).toEqual(['Song 0', 'Song 1', 'Song 2']);
+	});
+
+	it('WITHOUT sameList the same generated context regenerates the tail away (control)', async () => {
+		vi.spyOn(
+			player as unknown as { ensureAhead(): Promise<void> },
+			'ensureAhead'
+		).mockResolvedValue(undefined);
+		const list = [
+			resolved('netease', 'R1'),
+			resolved('netease', 'R2'),
+			resolved('netease', 'R3')
+		].map((t, i) => ({ ...t, title: `Tune ${i}` }));
+		player.queueContext = null;
+		player.setQueue(list, 'liked');
+		mockEnsure.mockResolvedValue(list[0]);
+
+		await player.play(list[0], { fresh: true });
+		await flush();
+
+		// The rest of the list is GONE from Up Next — regenerate() replaced the tail. Asserted as an
+		// absence rather than an exact array: what fills the tail depends on the generator mocks,
+		// but the list's own tracks must not be there.
+		const from = player.queue.findIndex((t) => t.uid === player.upNextAnchorUid);
+		const upNext = player.queue.slice(from).map((t) => t.title);
+		expect(upNext[0]).toBe('Tune 0');
+		expect(upNext).not.toContain('Tune 1');
+		expect(upNext).not.toContain('Tune 2');
+	});
+});
+
+describe('player.removeFromQueue / clearQueue / removedUids (Phase 17 QUEUE-05 / D-08..D-10)', () => {
+	// These use the global beforeEach's MOCKED play() (synchronous current set). removeFromQueue
+	// and clearQueue are synchronous queue mutations; the removedUids exclusion is observed via the
+	// mocked buildSimilarQueue / buildDiversePicks exclude-Set argument.
+	beforeEach(() => {
+		mockSimilar.mockReset().mockResolvedValue([]);
+		mockPicks.mockReset().mockResolvedValue([]);
+		player.current = null;
+		player.queue = [];
+		player.queueContext = null;
+	});
+
+	it('removeFromQueue(uid) drops the matching entry from the queue', () => {
+		const a = mk('netease', '1', 'A', 'S1');
+		const b = mk('qq', '2', 'B', 'S2');
+		player.queue = [a, b];
+		player.removeFromQueue(b.uid);
+		expect(player.queue.map((t) => t.uid)).toEqual([a.uid]);
+	});
+
+	it('removeFromQueue(uid) deletes it from manual pins (a pinned track can still be swiped away)', () => {
+		const a = mk('netease', '1', 'A', 'S1');
+		const b = mk('qq', '2', 'B', 'S2');
+		player.current = a; // a is playing, so addToQueue(b) does not auto-play b (b ≠ current)
+		player.queue = [a, b];
+		player.addToQueue(b); // pins b into manualUids (already in queue → dedupe keeps one)
+		const manual = (player as unknown as { manualUids: Set<string> }).manualUids;
+		expect(manual.has(b.uid)).toBe(true);
+		player.removeFromQueue(b.uid);
+		expect(manual.has(b.uid)).toBe(false);
+	});
+
+	it('removeFromQueue(current.uid) is a NO-OP — never-stop: the playing track survives (CR-01)', () => {
+		const cur = mk('netease', 'C', 'A', 'Cur');
+		const b = mk('qq', '2', 'B', 'S2');
+		player.current = cur;
+		player.queue = [cur, b];
+		player.removeFromQueue(cur.uid);
+		// Queue unchanged — removing the current track would orphan indexOf(current), killing
+		// next()/ensureAhead/prefetchNext AND persisting the broken state (CR-01).
+		expect(player.queue.map((t) => t.uid)).toEqual([cur.uid, b.uid]);
+		// And the uid is NOT session-excluded (the removal never happened).
+		expect((player as unknown as { removedUids: Set<string> }).removedUids.has(cur.uid)).toBe(false);
+		// quick-260910-omt: null receipt — there is nothing to undo, so the caller shows no toast.
+		expect(player.removeFromQueue(cur.uid)).toBeNull();
+	});
+
+	// quick-260910-omt: removeFromQueue now hands back a receipt so the Up-Next swipe can offer
+	// Undo. restoreToQueue(receipt) is its exact inverse (index + manual pin + D-10 exclusion).
+	it('removeFromQueue returns a receipt describing the removal', () => {
+		const a = mk('netease', 'OMT-A', 'A', 'S1');
+		const b = mk('qq', 'OMT-B', 'B', 'S2');
+		const c = mk('kuwo', 'OMT-C', 'C', 'S3');
+		player.queue = [a, b, c];
+		expect(player.removeFromQueue(b.uid)).toEqual({
+			track: b,
+			index: 1,
+			wasManual: false,
+			wasExcluded: false
+		});
+	});
+
+	it('removeFromQueue(uid) of a track not in the queue returns null', () => {
+		player.queue = [mk('netease', 'OMT-N1', 'A', 'S1')];
+		expect(player.removeFromQueue(makeUid('qq', 'OMT-NOT-THERE'))).toBeNull();
+	});
+
+	it('restoreToQueue puts the track back at its ORIGINAL index (not appended)', () => {
+		const a = mk('netease', 'OMT-R1', 'A', 'S1');
+		const b = mk('qq', 'OMT-R2', 'B', 'S2');
+		const c = mk('kuwo', 'OMT-R3', 'C', 'S3');
+		player.queue = [a, b, c];
+		const r = player.removeFromQueue(b.uid)!;
+		expect(player.queue.map((t) => t.uid)).toEqual([a.uid, c.uid]);
+		player.restoreToQueue(r);
+		expect(player.queue.map((t) => t.uid)).toEqual([a.uid, b.uid, c.uid]);
+	});
+
+	it('restoreToQueue restores the manual pin iff the removed track had one', () => {
+		const manual = (player as unknown as { manualUids: Set<string> }).manualUids;
+		const cur = mk('netease', 'OMT-M0', 'A', 'Cur');
+		const pinned = mk('qq', 'OMT-M1', 'B', 'S2');
+		const plain = mk('kuwo', 'OMT-M2', 'C', 'S3');
+		player.current = cur;
+		player.queue = [cur, pinned, plain];
+		player.addToQueue(pinned); // pins it
+		const rp = player.removeFromQueue(pinned.uid)!;
+		player.restoreToQueue(rp);
+		expect(manual.has(pinned.uid)).toBe(true);
+		const rn = player.removeFromQueue(plain.uid)!;
+		player.restoreToQueue(rn);
+		expect(manual.has(plain.uid)).toBe(false);
+	});
+
+	it('restoreToQueue lifts the D-10 session exclusion — regenerate no longer excludes the uid', async () => {
+		const seed = mk('netease', 'OMT-SEED', 'A', 'Seed');
+		const back = mk('qq', 'OMT-BACK', 'B', 'Back');
+		player.queue = [seed, back];
+		const r = player.removeFromQueue(back.uid)!;
+		player.restoreToQueue(r);
+		await (player as unknown as { regenerate(t: Track): Promise<void> }).regenerate(seed);
+		const excludeArg = mockSimilar.mock.calls[0][1] as Set<string>;
+		expect(excludeArg.has(back.uid)).toBe(false);
+	});
+
+	it('restoreToQueue is idempotent — a double tap never duplicates the entry', () => {
+		const a = mk('netease', 'OMT-I1', 'A', 'S1');
+		const b = mk('qq', 'OMT-I2', 'B', 'S2');
+		player.queue = [a, b];
+		const r = player.removeFromQueue(b.uid)!;
+		player.restoreToQueue(r);
+		player.restoreToQueue(r);
+		expect(player.queue.map((t) => t.uid)).toEqual([a.uid, b.uid]);
+	});
+
+	it('restoreToQueue clamps a stale index to the end when the queue shrank meanwhile', () => {
+		const a = mk('netease', 'OMT-C1', 'A', 'S1');
+		const b = mk('qq', 'OMT-C2', 'B', 'S2');
+		const c = mk('kuwo', 'OMT-C3', 'C', 'S3');
+		player.queue = [a, b, c];
+		const r = player.removeFromQueue(c.uid)!; // index 2
+		player.queue = [a]; // queue shrank inside the ~5s undo window
+		player.restoreToQueue(r);
+		expect(player.queue.map((t) => t.uid)).toEqual([a.uid, c.uid]); // appended, no hole
+	});
+
+	it('clearQueue() leaves queue = [current] when a current track exists and clears pins', () => {
+		const cur = mk('netease', 'C', 'A', 'Cur');
+		const a = mk('qq', '1', 'B', 'S1');
+		player.current = cur;
+		player.queue = [cur, a];
+		player.addToQueue(a); // pin a
+		player.clearQueue();
+		expect(player.queue.map((t) => t.uid)).toEqual([cur.uid]); // only current survives (D-08)
+		expect((player as unknown as { manualUids: Set<string> }).manualUids.size).toBe(0);
+	});
+
+	it('clearQueue() leaves an empty queue when there is no current track', () => {
+		player.current = null;
+		player.queue = [mk('netease', '1', 'A', 'S1'), mk('qq', '2', 'B', 'S2')];
+		player.clearQueue();
+		expect(player.queue).toEqual([]);
+	});
+
+	it('clearQueue() does NOT trigger an immediate regenerate/ensureAhead (D-09 — refill near end only)', async () => {
+		const regenSpy = vi
+			.spyOn(player as unknown as { regenerate(t: Track): Promise<void> }, 'regenerate')
+			.mockResolvedValue(undefined);
+		const aheadSpy = vi
+			.spyOn(player as unknown as { ensureAhead(): Promise<void> }, 'ensureAhead')
+			.mockResolvedValue(undefined);
+		const cur = mk('netease', 'C', 'A', 'Cur');
+		player.current = cur;
+		player.queue = [cur, mk('qq', '1', 'B', 'S1'), mk('kuwo', '2', 'C', 'S2')];
+		player.clearQueue();
+		await flush();
+		expect(regenSpy).not.toHaveBeenCalled();
+		expect(aheadSpy).not.toHaveBeenCalled();
+		expect(player.queue.map((t) => t.uid)).toEqual([cur.uid]); // stays at [current]
+	});
+
+	it('a removeFromQueue uid is excluded from regenerate buildSimilarQueue exclude set (D-10)', async () => {
+		const seed = mk('netease', 'SEED', 'A', 'Seed');
+		const gone = mk('qq', 'GONE', 'B', 'Gone');
+		player.queue = [seed, gone];
+		player.removeFromQueue(gone.uid);
+		await (player as unknown as { regenerate(t: Track): Promise<void> }).regenerate(seed);
+		expect(mockSimilar).toHaveBeenCalledTimes(1);
+		const excludeArg = mockSimilar.mock.calls[0][1] as Set<string>;
+		expect(excludeArg.has(gone.uid)).toBe(true);
+	});
+
+	it("an explicit setQueue() mid-regenerate WINS — generated picks don't clobber it (WR-06)", async () => {
+		const seed = mk('netease', 'SEED', 'A', 'Seed');
+		const albumQueue = [seed, mk('qq', '1', 'B', 'T1'), mk('kuwo', '2', 'C', 'T2')];
+		// Hold buildSimilarQueue open so an explicit setQueue can land while it is in flight
+		// (the playAlbum race: playStub → regenerate vs resolveAllCached → setQueue(all)).
+		let resolveSimilar!: (v: Track[]) => void;
+		mockSimilar.mockReturnValue(new Promise<Track[]>((r) => (resolveSimilar = r)));
+		player.current = seed;
+		player.queue = [seed];
+		const regen = (player as unknown as { regenerate(t: Track): Promise<void> }).regenerate(seed);
+		player.setQueue(albumQueue, 'album'); // explicit queue installed mid-regenerate
+		resolveSimilar([mk('joox', '9', 'D', 'Gen')]); // late generated picks settle AFTER setQueue
+		await regen;
+		// The user's explicit album queue survives; the stale regenerate result is discarded.
+		expect(player.queue.map((t) => t.uid)).toEqual(albumQueue.map((t) => t.uid));
+	});
+
+	it('a removeFromQueue uid is excluded from ensureAhead buildDiversePicks `have` set (D-10/QUEUE-02)', async () => {
+		const cur = mk('netease', 'C', 'A', 'Cur');
+		const gone = mk('qq', 'GONE', 'B', 'Gone');
+		player.current = cur;
+		player.queue = [cur, gone];
+		player.removeFromQueue(gone.uid); // gone leaves the queue, but must stay excluded
+		// queue is now [cur] — within 2 of the end → ensureAhead runs
+		await (player as unknown as { ensureAhead(): Promise<void> }).ensureAhead();
+		expect(mockPicks).toHaveBeenCalledTimes(1);
+		const haveArg = mockPicks.mock.calls[0][1] as Set<string>;
+		expect(haveArg.has(gone.uid)).toBe(true);
+	});
+
+	it('a fresh play resets removedUids — the next regenerate no longer excludes the old uid', async () => {
+		// This one drives the REAL play() fresh branch (where removedUids.clear() lives), so restore
+		// the globally-spied play(), attach a fake <audio>, and drive a 'generated'-context fresh play.
+		(player.play as unknown as { mockRestore?(): void }).mockRestore?.();
+		vi.stubGlobal('navigator', { onLine: true });
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		settings.upnextMode = 'generated';
+		settings.upnextPerContext = {};
+		player.queueContext = 'search'; // resolves to 'generated' → fresh play calls regenerate
+
+		const gone = mk('qq', 'GONE', 'B', 'Gone');
+		player.removeFromQueue(gone.uid); // session A: gone is excluded
+		// A fresh play starts a NEW session → removedUids cleared BEFORE regenerate runs.
+		mockEnsure.mockResolvedValue({ ...mk('netease', 'F', 'A', 'Song'), audioUrl: 'https://cdn/f.mp3' });
+		await player.play(stub('netease', 'F', 'A', 'Song'), { fresh: true });
+		await flush();
+		// regenerate ran during the fresh play; its exclude set must NOT contain the old uid.
+		expect(mockSimilar).toHaveBeenCalled();
+		const excludeArg = mockSimilar.mock.calls[0][1] as Set<string>;
+		expect(excludeArg.has(gone.uid)).toBe(false); // cleared on fresh play (D-10 session-scoped)
+	});
+
+	it('removedUids is NOT written to the persisted player snapshot (session-scoped, not serialized)', () => {
+		const cur = mk('netease', 'C', 'A', 'Cur');
+		const gone = mk('qq', 'GONE', 'B', 'Gone');
+		player.current = cur;
+		player.queue = [cur, gone]; // removeFromQueue only persists when it really removed a row
+		player.removeFromQueue(gone.uid);
+		const raw = localStorage.getItem('openmusic:player:v1');
+		expect(raw).toBeTruthy();
+		expect(raw as string).not.toContain('removedUids');
+		expect(raw as string).not.toContain('GONE');
+	});
+});
+
+/**
+ * Sleep-timer expiry (TIMER-01, Phase-18 blocker proven in code). The hard constraint:
+ * the expiry stop is an INTENTIONAL pause and must be invisible to the Phase-16 never-stop
+ * failure machinery — it must NEVER call next(), bump playGen, increment the failure
+ * counters, or route into runFallback (which would spuriously trip the sticky loop-guard).
+ *
+ * Drives the real player listeners via the makeFakeAudio().fire() harness. The fake gains a
+ * writable `volume` so canFadeVolume()'s write-then-readback honours the probe (the fade path
+ * is exercised, not the iOS instant-pause path) unless a test forces it read-only.
+ */
+function makeSleepAudio() {
+	const base = makeFakeAudio();
+	return Object.assign(base, { volume: 1, paused: false });
+}
+
+describe('sleep timer expiry — Phase-18 blocker (never enters the failure machinery)', () => {
+	beforeEach(() => {
+		sleepTimer.cancel(); // no leaked live tick / fade interval between tests
+		vi.spyOn(player, 'next').mockImplementation(() => {});
+		player.repeatMode = 'off';
+		player.notice = null;
+	});
+	afterEach(() => sleepTimer.cancel());
+
+	it('minutes-mode timeupdate at the deadline fades then pauses once, deactivates the timer, and does NOT call next()', () => {
+		vi.useFakeTimers();
+		try {
+			const audio = makeSleepAudio();
+			player.attach(audio as unknown as HTMLAudioElement);
+			sleepTimer.set('minutes', 5);
+			sleepTimer.deadline = Date.now() - 1; // force the absolute deadline into the past
+
+			audio.fire('timeupdate');
+			// canFadeVolume true (writable fake volume) → a ~10s fade interval is armed; pause is
+			// deferred until the fade completes. Advance past FADE_MS so finishExpiry() runs.
+			vi.advanceTimersByTime(10_200);
+
+			expect(audio.pause).toHaveBeenCalledTimes(1);
+			expect(sleepTimer.active).toBe(false);
+			expect(audio.volume).toBe(1); // pre-fade volume restored (D-02)
+			expect(player.next).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('the timeupdate expiry does NOT route into runFallback and emits NO notice (failure-counter proxy)', () => {
+		vi.useFakeTimers();
+		try {
+			mockTryFallback.mockReset();
+			const audio = makeSleepAudio();
+			player.attach(audio as unknown as HTMLAudioElement);
+			sleepTimer.set('minutes', 10);
+			sleepTimer.deadline = Date.now() - 1;
+
+			audio.fire('timeupdate');
+			vi.advanceTimersByTime(10_200);
+
+			// consecutiveFailures/errorBurst are private — assert the observable proxies instead:
+			// an expiry never tries a cross-source fallback and never surfaces a skip/loop notice.
+			expect(mockTryFallback).not.toHaveBeenCalled();
+			expect(player.notice).toBeNull();
+			expect(player.next).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('a non-expired minutes timeupdate runs the existing body (currentTime sync) unchanged', () => {
+		const audio = makeSleepAudio();
+		player.attach(audio as unknown as HTMLAudioElement);
+		sleepTimer.set('minutes', 30); // deadline far in the future — NOT expired
+		audio.currentTime = 42;
+
+		audio.fire('timeupdate');
+
+		expect(audio.pause).not.toHaveBeenCalled();
+		expect(player.currentTime).toBe(42); // existing timeupdate body ran
+		expect(sleepTimer.active).toBe(true);
+	});
+
+	it("end-of-track mode beats repeat-one: `ended` pauses (no replay) and does NOT call next() (D-03)", () => {
+		const audio = makeSleepAudio();
+		audio.currentTime = 99; // non-zero so a suppressed repeat-one rewind is observable
+		player.attach(audio as unknown as HTMLAudioElement);
+		sleepTimer.set('end-of-track');
+		player.repeatMode = 'one'; // would normally rewind+replay — sleep-stop must beat it
+		audio.play.mockClear();
+
+		audio.fire('ended');
+
+		// decideEndedAction returned 'sleep-stop' BEFORE the repeat-one branch and BEFORE next():
+		expect(player.next).not.toHaveBeenCalled();
+		expect(audio.play).not.toHaveBeenCalled(); // repeat-one rewind+replay suppressed
+		expect(audio.currentTime).toBe(99); // repeat-one would have set currentTime=0 — it didn't
+		expect(sleepTimer.active).toBe(false); // timer cancelled at the boundary (D-09)
+	});
+
+	it('end-of-track is INERT when no end-of-track timer is armed: repeat-one still rewinds + replays', () => {
+		const audio = makeSleepAudio();
+		audio.currentTime = 87;
+		player.attach(audio as unknown as HTMLAudioElement);
+		// sleepTimer is off (beforeEach cancel) → decideEndedAction('off','one') === 'repeat-rewind'
+		player.repeatMode = 'one';
+
+		audio.fire('ended');
+
+		expect(audio.currentTime).toBe(0); // repeat-one rewound
+		expect(audio.play).toHaveBeenCalled(); // repeat-one replayed
+		expect(player.next).not.toHaveBeenCalled();
+	});
+
+	it('D-04: expireSleepTimer() when already paused clears the timer silently and does NOT pause again', () => {
+		const audio = makeSleepAudio();
+		audio.paused = true; // user already paused manually
+		player.attach(audio as unknown as HTMLAudioElement);
+		sleepTimer.set('minutes', 5);
+
+		player.expireSleepTimer();
+
+		expect(audio.pause).not.toHaveBeenCalled(); // no second pause (D-04 silent clear)
+		expect(sleepTimer.active).toBe(false); // timer cleared
+		expect(player.next).not.toHaveBeenCalled();
+	});
+
+	it('D-05: a gesture (seek) during an in-flight fade aborts the stop — restores volume + cancels timer', () => {
+		vi.useFakeTimers();
+		try {
+			const audio = makeSleepAudio();
+			audio.duration = 200; // finite so seekFraction sets currentTime (not pendingSeekFrac)
+			player.attach(audio as unknown as HTMLAudioElement);
+			sleepTimer.set('minutes', 5);
+			sleepTimer.deadline = Date.now() - 1;
+
+			audio.fire('timeupdate'); // arms the fade interval
+			vi.advanceTimersByTime(400); // partway through the fade — volume is now < 1
+			expect(audio.volume).toBeLessThan(1);
+
+			// A seek gesture mid-fade aborts (D-05). seekFraction (NOT next, which is spied) runs
+			// the REAL abortFade() at its top.
+			player.seekFraction(0.5);
+
+			expect(audio.volume).toBe(1); // pre-fade volume restored
+			expect(sleepTimer.active).toBe(false); // timer cancelled — user is awake
+			// Advancing past the original FADE_MS must NOT pause: the fade interval was cleared.
+			vi.advanceTimersByTime(10_000);
+			expect(audio.pause).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('CR-01: the timeupdate firehose (many fires across the fade) does NOT restart the fade, re-probe, or degrade the restored volume', () => {
+		vi.useFakeTimers();
+		try {
+			// Wrap `volume` in a getter/setter so we can OBSERVE every write. canFadeVolume's probe
+			// slams volume to 0 then restores; if expireSleepTimer re-entered each timeupdate it would
+			// re-run that probe (a 0-write) mid-fade. We record the writes to prove it runs once.
+			// `volume` already exists on makeSleepAudio()'s type, so redefining it is type-safe.
+			const audio = makeSleepAudio();
+			let _vol = 1;
+			const volumeWrites: number[] = [];
+			Object.defineProperty(audio, 'volume', {
+				get: () => _vol,
+				set: (v: number) => {
+					_vol = v;
+					volumeWrites.push(v);
+				},
+				configurable: true
+			});
+			player.attach(audio as unknown as HTMLAudioElement);
+			sleepTimer.set('minutes', 5);
+			sleepTimer.deadline = Date.now() - 1; // deadline in the past for the whole fade window
+
+			// Fire timeupdate repeatedly across the fade, advancing fake timers between fires so the
+			// fade interval ticks AND the listener keeps seeing an expired minutes timer (production
+			// fires ~4×/sec). The re-entry guard must keep the fade single-flight.
+			for (let i = 0; i < 25; i++) {
+				audio.fire('timeupdate');
+				vi.advanceTimersByTime(400);
+			}
+			// Drain any remaining fade so finishExpiry() runs.
+			vi.advanceTimersByTime(10_200);
+
+			// Paused exactly once — re-entry would have armed multiple fades → multiple finishExpiry.
+			expect(audio.pause).toHaveBeenCalledTimes(1);
+			// Restored to the ORIGINAL 1.0, not a degraded mid-fade snapshot (preFadeVolume read once).
+			expect(audio.volume).toBe(1);
+			expect(sleepTimer.active).toBe(false);
+			expect(player.next).not.toHaveBeenCalled();
+			// canFadeVolume's probe writes 0 once (at fade start); the fade ramp also lands on 0 at
+			// the end — so a healthy single fade has at most 2 zero-writes. The re-entry bug re-ran
+			// the probe on EVERY timeupdate (≥25 here), so a small bound proves the guard held.
+			expect(volumeWrites.filter((v) => v === 0).length).toBeLessThanOrEqual(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('WR-02: a natural `ended` in repeat-one DURING a minutes fade finishes the expiry — no loop, volume restored, timer cancelled', () => {
+		vi.useFakeTimers();
+		try {
+			const audio = makeSleepAudio();
+			audio.currentTime = 73; // non-zero so a suppressed repeat-one rewind (→0) is observable
+			player.attach(audio as unknown as HTMLAudioElement);
+			player.repeatMode = 'one';
+			sleepTimer.set('minutes', 5);
+			sleepTimer.deadline = Date.now() - 1;
+
+			audio.fire('timeupdate'); // arms the fade interval (fade in flight, audio still playing)
+			vi.advanceTimersByTime(400); // partway through — volume now < 1
+			expect(audio.volume).toBeLessThan(1);
+			audio.play.mockClear();
+
+			// Track reaches its natural end mid-fade. decideEndedAction('minutes','one') is
+			// 'repeat-rewind', but the fade-in-flight guard must finish the expiry instead of looping.
+			audio.fire('ended');
+
+			expect(audio.play).not.toHaveBeenCalled(); // did NOT loop/replay
+			expect(audio.currentTime).toBe(73); // repeat-one would have set currentTime=0 — it didn't
+			expect(audio.pause).toHaveBeenCalledTimes(1); // finishExpiry paused once
+			expect(audio.volume).toBe(1); // pre-fade volume restored (not a degraded value)
+			expect(sleepTimer.active).toBe(false); // timer cancelled
+			expect(player.next).not.toHaveBeenCalled();
+			// The fade is disarmed: advancing past the original FADE_MS does not pause again.
+			vi.advanceTimersByTime(10_200);
+			expect(audio.pause).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
+/**
+ * GLN-6: Android background persistence. attach() registers visibilitychange/pagehide/freeze
+ * listeners that flush the EXACT current position to localStorage IMMEDIATELY (bypassing the 2s
+ * persistThrottled window), so a process eviction / tab freeze never persists a stale (pre-roll)
+ * currentTime → the "restores to 0" bug. The DESKTOP-verifiable invariant — an immediate
+ * localStorage write of the exact currentTime on hide — is what these tests prove; the real
+ * Android resume-from-saved-position is device-dependent and verified separately on hardware.
+ *
+ * In the node vitest project document/window are normally undefined, so we install minimal
+ * event-registry stubs so attach() registers the listeners and a test can dispatch them.
+ */
+describe('player.flushPersist — immediate position flush on hide/freeze/pagehide (GLN-6)', () => {
+	const STATE_KEY = 'openmusic:player:v1';
+	type Reg = {
+		_h: Map<string, Array<(e?: unknown) => void>>;
+		addEventListener(t: string, cb: (e?: unknown) => void): void;
+		fire(t: string, e?: unknown): void;
+	};
+	function makeRegistry(extra: Record<string, unknown> = {}): Reg {
+		const h = new Map<string, Array<(e?: unknown) => void>>();
+		return {
+			...extra,
+			_h: h,
+			addEventListener(t: string, cb: (e?: unknown) => void) {
+				const arr = h.get(t) ?? [];
+				arr.push(cb);
+				h.set(t, arr);
+			},
+			fire(t: string, e?: unknown) {
+				for (const cb of h.get(t) ?? []) cb(e);
+			}
+		} as Reg;
+	}
+
+	const flushPersist = () => (player as unknown as { flushPersist(): void })['flushPersist']();
+	const persistTimer = () =>
+		(player as unknown as { persistTimer: ReturnType<typeof setTimeout> | null })['persistTimer'];
+
+	beforeEach(() => {
+		memStore.clear();
+		player.queue = [];
+		player.current = mk('netease', 'bg', 'Artist', 'Background Song');
+		player.currentTime = 0;
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.stubGlobal('localStorage', localStorageMock); // re-establish the module-level stub
+	});
+
+	it('flushPersist() writes the EXACT element currentTime immediately (syncs from the element first)', () => {
+		const el = makeFakeAudio();
+		el.currentTime = 30.5; // element is ahead of the throttled player.currentTime (still 0)
+		player.attach(el as unknown as HTMLAudioElement);
+
+		flushPersist();
+
+		const raw = localStorage.getItem(STATE_KEY);
+		expect(raw).toBeTruthy();
+		const saved = JSON.parse(raw as string);
+		expect(saved.currentTime).toBe(30.5); // synced from the live element, not the stale 0
+		expect(saved.current.uid).toBe(player.current?.uid);
+	});
+
+	it('flushPersist() cancels a pending throttled write so it cannot later clobber with a staler value', () => {
+		const el = makeFakeAudio();
+		el.currentTime = 12;
+		player.attach(el as unknown as HTMLAudioElement);
+		// Arm the throttled timer (mirrors a recent timeupdate), then flush.
+		(player as unknown as { persistThrottled(): void })['persistThrottled']();
+		expect(persistTimer()).not.toBeNull();
+
+		flushPersist();
+
+		expect(persistTimer()).toBeNull(); // throttled write cancelled
+		expect(JSON.parse(localStorage.getItem(STATE_KEY) as string).currentTime).toBe(12);
+	});
+
+	it('a visibilitychange to hidden flushes the exact position immediately (attach-registered listener)', () => {
+		const doc = makeRegistry({ hidden: false });
+		const win = makeRegistry();
+		vi.stubGlobal('document', doc);
+		vi.stubGlobal('window', win);
+
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		el.currentTime = 47.25; // user is 47s in when the tab is backgrounded
+		(doc as unknown as { hidden: boolean }).hidden = true;
+
+		doc.fire('visibilitychange');
+
+		const saved = JSON.parse(localStorage.getItem(STATE_KEY) as string);
+		expect(saved.currentTime).toBe(47.25); // immediate, exact — not the last 2s-throttled value
+	});
+
+	it('a visibilitychange while still VISIBLE does NOT flush (only hidden flushes)', () => {
+		const doc = makeRegistry({ hidden: false });
+		const win = makeRegistry();
+		vi.stubGlobal('document', doc);
+		vi.stubGlobal('window', win);
+
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		el.currentTime = 5;
+		// document.hidden stays false (tab still visible) → no flush.
+		doc.fire('visibilitychange');
+
+		expect(localStorage.getItem(STATE_KEY)).toBeNull();
+	});
+
+	it('a pagehide event flushes the exact position immediately', () => {
+		const doc = makeRegistry({ hidden: false });
+		const win = makeRegistry();
+		vi.stubGlobal('document', doc);
+		vi.stubGlobal('window', win);
+
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		el.currentTime = 88;
+
+		win.fire('pagehide');
+
+		expect(JSON.parse(localStorage.getItem(STATE_KEY) as string).currentTime).toBe(88);
+	});
+
+	it('a freeze event flushes the exact position immediately (Page Lifecycle API)', () => {
+		const doc = makeRegistry({ hidden: true });
+		const win = makeRegistry();
+		vi.stubGlobal('document', doc);
+		vi.stubGlobal('window', win);
+
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		el.currentTime = 61;
+
+		doc.fire('freeze');
+
+		expect(JSON.parse(localStorage.getItem(STATE_KEY) as string).currentTime).toBe(61);
+	});
+
+	it('a pageshow(persisted) re-syncs currentTime + playing from the element without autoplaying', () => {
+		const doc = makeRegistry({ hidden: false });
+		const win = makeRegistry();
+		vi.stubGlobal('document', doc);
+		vi.stubGlobal('window', win);
+
+		const el = makeFakeAudio();
+		el.paused = false; // element is actually playing after a bfcache restore
+		player.attach(el as unknown as HTMLAudioElement);
+		el.currentTime = 19;
+		player.currentTime = 0; // stale UI state from before the freeze
+		player.playing = false;
+
+		win.fire('pageshow', { persisted: true });
+
+		expect(player.currentTime).toBe(19); // re-synced from the live element
+		expect(player.playing).toBe(true); // reflects el.paused === false
+		expect(el.play).not.toHaveBeenCalled(); // never autoplays
+	});
+
+	it('a pageshow that is NOT persisted (normal load) does not re-sync', () => {
+		const doc = makeRegistry({ hidden: false });
+		const win = makeRegistry();
+		vi.stubGlobal('document', doc);
+		vi.stubGlobal('window', win);
+
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		el.currentTime = 99;
+		player.currentTime = 3;
+
+		win.fire('pageshow', { persisted: false });
+
+		expect(player.currentTime).toBe(3); // untouched — full restore() handles a normal load
+	});
+});
+
+describe('player.play — history-preserving fresh-play queue model (quick-260615-i9u Feature B)', () => {
+	// Exercise the REAL play() (restore the global spy) with a fake <audio> + mocked resolve. The
+	// captured history is woven in front of the clicked song so prior playback stays in the queue
+	// and prev() can revisit it. effectiveUpnextMode→generated with mockSimilar→[] keeps the tail
+	// empty so the woven prefix + seed is the whole queue and the assertions are exact.
+	let el: ReturnType<typeof makeFakeAudio>;
+	const resolved = (s: SourceId, id: string): Track => ({
+		...mk(s, id, 'Artist', `Song ${id}`),
+		audioUrl: `https://cdn/${id}.mp3`
+	});
+	// pendingHistory is captured by setQueue/setListQueue. In these tests we set the prior queue +
+	// current directly, then capture explicitly via setQueue([seed]) right before the fresh play —
+	// mirroring the real call-site order (setQueue → play({fresh:true})).
+	const pendingHistoryRef = () =>
+		player as unknown as { pendingHistory: Track[] | null };
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockSimilar.mockReset().mockResolvedValue([]); // generated tail empty → exact queue assertions
+		player.current = null;
+		player.queue = [];
+		player.queueContext = null;
+		player.expanded = false;
+		player.error = null;
+		player.loading = false;
+		pendingHistoryRef().pendingHistory = null;
+		// quick-260618-ink: clear manual provenance so a manual uid added by one test (view-slice
+		// manual case) does not leak into the exact-shape assertions of the others.
+		(player as unknown as { manualUids: Set<string> }).manualUids.clear();
+		(player as unknown as { pendingManual: Track[] | null }).pendingManual = null;
+		vi.stubGlobal('navigator', { onLine: true });
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		settings.autoExpandOnPlay = false;
+		settings.upnextMode = 'generated'; // null/search context → 'generated'
+		settings.upnextPerContext = {};
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		settings.upnextMode = 'generated';
+		settings.upnextPerContext = {};
+	});
+
+	/** Seed a prior queue + current, then capture history exactly as a real fresh-play call site does
+	 *  (setQueue installs the [clicked] snapshot AND captures the pre-wipe prefix). */
+	function seedPriorAndCapture(prior: Track[], current: Track, clicked: Track) {
+		player.queue = prior;
+		player.current = current;
+		// setQueue captures the pre-wipe history (up to+including current) into pendingHistory.
+		player.setQueue([clicked], 'search');
+	}
+
+	it('a fresh play preserves capped history + prior current, inserts clicked song after it', async () => {
+		const h0 = resolved('netease', 'H0');
+		const h1 = resolved('netease', 'H1');
+		const pc = resolved('netease', 'PC');
+		const oldA = resolved('netease', 'OLDA');
+		const X = resolved('qq', 'X');
+		seedPriorAndCapture([h0, h1, pc, oldA], pc, X);
+		mockEnsure.mockResolvedValue(X);
+
+		await player.play(X, { fresh: true });
+		await flush();
+
+		// History (h0,h1) + prior current (pc) kept; X inserted right after pc as the new current.
+		expect(player.queue.map((t) => t.uid)).toEqual([h0.uid, h1.uid, pc.uid, X.uid]);
+		expect(player.current?.uid).toBe(X.uid);
+		expect(player.queue.findIndex((t) => t.uid === X.uid)).toBe(3);
+	});
+
+	// quick-260618-ink: the LIST is rendered as player.queue.slice(currentIndex); the store keeps
+	// history BEFORE current (for prev()/carousel) so this view-slice is what the user actually sees.
+	it('quick-260618-ink: store keeps history before current; view-slice from current yields [current, ...tail]', async () => {
+		const h0 = resolved('netease', 'H0');
+		const h1 = resolved('netease', 'H1');
+		const pc = resolved('netease', 'PC');
+		const X = resolved('qq', 'X');
+		seedPriorAndCapture([h0, h1, pc], pc, X);
+		mockEnsure.mockResolvedValue(X);
+
+		await player.play(X, { fresh: true });
+		await flush();
+
+		// STORE shape UNCHANGED: history (h0,h1) + prior current (pc) still BEFORE new current X —
+		// proves prev()/cover-carousel inputs survive (they read the unsliced queue).
+		expect(player.queue.map((t) => t.uid)).toEqual([h0.uid, h1.uid, pc.uid, X.uid]);
+
+		// VIEW-SLICE contract the component uses: slice from current index forward → [current, ...tail].
+		const ci = player.queue.findIndex((t) => t.uid === player.current?.uid);
+		expect(player.queue.slice(ci).map((t) => t.uid)).toEqual([X.uid]); // tail empty (mockSimilar→[])
+		expect(player.queue.slice(ci)[0].uid).toBe(player.current?.uid); // first visible row IS current
+	});
+
+	it('quick-260618-ink: a manual entry survives in the view-slice immediately after current', async () => {
+		const h0 = resolved('netease', 'H0');
+		const pc = resolved('netease', 'PC');
+		const M = resolved('kuwo', 'M'); // manually-queued track
+		const X = resolved('qq', 'X');
+		// Register M's manual provenance the way the 260618-fiz Fix 4 tests do, then seed it into the
+		// prior queue so setQueue's captureManual() carries it across the fresh-play wipe.
+		(player as unknown as { manualUids: Set<string> }).manualUids.add(M.uid);
+		seedPriorAndCapture([h0, pc, M], pc, X);
+		mockEnsure.mockResolvedValue(X);
+
+		await player.play(X, { fresh: true });
+		await flush();
+
+		// View-slice from current: M (manual) appears right after the new current X.
+		const ci = player.queue.findIndex((t) => t.uid === player.current?.uid);
+		expect(player.queue.slice(ci).map((t) => t.uid)).toEqual([X.uid, M.uid]);
+		// And the store still keeps history before current (shape unchanged).
+		expect(player.queue.map((t) => t.uid)).toEqual([h0.uid, pc.uid, X.uid, M.uid]);
+	});
+
+	it('prev() after a fresh click revisits the prior current', async () => {
+		const h0 = resolved('netease', 'H0');
+		const pc = resolved('netease', 'PC');
+		const X = resolved('qq', 'X');
+		seedPriorAndCapture([h0, pc], pc, X);
+		mockEnsure.mockResolvedValue(X);
+		await player.play(X, { fresh: true });
+		await flush();
+		// queue == [h0, pc, X], current == X at index 2.
+		expect(player.queue.map((t) => t.uid)).toEqual([h0.uid, pc.uid, X.uid]);
+
+		// prev() back-walks into history → plays queue[1] === pc. Guard the >3s restart: currentTime=0.
+		el.currentTime = 0;
+		const playSpy = vi.spyOn(player, 'play');
+		player.prev();
+		expect(playSpy.mock.calls[0][0].uid).toBe(pc.uid);
+	});
+
+	it('history is capped to HISTORY_CAP (oldest dropped)', async () => {
+		const CAP = 50;
+		const head: Track[] = [];
+		for (let n = 0; n < 60; n++) head.push(resolved('netease', `E${n}`));
+		const pc = head[head.length - 1]; // last head entry is the prior current
+		const X = resolved('qq', 'X');
+		seedPriorAndCapture(head, pc, X);
+		mockEnsure.mockResolvedValue(X);
+
+		await player.play(X, { fresh: true });
+		await flush();
+
+		// 60 pre-current entries (incl. pc) capped to the LAST 50 → oldest 10 (E0..E9) dropped.
+		const kept = player.queue.slice(0, player.queue.findIndex((t) => t.uid === X.uid));
+		expect(kept.length).toBe(CAP);
+		expect(kept[0].uid).toBe(head[60 - CAP].uid); // queue[0] === E10
+		expect(player.queue[CAP].uid).toBe(X.uid); // seed at the cap boundary
+	});
+
+	it('re-click of an already-played song moves it to new-current (no duplicate)', async () => {
+		const h0 = resolved('netease', 'H0');
+		const pc = resolved('netease', 'PC');
+		const old = resolved('netease', 'OLD');
+		// Re-click h0 (already in history). It must MOVE to the new-current slot, not duplicate.
+		seedPriorAndCapture([h0, pc, old], pc, h0);
+		mockEnsure.mockResolvedValue(h0);
+
+		await player.play(h0, { fresh: true });
+		await flush();
+
+		// h0 appears exactly once, as the new current immediately after the prior current pc.
+		expect(player.queue.filter((t) => t.uid === h0.uid).length).toBe(1);
+		expect(player.current?.uid).toBe(h0.uid);
+		expect(player.queue.map((t) => t.uid)).toEqual([pc.uid, h0.uid]);
+	});
+
+	it('same-list fresh play keeps history and the list remainder as the tail', async () => {
+		// effectiveUpnextMode→same-list: setListQueue installs [X, a, b] + captures pendingHistory=[h0,pc];
+		// play({fresh}) weaves history → [h0, pc, X, a, b] (pc ahead of X; a,b the list remainder).
+		settings.upnextPerContext = { album: 'same-list' };
+		const h0 = resolved('netease', 'H0');
+		const pc = resolved('netease', 'PC');
+		const X = resolved('qq', 'X');
+		const a = resolved('kuwo', 'A');
+		const b = resolved('joox', 'B');
+		player.queue = [h0, pc];
+		player.current = pc;
+		player.queueContext = 'album';
+		mockEnsure.mockResolvedValue(X);
+		// Real call-site order for the album/same-list path: play(X,{fresh}) THEN setListQueue.
+		// setListQueue captures pendingHistory=[h0,pc] (pre-current slice incl. pc) and installs the list.
+		player.setListQueue([X, a, b], 'album');
+		await player.play(X, { fresh: true });
+		await flush();
+
+		expect(player.queue.map((t) => t.uid)).toEqual([h0.uid, pc.uid, X.uid, a.uid, b.uid]);
+		expect(player.current?.uid).toBe(X.uid);
+	});
+});
+
+describe('skip reasons + genuine retry (quick-260926-l69)', () => {
+	type SkipInternals = {
+		recordSkip(uid: string, reason: SkipReason): void;
+		emitSkipNotice(track: { title: string; artist: string }, reason: SkipReason): void;
+		fallbackEpisodeKey: string | null;
+		skipBurst: number;
+		skipBurstTimer: ReturnType<typeof setTimeout> | null;
+	};
+	const internals = () => player as unknown as SkipInternals;
+
+	afterEach(() => {
+		player.clearQueue();
+		const p = internals();
+		if (p.skipBurstTimer) clearTimeout(p.skipBurstTimer);
+		p.skipBurst = 0;
+		p.skipBurstTimer = null;
+		player.notice = null;
+		vi.mocked(evictSearch).mockClear();
+	});
+
+	it('skipReason is null until recorded, and clearQueue clears it', () => {
+		expect(player.skipReason('qq:1')).toBeNull();
+		internals().recordSkip('qq:1', 'timeout');
+		expect(player.skipReason('qq:1')).toBe('timeout');
+		player.clearQueue();
+		expect(player.skipReason('qq:1')).toBeNull();
+	});
+
+	it('retryUnplayable evicts the song searches, clears its reason, and resets the fallback episode', () => {
+		const bad = mk('qq', '1', 'B', 'Flaky');
+		internals().recordSkip(bad.uid, 'no-source');
+		internals().fallbackEpisodeKey = 'b|flaky';
+
+		player.retryUnplayable(bad);
+
+		expect(vi.mocked(evictSearch)).toHaveBeenCalledExactlyOnceWith('B Flaky');
+		expect(player.skipReason(bad.uid)).toBeNull();
+		expect(internals().fallbackEpisodeKey).toBeNull();
+	});
+
+	it('the skip notice carries the closed-union reason as data (keys only, no localized text)', () => {
+		internals().recordSkip('qq:1', 'no-source');
+		internals().emitSkipNotice({ title: 'T', artist: 'A' }, 'no-source');
+		// quick-261102-tlo: RAW title + artist as data — the host renders them via names.dnTitle.
+		expect(player.notice).toEqual({
+			kind: 'skip',
+			msg: 'toast.skipped',
+			count: 1,
+			title: 'T',
+			artist: 'A',
+			skipReason: 'no-source'
+		});
+	});
+});
+
+describe('player reactive unplayableUids — isUnplayable + retryUnplayable (quick-260615-i9u Feature A)', () => {
+	// Store-level coverage (no DOM): the SvelteSet swap is the reactive mechanism; the component
+	// reads it via isUnplayable() per-row so the Up-Next list repaints on mark/unmark. The reactive
+	// REPAINT itself is a Svelte-template concern, not unit-testable here — we cover the public API.
+	const deadSet = () =>
+		(player as unknown as { unplayableUids: { add(u: string): void; delete(u: string): boolean } })
+			.unplayableUids;
+
+	it('isUnplayable reflects the reactive set', () => {
+		const t = mk('netease', 'D', 'A', 'Dead');
+		expect(player.isUnplayable(t.uid)).toBe(false);
+		deadSet().add(t.uid);
+		expect(player.isUnplayable(t.uid)).toBe(true);
+		deadSet().delete(t.uid);
+		expect(player.isUnplayable(t.uid)).toBe(false);
+	});
+
+	it('retryUnplayable clears the uid and replays that exact track (non-fresh)', () => {
+		const t = mk('netease', 'D', 'A', 'Dead');
+		deadSet().add(t.uid);
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+		player.retryUnplayable(t);
+		expect(player.isUnplayable(t.uid)).toBe(false);
+		expect(playSpy).toHaveBeenCalledWith(t, { fresh: false });
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// debug-playback-skip-and-autoplay (Bug 1): strike-counter before permanent mark.
+// prefetchNext no longer marks a uid PERMANENTLY dead on the FIRST definitive failure (no-url
+// resolve OR a hard probe `error`). Each definitive failure takes ONE strike; only at STRIKE_CAP
+// (=2) is the uid promoted into the reactive unplayableUids set. A first failure behaves like a
+// probe timeout (skip this walk, NOT marked dead, retry on demand) — killing the "skipped but plays
+// fine on re-click" false-permanent-skip. A real `playing` clears the strike.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player.prefetchNext — strike counter before permanent unplayable mark (Bug 1)', () => {
+	const prefetch = () => (player as unknown as { prefetchNext(): Promise<void> })['prefetchNext']();
+	const strikes = () =>
+		(player as unknown as { unplayableStrikes: Map<string, number> }).unplayableStrikes;
+	const dead = () =>
+		(player as unknown as {
+			unplayableUids: { add(u: string): void; has(u: string): boolean; delete(u: string): boolean };
+		}).unplayableUids;
+
+	it('a SINGLE no-url resolve does NOT mark the track dead (strike 1 only)', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const bad = stub('qq', '1', 'B', 'NoUrl');
+		player.queue = [cur, bad];
+		player.current = cur;
+		mockEnsure.mockImplementation(async (t: Track) =>
+			t.uid === bad.uid ? { ...bad, detailsLoaded: true, audioUrl: null } : t
+		);
+
+		await prefetch();
+		await flush();
+
+		// First definitive failure → struck once, NOT promoted to dead (retryable on demand).
+		expect(strikes().get(bad.uid)).toBe(1);
+		expect(dead().has(bad.uid)).toBe(false);
+	});
+
+	it('the STRIKE_CAP-th no-url resolve reaches the cap but is NOT yet dead — it ARMS a delayed re-resolve instead (quick-260627-huo)', async () => {
+		// REWORKED for quick-260627-huo: pre-huo this asserted "strike 2 → immediately dead". The user
+		// reported a genuinely-playable Next-up song being permanently sidelined because two quick
+		// transient blips reached STRIKE_CAP. The fix replaces "strike 2 → dead" with "strike 2 → undo
+		// the premature promotion + schedule a delayed fresh re-resolve" (death is deferred until the
+		// bounded delayed re-resolves are exhausted — proven in the delayed-re-resolve suite). So the
+		// CORRECT new behavior at strike 2 is: the strike IS recorded (accounting unchanged), the uid is
+		// NOT in unplayableUids yet, and a delayed-retry timer is now pending. Assertion strengthened,
+		// not weakened, to the new contract.
+		vi.useFakeTimers();
+		try {
+			const cur = mk('netease', '0', 'A', 'Now');
+			const bad = stub('qq', '1', 'B', 'NoUrl');
+			player.queue = [cur, bad];
+			player.current = cur;
+			mockEnsure.mockImplementation(async (t: Track) =>
+				t.uid === bad.uid ? { ...bad, detailsLoaded: true, audioUrl: null } : t
+			);
+
+			// First walk: one strike, still alive.
+			await prefetch();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(dead().has(bad.uid)).toBe(false);
+
+			// Remaining walks: the LAST one reaches STRIKE_CAP. The strike IS recorded, but the uid is NOT
+			// promoted to dead — a bounded delayed re-resolve is armed instead (the fix). Loop bound is the
+			// mirrored constant so a cap re-tune cannot leave this walk short of the cap (31-D-16).
+			for (let round = 1; round < Player_STRIKE_CAP; round++) {
+				// Re-arm the in-flight guard so the next walk runs (mirror the per-src re-arm in play()).
+				(player as unknown as { prefetchingUid: string | null }).prefetchingUid = null;
+				await prefetch();
+				await vi.advanceTimersByTimeAsync(0);
+			}
+			expect(strikes().get(bad.uid)).toBe(Player_STRIKE_CAP);
+			expect(dead().has(bad.uid)).toBe(false);
+			const timers = (player as unknown as {
+				retryResolveTimers: Map<string, ReturnType<typeof setTimeout>>;
+			}).retryResolveTimers;
+			expect(timers.has(bad.uid)).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('a real `playing` event clears the current track strike (a recovered track resets clean)', () => {
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		const t = mk('netease', '0', 'A', 'Now');
+		player.current = t;
+		// Seed a sub-cap strike (as a prior transient prefetch failure would).
+		strikes().set(t.uid, 1);
+		expect(strikes().get(t.uid)).toBe(1);
+
+		// The track actually produces audio — the success path drops its strike.
+		el.fire('playing');
+		expect(strikes().has(t.uid)).toBe(false);
+	});
+
+	it('clearQueue and retryUnplayable both clear the strike budget (lockstep with unplayableUids)', () => {
+		const t = mk('netease', '0', 'A', 'Now');
+		// clearQueue clears all strikes.
+		player.current = t;
+		strikes().set(t.uid, 1);
+		player.clearQueue();
+		expect(strikes().has(t.uid)).toBe(false);
+
+		// retryUnplayable clears the per-uid strike too.
+		strikes().set(t.uid, 1);
+		dead().add(t.uid);
+		player.retryUnplayable(t);
+		expect(strikes().has(t.uid)).toBe(false);
+		expect(dead().has(t.uid)).toBe(false);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 31-D-16: strikes are forgiving on BOTH axes. (a) the cap is 3, not 2, so a uid survives two
+// definitive failures; (b) the two RECOVERY signals a tunnel/Wi-Fi blip produces — the network coming
+// back and the user returning to the app — refund the whole strike budget, so a blip can no longer
+// blacklist half the queue for the session. The load-bearing negative here is that neither recovery
+// signal may issue play(): quick-260703-i7e removed foreground auto-resume precisely because it caused
+// unwanted playback, and clearing strikes must not smuggle it back in.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player strike clearing — forgiving on recovery, without resuming playback (31-D-16)', () => {
+	const strikes = () =>
+		(player as unknown as { unplayableStrikes: Map<string, number> }).unplayableStrikes;
+	const dead = () =>
+		(player as unknown as {
+			unplayableUids: { add(u: string): void; has(u: string): boolean; delete(u: string): boolean };
+		}).unplayableUids;
+	const strike = (uid: string) =>
+		(player as unknown as { strikeUnplayable(u: string): boolean }).strikeUnplayable(uid);
+	const timers = () =>
+		(player as unknown as {
+			retryResolveTimers: Map<string, ReturnType<typeof setTimeout>>;
+		}).retryResolveTimers;
+
+	/** Stub window+document with handler-capturing addEventListener, then attach(). Returns the fire()s. */
+	function attachWithLifecycleCapture() {
+		const win = new Map<string, Array<() => void>>();
+		const doc = new Map<string, Array<() => void>>();
+		vi.stubGlobal('window', {
+			addEventListener(type: string, cb: () => void) {
+				win.set(type, [...(win.get(type) ?? []), cb]);
+			}
+		});
+		const documentStub = {
+			hidden: true,
+			addEventListener(type: string, cb: () => void) {
+				doc.set(type, [...(doc.get(type) ?? []), cb]);
+			}
+		};
+		vi.stubGlobal('document', documentStub);
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+		return {
+			documentStub,
+			fireOnline: () => (win.get('online') ?? []).forEach((cb) => cb()),
+			fireVisibility: () => (doc.get('visibilitychange') ?? []).forEach((cb) => cb())
+		};
+	}
+
+	it(`a uid survives STRIKE_CAP-1 definitive failures; only the STRIKE_CAP-th promotes it to dead`, () => {
+		const t = mk('qq', 'blip', 'A', 'Flaky');
+		for (let i = 1; i < Player_STRIKE_CAP; i++) {
+			expect(strike(t.uid)).toBe(false); // sub-cap — transient-equivalent, still alive
+		}
+		expect(dead().has(t.uid)).toBe(false);
+		expect(strike(t.uid)).toBe(true); // the cap-th failure promotes
+		expect(dead().has(t.uid)).toBe(true);
+	});
+
+	it('an `online` transition refunds EVERY accumulated strike and does NOT start playback', () => {
+		const a = mk('qq', '1', 'A', 'One');
+		const b = mk('kuwo', '2', 'B', 'Two');
+		strikes().set(a.uid, 1);
+		strikes().set(b.uid, Player_STRIKE_CAP - 1);
+		const { fireOnline } = attachWithLifecycleCapture();
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+
+		fireOnline();
+
+		expect(strikes().size).toBe(0); // the tunnel's whole strike budget is refunded
+		expect(playSpy).not.toHaveBeenCalled(); // never a resume — recovery ≠ an instruction to play
+	});
+
+	it('returning to the FOREGROUND refunds every strike and does NOT start playback (the i7e boundary)', () => {
+		const a = mk('qq', '1', 'A', 'One');
+		strikes().set(a.uid, Player_STRIKE_CAP - 1);
+		const { documentStub, fireVisibility } = attachWithLifecycleCapture();
+		const playSpy = player.play as unknown as ReturnType<typeof vi.fn>;
+		playSpy.mockClear();
+
+		documentStub.hidden = false; // the tab came back
+		fireVisibility();
+
+		expect(strikes().size).toBe(0);
+		expect(playSpy).not.toHaveBeenCalled(); // quick-260703-i7e: foreground must NEVER re-issue play()
+	});
+
+	it('going to the BACKGROUND does not refund strikes (only the recovery direction forgives)', () => {
+		const a = mk('qq', '1', 'A', 'One');
+		strikes().set(a.uid, 1);
+		const { documentStub, fireVisibility } = attachWithLifecycleCapture();
+
+		documentStub.hidden = true;
+		fireVisibility();
+
+		expect(strikes().get(a.uid)).toBe(1);
+	});
+
+	it('a refund clears ONLY the strike budget — unplayableUids membership and a pending delayed retry both survive', () => {
+		const a = mk('qq', '1', 'A', 'AlreadyDead');
+		strikes().set(a.uid, Player_STRIKE_CAP);
+		dead().add(a.uid);
+		const timer = setTimeout(() => {}, 60_000);
+		timers().set(a.uid, timer);
+		const { fireOnline } = attachWithLifecycleCapture();
+
+		fireOnline();
+
+		expect(strikes().size).toBe(0);
+		// A confirmed-dead uid keeps its ✗ row (only the explicit recovery points clear that set), and
+		// the in-flight backed-off re-resolve keeps its timer — refunding budget must not cancel work.
+		expect(dead().has(a.uid)).toBe(true);
+		expect(timers().has(a.uid)).toBe(true);
+		clearTimeout(timer);
+		timers().delete(a.uid);
+		dead().delete(a.uid);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 31-D-15: a next-up track that fails definitively in the prefetch walk gets tried on ANOTHER source
+// before it is ever struck. A track that fails on kuwo often plays on qq, and silently dropping it is
+// the actual user complaint. The retry lives at handleDefinitiveFailure — the walk's SINGLE decision
+// point — and reuses tryFallback (kuwo-first, sameSongKey-gated, never-throws) plus the EXISTING
+// per-episode `fallbackAttempted` set, so each source is tried at most once per logical song. It must
+// never touch failoverSkips: this path repairs a track, it does not skip one, and inflating that
+// counter would trip SYSTEMIC_SKIP_CAP early — a never-stop violation (31-D-17).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player.prefetchNext — cross-source retry before a track is marked dead (31-D-15)', () => {
+	const prefetch = () => (player as unknown as { prefetchNext(): Promise<void> })['prefetchNext']();
+	type Internals = {
+		strikeUnplayable(uid: string): boolean;
+		handleDefinitiveFailure(uid: string): Promise<void>;
+		unplayableStrikes: Map<string, number>;
+		fallbackAttempted: Set<SourceId>;
+		fallbackEpisodeKey: string | null;
+		failoverSkips: number;
+	};
+	const internals = () => player as unknown as Internals;
+	const strikes = () => internals().unplayableStrikes;
+
+	beforeEach(() => {
+		mockTryFallback.mockReset();
+		internals().fallbackEpisodeKey = null;
+		internals().fallbackAttempted = new Set<SourceId>();
+		internals().failoverSkips = 0;
+	});
+
+	/** A queue of [current, bad] where `bad` always resolves without an audioUrl (definitive failure). */
+	function seedFailingNext() {
+		const cur = mk('netease', '0', 'A', 'Now');
+		const bad = stub('qq', '1', 'B', 'FailsOnQq');
+		player.queue = [cur, bad];
+		player.current = cur;
+		mockEnsure.mockImplementation(async (t: Track) =>
+			t.uid === bad.uid ? { ...bad, detailsLoaded: true, audioUrl: null } : t
+		);
+		return { cur, bad };
+	}
+
+	it('tries another source BEFORE strikeUnplayable can promote the uid to dead', async () => {
+		const { bad } = seedFailingNext();
+		mockTryFallback.mockResolvedValue(null);
+		const strikeSpy = vi.spyOn(internals(), 'strikeUnplayable');
+
+		await prefetch();
+		await flush();
+
+		expect(mockTryFallback).toHaveBeenCalledTimes(1);
+		expect((mockTryFallback.mock.calls[0][0] as Track).uid).toBe(bad.uid);
+		// Ordering is the whole point: the repair attempt must precede the strike, not follow it.
+		expect(mockTryFallback.mock.invocationCallOrder[0]).toBeLessThan(
+			strikeSpy.mock.invocationCallOrder[0]
+		);
+	});
+
+	it('a playable swap replaces the queue entry and records NO strike for that uid', async () => {
+		const { bad } = seedFailingNext();
+		const swap = { ...mk('kuwo', '9', 'B', 'FailsOnQq'), audioUrl: 'https://cdn/swap.mp3' };
+		mockTryFallback.mockResolvedValue(swap);
+
+		await prefetch();
+		await flush();
+
+		expect(player.queue[1].uid).toBe(swap.uid); // repaired in place — the song stays in the queue
+		expect(player.queue[1].audioUrl).toBe('https://cdn/swap.mp3');
+		expect(strikes().has(bad.uid)).toBe(false); // a repair is not a failure
+	});
+
+	it('when every other source is dry the pre-existing strike path runs exactly as before', async () => {
+		const { bad } = seedFailingNext();
+		mockTryFallback.mockResolvedValue(null);
+		const deadSet = (player as unknown as { unplayableUids: { has(u: string): boolean } })
+			.unplayableUids;
+
+		await prefetch();
+		await flush();
+
+		expect(strikes().get(bad.uid)).toBe(1); // one strike, exactly as pre-31-D-15
+		expect(deadSet.has(bad.uid)).toBe(false); // sub-cap — still not dead
+	});
+
+	it('carries the per-episode attempted set so each source is tried at most once per logical song', async () => {
+		const { bad } = seedFailingNext();
+		// Model the real tryFallback: it MUTATES `attempted` in place so the caller sees what was tried.
+		mockTryFallback.mockImplementation(async (_failed, _pref, _sig, attempted) => {
+			attempted?.add('kuwo');
+			return null;
+		});
+
+		await prefetch();
+		await flush();
+		(player as unknown as { prefetchingUid: string | null }).prefetchingUid = null;
+		await prefetch();
+		await flush();
+
+		expect(mockTryFallback).toHaveBeenCalledTimes(2);
+		const first = mockTryFallback.mock.calls[0][3] as Set<SourceId>;
+		const second = mockTryFallback.mock.calls[1][3] as Set<SourceId>;
+		expect(second).toBe(first); // SAME set instance — one episode, not two fresh walks
+		// The second attempt already knows qq (the failed source) and kuwo were tried, so fallbackOrder
+		// excludes both and the A↔B ping-pong cannot re-walk them.
+		expect(second.has(bad.source)).toBe(true);
+		expect(second.has('kuwo')).toBe(true);
+		// It never inflates the cross-track systemic ceiling — this path repairs, it does not skip.
+		expect(internals().failoverSkips).toBe(0);
+	});
+
+	it('never runs for the CURRENTLY-PLAYING track (that is runFallback’s job, not the walk’s)', async () => {
+		const cur = mk('netease', '0', 'A', 'Now');
+		player.queue = [cur];
+		player.current = cur;
+		mockTryFallback.mockResolvedValue(null);
+
+		await internals().handleDefinitiveFailure(cur.uid);
+
+		expect(mockTryFallback).not.toHaveBeenCalled();
+		expect(strikes().get(cur.uid)).toBe(1); // the ordinary strike accounting still applies
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// debug-playback-skip-and-autoplay (Bug 2): auto-advance autoplay-rejection → single re-play, and
+// the stall watchdog must NOT cross-source-swap a loaded-but-autoplay-paused track. On a non-fresh
+// advance, the async ensureTrackDetails resolve discards user activation, so audio.play() rejects on
+// mobile and the next playable track sits current-but-paused. The fix arms a SINGLE event-driven
+// re-play (gen-guarded, only when readyState >= HAVE_CURRENT_DATA), and gates runFallback in the
+// watchdog behind a genuine no-bytes stall.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player resilience — autoplay-rejection retry + readyState-gated watchdog (Bug 2)', () => {
+	const HAVE_CURRENT_DATA = 2;
+	const armStall = () => (player as unknown as { armStall(): void })['armStall']();
+	const setPlayed = (v: boolean) => {
+		(player as unknown as { hasPlayedSinceSrc: boolean })['hasPlayedSinceSrc'] = v;
+	};
+	const setArmed = (v: boolean) => {
+		(player as unknown as { autoplayRetryArmed: boolean })['autoplayRetryArmed'] = v;
+	};
+	let runFallbackSpy: ReturnType<typeof vi.spyOn>;
+	let reresolveSpy: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		vi.useFakeTimers();
+		player.current = mk('netease', 's', 'A', 'AutoplayPaused');
+		player.queue = [player.current];
+		setPlayed(false);
+		setArmed(false);
+		(player as unknown as { stallRetried: boolean })['stallRetried'] = false;
+		runFallbackSpy = vi
+			.spyOn(player as unknown as { runFallback(f: Track): Promise<void> }, 'runFallback')
+			.mockResolvedValue(undefined);
+		reresolveSpy = vi
+			.spyOn(player as unknown as { reresolveCurrent(): Promise<void> }, 'reresolveCurrent')
+			.mockResolvedValue(undefined);
+	});
+
+	afterEach(() => {
+		(player as unknown as { disarmStall(): void })['disarmStall']();
+		vi.useRealTimers();
+	});
+
+	it('watchdog: a loaded-but-paused element (readyState >= 2, autoplay-rejected) re-plays ONCE and does NOT runFallback', () => {
+		const el = makeFakeAudio();
+		el.paused = true;
+		(el as unknown as { readyState: number }).readyState = HAVE_CURRENT_DATA; // bytes present
+		el.src = 'https://cdn/loaded.mp3';
+		player.attach(el as unknown as HTMLAudioElement);
+		setArmed(true); // a non-fresh advance recorded the autoplay rejection
+
+		armStall();
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS);
+
+		// Loaded + paused = autoplay-policy pause → single re-play, NO cross-source swap.
+		expect(el.play).toHaveBeenCalledTimes(1);
+		expect(runFallbackSpy).not.toHaveBeenCalled();
+	});
+
+	it('watchdog: a genuine no-bytes stall (readyState < 2) RETRIES the same song once (bg-lockscreen-stall-noskip)', () => {
+		const el = makeFakeAudio();
+		el.paused = true;
+		(el as unknown as { readyState: number }).readyState = 0; // HAVE_NOTHING — no bytes
+		el.src = 'https://cdn/dead.mp3';
+		player.attach(el as unknown as HTMLAudioElement);
+		setArmed(true);
+
+		armStall();
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS);
+
+		// No bytes → a real load stall → retry the SAME song once (a second stall then skips). This
+		// replaced the straight-to-runFallback behavior so the user's retry-once-then-skip spec holds.
+		expect(reresolveSpy).toHaveBeenCalledTimes(1);
+		expect(runFallbackSpy).not.toHaveBeenCalled();
+		expect(el.play).not.toHaveBeenCalled();
+	});
+
+	it('canplay seam: an armed retry fires a single play() once bytes arrive (gen-guarded, one-shot)', () => {
+		const el = makeFakeAudio();
+		el.paused = true;
+		(el as unknown as { readyState: number }).readyState = 0; // not loaded at play()-time
+		el.src = 'https://cdn/loading.mp3';
+		player.attach(el as unknown as HTMLAudioElement);
+		setArmed(true);
+
+		// Bytes not present yet — canplay before readyState is a no-op (still waiting).
+		el.fire('canplay');
+		expect(el.play).not.toHaveBeenCalled();
+
+		// Bytes arrive: canplay re-attempts the single play() exactly once.
+		(el as unknown as { readyState: number }).readyState = HAVE_CURRENT_DATA;
+		el.fire('canplay');
+		expect(el.play).toHaveBeenCalledTimes(1);
+
+		// One-shot: a later canplay does NOT re-fire (arm was consumed).
+		el.fire('canplay');
+		expect(el.play).toHaveBeenCalledTimes(1);
+	});
+
+	it('a `pause` event clears the autoplay-retry arm so the watchdog never fights a genuine pause', () => {
+		const el = makeFakeAudio();
+		el.paused = true;
+		(el as unknown as { readyState: number }).readyState = HAVE_CURRENT_DATA;
+		el.src = 'https://cdn/loaded.mp3';
+		player.attach(el as unknown as HTMLAudioElement);
+		setArmed(true);
+
+		// User pauses (or the swallowed rejection surfaced a pause) → arm cleared.
+		el.fire('pause');
+
+		armStall();
+		vi.advanceTimersByTime(Player_STALL_TIMEOUT_MS);
+		// Arm gone → maybeRetryAutoplay no-ops; loaded+paused still blocks runFallback (right remedy:
+		// leave paused, user/Media-Session play resumes). No re-play, no swap.
+		expect(el.play).not.toHaveBeenCalled();
+		expect(runFallbackSpy).not.toHaveBeenCalled();
+	});
+});
+
+describe('player.upNextAnchorUid — Up-Next list anchor (quick-260618-lsw)', () => {
+	// The anchor is the uid the Up-Next LIST slices from. It is set ONLY on a fresh play / new-list
+	// install and is LEFT PUT by next()/prev()/auto-advance — so the just-played song stays in the
+	// list while the now-playing highlight moves down. The global beforeEach stubs player.play (which
+	// never writes the anchor), so the next()/prev() tests below exercise the NON-fresh path correctly
+	// (anchor must stay unchanged). Test 2 restores the REAL play() so the fresh-branch anchor write
+	// actually runs.
+	beforeEach(() => {
+		player.upNextAnchorUid = null;
+		player.queue = [];
+		player.current = null;
+	});
+
+	it('Test 1 — auto-advance (next()) keeps the anchor; the played song stays in the slice (LSW-01)', async () => {
+		const a = mk('netease', 'la1', 'A', 'First');
+		const b = mk('qq', 'la2', 'B', 'Second');
+		const c = mk('kuwo', 'la3', 'C', 'Third');
+		player.queue = [a, b, c];
+		player.upNextAnchorUid = a.uid; // simulate a fresh play landed on `a`
+		player.current = a;
+		mockEnsure.mockResolvedValue(b);
+
+		player.next(); // auto-advance / skip → non-fresh play(b)
+		await flush();
+
+		expect(player.current?.uid).toBe(b.uid); // highlight moved
+		expect(player.upNextAnchorUid).toBe(a.uid); // anchor UNCHANGED
+		// The view would slice the queue from the anchor's live index — the played song `a` is still in it.
+		const slice = player.queue.slice(
+			player.queue.findIndex((t) => t.uid === player.upNextAnchorUid)
+		);
+		expect(slice.some((t) => t.uid === a.uid)).toBe(true);
+	});
+
+	it('Test 2 — a fresh play anchors at the WOVEN head so played history stays visible (LSW-02 / quick-261019-qkh)', async () => {
+		const a = mk('netease', 'lb1', 'A', 'First');
+		const b = mk('qq', 'lb2', 'B', 'Second');
+		const c = mk('kuwo', 'lb3', 'C', 'Clicked');
+		player.queue = [a, b];
+		player.upNextAnchorUid = a.uid;
+		player.current = a;
+		mockEnsure.mockResolvedValue(c);
+
+		// The surrounding beforeEach stubs play(); restore the REAL method so the fresh-branch
+		// anchor write executes.
+		(player.play as unknown as ReturnType<typeof vi.fn>).mockRestore();
+
+		// The real tap flow: the surface installs its list first (setListQueue captures [a] as
+		// pendingHistory), then the fresh play weaves it back in front of the seed.
+		player.setListQueue([c], 'search');
+		await player.play(c, { fresh: true });
+		await flush();
+
+		// The anchor is the woven HEAD (oldest kept history), NOT the clicked song — the Up-Next
+		// list renders [a, c] with the played song visible ABOVE current instead of being cut.
+		expect(player.upNextAnchorUid).toBe(a.uid);
+		const anchorIdx = player.queue.findIndex((t) => t.uid === player.upNextAnchorUid);
+		const cIdx = player.queue.findIndex((t) => t.uid === c.uid);
+		expect(anchorIdx).toBe(0);
+		expect(cIdx).toBeGreaterThan(anchorIdx);
+		// The view slice from the anchor includes BOTH the played song and the current one.
+		expect(player.queue.slice(anchorIdx).map((t) => t.uid)).toEqual([a.uid, c.uid]);
+	});
+
+	it('Test 3 — anchor survives reorder/removal; a missing anchor clamps to ci (LSW-03)', () => {
+		const a = mk('netease', 'lc1', 'A', 'First');
+		const b = mk('qq', 'lc2', 'B', 'Second');
+		const c = mk('kuwo', 'lc3', 'C', 'Third');
+		const d = mk('joox', 'lc4', 'D', 'Fourth');
+		player.queue = [a, b, c, d];
+		player.upNextAnchorUid = b.uid;
+		player.current = b;
+
+		// Move `b` (index 1) to the back. UPDATED 2026-11-02 (Up-Next window-preservation fix):
+		// this used to assert the anchor tracks `b` BY UID to the back of the queue — but that
+		// by-uid tracking is exactly what erased rows from the rendered list (the slice start
+		// followed the dragged row past current). The contract now: the anchor re-seats to the
+		// earliest track of the pre-move window (`c`), so the window's track SET survives the
+		// move intact — [c, d, b], nothing sliced away.
+		player.reorderQueue(1, 3);
+		expect(player.upNextAnchorUid).toBe(c.uid);
+		expect(
+			player.queue
+				.slice(player.queue.findIndex((t) => t.uid === player.upNextAnchorUid))
+				.map((t) => t.uid)
+		).toEqual([c.uid, d.uid, b.uid]);
+
+		// Remove a non-current, non-anchor track — the (re-seated) anchor still resolves to `c`.
+		player.removeFromQueue(d.uid);
+		expect(player.queue.findIndex((t) => t.uid === player.upNextAnchorUid)).toBe(
+			player.queue.findIndex((t) => t.uid === c.uid)
+		);
+
+		// Missing-anchor clamp: replicate the NowPlaying derivation inline. When the anchor uid is gone
+		// from the queue, upNextStart falls back to the live current index `ci` (never a blank list).
+		player.upNextAnchorUid = 'nonexistent-uid';
+		const anchorIdx = player.upNextAnchorUid
+			? player.queue.findIndex((t) => t.uid === player.upNextAnchorUid)
+			: -1;
+		const ci = player.queue.findIndex((t) => t.uid === player.current?.uid);
+		const upNextStart = anchorIdx >= 0 ? anchorIdx : ci >= 0 ? ci : 0;
+		expect(anchorIdx).toBe(-1);
+		expect(upNextStart).toBe(ci); // clamped to the live current index
+	});
+
+	it('Test 4 — prev() leaves the anchor unchanged (guard)', async () => {
+		const a = mk('netease', 'ld1', 'A', 'First');
+		const b = mk('qq', 'ld2', 'B', 'Second');
+		player.queue = [a, b];
+		player.upNextAnchorUid = b.uid;
+		player.current = b;
+		mockEnsure.mockResolvedValue(a);
+
+		player.prev(); // non-fresh play(a) — only the highlight moves up
+		await flush();
+
+		expect(player.current?.uid).toBe(a.uid);
+		expect(player.upNextAnchorUid).toBe(b.uid); // anchor put
+	});
+});
+
+describe('player.reorderQueue — Up-Next window preservation (user report 2026-11-02)', () => {
+	// BUG: dragging an already-played row to the next-song slot ERASED the current song from the
+	// Up-Next list. reorderQueue's splice-move is fine in isolation — the loss is in the ANCHOR:
+	// NowPlaying slices the visible list from upNextAnchorUid's LIVE index, and the anchor follows
+	// its uid across the move. Drag the anchor row (a played song) down past the current row and
+	// the slice start lands AFTER current, cutting current (and everything before the dragged row)
+	// out of the rendered list even though the queue itself is intact. The store contract these
+	// tests pin: after ANY reorder, the track SET the window showed before the move is still the
+	// set it shows after — the anchor re-seats to the earliest still-visible track.
+	beforeEach(() => {
+		player.upNextAnchorUid = null;
+		player.queue = [];
+		player.current = null;
+	});
+
+	/** Replicates NowPlaying.svelte's derivation verbatim (anchor slice + ci clamp). */
+	const viewList = () => {
+		const anchorIdx = player.upNextAnchorUid
+			? player.queue.findIndex((t) => t.uid === player.upNextAnchorUid)
+			: -1;
+		const ci = player.queue.findIndex((t) => t.uid === player.current?.uid);
+		const upNextStart = anchorIdx >= 0 ? anchorIdx : ci >= 0 ? ci : 0;
+		return player.queue.slice(upNextStart);
+	};
+	/** Component mapping (NpUpNext.gripDragUp): visible row i → queue-absolute startIndex + i. */
+	const dragVisible = (fromRow: number, toRow: number) => {
+		const anchorIdx = player.upNextAnchorUid
+			? player.queue.findIndex((t) => t.uid === player.upNextAnchorUid)
+			: -1;
+		const ci = player.queue.findIndex((t) => t.uid === player.current?.uid);
+		const startIndex = anchorIdx >= 0 ? anchorIdx : ci >= 0 ? ci : 0;
+		player.reorderQueue(fromRow + startIndex, toRow + startIndex);
+	};
+
+	it('dragging a PLAYED song to the next-song slot keeps the current song (and every row) in the list', () => {
+		const a = mk('netease', 'ra1', 'A', 'Played One');
+		const b = mk('qq', 'ra2', 'B', 'Played Two');
+		const c = mk('kuwo', 'ra3', 'C', 'Current');
+		const d = mk('joox', 'ra4', 'D', 'Next');
+		const e = mk('migu', 'ra5', 'E', 'Tail');
+		player.queue = [a, b, c, d, e];
+		player.upNextAnchorUid = a.uid;
+		player.current = c;
+		expect(viewList().map((t) => t.uid)).toEqual([a.uid, b.uid, c.uid, d.uid, e.uid]);
+
+		// Hector's gesture: grab played row A (visible 0) and drop it just after current C — the
+		// pointer hovers D (visible 3) when the drop commits.
+		dragVisible(0, 3);
+
+		expect(player.queue).toHaveLength(5); // the queue itself never lost a track
+		expect(player.current?.uid).toBe(c.uid); // playback state untouched
+		const view = viewList().map((t) => t.uid);
+		expect(view).toContain(c.uid); // ← THE BUG: current was sliced out of the Up-Next list
+		expect(new Set(view)).toEqual(new Set([a.uid, b.uid, c.uid, d.uid, e.uid])); // ALL rows preserved
+		// …and A really did land in the next-song region (after current), not back in history.
+		expect(player.queue.findIndex((t) => t.uid === a.uid)).toBeGreaterThan(
+			player.queue.findIndex((t) => t.uid === c.uid)
+		);
+		const manual = (player as unknown as { manualUids: Set<string> }).manualUids;
+		expect(manual.has(a.uid)).toBe(true); // the moved track stays pinned manual
+	});
+
+	it('dragging the anchor row WITHIN the played history keeps every history row visible', () => {
+		const a = mk('netease', 'rb1', 'A', 'Played One');
+		const b = mk('qq', 'rb2', 'B', 'Played Two');
+		const c = mk('kuwo', 'rb3', 'C', 'Current');
+		const d = mk('joox', 'rb4', 'D', 'Next');
+		player.queue = [a, b, c, d];
+		player.upNextAnchorUid = a.uid;
+		player.current = c;
+
+		// Drop A just before current (pointer hovers C, visible 2) — A stays in history, yet the
+		// by-uid anchor used to slide to index 2 and slice B and C out of the list.
+		dragVisible(0, 2);
+
+		const view = viewList().map((t) => t.uid);
+		expect(new Set(view)).toEqual(new Set([a.uid, b.uid, c.uid, d.uid]));
+		expect(view).toContain(c.uid);
+	});
+
+	it('dragging a tail row to the very top keeps it (and everything else) in the list', () => {
+		const a = mk('netease', 'rc1', 'A', 'Played One');
+		const b = mk('qq', 'rc2', 'B', 'Played Two');
+		const c = mk('kuwo', 'rc3', 'C', 'Current');
+		const d = mk('joox', 'rc4', 'D', 'Tail');
+		player.queue = [a, b, c, d];
+		player.upNextAnchorUid = a.uid;
+		player.current = c;
+
+		dragVisible(3, 0); // D from the tail to the top row
+
+		const view = viewList().map((t) => t.uid);
+		expect(new Set(view)).toEqual(new Set([a.uid, b.uid, c.uid, d.uid]));
+		expect(view).toContain(d.uid); // the dragged row must not hide above the anchor
+	});
+
+	it('a reorder entirely inside the tail leaves the anchor (and the window) untouched', () => {
+		const a = mk('netease', 'rd1', 'A', 'Played One');
+		const b = mk('qq', 'rd2', 'B', 'Current');
+		const c = mk('kuwo', 'rd3', 'C', 'Next');
+		const d = mk('joox', 'rd4', 'D', 'Tail');
+		player.queue = [a, b, c, d];
+		player.upNextAnchorUid = a.uid;
+		player.current = b;
+
+		dragVisible(3, 2); // swap the two tail rows
+
+		expect(player.upNextAnchorUid).toBe(a.uid);
+		expect(viewList().map((t) => t.uid)).toEqual([a.uid, b.uid, d.uid, c.uid]);
+	});
+});
+
+describe('player.restore() — persists + re-anchors the Up-Next VIEW anchor (quick-260712-hm9)', () => {
+	// ROOT CAUSE this locks in: restore() never calls play(), so before the fix upNextAnchorUid
+	// stayed null on every reload/PWA reopen. A null anchor makes NowPlaying's clamp fall back to
+	// the CURRENT index — so each just-played song dropped out of the Up-Next list the instant
+	// `current` auto-advanced. The fix persists the anchor and, on restore, re-seeds it (persisted
+	// verbatim, or the restored current when absent) so played songs accumulate from the resume point.
+	const STATE_KEY = 'openmusic:player:v1';
+
+	// Serialize a Track to the on-disk whitelist shape persist() writes (mirrors serializeTrack).
+	function ser(t: Track) {
+		return {
+			uid: t.uid,
+			source: t.source,
+			songid: t.songid,
+			title: t.title,
+			artist: t.artist,
+			album: t.album,
+			cover: t.cover,
+			quality: t.quality,
+			qualityLabel: t.qualityLabel,
+			keyword: t.keyword,
+			displayIndex: t.displayIndex
+		};
+	}
+
+	// Seed the persisted blob EXACTLY as persist() writes it. When `anchor` is omitted the
+	// `upNextAnchorUid` key is absent — a legacy blob / a resumed run that never had a fresh tap.
+	function seed(current: Track, queue: Track[], anchor?: string) {
+		const payload: Record<string, unknown> = {
+			v: 1,
+			current: ser(current),
+			queue: queue.map(ser),
+			currentTime: 0,
+			shuffle: false,
+			repeatMode: 'off'
+		};
+		if (anchor !== undefined) payload.upNextAnchorUid = anchor;
+		localStorage.setItem(STATE_KEY, JSON.stringify(payload));
+		// ensureTrackDetails is awaited inside restore(); resolve the current so it settles (audio is
+		// null in node, so restore returns right after the anchor assignment we assert).
+		mockEnsure.mockResolvedValue(current);
+	}
+
+	beforeEach(() => {
+		player.upNextAnchorUid = null;
+		player.queue = [];
+		player.current = null;
+	});
+
+	it('restore() from a blob with NO anchor seeds upNextAnchorUid to the restored current uid', async () => {
+		const a = mk('netease', 'ra1', 'A', 'First'); // the restored/resumed current
+		const b = mk('qq', 'ra2', 'B', 'Second'); // an up-next entry
+		seed(a, [a, b]); // legacy blob — no upNextAnchorUid key
+
+		await player.restore();
+
+		// The anchor is now the restored current — NOT null (which pre-fix forced the ci-fallback).
+		expect(player.upNextAnchorUid).toBe(a.uid);
+
+		// Payoff: a subsequent auto-advance (current → b, anchor stays put) keeps the just-played `a`
+		// in the anchored slice, exactly like the LSW-01 auto-advance case — no discard on resume.
+		player.current = b; // simulate non-fresh auto-advance
+		const anchorIdx = player.queue.findIndex((t) => t.uid === player.upNextAnchorUid);
+		const slice = player.queue.slice(anchorIdx);
+		expect(anchorIdx).toBe(0);
+		expect(slice.some((t) => t.uid === a.uid)).toBe(true);
+	});
+
+	it('restore() from a blob WITH an anchor restores it verbatim', async () => {
+		const a = mk('netease', 'rb1', 'A', 'First');
+		const b = mk('qq', 'rb2', 'B', 'Second');
+		const c = mk('kuwo', 'rb3', 'C', 'Third');
+		// A fresh-click session that reloaded: current advanced to `b`, but the anchor is still `a`
+		// (the original fresh-play row) so the pre-current played history stays visible.
+		seed(b, [a, b, c], a.uid);
+
+		await player.restore();
+
+		expect(player.upNextAnchorUid).toBe(a.uid); // persisted anchor restored EXACTLY, not the current
+		// The slice still starts at the played `a`, above the restored current `b`.
+		const anchorIdx = player.queue.findIndex((t) => t.uid === player.upNextAnchorUid);
+		expect(anchorIdx).toBe(0);
+		expect(player.queue.slice(anchorIdx).some((t) => t.uid === a.uid)).toBe(true);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// debug-midplay-stall-background: RESPECT EXTERNAL PAUSE (the external-pause self-heal was REMOVED).
+// The old design re-issued audio.play() from the `pause` listener for any non-deliberate pause. Because
+// a successful re-play fires `playing`, which reset the per-src budget, the cap never engaged and the
+// player fought an external audio-focus holder ~2×/sec forever (log Pattern A — the voice-note
+// interference). Per the user's target spec the player now RESPECTS any pause: a non-deliberate pause
+// (Android audio-focus loss / background throttle / headphone unplug) is left paused, and a
+// background-stalled track is recovered ONLY on foreground return (resumeIfStalled). These tests lock in
+// "never force-play against a pause".
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player — respects external pause (no self-heal fight, debug-midplay-stall-background)', () => {
+	const DEBOUNCE_MS = 400; // a generous window; nothing should ever schedule a re-play now
+	type Internals = {
+		hasPlayedSinceSrc: boolean;
+		deliberatePause: boolean;
+		resumeTimer: ReturnType<typeof setTimeout> | null;
+		audio: HTMLAudioElement | null;
+		playGen: number;
+		disarmResume(): void;
+		pauseAudio(): void;
+	};
+	const internals = () => player as unknown as Internals;
+	const setPlayed = (v: boolean) => (internals().hasPlayedSinceSrc = v);
+
+	beforeEach(() => {
+		vi.useFakeTimers();
+		player.current = mk('netease', 'eh', 'A', 'ExternalHeal');
+		player.queue = [player.current];
+		setPlayed(false);
+		internals().deliberatePause = false;
+		internals().disarmResume();
+	});
+
+	afterEach(() => {
+		internals().disarmResume();
+		vi.useRealTimers();
+	});
+
+	/** Attach a fake audio in the "played ~1s, mid-track" state (the exact reported signature). */
+	function attachMidPlayback() {
+		const el = makeFakeAudio();
+		el.paused = true; // the external pause already flipped paused true
+		el.src = 'https://cdn/playing.mp3';
+		el.currentTime = 1; // ~1s in
+		el.duration = 200; // plenty of time remaining
+		(el as unknown as { ended: boolean }).ended = false;
+		player.attach(el as unknown as HTMLAudioElement);
+		setPlayed(true); // a real `playing` already fired for this src
+		return el;
+	}
+
+	it('does NOT re-play an EXTERNAL (non-deliberate) pause on a played, mid-track element — the pause is respected', () => {
+		const el = attachMidPlayback();
+
+		el.fire('pause'); // external — no deliberatePause flag set
+		// No scheduled resume, no re-play — not now, not after any debounce window.
+		expect(internals().resumeTimer).toBeNull();
+		vi.advanceTimersByTime(DEBOUNCE_MS * 5);
+		expect(el.play).not.toHaveBeenCalled(); // never fought the OS / external focus holder
+	});
+
+	it('does NOT re-play repeated external pauses (no unbounded fight loop against audio focus)', () => {
+		const el = attachMidPlayback();
+		for (let i = 0; i < 5; i++) {
+			el.paused = true;
+			el.fire('pause');
+			vi.advanceTimersByTime(DEBOUNCE_MS);
+		}
+		expect(el.play).not.toHaveBeenCalled(); // Pattern A can no longer happen — zero forced resumes
+	});
+
+	it('consumes the deliberate-pause flag on a deliberate pause (user toggle) without re-playing', () => {
+		const el = attachMidPlayback();
+		el.paused = false; // currently playing — toggle() will pause it
+
+		player.toggle(); // user tap → pauseAudio() sets deliberatePause, then audio.pause()
+		expect(el.pause).toHaveBeenCalledTimes(1);
+		el.paused = true;
+		el.fire('pause'); // the resulting pause event — deliberate flag consumed, no re-play
+		expect(internals().deliberatePause).toBe(false); // consumed
+		vi.advanceTimersByTime(DEBOUNCE_MS);
+		expect(el.play).not.toHaveBeenCalled();
+	});
+
+	it('a MediaSession pause action is respected — no re-play (routes through pauseAudio)', () => {
+		const el = attachMidPlayback();
+		el.paused = false; // currently playing
+		internals().pauseAudio(); // the MediaSession 'pause' handler routes through pauseAudio()
+		expect(el.pause).toHaveBeenCalledTimes(1);
+		el.paused = true;
+		el.fire('pause');
+		vi.advanceTimersByTime(DEBOUNCE_MS);
+		expect(el.play).not.toHaveBeenCalled();
+	});
+
+	it('a headphone-unplug pause is respected — never resumed to the phone speaker', () => {
+		const el = attachMidPlayback();
+		el.paused = true;
+		el.fire('pause'); // the browser "becoming noisy" pause on unplug — must stay paused
+		vi.advanceTimersByTime(DEBOUNCE_MS);
+		expect(el.play).not.toHaveBeenCalled();
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-260630-q03: NEVER-STOP on a dead up-next tail. When the next up-next tracks are all in
+// unplayableUids, advancing must NOT stop. The advance retries each dead track ONCE (in queue order)
+// before skipping it; an all-dead-and-retried tail grows more up-next and continues. A dead track is
+// retried at most once per session (retriedDeadUids) so the retry can never become an infinite loop.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player resilience — never-stop on a dead up-next tail (quick-260630-q03)', () => {
+	type Internals = {
+		unplayableUids: { add(u: string): void; has(u: string): boolean; delete(u: string): boolean; clear(): void };
+		retriedDeadUids: Set<string>;
+	};
+	const internals = () => player as unknown as Internals;
+	const playCalls = () => vi.mocked(player.play).mock.calls;
+
+	it('retries the next dead tracks ONE-BY-ONE in queue order, then lands the first playable one', () => {
+		const cur = mk('netease', 'q3a0', 'A', 'Cur');
+		const d1 = mk('qq', 'q3a1', 'B', 'Dead1');
+		const d2 = mk('kuwo', 'q3a2', 'C', 'Dead2');
+		const d3 = mk('joox', 'q3a3', 'D', 'Dead3');
+		const good = mk('netease', 'q3a4', 'E', 'Good');
+		player.queue = [cur, d1, d2, d3, good];
+		player.current = cur;
+		internals().unplayableUids.add(d1.uid);
+		internals().unplayableUids.add(d2.uid);
+		internals().unplayableUids.add(d3.uid);
+		vi.mocked(player.play).mockClear();
+
+		player.next(); // → retry d1 (the play stub sets current=d1)
+		player.next(); // current=d1 → retry d2
+		player.next(); // current=d2 → retry d3
+		player.next(); // current=d3 → advance to the playable `good`
+
+		const calls = playCalls();
+		expect(calls.map((c) => c[0])).toEqual([d1, d2, d3, good]);
+		// the three dead retries are NON-fresh re-plays; the playable one is a plain advance (no opts).
+		expect(calls[0][1]).toEqual({ fresh: false });
+		expect(calls[1][1]).toEqual({ fresh: false });
+		expect(calls[2][1]).toEqual({ fresh: false });
+		expect(calls[3][1]).toBeUndefined();
+	});
+
+	it('retries a dead track AT MOST once — a dead-and-already-retried track is skipped, never re-retried', () => {
+		const cur = mk('netease', 'q3b0', 'A', 'Cur');
+		const d1 = mk('qq', 'q3b1', 'B', 'DeadRetried');
+		const good = mk('kuwo', 'q3b2', 'C', 'Good');
+		player.queue = [cur, d1, good];
+		player.current = cur;
+		internals().unplayableUids.add(d1.uid);
+		internals().retriedDeadUids.add(d1.uid); // already had its one retry this session
+		vi.mocked(player.play).mockClear();
+
+		player.next();
+
+		// d1 is routed past (no second retry); the advance lands the playable `good` directly.
+		expect(playCalls().map((c) => c[0])).toEqual([good]);
+	});
+
+	it('an all-dead-and-retried tail GROWS more up-next and continues instead of stopping', async () => {
+		const cur = mk('netease', 'q3c0', 'A', 'Cur');
+		const d1 = mk('qq', 'q3c1', 'B', 'DeadRetried');
+		const grown = mk('kuwo', 'q3c2', 'C', 'Grown');
+		player.queue = [cur, d1];
+		player.current = cur;
+		internals().unplayableUids.add(d1.uid);
+		internals().retriedDeadUids.add(d1.uid); // tail dead AND already retried → nextAdvanceIndex == -1
+		mockSimilar.mockReset().mockResolvedValue([grown]); // ensureAhead appends a fresh related track
+		vi.mocked(player.play).mockClear();
+
+		player.next(); // -1 in-queue → ensureAhead grows → advance into `grown`
+		await flush();
+		await flush();
+
+		expect(mockSimilar).toHaveBeenCalled(); // it grew rather than silently stopping
+		expect(playCalls().map((c) => c[0])).toContainEqual(grown);
+	});
+
+	it('the retry runs on current-song-end (the `ended` listener advances via next())', () => {
+		const cur = mk('netease', 'q3d0', 'A', 'Cur');
+		const d1 = mk('qq', 'q3d1', 'B', 'Dead1');
+		const good = mk('kuwo', 'q3d2', 'C', 'Good');
+		player.queue = [cur, d1, good];
+		player.current = cur;
+		player.repeatMode = 'off';
+		internals().unplayableUids.add(d1.uid);
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		vi.mocked(player.play).mockClear();
+
+		el.fire('ended'); // track ends → ended listener → next() → retry the dead next track
+
+		expect(playCalls()[0][0]).toBe(d1);
+		expect(playCalls()[0][1]).toEqual({ fresh: false });
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// debug-reresolve-loop-stops-playback → simplified in debug-midplay-stall-background: the
+// audio.error → hasPlayedSinceSrc → reresolveCurrent() path (post-playback stall recovery) is now capped
+// at ONE in-place same-src re-resolve. A single re-resolve recovers a genuinely transient mid-track
+// buffer/CDN blip without restarting the song; a SECOND error before any `playing` means the URL is
+// persistently dead (e.g. a netease region-lock byte-stream 403 — log Pattern B), so the error path
+// STOPS re-resolving and falls through to the cross-source fallback + advance (SKIP). This replaces the
+// old cap of 3, which wasted re-resolves on a dead URL and helped drive the mid-play stall storm.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player resilience — single post-playback re-resolve then skip (debug-midplay-stall-background)', () => {
+	const RERESOLVE_CAP = 1;
+	type Internals = {
+		hasPlayedSinceSrc: boolean;
+		reresolveBurst: number;
+		lastSeekAt: number;
+		reresolveCurrent(): Promise<void>;
+		runFallback(t: Track): Promise<void>;
+	};
+	const internals = () => player as unknown as Internals;
+
+	function attachPlayedErroring() {
+		const el = makeFakeAudio();
+		el.src = 'https://cdn/dead.mp3';
+		el.currentTime = 5; // mid-track (not near end / not 0)
+		(el as unknown as { ended: boolean }).ended = false;
+		player.current = mk('netease', 'rr0', 'A', 'PostPlayErr');
+		player.queue = [player.current];
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().hasPlayedSinceSrc = true; // already produced audio
+		internals().lastSeekAt = 0; // far in the past → NOT the seek-window reresolve path
+		internals().reresolveBurst = 0;
+		return el;
+	}
+
+	it('caps same-src re-resolve, then falls through to cross-source fallback (no infinite audio.error loop)', () => {
+		const el = attachPlayedErroring();
+		const reresolveSpy = vi
+			.spyOn(internals(), 'reresolveCurrent')
+			.mockResolvedValue(undefined);
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+
+		// A persistently-dead URL: every error re-triggers the post-playback branch.
+		for (let i = 0; i < RERESOLVE_CAP + 3; i++) el.fire('error');
+
+		expect(reresolveSpy).toHaveBeenCalledTimes(RERESOLVE_CAP); // bounded — NOT once per error
+		expect(fallbackSpy).toHaveBeenCalled(); // fell through to advance instead of looping forever
+	});
+
+	it('a real `playing` between errors refunds the budget (a transient mid-track stall still recovers in place)', () => {
+		const el = attachPlayedErroring();
+		const reresolveSpy = vi
+			.spyOn(internals(), 'reresolveCurrent')
+			.mockResolvedValue(undefined);
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+
+		// Each error recovers with a real `playing` → reresolveBurst resets, never reaching the cap.
+		for (let i = 0; i < RERESOLVE_CAP + 3; i++) {
+			el.fire('error');
+			el.fire('playing');
+		}
+
+		expect(fallbackSpy).not.toHaveBeenCalled(); // never fell through — each transient recovered
+		expect(reresolveSpy.mock.calls.length).toBeGreaterThan(RERESOLVE_CAP); // re-resolved every time
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// fast 2026-10-04 (loadRetries): a source flagged `loadRetries` (ytmusic) gets N fresh re-attaches when
+// it errors BEFORE producing audio, before cross-source fallback. YouTube bot-gates Cloudflare egress
+// PER INVOCATION, so a new request may land on an un-gated IP — and ytmusic has no fallback target, so
+// without this one gated request ended the song as "not found on any source". Foreground only.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player resilience — load-retry for flaky-edge sources (loadRetries)', () => {
+	type Internals = {
+		hasPlayedSinceSrc: boolean;
+		lastSeekAt: number;
+		loadRetryBurst: number;
+		reresolveCurrent(): Promise<void>;
+		runFallback(t: Track): Promise<void>;
+	};
+	const internals = () => player as unknown as Internals;
+
+	beforeEach(() => vi.useFakeTimers());
+	afterEach(() => vi.useRealTimers());
+
+	function attachLoadErroring(source: SourceId) {
+		const el = makeFakeAudio();
+		el.src = 'https://edge/stream';
+		player.current = mk(source, 'lr0', 'A', 'LoadErr');
+		player.queue = [player.current];
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().hasPlayedSinceSrc = false; // never produced audio — an initial-load failure
+		internals().lastSeekAt = 0; // NOT the seek-window reresolve path
+		const re = vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const fb = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		return { el, re, fb };
+	}
+	// Space errors like a real gated edge request (~1 s) so the 400 ms rapid-fire brake never fires.
+	const fireSpaced = (el: ReturnType<typeof makeFakeAudio>, n: number) => {
+		for (let i = 0; i < n; i++) {
+			el.fire('error');
+			vi.advanceTimersByTime(1000);
+		}
+	};
+
+	it('a ytmusic load error re-attaches up to 2 times, then fails over', () => {
+		const { el, re, fb } = attachLoadErroring('ytmusic');
+		fireSpaced(el, 3);
+		expect(re).toHaveBeenCalledTimes(2);
+		expect(fb).toHaveBeenCalledTimes(1);
+		re.mockRestore();
+		fb.mockRestore();
+	});
+
+	it('a source without loadRetries fails over on the first load error (unchanged)', () => {
+		const { el, re, fb } = attachLoadErroring('netease');
+		fireSpaced(el, 1);
+		expect(re).not.toHaveBeenCalled();
+		expect(fb).toHaveBeenCalledTimes(1);
+		re.mockRestore();
+		fb.mockRestore();
+	});
+
+	it('a real `playing` refunds the load-retry budget', () => {
+		const { el, re, fb } = attachLoadErroring('ytmusic');
+		fireSpaced(el, 1);
+		el.fire('playing');
+		expect(internals().loadRetryBurst).toBe(0);
+		re.mockRestore();
+		fb.mockRestore();
+	});
+
+	it('hidden tab: no load-retry (a hidden WebView freezes mid re-resolve) — fails over directly', () => {
+		vi.stubGlobal('document', { hidden: true, addEventListener() {} });
+		const { el, re, fb } = attachLoadErroring('ytmusic');
+		fireSpaced(el, 1);
+		expect(re).not.toHaveBeenCalled();
+		expect(fb).toHaveBeenCalledTimes(1);
+		re.mockRestore();
+		fb.mockRestore();
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// debug-bg-no-pill-split-play-stop (Option B): when a track that ALREADY produced audio
+// (hasPlayedSinceSrc) errors while the tab is HIDDEN, the single in-place re-resolve fails again in
+// the background, and the OLD behavior handed off to runFallback → play(swap) — a fire-and-forget
+// audio.play() that never re-reaches `playing` in a hidden WebView, so the element sat paused
+// ("split-second then stop, resumes only on foreground"). i7e removed the only foreground resume, so
+// nothing recovered it. Option B instead SKIPS to the next track (via the existing next() advance/skip
+// path) when the re-resolve cap is hit while hidden — the action log shows subsequent tracks play
+// cleanly in the background. This is scoped to document.hidden + hasPlayedSinceSrc, so a FOREGROUND
+// error still gets the richer cross-source runFallback recovery, and an external audio-focus loss
+// (voice note) — which fires `pause`, not `audio.error` — never triggers a skip or a resume (i7e's
+// "do not fight the OS" mandate stays intact).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player resilience — background stream-error SKIPS to next (debug-bg-no-pill-split-play-stop)', () => {
+	type Internals = {
+		hasPlayedSinceSrc: boolean;
+		reresolveBurst: number;
+		lastSeekAt: number;
+		deliberatePause: boolean;
+		reresolveCurrent(): Promise<void>;
+		runFallback(t: Track): Promise<void>;
+		strikeUnplayable(uid: string): boolean;
+	};
+	const internals = () => player as unknown as Internals;
+	const playCalls = () => vi.mocked(player.play).mock.calls;
+
+	/** Stub a global `document` with a settable `hidden` + a no-op addEventListener so attach()'s
+	 *  visibilitychange registration doesn't throw under the node test env. */
+	function stubDocument(hidden: boolean) {
+		vi.stubGlobal('document', { hidden, addEventListener() {} });
+	}
+
+	/** Attach a played-then-erroring element for a CURRENT track with a playable NEXT in the queue. */
+	function attachPlayedErroringWithNext() {
+		const cur = mk('kuwo', 'bgcur', 'A', 'BgCurrent'); // e.g. the logged kuwo:86595321
+		const next = mk('kuwo', 'bgnext', 'B', 'BgNext'); // subsequent track plays cleanly in bg
+		const el = makeFakeAudio();
+		el.src = 'https://cdn/dead-in-bg.mp3';
+		el.currentTime = 3; // mid-track — a brief play happened (the audible split-second)
+		(el as unknown as { ended: boolean }).ended = false;
+		player.queue = [cur, next];
+		player.current = cur;
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().hasPlayedSinceSrc = true; // a real `playing` fired → this IS the post-playback path
+		internals().lastSeekAt = 0; // far past → NOT the seek-window reresolve path
+		internals().reresolveBurst = 0;
+		internals().deliberatePause = false;
+		return { el, cur, next };
+	}
+
+	it('while HIDDEN, an already-played stream error SKIPS forward on the FIRST error (no hang-prone in-place reresolve, no runFallback)', () => {
+		// bg-resolve-gap-stall (Freeze 2): in a frozen background WebView the in-place reresolveCurrent()
+		// re-attaches src + awaits `playing`/`error` events that never fire → 0:00 hang until foreground.
+		// So a hidden + already-played error now skips straight forward on the FIRST error (subsumes the
+		// old post-cap bg-error-skip — one hang-prone in-place attempt is no longer given while hidden).
+		stubDocument(true); // tab is backgrounded
+		const { el, next } = attachPlayedErroringWithNext();
+		const reresolveSpy = vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		vi.mocked(player.play).mockClear();
+
+		el.fire('error'); // hidden + hasPlayedSinceSrc → skip straight forward, no in-place recovery
+
+		expect(reresolveSpy).not.toHaveBeenCalled(); // in-place reresolve would HANG in a frozen bg WebView
+		expect(fallbackSpy).not.toHaveBeenCalled(); // did NOT hand off to the stalling cross-source fallback
+		// next() advanced to the playable next track (via advanceTo → play). The errored src is left.
+		expect(playCalls().map((c) => c[0])).toContainEqual(next);
+	});
+
+	it('while HIDDEN, a bg-error-skip STRIKES the errored track so a region-locked batch is not re-churned (bg-resolve-gap-stall round 2)', () => {
+		// The log showed the same 5-track region-locked batch bg-error-skipping AGAIN a minute later
+		// (bg-error-skip never marked them). Striking the errored track routes prefetch/next past it once
+		// it reaches STRIKE_CAP, so a whole dead batch stops being replayed every queue pass.
+		stubDocument(true);
+		const { el, cur } = attachPlayedErroringWithNext();
+		const strikeSpy = vi.spyOn(internals(), 'strikeUnplayable');
+		vi.mocked(player.play).mockClear();
+
+		el.fire('error'); // hidden + already-played → bg-error-skip, and now a strike toward routing past
+
+		expect(strikeSpy).toHaveBeenCalledWith(cur.uid, 'load-error');
+	});
+
+	it('a FOREGROUND stream-error still uses cross-source runFallback (no premature skip when visible)', () => {
+		stubDocument(false); // tab is in the foreground
+		const { el } = attachPlayedErroringWithNext();
+		const reresolveSpy = vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		vi.mocked(player.play).mockClear();
+
+		el.fire('error'); // one in-place re-resolve
+		el.fire('error'); // cap hit → VISIBLE → cross-source fallback (unchanged behavior)
+
+		expect(reresolveSpy).toHaveBeenCalledTimes(1);
+		expect(fallbackSpy).toHaveBeenCalled(); // foreground path is preserved — richer recovery
+	});
+
+	it('an external (non-deliberate) PAUSE while hidden does NOT skip or resume — no audio.error, no advance', () => {
+		stubDocument(true);
+		const { el } = attachPlayedErroringWithNext();
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		vi.mocked(player.play).mockClear();
+
+		el.paused = true;
+		el.fire('pause'); // an OS audio-focus loss (voice note) — NOT an audio.error
+
+		// The background-error skip is keyed on `audio.error`, so a bare pause triggers neither a skip
+		// nor a resume — i7e's "respect external pauses, do not fight the OS" mandate is intact.
+		expect(fallbackSpy).not.toHaveBeenCalled();
+		expect(playCalls()).toHaveLength(0); // no advance to next, no re-play of current
+		expect(el.play).not.toHaveBeenCalled();
+	});
+
+	it('traces the logged kuwo:86595321 case: hidden error-after-play advances instead of stalling', () => {
+		stubDocument(true);
+		// Mirror the log: advance landed kuwo:86595321, resolve.ok, then audio.error hasPlayed:true.
+		const cur = mk('kuwo', '86595321', 'A', 'Logged'); // the exact failing uid
+		const next = mk('kuwo', '82700827', 'B', 'LoggedNext'); // the track that DID play after
+		const el = makeFakeAudio();
+		el.src = 'https://cdn/kuwo-86595321.mp3';
+		el.currentTime = 3;
+		(el as unknown as { ended: boolean }).ended = false;
+		player.queue = [cur, next];
+		player.current = cur;
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().hasPlayedSinceSrc = true;
+		internals().lastSeekAt = 0;
+		internals().reresolveBurst = 0;
+		vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		vi.mocked(player.play).mockClear();
+
+		el.fire('error');
+		el.fire('error');
+
+		expect(fallbackSpy).not.toHaveBeenCalled();
+		expect(playCalls().map((c) => c[0])).toContainEqual(next); // advances, no bg stall
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// background-autoadvance-stall follow-up: play() must reset hasPlayedSinceSrc AT ENTRY, not later at
+// src-set (after the async resolve). Otherwise, during the resolve gap `current` is the new track while
+// the flag still holds the OLD track's `true`, so a dead new track that errors is misrouted into the
+// already-played recovery (reresolveCurrent) instead of the cross-source fallback that advances past it.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player resilience — play() resets hasPlayedSinceSrc at entry (background-autoadvance-stall)', () => {
+	type Internals = {
+		hasPlayedSinceSrc: boolean;
+		lastSeekAt: number;
+		reresolveBurst: number;
+		reresolveCurrent(): Promise<void>;
+		runFallback(t: Track): Promise<void>;
+	};
+	const internals = () => player as unknown as Internals;
+
+	it('resets hasPlayedSinceSrc synchronously at entry, BEFORE the async resolve settles', () => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore(); // exercise the REAL play()
+		internals().hasPlayedSinceSrc = true; // the previous track had produced audio
+		const d = deferred<Track>();
+		mockEnsure.mockReturnValue(d.promise); // resolve never settles — inspect the sync entry only
+
+		void player.play(mk('netease', 'entry0', 'A', 'NewTrack')); // do NOT await
+
+		expect(internals().hasPlayedSinceSrc).toBe(false); // reset at entry, not after the resolve gap
+	});
+
+	it('a NEVER-played new track that errors routes to cross-source fallback, NOT reresolve', () => {
+		const cur = mk('netease', 'np0', 'A', 'DeadOnLoad');
+		player.queue = [cur];
+		player.current = cur;
+		const el = makeFakeAudio();
+		el.src = 'https://cdn/dead.mp3';
+		el.currentTime = 0;
+		(el as unknown as { ended: boolean }).ended = false;
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().hasPlayedSinceSrc = false; // fresh advance — never produced audio (post-fix invariant)
+		internals().lastSeekAt = 0; // not the seek-window path
+		const reresolveSpy = vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+
+		el.fire('error');
+
+		expect(reresolveSpy).not.toHaveBeenCalled(); // not the already-played path
+		expect(fallbackSpy).toHaveBeenCalled(); // dead-on-load → try other sources → advance
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// debug-nowbar-freeze-reresolve-loop: a synchronous audio.error storm (a re-attached src that errors
+// again instantly) pegged the main thread and froze the whole app (nowbar stuck on the loading line,
+// no tap registered). The genuinely-uncapped path in HEAD was the seek-error branch: it called
+// reresolveCurrent() on EVERY error inside the 1.5s seek window with no cap/counter/guard (a repro hit
+// 2000+ synchronous src-sets). The fix adds, at the TOP of the error listener, a rapid-fire brake
+// (errors < RAPID_ERROR_WINDOW_MS apart with no `playing` cannot be distinct failures → stop re-driving
+// recovery) plus an absolute errorBurst >= FAILURE_CAP ceiling. BOTH bounds SKIP (strike + advance),
+// NEVER the ef2c751-disabled tripLoopGuard() STOP (the false-positive that stranded the player with a
+// sticky "playback stopped" notice on a transient blip).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('player resilience — synchronous audio.error storm is bounded (debug-nowbar-freeze-reresolve-loop)', () => {
+	type Internals = {
+		hasPlayedSinceSrc: boolean;
+		reresolveBurst: number;
+		errorBurst: number;
+		rapidErrorBurst: number;
+		lastSeekAt: number;
+		lastAudioErrorAt: number;
+		reresolveCurrent(): Promise<void>;
+		runFallback(t: Track): Promise<void>;
+		strikeUnplayable(uid: string): boolean;
+	};
+	const internals = () => player as unknown as Internals;
+
+	/** A fake <audio> whose src-setter fires an `error` on the next microtask (up to `maxFires`), so a
+	 *  re-attach that errors instantly is modelled faithfully. Counts src assignments. */
+	function makeSelfErroringAudio(maxFires: number) {
+		const handlers = new Map<string, Array<() => void>>();
+		let srcSets = 0;
+		let _src = '';
+		const el = {
+			paused: true,
+			currentTime: 0,
+			duration: NaN,
+			readyState: 0,
+			get src() {
+				return _src;
+			},
+			set src(v: string) {
+				_src = v;
+				srcSets++;
+				if (srcSets <= maxFires) {
+					queueMicrotask(() => {
+						for (const cb of handlers.get('error') ?? []) cb();
+					});
+				}
+			},
+			setAttribute() {},
+			removeAttribute() {},
+			load() {},
+			addEventListener(type: string, cb: () => void) {
+				const arr = handlers.get(type) ?? [];
+				arr.push(cb);
+				handlers.set(type, arr);
+			},
+			play: vi.fn(() => Promise.resolve()),
+			pause: vi.fn(),
+			fire(type: string) {
+				for (const cb of handlers.get(type) ?? []) cb();
+			}
+		};
+		return { el, srcSets: () => srcSets };
+	}
+
+	it('the seek-error reresolveCurrent loop is bounded — no unbounded synchronous re-attach (main-thread peg)', async () => {
+		// REAL reresolveCurrent (not spied): ensureTrackDetails resolves instantly to a still-dead URL, so
+		// each re-attach fires another error inside the seek window. Before the fix this looped forever
+		// (repro: 2000+); the rapid-fire brake must cut it off after a handful of turns.
+		mockEnsure.mockImplementation(async (t: Track) => ({
+			...t,
+			detailsLoaded: true,
+			audioUrl: 'https://cdn.example.com/dead.mp3'
+		}));
+		mockTryFallback.mockResolvedValue(null);
+		const { el, srcSets } = makeSelfErroringAudio(1000);
+		const track = mk('netease', 'storm', 'A', 'Region Locked');
+		player.queue = [track];
+		player.current = track;
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().lastSeekAt = Date.now(); // recent seek → the uncapped reresolveCurrent branch
+
+		el.src = track.audioUrl as string; // kick the loop
+		for (let i = 0; i < 200; i++) await new Promise((r) => setTimeout(r, 0));
+
+		// Bounded to a small handful (RAPID_ERROR_CAP-sized bursts), not the fake's 1000-fire ceiling.
+		expect(srcSets()).toBeLessThan(12);
+	});
+
+	it('the ceiling SKIPS (strike + advance), never the ef2c751 STOP (no sticky "playback stopped")', () => {
+		// Foreground, already-played, persistently dead. Spy recovery so nothing runs async; fire a burst
+		// of synchronous errors. The rapid-fire brake trips and the handler strikes the track + advances —
+		// it must NOT set this.error='toast.playbackStopped' or a 'stopped' notice (that was the disabled
+		// tripLoopGuard's false-positive).
+		vi.stubGlobal('document', { hidden: false, addEventListener() {} });
+		vi.stubGlobal('navigator', { onLine: true });
+		const el = makeFakeAudio();
+		const cur = mk('netease', 'ceil', 'A', 'Dead');
+		const next = mk('qq', 'ceilnext', 'B', 'Next');
+		player.queue = [cur, next];
+		player.current = cur;
+		player.error = null;
+		player.notice = null;
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().hasPlayedSinceSrc = true;
+		internals().lastSeekAt = 0; // not the seek path — exercise the hasPlayed + ceiling path
+		const strikeSpy = vi.spyOn(internals(), 'strikeUnplayable');
+		vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+
+		for (let i = 0; i < Player_FAILURE_CAP + 2; i++) el.fire('error');
+
+		expect(strikeSpy).toHaveBeenCalledWith(cur.uid, 'load-error'); // SKIP: struck the dead track…
+		expect(player.error).not.toBe('toast.playbackStopped'); // …and did NOT hard-STOP
+		// Cast: TS flow-narrows player.notice to null (it can't see fire() mutate it) — read past it.
+		expect((player.notice as { kind?: string } | null)?.kind).not.toBe('stopped'); // no sticky Retry notice
+	});
+
+	it('a real `playing` between errors refunds the brake — a genuine transient stall is never falsely skipped', () => {
+		vi.stubGlobal('document', { hidden: false, addEventListener() {} });
+		const el = makeFakeAudio();
+		const track = mk('netease', 'transient', 'A', 'Buffers');
+		player.queue = [track];
+		player.current = track;
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().hasPlayedSinceSrc = true;
+		internals().lastSeekAt = 0;
+		const strikeSpy = vi.spyOn(internals(), 'strikeUnplayable');
+		const reresolveSpy = vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+
+		// Each error recovers with real output → both the reresolve budget AND the rapid brake reset.
+		for (let i = 0; i < Player_FAILURE_CAP + 3; i++) {
+			el.fire('error');
+			el.fire('playing');
+		}
+
+		expect(strikeSpy).not.toHaveBeenCalled(); // never hit the ceiling — every stall recovered
+		expect(reresolveSpy.mock.calls.length).toBeGreaterThan(1); // re-resolved in place each time
+	});
+});
+
+// 26-06 (gap-1 BLOCKER / RESOLVE-02): the click-to-play network resolve used to run with NO signal +
+// NO timeout — a stalled upstream (qijieya/qq flake) sat in `loading` up to apiFetch's ~25s timeout
+// with no cross-source fallback and no skip (the UAT hang: a fresh qq tap logged `play` then NOTHING
+// for 23s). The resolve-phase watchdog bounds that await: on RESOLVE_WATCHDOG_MS elapse the in-flight
+// resolve is aborted and the SAME song is routed into the existing kuwo-first cross-source walk
+// (runFallback → tryFallback → handleTotalFailure auto-skip). These use the REAL play() (restored from
+// the top-level mock) + a fake <audio> + fake timers so the watchdog fire path runs headless.
+describe('player resolve-phase watchdog — stalled/null initial resolve fails fast into fallback (26-06 gap-1)', () => {
+	// Mirror of Player.RESOLVE_WATCHDOG_MS (private static = 6000) for driving the fake-timer clock.
+	const Player_RESOLVE_WATCHDOG_MS = 6000;
+	let el: ReturnType<typeof makeFakeAudio>;
+	let playSpy: ReturnType<typeof vi.spyOn>;
+	let nextSpy: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		// Restore the REAL play() (the top-level beforeEach mocks it) so the resolve-watchdog path runs.
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockTryFallback.mockReset();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		// Online + a minimal Media Session surface (attach wires transport handlers) so play() runs
+		// headless without the offline gate or a null-deref (runFallback's offline gate needs onLine:true).
+		vi.stubGlobal('navigator', {
+			onLine: true,
+			mediaSession: { metadata: null, playbackState: 'none', setPositionState() {}, setActionHandler() {} }
+		});
+		vi.stubGlobal('MediaMetadata', FakeMediaMetadata);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		vi.spyOn(library, 'adoptCover').mockImplementation(() => {});
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		// Call-through spies (vi.spyOn keeps the real impl) so we observe the fromFallback re-entry +
+		// the auto-skip next() while the REAL logic still executes.
+		playSpy = vi.spyOn(player, 'play');
+		nextSpy = vi.spyOn(player, 'next');
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('a stalled initial resolve (never settles) is aborted at the watchdog and routes the SAME song into the cross-source walk; a playable swap re-enters play(fromFallback)', async () => {
+		vi.useFakeTimers();
+		try {
+			const tapped = stub('qq', '003taMev', '有人', 'That Should Be Me'); // detailsLoaded:false, audioUrl:null
+			const swap = mk('kuwo', 'k9', '有人', 'That Should Be Me'); // playable equivalent from another source
+			player.queue = [tapped];
+			const never = deferred<Track>(); // the tapped source's resolve NEVER settles (the stall)
+			mockEnsure.mockImplementation((t: Track) =>
+				t.uid === tapped.uid
+					? never.promise
+					: Promise.resolve({ ...t, detailsLoaded: true, audioUrl: 'https://cdn/swap.mp3' })
+			);
+			mockTryFallback.mockResolvedValue({ ...swap, detailsLoaded: true, audioUrl: 'https://cdn/swap.mp3' });
+
+			const p = player.play(tapped);
+			p.catch(() => {}); // never rejects with the watchdog, but be defensive against the RED (no-watchdog) hang
+			await vi.advanceTimersByTimeAsync(0); // play() runs to the resolve await; the stall is in flight
+			expect(mockTryFallback).not.toHaveBeenCalled(); // still resolving — the watchdog has NOT fired yet
+
+			// Fire the resolve watchdog → abort the stall + route into runFallback → tryFallback → swap.
+			await vi.advanceTimersByTimeAsync(Player_RESOLVE_WATCHDOG_MS);
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(mockTryFallback).toHaveBeenCalledTimes(1);
+			// The cross-source walk was asked for the SAME song (name+artist), not a different track.
+			const failedArg = mockTryFallback.mock.calls[0][0] as Track;
+			expect(failedArg.artist).toBe('有人');
+			expect(failedArg.title).toBe('That Should Be Me');
+			// The playable swap re-entered play() as a fallback continuation.
+			expect(playSpy).toHaveBeenCalledWith(
+				expect.objectContaining({ uid: swap.uid }),
+				{ fromFallback: true }
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('a stalled resolve whose cross-source walk exhausts every source auto-skips to the next queue item (never hangs); loading ends false', async () => {
+		vi.useFakeTimers();
+		try {
+			const tapped = stub('qq', '1', 'A', 'Dead Everywhere');
+			const nextTrack = mk('kuwo', '2', 'B', 'Plays Fine');
+			player.queue = [tapped, nextTrack];
+			const never = deferred<Track>();
+			mockEnsure.mockImplementation((t: Track) =>
+				t.uid === tapped.uid
+					? never.promise
+					: Promise.resolve({ ...t, detailsLoaded: true, audioUrl: 'https://cdn/next.mp3' })
+			);
+			mockTryFallback.mockResolvedValue(null); // every source exhausted for the tapped song
+
+			const p = player.play(tapped);
+			p.catch(() => {});
+			await vi.advanceTimersByTimeAsync(0);
+			await vi.advanceTimersByTimeAsync(Player_RESOLVE_WATCHDOG_MS);
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(mockTryFallback).toHaveBeenCalledTimes(1);
+			expect(nextSpy).toHaveBeenCalled(); // handleTotalFailure → next() auto-skip
+			expect(playSpy).toHaveBeenCalledWith(nextTrack); // advanced to the next playable queue item
+			expect(player.loading).toBe(false); // NEVER left permanently loading
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('a NULL initial resolve (audioUrl:null before the watchdog) routes into the SAME cross-source walk', async () => {
+		vi.useFakeTimers();
+		try {
+			const tapped = stub('qq', '9', 'C', 'No Url Here');
+			player.queue = [tapped];
+			// Null ONLY the tapped uid (a benign URL for any other track) so a stray play() leaked from a
+			// prior suite's un-awaited async chain does not itself fan out and inflate the count — the
+			// isolation pattern tests 1 & 2 use. The intent here is "the TAPPED song's null resolve fans out".
+			mockEnsure.mockImplementation((t: Track) =>
+				t.uid === tapped.uid
+					? Promise.resolve({ ...t, detailsLoaded: true, audioUrl: null })
+					: Promise.resolve({ ...t, detailsLoaded: true, audioUrl: 'https://cdn/other.mp3' })
+			);
+			mockTryFallback.mockResolvedValue(null);
+
+			const p = player.play(tapped);
+			p.catch(() => {});
+			await vi.advanceTimersByTimeAsync(0);
+			await vi.advanceTimersByTimeAsync(0);
+
+			// A null resolve fails fast BEFORE the watchdog and still fans out cross-source (unified path).
+			expect(mockTryFallback).toHaveBeenCalledTimes(1);
+			expect(player.loading).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('a newer play() during the watchdog window supersedes: the stale resolve is discarded (no double fallback)', async () => {
+		vi.useFakeTimers();
+		try {
+			const first = stub('qq', 'f1', 'A', 'First Tap');
+			const second = mk('kuwo', 's1', 'B', 'Second Tap'); // a fresh tap, resolves fine
+			player.queue = [first, second];
+			const never = deferred<Track>();
+			mockEnsure.mockImplementation((t: Track) =>
+				t.uid === first.uid
+					? never.promise
+					: Promise.resolve({ ...t, detailsLoaded: true, audioUrl: 'https://cdn/second.mp3' })
+			);
+			mockTryFallback.mockResolvedValue(null);
+
+			const p1 = player.play(first);
+			p1.catch(() => {});
+			await vi.advanceTimersByTimeAsync(0);
+			// User taps a DIFFERENT song before the first resolve's watchdog fires → bumps playGen.
+			const p2 = player.play(second);
+			p2.catch(() => {});
+			await vi.advanceTimersByTimeAsync(0);
+			// Now fire the FIRST tap's stale watchdog — the myGen gen-guard must discard it.
+			await vi.advanceTimersByTimeAsync(Player_RESOLVE_WATCHDOG_MS);
+			await vi.advanceTimersByTimeAsync(0);
+
+			// The stale first-tap resolve never fanned out (superseded), and `current` is the second song.
+			expect(mockTryFallback).not.toHaveBeenCalled();
+			expect(player.current?.uid).toBe(second.uid);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('the HAPPY path (fast truthy audioUrl before the watchdog) proceeds single-source with NO cross-source fan-out', async () => {
+		vi.useFakeTimers();
+		try {
+			const tapped = stub('kuwo', '7', 'D', 'Resolves Fast');
+			player.queue = [tapped];
+			mockEnsure.mockImplementation((t: Track) =>
+				Promise.resolve({ ...t, detailsLoaded: true, audioUrl: 'https://cdn/fast.mp3' })
+			);
+			mockTryFallback.mockResolvedValue(null);
+
+			const p = player.play(tapped);
+			await vi.advanceTimersByTimeAsync(0);
+			await p;
+
+			expect(mockTryFallback).not.toHaveBeenCalled(); // 0 cross-source calls on the happy path
+			expect(player.current?.audioUrl).toBe('https://cdn/fast.mp3');
+			expect(player.loading).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
+// User report 2026-11-02: a song that cannot be resolved STOPPED playback with the sticky
+// "Playback stopped — couldn't load songs" warning instead of being skipped with a toast.
+// Root cause: play()'s resolve-failure branch special-cased the FALLBACK CONTINUATION — when
+// runFallback's swap track itself failed its own resolve inside play(fromFallback), the branch
+// set error='toast.playbackStopped' + clearMedia and returned, hard-stopping the session for
+// ONE bad song while loadable songs remained in the queue. These tests pin the new contract:
+// that failure routes into handleTotalFailure (skip + batched skip toast + advance), and an
+// unbroken run of total failures enters the never-stop interlude / retrying state at the
+// systemic cap (quick-261116-nstop — the terminal STOP is retired).
+describe('player — a fallback swap that fails to resolve SKIPS with a toast instead of stopping (user report 2026-11-02)', () => {
+	let el: ReturnType<typeof makeFakeAudio>;
+	let playSpy: ReturnType<typeof vi.spyOn>;
+	let nextSpy: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		// Restore the REAL play() (the top-level beforeEach mocks it) — same harness as the
+		// resolve-watchdog suite above.
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockTryFallback.mockReset();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.notice = null;
+		player.loading = false;
+		player.repeatMode = 'off';
+		// Reset the cross-track failure counters so a prior suite's run cannot pre-trip the cap.
+		const internals = player as unknown as { failoverSkips: number; consecutiveFailures: number };
+		internals.failoverSkips = 0;
+		internals.consecutiveFailures = 0;
+		vi.stubGlobal('navigator', {
+			onLine: true,
+			mediaSession: { metadata: null, playbackState: 'none', setPositionState() {}, setActionHandler() {} }
+		});
+		vi.stubGlobal('MediaMetadata', FakeMediaMetadata);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		vi.spyOn(library, 'adoptCover').mockImplementation(() => {});
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		playSpy = vi.spyOn(player, 'play');
+		nextSpy = vi.spyOn(player, 'next');
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('one unresolvable song mid-queue: skipped with a toast, the next song plays, playback does NOT stop', async () => {
+		vi.useFakeTimers();
+		try {
+			const tapped = stub('qq', 'sb1', 'A', 'Unresolvable');
+			const swap = mk('netease', 'sb2', 'A', 'Unresolvable'); // tryFallback's pick — its own resolve ALSO fails
+			const nextTrack = mk('kuwo', 'sb3', 'B', 'Plays Fine');
+			player.queue = [tapped, nextTrack];
+			mockEnsure.mockImplementation((t: Track) =>
+				t.uid === nextTrack.uid
+					? Promise.resolve({ ...t, detailsLoaded: true, audioUrl: 'https://cdn/next.mp3' })
+					: Promise.resolve({ ...t, detailsLoaded: true, audioUrl: null })
+			);
+			mockTryFallback.mockResolvedValue({ ...swap, detailsLoaded: true, audioUrl: 'https://cdn/swap.mp3' });
+
+			const p = player.play(tapped);
+			p.catch(() => {});
+			await vi.advanceTimersByTimeAsync(0);
+			await vi.advanceTimersByTimeAsync(0);
+			await vi.advanceTimersByTimeAsync(0);
+
+			// The swap was attempted as a fallback continuation…
+			expect(playSpy).toHaveBeenCalledWith(expect.objectContaining({ uid: swap.uid }), {
+				fromFallback: true
+			});
+			// …and when ITS resolve failed, the song was SKIPPED (skip toast + advance), not stopped.
+			expect(player.error).not.toBe('toast.playbackStopped');
+			expect(player.notice?.kind).toBe('skip');
+			expect(player.notice?.title).toBe('Unresolvable');
+			expect(nextSpy).toHaveBeenCalled();
+			expect(playSpy).toHaveBeenCalledWith(nextTrack);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(player.current?.uid).toBe(nextTrack.uid); // the next loadable song owns playback now
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('an unbroken run of unresolvable songs enters the never-stop retrying state at the cap (no infinite skip loop, no hard stop)', async () => {
+		vi.useFakeTimers();
+		try {
+			const bad = [1, 2, 3, 4, 5, 6].map((n) => stub('qq', `sa${n}`, 'A', `Bad ${n}`));
+			player.queue = [...bad];
+			library.downloads = []; // zero local assets → the Q14 retrying state is the floor
+			mockEnsure.mockImplementation((t: Track) =>
+				Promise.resolve({ ...t, detailsLoaded: true, audioUrl: null })
+			);
+			mockTryFallback.mockResolvedValue(null); // every song exhausts every source
+
+			const p = player.play(bad[0]);
+			p.catch(() => {});
+			// Let the skip chain walk: each total failure advances to the next track until the
+			// systemic ceiling (SYSTEMIC_SKIP_CAP back-to-back failures) trips the interlude.
+			for (let i = 0; i < 40; i++) await vi.advanceTimersByTimeAsync(0);
+
+			// quick-261116-nstop: the cap no longer hard-stops — with no local pool it lands in
+			// the quiet retrying state (60s auto-probe), NOT the sticky stopped notice.
+			expect(player.notice?.kind).toBe('never-stop');
+			expect(player.notice?.msg).toBe('toast.playbackRetrying');
+			expect(player.error).not.toBe('toast.playbackStopped');
+			// Exactly CAP plays were attempted — the 6th song was never reached, and further
+			// flushing changes nothing (the chain is parked in the retry state, not looping).
+			const playsAtHalt = playSpy.mock.calls.length;
+			expect(playsAtHalt).toBe(Player_SYSTEMIC_SKIP_CAP);
+			for (let i = 0; i < 10; i++) await vi.advanceTimersByTimeAsync(0);
+			expect(playSpy.mock.calls.length).toBe(playsAtHalt);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
+// 26-06 Task 2 (regression proof): characterize the two budget/UX invariants the watchdog must hold —
+// the happy path issues ZERO cross-source fan-out (the ~3-call budget), and a stalled resolve never
+// leaves the player permanently loading. Reuses the same real-play + fake-audio + fake-timer harness.
+describe('player resolve-phase watchdog — regression: no happy-path fan-out; a stall never hangs (26-06)', () => {
+	const Player_RESOLVE_WATCHDOG_MS = 6000;
+	let el: ReturnType<typeof makeFakeAudio>;
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockTryFallback.mockReset();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		vi.stubGlobal('navigator', {
+			onLine: true,
+			mediaSession: { metadata: null, playbackState: 'none', setPositionState() {}, setActionHandler() {} }
+		});
+		vi.stubGlobal('MediaMetadata', FakeMediaMetadata);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		vi.spyOn(library, 'adoptCover').mockImplementation(() => {});
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('happy path: a healthy resolve performs ZERO tryFallback (cross-source) calls — single-source budget holds', async () => {
+		vi.useFakeTimers();
+		try {
+			const tapped = stub('kuwo', '100', 'A', 'Budget Song');
+			player.queue = [tapped];
+			mockEnsure.mockImplementation((t: Track) =>
+				Promise.resolve({ ...t, detailsLoaded: true, audioUrl: 'https://cdn/ok.mp3' })
+			);
+			mockTryFallback.mockResolvedValue(null);
+
+			const p = player.play(tapped);
+			await vi.advanceTimersByTimeAsync(0);
+			await p;
+
+			expect(mockTryFallback).toHaveBeenCalledTimes(0);
+			expect(el.src).toBe('https://cdn/ok.mp3'); // the single source's URL was attached, no fan-out
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('a stalled resolve does NOT leave player.loading true forever: after the watchdog + total failure settle, loading is false', async () => {
+		vi.useFakeTimers();
+		try {
+			const tapped = stub('qq', '200', 'B', 'Stalls');
+			player.queue = [tapped];
+			const never = deferred<Track>();
+			mockEnsure.mockImplementation((t: Track) =>
+				t.uid === tapped.uid
+					? never.promise
+					: Promise.resolve({ ...t, detailsLoaded: true, audioUrl: 'https://cdn/x.mp3' })
+			);
+			mockTryFallback.mockResolvedValue(null); // total failure
+
+			const p = player.play(tapped);
+			p.catch(() => {});
+			await vi.advanceTimersByTimeAsync(0);
+			expect(player.loading).toBe(true); // still resolving — loading held
+			await vi.advanceTimersByTimeAsync(Player_RESOLVE_WATCHDOG_MS);
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(player.loading).toBe(false); // watchdog → fallback → total failure → NOT stuck loading
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
+// 31-D-12/D-13/D-14: a downloaded blob that EXISTS but is BAD used to dead-end a track forever —
+// audio.error → reresolveCurrent re-read the SAME corrupt bytes → error ceiling → strike → skip, on
+// every future play, because nothing distinguished "these bytes are bad" from "this URL is bad". The
+// lastSrcKind provenance flag closes that: a download-blob error evicts the blob + the library
+// record, toasts once, keeps playing over the network and silently re-downloads. A PREBUFFER blob
+// (never a download) is only discarded — evicting for it would put a song the user never downloaded
+// into their Downloads. The freeze ceiling above it must keep winning.
+describe('player resilience — corrupt blob self-repair (31-D-12/D-14)', () => {
+	type Internals = {
+		lastSrcKind: 'url' | 'download-blob' | 'prebuffer-blob';
+		corruptNotified: Set<string>;
+		redownloadQueued: Set<string>;
+		prebufferedUid: string | null;
+		prebufferedBlobUrl: string | null;
+		hasPlayedSinceSrc: boolean;
+		lastSeekAt: number;
+		errorBurst: number;
+		rapidErrorBurst: number;
+		reresolveCurrent(): Promise<void>;
+		runFallback(t: Track): Promise<void>;
+		strikeUnplayable(uid: string): boolean;
+	};
+	const internals = () => player as unknown as Internals;
+	/** Mirror of Player.FAILURE_CAP (private static = 5) — the absolute error ceiling. */
+	const Player_ERROR_CEILING = Player_FAILURE_CAP;
+
+	function armErroredTrack(kind: Internals['lastSrcKind']) {
+		vi.stubGlobal('document', { hidden: false, addEventListener() {} });
+		vi.stubGlobal('navigator', { onLine: true });
+		const el = makeFakeAudio();
+		const cur = mk('netease', 'corrupt', 'A', 'Bad Bytes');
+		const next = mk('qq', 'after', 'B', 'Next');
+		player.queue = [cur, next];
+		player.current = cur;
+		player.notice = null;
+		player.attach(el as unknown as HTMLAudioElement);
+		internals().hasPlayedSinceSrc = false;
+		internals().lastSeekAt = 0;
+		internals().lastSrcKind = kind;
+		return { el, cur };
+	}
+
+	beforeEach(() => {
+		mockLogAction.mockClear();
+		mockDownloadTrack.mockClear().mockResolvedValue('saved');
+		vi.mocked(blobStore.del).mockClear();
+		internals().corruptNotified.clear();
+		internals().redownloadQueued.clear();
+		internals().lastSrcKind = 'url';
+	});
+
+	it('a download-blob error evicts the blob AND the library download record exactly once', () => {
+		const removeSpy = vi.spyOn(library, 'removeDownload').mockImplementation(() => {});
+		vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const { el, cur } = armErroredTrack('download-blob');
+
+		el.fire('error');
+
+		expect(vi.mocked(blobStore.del)).toHaveBeenCalledExactlyOnceWith(cur.uid);
+		expect(removeSpy).toHaveBeenCalledExactlyOnceWith(cur.uid);
+	});
+
+	it('emits exactly ONE corrupt-download notice and ONE blob.corrupt log entry per uid', () => {
+		vi.spyOn(library, 'removeDownload').mockImplementation(() => {});
+		vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const { el, cur } = armErroredTrack('download-blob');
+
+		el.fire('error');
+		expect(player.notice).toEqual({
+			kind: 'corrupt-download',
+			msg: 'toast.downloadCorrupted',
+			title: cur.title
+		});
+		const first = player.notice;
+		// The re-attached blob errors again (the flag is re-set by the attach site in production).
+		internals().lastSrcKind = 'download-blob';
+		el.fire('error');
+
+		// The toast is emitted ONCE per uid — the second error must not replace the notice object
+		// (a re-emit would restart the dismiss timer and stack a second toast for one repair).
+		expect(player.notice).toBe(first);
+		expect(mockLogAction.mock.calls.filter(([evt]) => evt === 'blob.corrupt')).toHaveLength(2);
+	});
+
+	it('queues exactly ONE silent background re-download per uid, even when the error repeats', async () => {
+		vi.spyOn(library, 'removeDownload').mockImplementation(() => {});
+		vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const { el, cur } = armErroredTrack('download-blob');
+
+		el.fire('error');
+		internals().lastSrcKind = 'download-blob';
+		el.fire('error');
+		internals().lastSrcKind = 'download-blob';
+		el.fire('error');
+		await flush(); // the repair is reached through a dynamic import — let it settle
+
+		expect(mockDownloadTrack).toHaveBeenCalledTimes(1);
+		const [track, opts] = mockDownloadTrack.mock.calls[0];
+		expect(track.uid).toBe(cur.uid);
+		// save:false — the repair must not pop a save dialog mid-playback.
+		expect(opts).toEqual({ save: false });
+	});
+
+	it('recovers over the NETWORK after eviction — no strike, no skip from this branch', () => {
+		vi.spyOn(library, 'removeDownload').mockImplementation(() => {});
+		const reresolveSpy = vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const strikeSpy = vi.spyOn(internals(), 'strikeUnplayable');
+		const nextSpy = vi.spyOn(player, 'next').mockImplementation(() => {});
+		const { el } = armErroredTrack('download-blob');
+
+		el.fire('error');
+
+		expect(reresolveSpy).toHaveBeenCalledTimes(1);
+		expect(strikeSpy).not.toHaveBeenCalled();
+		expect(nextSpy).not.toHaveBeenCalled();
+		expect(player.error).not.toBe('toast.playbackStopped');
+	});
+
+	it('a PREBUFFER blob error never touches library state and never toasts', async () => {
+		const removeSpy = vi.spyOn(library, 'removeDownload').mockImplementation(() => {});
+		vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		vi.stubGlobal('URL', { createObjectURL: () => 'blob:x', revokeObjectURL: vi.fn() });
+		const { el } = armErroredTrack('prebuffer-blob');
+		internals().prebufferedUid = 'netease:corrupt';
+		internals().prebufferedBlobUrl = 'blob:stale';
+
+		el.fire('error');
+		await flush();
+
+		expect(removeSpy).not.toHaveBeenCalled();
+		expect(vi.mocked(blobStore.del)).not.toHaveBeenCalled();
+		expect(mockDownloadTrack).not.toHaveBeenCalled();
+		expect((player.notice as { kind?: string } | null)?.kind).not.toBe('corrupt-download');
+		// the stale prebuffer slot is discarded so it cannot be re-consumed
+		expect(internals().prebufferedUid).toBeNull();
+		expect(internals().prebufferedBlobUrl).toBeNull();
+	});
+
+	it('a plain url error takes exactly the pre-existing path (the branch is never entered)', async () => {
+		const removeSpy = vi.spyOn(library, 'removeDownload').mockImplementation(() => {});
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		const { el } = armErroredTrack('url');
+
+		el.fire('error');
+		await flush();
+
+		expect(removeSpy).not.toHaveBeenCalled();
+		expect(vi.mocked(blobStore.del)).not.toHaveBeenCalled();
+		expect(mockLogAction.mock.calls.filter(([evt]) => evt === 'blob.corrupt')).toHaveLength(0);
+		expect(mockDownloadTrack).not.toHaveBeenCalled();
+		expect(fallbackSpy).toHaveBeenCalledTimes(1); // the unchanged cross-source path
+	});
+
+	it('the freeze ceiling still WINS — at the error cap the corrupt branch is never reached', async () => {
+		const removeSpy = vi.spyOn(library, 'removeDownload').mockImplementation(() => {});
+		const strikeSpy = vi.spyOn(internals(), 'strikeUnplayable');
+		vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		vi.spyOn(player, 'next').mockImplementation(() => {});
+		const { el, cur } = armErroredTrack('download-blob');
+		internals().errorBurst = Player_ERROR_CEILING - 1; // the next error trips the absolute ceiling
+
+		el.fire('error');
+		await flush();
+
+		expect(strikeSpy).toHaveBeenCalledWith(cur.uid, 'load-error'); // ceiling fired (strike + advance)
+		expect(removeSpy).not.toHaveBeenCalled(); // …and the corrupt branch never ran
+		expect(mockDownloadTrack).not.toHaveBeenCalled();
+		expect(mockLogAction.mock.calls.filter(([evt]) => evt === 'blob.corrupt')).toHaveLength(0);
+	});
+});
+
+// Phase 31 (31-D-09 / 31-D-11): a globally-shared cached audio URL can be IP- or region-bound and
+// WILL 403 for some other user, so the failure path is the load-bearing part of the edge cache, not
+// an edge case. The player's error handler gains exactly ONE unconditional line; the gate lives in
+// the service (its served-url registry), which is why these cases drive the REAL client and assert
+// at the network boundary rather than at a player-side condition that does not exist.
+describe('player resilience — cache bust (31-D-09/31-D-11)', () => {
+	type Internals = {
+		lastSrcKind: 'url' | 'download-blob' | 'prebuffer-blob';
+		hasPlayedSinceSrc: boolean;
+		lastSeekAt: number;
+		errorBurst: number;
+		rapidErrorBurst: number;
+		reresolveBurst: number;
+		reresolveCurrent(): Promise<void>;
+		runFallback(t: Track): Promise<void>;
+		strikeUnplayable(uid: string): boolean;
+	};
+	const internals = () => player as unknown as Internals;
+	const CACHED_URL = 'https://cdn.example/shared-123.mp3';
+
+	const posts = () => mockApiFetch.mock.calls.filter(([, init]) => init?.method === 'POST');
+
+	/**
+	 * Prime the client's served-url registry exactly the way a real cache hit does.
+	 *
+	 * 32-D-10: a READ no longer registers anything — the entry carries a permanent song_mid, not a
+	 * url, so catalog registers the url it resolves OUT of that mid via registerServedResolve. This
+	 * helper now calls that same seam, which is precisely what the production hit path does.
+	 */
+	async function serveFromCache(url: string) {
+		registerServedResolve(url, 'Jay', 'Blue');
+	}
+
+	function armErroredTrack(src: string) {
+		vi.stubGlobal('document', { hidden: false, addEventListener() {} });
+		vi.stubGlobal('navigator', { onLine: true });
+		const el = makeFakeAudio();
+		const cur = mk('kuwo', 'k1', 'Jay', 'Blue');
+		player.queue = [cur, mk('qq', 'after', 'B', 'Next')];
+		player.current = cur;
+		player.notice = null;
+		player.attach(el as unknown as HTMLAudioElement);
+		el.src = src;
+		internals().hasPlayedSinceSrc = false;
+		internals().lastSeekAt = 0;
+		internals().lastSrcKind = 'url';
+		internals().errorBurst = 0;
+		internals().rapidErrorBurst = 0;
+		internals().reresolveBurst = 0;
+		return { el, cur };
+	}
+
+	beforeEach(() => {
+		__resetResolveCacheClient();
+		mockApiFetch.mockReset();
+		mockApiFetch.mockResolvedValue(new Response('{}', { status: 200 }));
+		mockLogAction.mockClear();
+	});
+
+	it('reports a cache-served URL exactly once and still runs the recovery chain', async () => {
+		await serveFromCache(CACHED_URL);
+		const fallbackSpy = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		const { el } = armErroredTrack(CACHED_URL);
+
+		el.fire('error');
+		await flush();
+
+		expect(posts()).toHaveLength(1);
+		const [path, init] = posts()[0];
+		expect(path).toBe('/api/resolve');
+		expect(JSON.parse(String(init?.body))).toEqual({ a: 'Jay', t: 'Blue' });
+		// the recovery chain is untouched — the report changed no branch
+		expect(fallbackSpy).toHaveBeenCalledTimes(1);
+	});
+
+	it('a NORMALLY-resolved URL that fails is never reported (the service self-gates)', async () => {
+		vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		const { el } = armErroredTrack('https://cdn.example/normal-resolve.mp3');
+
+		el.fire('error');
+		await flush();
+
+		// the player called reportDeadUrl unconditionally; the registry had never seen this URL,
+		// so ZERO requests left the client.
+		expect(posts()).toHaveLength(0);
+		expect(mockApiFetch).not.toHaveBeenCalled();
+	});
+
+	it('31-D-11 primary path: a cache-served URL that 403s keeps playing via the client resolver', async () => {
+		await serveFromCache(CACHED_URL);
+		const reresolveSpy = vi.spyOn(internals(), 'reresolveCurrent').mockResolvedValue(undefined);
+		const { el, cur } = armErroredTrack(CACHED_URL);
+		internals().hasPlayedSinceSrc = true; // it played, then the shared byte-stream 403'd
+
+		el.fire('error');
+		await flush();
+
+		expect(posts()).toHaveLength(1); // the PoP entry is dropped
+		expect(reresolveSpy).toHaveBeenCalledTimes(1); // …and the song re-resolves normally
+		expect(player.current).toBe(cur); // still the same song — no skip, no STOP
+		expect(player.error).not.toBe('toast.playbackStopped');
+	});
+
+	it('the report changes NO branch — identical downstream calls with and without a served URL', async () => {
+		const withReport = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		await serveFromCache(CACHED_URL);
+		const armed = armErroredTrack(CACHED_URL);
+		armed.el.fire('error');
+		await flush();
+		const reportedCalls = withReport.mock.calls.length;
+
+		vi.restoreAllMocks();
+		__resetResolveCacheClient();
+		const without = vi.spyOn(internals(), 'runFallback').mockResolvedValue(undefined);
+		const plain = armErroredTrack('https://cdn.example/normal-resolve.mp3');
+		plain.el.fire('error');
+		await flush();
+
+		expect(without.mock.calls.length).toBe(reportedCalls);
+		expect(reportedCalls).toBe(1);
+	});
+
+	it('the freeze ceiling still fires FIRST and unchanged', async () => {
+		await serveFromCache(CACHED_URL);
+		const strikeSpy = vi.spyOn(internals(), 'strikeUnplayable');
+		vi.spyOn(player, 'next').mockImplementation(() => {});
+		const { el, cur } = armErroredTrack(CACHED_URL);
+		internals().errorBurst = Player_FAILURE_CAP - 1; // the next error trips the absolute ceiling
+
+		el.fire('error');
+		await flush();
+
+		expect(strikeSpy).toHaveBeenCalledWith(cur.uid, 'load-error'); // ceiling won: strike + advance
+		expect(posts()).toHaveLength(0); // …and returned before the report line
+	});
+});
+
+// 31-D-08 REGRESSION (31-04 advisory drift): the edge resolve cache stores a URL and NO lyrics, and
+// catalog's readiness guard calls such a track complete — so a WARM (cache-hit) play started with an
+// empty lyrics pane while the same COLD play showed lyrics. catalog now marks a cache-hit track
+// `lrcUnresolved` and play() fires the same best-effort backfill the offline-blob path uses, OFF the
+// critical path. The contract under test: a cache hit is never worse than a miss.
+describe('lyric backfill for a cache-hit play (31-D-08)', () => {
+	let el: ReturnType<typeof makeFakeAudio>;
+	const LRC = '[00:01]hello';
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		vi.stubGlobal('navigator', { onLine: true });
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		settings.autoExpandOnPlay = false;
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	/** Cache-hit shape: playable url, no lrc, marked. The BACKFILL re-resolve (detailsLoaded cleared)
+	 *  is the only call that gets lyrics back — exactly how the real catalog behaves once the marker
+	 *  makes it bypass the cache. */
+	function arrangeCacheHit() {
+		mockEnsure.mockImplementation(async (t: Track) =>
+			t.detailsLoaded === false && t.lrcUnresolved
+				? { ...t, detailsLoaded: true, audioUrl: 'https://cdn/cached.mp3', lrc: LRC }
+				: { ...t, detailsLoaded: true, audioUrl: 'https://cdn/cached.mp3', lrc: null, lrcUnresolved: true }
+		);
+	}
+
+	it('a cache-hit play ends up with lyrics — the warm play matches the cold one', async () => {
+		arrangeCacheHit();
+
+		await player.play(stub('kuwo', 'K1', 'Artist', 'Song'), { fresh: true });
+		// The src is attached from the FIRST (lyric-less) resolve — playback never waits on lyrics.
+		expect(el.src).toBe('https://cdn/cached.mp3');
+		await flush(); // the backfill settles OFF the critical path
+
+		expect(player.current?.lrc).toBe(LRC);
+		// Exactly two resolves: the cache-hit play + the one bypassing backfill. No re-walk.
+		expect(mockEnsure).toHaveBeenCalledTimes(2);
+	});
+
+	it('a cold lyric-less resolve does NOT re-walk — the backfill fires only on the marker', async () => {
+		// catalog already ran crossSourceLyric for a cold resolve; repeating it would double the
+		// network for every genuinely lyric-less track.
+		mockEnsure.mockResolvedValue({
+			...mk('kuwo', 'K2', 'Artist', 'Song'),
+			audioUrl: 'https://cdn/cold.mp3',
+			lrc: null
+		});
+
+		await player.play(stub('kuwo', 'K2', 'Artist', 'Song'), { fresh: true });
+		await flush();
+
+		expect(mockEnsure).toHaveBeenCalledTimes(1);
+		expect(player.current?.lrc).toBeNull();
+	});
+
+	it('a superseded backfill never patches the newer track (playGen guard)', async () => {
+		arrangeCacheHit();
+		await player.play(stub('kuwo', 'K1', 'Artist', 'Song'), { fresh: true });
+		// A newer play lands before the backfill settles — its result must be discarded, not written
+		// onto whatever `current` has become.
+		mockEnsure.mockResolvedValue({
+			...mk('qq', 'K3', 'Other', 'Newer'),
+			audioUrl: 'https://cdn/newer.mp3',
+			lrc: null
+		});
+		await player.play(stub('qq', 'K3', 'Other', 'Newer'), { fresh: true });
+		await flush();
+
+		expect(player.current?.uid).toBe(makeUid('qq', 'K3'));
+		expect(player.current?.lrc).toBeNull(); // the K1 backfill did not leak across
+	});
+});
+
+describe('slow-cold-start-first-playing — media-load instrumentation', () => {
+	it('logs src.set on driveSrc and each media event ONCE per src with Δms from the attach', () => {
+		const fake = makeFakeAudio();
+		player.attach(fake as unknown as HTMLAudioElement);
+		mockLogAction.mockClear();
+		const drive = (player as unknown as { driveSrc: (u: string, url: string) => boolean }).driveSrc.bind(player);
+		expect(drive('qq:A', 'https://cdn.example/F000.flac?vkey=1')).toBe(true);
+		expect(mockLogAction).toHaveBeenCalledWith('src.set', { uid: 'qq:A', kind: 'url', ext: 'flac' });
+		fake.fire('loadstart');
+		fake.fire('progress');
+		fake.fire('progress'); // second progress is swallowed (one-shot per src)
+		fake.fire('canplay');
+		fake.fire('playing');
+		const media = mockLogAction.mock.calls.filter(([ev]) => String(ev).startsWith('media.'));
+		expect(media.map(([ev]) => ev)).toEqual(['media.loadstart', 'media.progress', 'media.canplay']);
+		for (const [, d] of media) expect((d as { ms: number }).ms).toBeGreaterThanOrEqual(0);
+		const playing = mockLogAction.mock.calls.find(([ev]) => ev === 'playing');
+		expect((playing?.[1] as { ms: number }).ms).toBeGreaterThanOrEqual(0);
+		// a NEW src re-arms the one-shot set
+		expect(drive('qq:B', 'blob:https://app/xyz')).toBe(true);
+		expect(mockLogAction).toHaveBeenCalledWith('src.set', { uid: 'qq:B', kind: 'url', ext: 'blob' });
+		fake.fire('progress');
+		expect(mockLogAction.mock.calls.filter(([ev]) => ev === 'media.progress')).toHaveLength(2);
+	});
+});
+
+// ── cover pin (quick-260915-w4f) ────────────────────────────────────────────────────────────────
+// A PIN is the cover the user explicitly chose in the TrackMenu picker. The contract this block
+// pins down is precedence + immunity: the pin leads EVERY cover seed in the store (ahead of the
+// attached album cover and ahead of track.cover), it is never leaked into the shared name layer, no
+// resolver preference can displace it (no Deezer HQ upgrade, no Last.fm adoptCover swap) — and the
+// single exception is healCover's FAILED IMAGE PROBE, which unpins because a pin names a URL and a
+// dead URL can no longer deliver what the user chose.
+//
+// mockGetPinned is reset to null in beforeEach so nothing here leaks into the rest of the file.
+describe('cover pin (quick-260915-w4f)', () => {
+	const PIN = 'https://pin/chosen.jpg';
+	let el: ReturnType<typeof makeFakeAudio>;
+	let images: Array<{ src: string; onload: (() => void) | null; onerror: (() => void) | null }>;
+
+	const rc = () => (player as unknown as { resolvedCover: string | null }).resolvedCover;
+	const rawCover = (key: string): string | null => {
+		const rec = JSON.parse(localStorage.getItem('openmusic:cover-cache:v1') ?? '{}');
+		const v = rec[key];
+		if (typeof v === 'string') return v;
+		return v && typeof v.u === 'string' ? v.u : null;
+	};
+	const fireProbe = (ok: boolean) => {
+		const img = images[images.length - 1];
+		if (ok) img.onload?.();
+		else img.onerror?.();
+	};
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockUidCover.mockReset().mockReturnValue(null);
+		mockNameCover.mockReset().mockReturnValue(null);
+		mockResolveCover.mockReset().mockResolvedValue(null);
+		mockRemoveCoverBoth.mockClear();
+		mockCandidates.mockReset().mockResolvedValue([]);
+		__resetDeadCoverUrls();
+		mockUnpinCover.mockClear();
+		mockGetPinned.mockReset().mockReturnValue(null); // unpinned by default — no leak into other suites
+		localStorage.clear();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = null;
+		(player as unknown as { attachedCover: unknown }).attachedCover = null;
+		(player as unknown as { healProbed: Set<string> }).healProbed.clear();
+
+		images = [];
+		vi.stubGlobal(
+			'Image',
+			vi.fn(function (this: Record<string, unknown>) {
+				const img = { src: '', onload: null, onerror: null, decoding: '', referrerPolicy: '' };
+				images.push(img);
+				return img;
+			})
+		);
+		vi.stubGlobal('navigator', {
+			onLine: true,
+			mediaSession: {
+				metadata: null,
+				playbackState: 'none',
+				setPositionState: () => {},
+				setActionHandler: () => {}
+			}
+		});
+		vi.stubGlobal('MediaMetadata', FakeMediaMetadata);
+		coverMetadataSink = [];
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		vi.spyOn(library, 'adoptCover').mockImplementation(() => {});
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it('play() seeds resolvedCover from the PIN, ahead of track.cover', () => {
+		mockGetPinned.mockReturnValue(PIN);
+		const t = { ...stub('netease', 'P1', 'Artist', 'Song'), cover: 'https://src/s.jpg' };
+		mockEnsure.mockReturnValue(new Promise(() => {})); // never settles — the seed is synchronous
+		void player.play(t);
+		expect(rc()).toBe(PIN);
+	});
+
+	it('play() does NOT write a pinned cover into either cache layer (no name-layer leak)', () => {
+		mockGetPinned.mockReturnValue(PIN);
+		const t = { ...stub('netease', 'P2', 'Artist', 'Song'), cover: 'https://src/s.jpg' };
+		mockEnsure.mockReturnValue(new Promise(() => {}));
+		void player.play(t);
+		// The name layer is SHARED across uids — a pin there would repaint every same-named song.
+		expect(rawCover(coverCacheKey('Artist', 'Song'))).toBeNull();
+		expect(rawCover(uidCoverCacheKey(t.uid))).toBeNull();
+	});
+
+	it('play() still writes both layers for an UNPINNED track (Site A unchanged)', () => {
+		const t = { ...stub('netease', 'P3', 'Artist', 'Song'), cover: 'https://src/s.jpg' };
+		mockEnsure.mockReturnValue(new Promise(() => {}));
+		void player.play(t);
+		expect(rc()).toBe('https://src/s.jpg');
+		expect(rawCover(coverCacheKey('Artist', 'Song'))).toBe('https://src/s.jpg');
+	});
+
+	it('a pinned uid keeps the PIN after play resolves — no cover call (Phase 40 D-11a)', async () => {
+		mockGetPinned.mockReturnValue(PIN);
+		const t = { ...stub('netease', 'P4', 'Artist', 'Song'), cover: 'https://src/s.jpg' };
+		mockEnsure.mockResolvedValue({
+			...mk('netease', 'P4', 'Artist', 'Song'),
+			cover: 'https://src/s.jpg',
+			audioUrl: 'https://cdn/4.mp3'
+		});
+		await player.play(t);
+		await flush();
+		expect(mockResolveCover).not.toHaveBeenCalled();
+		expect(rc()).toBe(PIN);
+	});
+
+	it('an UNPINNED track with an https inline cover keeps it — no automatic upgrade (Phase 40 D-11a)', async () => {
+		const t = { ...stub('netease', 'P5', 'Artist', 'Song'), cover: 'https://src/s.jpg' };
+		mockEnsure.mockResolvedValue({
+			...mk('netease', 'P5', 'Artist', 'Song'),
+			cover: 'https://src/s.jpg',
+			audioUrl: 'https://cdn/5.mp3'
+		});
+		await player.play(t);
+		await flush();
+		expect(mockResolveCover).not.toHaveBeenCalled();
+		expect(rc()).toBe('https://src/s.jpg');
+	});
+
+	it('adoptCover REFUSES a non-pin url when the uid is pinned (Last.fm swap cannot displace a pin)', () => {
+		const cur = mk('netease', 'P6', 'Artist', 'Song');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = PIN;
+		mockGetPinned.mockReturnValue(PIN);
+
+		player.adoptCover(cur.uid, 'https://lastfm.freetls.fastly.net/i/u/300x300/big.jpg');
+
+		expect(rc()).toBe(PIN); // unchanged
+		expect(rawCover(coverCacheKey('Artist', 'Song'))).toBeNull(); // and nothing was cached
+	});
+
+	it('adoptCover(uid, <the pin url>) adopts it + refreshes the OS metadata, without a cache write', () => {
+		const cur = mk('netease', 'P7', 'Artist', 'Song');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://src/old.jpg';
+		mockGetPinned.mockReturnValue(PIN);
+
+		player.adoptCover(cur.uid, PIN);
+
+		// This is the path the cover picker uses: pin → adoptCover → hero/Nowbar/media card repaint.
+		expect(rc()).toBe(PIN);
+		const md = (navigator as unknown as { mediaSession: { metadata: { artwork: Array<{ src: string }> } | null } })
+			.mediaSession.metadata;
+		expect(md?.artwork.some((a) => a.src === PIN)).toBe(true);
+		// pinCover already bumped the reactive signal, and the pin must not reach the name layer.
+		expect(rawCover(coverCacheKey('Artist', 'Song'))).toBeNull();
+	});
+
+	it('healCover UNPINS when the pinned url genuinely fails to load, then re-resolves fresh art', async () => {
+		const t = mk('netease', 'P8', 'Artist', 'Song');
+		player.current = t;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = PIN;
+		mockGetPinned.mockReturnValue(PIN);
+		mockResolveCover.mockResolvedValue('https://cdn/fresh.jpg');
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(false); // the pinned URL is dead
+		await flush(); // chain settles → fresh-url verification probe constructed
+		fireProbe(true); // fresh loads → verified real, committed
+		await p;
+		await flush();
+
+		expect(mockUnpinCover).toHaveBeenCalledWith(t.uid);
+		expect(mockRemoveCoverBoth).toHaveBeenCalledWith(t.uid, 'Artist', 'Song');
+		expect(rc()).toBe('https://cdn/fresh.jpg');
+	});
+
+	it('healCover leaves the pin ALONE when the probe loads (only a dead URL unpins)', async () => {
+		const t = mk('netease', 'P9', 'Artist', 'Song');
+		player.current = t;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = PIN;
+		mockGetPinned.mockReturnValue(PIN);
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(true); // alive
+		await p;
+		await flush();
+
+		expect(mockUnpinCover).not.toHaveBeenCalled();
+		expect(mockRemoveCoverBoth).not.toHaveBeenCalled();
+		expect(rc()).toBe(PIN);
+	});
+
+	it('healCover does NOT unpin when the dead url is not the pin (a different displayed cover died)', async () => {
+		// quick-261020-hcvr: the pin leads displayCover, so a dead NON-pin painted url only exists
+		// with no pin set — the heal then repairs without touching any pin.
+		const t = mk('netease', 'PA', 'Artist', 'Song');
+		player.current = t;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://cdn/other-dead.jpg';
+		mockGetPinned.mockReturnValue(null);
+		mockResolveCover.mockResolvedValue('https://cdn/fresh.jpg');
+
+		const p = player.healCover(t.uid);
+		await flush();
+		fireProbe(false);
+		await flush(); // fresh-url verification probe constructed
+		fireProbe(true);
+		await p;
+		await flush();
+
+		expect(mockUnpinCover).not.toHaveBeenCalled();
+		expect(rc()).toBe('https://cdn/fresh.jpg');
+	});
+
+	it('restore() seeds resolvedCover from the PIN, ahead of the persisted target.cover', async () => {
+		const cur = mk('netease', 'PB', 'Artist', 'Song');
+		localStorage.setItem(
+			'openmusic:player:v1',
+			JSON.stringify({
+				v: 1,
+				current: {
+					uid: cur.uid,
+					source: cur.source,
+					songid: cur.songid,
+					title: cur.title,
+					artist: cur.artist,
+					album: cur.album,
+					cover: 'https://src/persisted.jpg',
+					quality: cur.quality,
+					qualityLabel: cur.qualityLabel,
+					keyword: cur.keyword,
+					displayIndex: cur.displayIndex
+				},
+				queue: [],
+				currentTime: 0,
+				shuffle: false
+			})
+		);
+		mockGetPinned.mockReturnValue(PIN);
+		mockEnsure.mockResolvedValue({ ...cur, audioUrl: 'https://cdn/pb.mp3', detailsLoaded: true });
+
+		await player.restore();
+
+		expect(rc()).toBe(PIN);
+	});
+});
+
+// Phase 37 (37-D-01..07). The offline-blob branch of play() used to `return` 225 lines above the
+// cover chain and the fresh-play up-next branch, so EVERY locally-served track — an imported
+// `device:` file or an ordinary download — silently lost its cover, its lyrics and its Up-Next.
+// Plan 02 removed that return and added an embedded-first enrichment in front of the network
+// fallbacks. Nothing asserted any of it, and this store has three documented loop incidents, so
+// what keeps the fall-through honest over time is a suite that drives the REAL play() against a
+// fake <audio> and pins what enrichment may and may NOT touch.
+//
+// The highest-value case is the 34-D-01 regression: a `device:` uid has no upstream to resolve, so
+// a device play must never call ensureTrackDetails and `current.audioUrl` must stay null.
+describe('player.play — offline-served enrichment (Phase 37, 37-D-01..07)', () => {
+	let el: ReturnType<typeof makeFakeAudio>;
+	const DEV_ID = '4242';
+	const devUid = deviceUid(DEV_ID);
+	const PNG = 'data:image/png;base64,AAAA';
+
+	/** An imported MediaStore row as it reaches play(): device uid, no url, no cover, no lyrics. */
+	const dev = (id: string, artist = 'Adele', title = 'Hello'): Track => ({
+		...mk('kuwo', id, artist, title),
+		uid: deviceUid(id),
+		audioUrl: null,
+		resolvedAt: undefined,
+		cover: null,
+		lrc: null
+	});
+
+	/** Install a one-track downloads queue and drive the REAL fresh play through the blob branch. */
+	const playFresh = async (t: Track) => {
+		player.setQueue([t], 'downloads');
+		await player.play(t, { fresh: true });
+		await flush();
+	};
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockResolvedValue(mk('kuwo', 'unused', 'U', 'U'));
+		mockBlobGet.mockReset().mockResolvedValue(new Blob([new Uint8Array(16)]));
+		mockLocal.mockReset().mockResolvedValue({ lrc: null, art: null });
+		mockLyricByName.mockReset().mockResolvedValue(null);
+		mockResolveCover.mockReset().mockResolvedValue(null);
+		// play() re-seeds resolvedCover from pin → attached → track.cover → uid cache → name cache on
+		// EVERY entry, so clearing the field is not enough: the three sync reads are module-scope
+		// vi.fn()s that earlier suites in this file leave pointing at a cover. A stale hit here makes
+		// postPlayCover's renderable gate skip the chain, which would silently pass every
+		// "the fallback did NOT fire" assertion below for the wrong reason.
+		mockGetPinned.mockReset().mockReturnValue(null);
+		mockUidCover.mockReset().mockReturnValue(null);
+		mockNameCover.mockReset().mockReturnValue(null);
+		// A 3-track tail keeps the queue more than 2 ahead of current, so primeNext's ensureAhead is a
+		// no-op and buildSimilarQueue's call count means "regenerate ran", nothing else.
+		mockSimilar.mockReset().mockResolvedValue([
+			mk('kuwo', 's1', 'B', 'One'),
+			mk('kuwo', 's2', 'C', 'Two'),
+			mk('kuwo', 's3', 'D', 'Three')
+		]);
+		mockPicks.mockReset().mockResolvedValue([]);
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		player.resolvedCover = null;
+		player.upNextAnchorUid = null;
+		// The up-next mode is read off the singleton, which earlier suites may have moved.
+		settings.upnextMode = 'generated';
+		settings.upnextPerContext = { album: 'same-list' };
+		vi.stubGlobal('navigator', { onLine: true });
+		vi.stubGlobal('URL', { createObjectURL: () => 'blob:local-bytes', revokeObjectURL: vi.fn() });
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(true);
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		mockLocal.mockReset();
+		mockLyricByName.mockReset();
+	});
+
+	it('34-D-01: a device play never calls ensureTrackDetails and never acquires an audioUrl', async () => {
+		// THE regression. catalog.ts hands a `device:` track straight back, so any resolve is at best a
+		// wasted round-trip — and at worst, if that guard ever moves, a url adopted for bytes that only
+		// exist on the user's own disk. The enrichment added in plan 02 must stay url-free by shape:
+		// it reads tags and walks lyrics BY NAME, and neither can produce an audioUrl.
+		const t = dev(DEV_ID);
+
+		await playFresh(t);
+		await flush();
+
+		expect(mockEnsure).not.toHaveBeenCalled();
+		expect(player.current?.uid).toBe(devUid);
+		expect(player.current?.audioUrl).toBeNull();
+		expect(el.src).toBe('blob:local-bytes');
+	});
+
+	it('37-D-01: a device play reaches regenerate and anchors Up-Next at the device uid', async () => {
+		const t = dev(DEV_ID);
+
+		await playFresh(t);
+		await flush();
+
+		expect(mockSimilar).toHaveBeenCalledTimes(1);
+		expect((mockSimilar.mock.calls[0][0] as Track).uid).toBe(devUid);
+		expect(player.upNextAnchorUid).toBe(devUid);
+		expect(player.queue.map((q) => q.uid)).toContain('kuwo:s1');
+	});
+
+	it("the file's own LRC + front cover land, and NEITHER network fallback fires", async () => {
+		// Embedded-first (37-D-04): the zero-network read is the GATE. When the file supplies both,
+		// the cover chain and the lyric walk must not run at all.
+		const d = deferred<LocalEnrichment>();
+		mockLocal.mockReturnValue(d.promise);
+		const t = dev(DEV_ID);
+
+		await playFresh(t);
+		const srcAfterPlay = el.src; // the ONE src this play may assign
+
+		d.resolve({ lrc: '[00:01]x', art: PNG });
+		await flush();
+		await flush();
+
+		expect(player.current?.lrc).toBe('[00:01]x');
+		expect(player.resolvedCover?.startsWith('data:image/png')).toBe(true);
+		expect(mockResolveCover).not.toHaveBeenCalled();
+		expect(mockLyricByName).not.toHaveBeenCalled();
+		// T-37-05: a ~400 KB data: URL in the localStorage cover cache silently stops ALL cover
+		// caching for the session (its writer swallows QuotaExceededError). resolvedCover is the
+		// memory-only home for embedded art; the cache stays https-only.
+		expect(localStorage.getItem('openmusic:cover-cache:v1') ?? '').not.toContain('data:');
+		// T-37-06: enrichment is a patch, never a re-drive — the blob src is not re-assigned.
+		expect(el.src).toBe(srcAfterPlay);
+	});
+
+	it('a tag miss on a device track routes to lyricByName + the cover chain, still never to ensureTrackDetails', async () => {
+		mockLocal.mockResolvedValue({ lrc: null, art: null });
+		mockLyricByName.mockResolvedValue('[00:05]by-name');
+		const t = dev(DEV_ID);
+
+		await playFresh(t);
+		await flush();
+		await flush();
+
+		expect(mockLyricByName).toHaveBeenCalledExactlyOnceWith(
+			'Adele',
+			'Hello',
+			expect.any(AbortSignal)
+		);
+		expect(mockResolveCover).toHaveBeenCalledTimes(1);
+		expect(mockEnsure).not.toHaveBeenCalled(); // 34-D-01 holds on the fallback path too
+		expect(player.current?.lrc).toBe('[00:05]by-name');
+	});
+
+	it('37-D-01: an ORDINARY download gets the cover chain, the up-next AND the pre-existing lrcUnresolved backfill', async () => {
+		// The fall-through is deliberately un-gated on isDeviceUid — a downloaded kuwo track hit the
+		// same `return` and lost the same two features. Its lyric backfill keeps the pre-existing
+		// ensureTrackDetails path (it HAS an upstream), which is the half 34-D-01 does not apply to.
+		mockLocal.mockResolvedValue({ lrc: null, art: null });
+		const t: Track = { ...mk('kuwo', 'k1', 'Adele', 'Hello'), cover: null, lrc: null };
+
+		await playFresh(t);
+		await flush();
+		await flush();
+
+		expect(mockEnsure).toHaveBeenCalledWith(
+			expect.objectContaining({ uid: t.uid, lrcUnresolved: true, detailsLoaded: false })
+		);
+		expect(mockSimilar).toHaveBeenCalledTimes(1);
+		expect((mockSimilar.mock.calls[0][0] as Track).uid).toBe(t.uid);
+		expect(mockResolveCover).toHaveBeenCalledTimes(1);
+		expect(mockLyricByName).not.toHaveBeenCalled(); // not a device uid
+	});
+
+	it('a superseding play() during the tag read discards the stale lrc + cover write', async () => {
+		const d = deferred<LocalEnrichment>();
+		mockLocal.mockReturnValue(d.promise);
+		const t = dev(DEV_ID);
+		const other = stub('kuwo', 'other', 'B', 'T');
+		// Only the device file is local — the superseding play takes the ordinary network branch.
+		vi.mocked(library.isDownloaded).mockImplementation((uid: string) => uid === devUid);
+		mockEnsure.mockResolvedValue({ ...mk('kuwo', 'other', 'B', 'T'), audioUrl: 'https://cdn/o.mp3' });
+
+		await playFresh(t);
+		await player.play(other, { fresh: true }); // bumps playGen — the device read is now stale
+		await flush();
+
+		d.resolve({ lrc: '[00:01]stale', art: PNG });
+		await flush();
+		await flush();
+
+		expect(player.current?.uid).toBe('kuwo:other');
+		expect(player.current?.lrc).not.toBe('[00:01]stale');
+		expect(player.resolvedCover?.startsWith('data:')).not.toBe(true);
+	});
+
+	it('37-D-05: a recovered artist/title is QUERY-ONLY — it drives the fallbacks, never player.current', async () => {
+		// MediaStore maps an untagged file's artist to '', which degenerates every name lookup. The
+		// file's own tags recover it for THIS play's queries only: a re-import carries just `cover`
+		// across, so a persisted recovered name would be blanked by the next scan.
+		mockLocal.mockResolvedValue({ lrc: null, art: null, artist: 'Recovered', title: 'Name' });
+		const t = dev(DEV_ID, 'Adele', 'Hello');
+
+		await playFresh(t);
+		await flush();
+		await flush();
+
+		expect(mockLyricByName).toHaveBeenCalledExactlyOnceWith(
+			'Recovered',
+			'Name',
+			expect.any(AbortSignal)
+		);
+		expect(mockResolveCover).toHaveBeenCalledWith(
+			expect.objectContaining({ artist: 'Recovered', title: 'Name' })
+		);
+		expect(player.current?.artist).toBe('Adele');
+		expect(player.current?.title).toBe('Hello');
+	});
+
+	it('T-37-06: enrichment bumps no generation — playGen is unchanged after the tags land', async () => {
+		const d = deferred<LocalEnrichment>();
+		mockLocal.mockReturnValue(d.promise);
+		const t = dev(DEV_ID);
+
+		await playFresh(t);
+		const genAfterPlay = (player as unknown as { playGen: number }).playGen;
+
+		d.resolve({ lrc: '[00:01]x', art: PNG });
+		await flush();
+		await flush();
+
+		expect((player as unknown as { playGen: number }).playGen).toBe(genAfterPlay);
+	});
+});
+
+
+// ── quick-260919-3j1 (F3) — a downloaded song's lyrics end up in its own file ─────────────────
+//
+// Two halves, both about NOT doing work that cannot help:
+//   (a) offline, `backfillLyrics` fires no walk at all — up to ~5 source rungs that cannot succeed,
+//       behind which the pane would show nothing anyway;
+//   (b) online, a SUCCESSFUL backfill for a song this app holds a copy of writes those lyrics into
+//       the file, so the next play needs no network for lyrics. This is the only AUTOMATIC file
+//       writer in the app, so its five gates are what this suite exists to pin.
+describe('player — the automatic lyric embed (quick-260919-3j1, F3)', () => {
+	let el: ReturnType<typeof makeFakeAudio>;
+	const DL = mk('kuwo', 'dl1', 'Adele', 'Hello');
+
+	/** Reach into the private per-session attempt Set so each case starts clean. */
+	const clearTried = () =>
+		(player as unknown as { lyricEmbedTried: Set<string> }).lyricEmbedTried.clear();
+
+	const playFresh = async (t: Track) => {
+		player.setQueue([t], 'downloads');
+		await player.play(t, { fresh: true });
+		await flush();
+		await flush();
+	};
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockResolvedValue(mk('kuwo', 'unused', 'U', 'U'));
+		mockBlobGet.mockReset().mockResolvedValue(new Blob([new Uint8Array(16)]));
+		mockLocal.mockReset().mockResolvedValue({ lrc: null, art: null });
+		mockLyricByName.mockReset().mockResolvedValue(null);
+		mockResolveCover.mockReset().mockResolvedValue(null);
+		mockGetPinned.mockReset().mockReturnValue(null);
+		mockUidCover.mockReset().mockReturnValue(null);
+		mockNameCover.mockReset().mockReturnValue(null);
+		mockSimilar.mockReset().mockResolvedValue([]);
+		mockPicks.mockReset().mockResolvedValue([]);
+		mockSyncFileTags.mockReset().mockResolvedValue('tagged');
+		clearTried();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		player.resolvedCover = null;
+		player.upNextAnchorUid = null;
+		settings.upnextMode = 'generated';
+		vi.stubGlobal('navigator', { onLine: true });
+		vi.stubGlobal('URL', { createObjectURL: () => 'blob:local-bytes', revokeObjectURL: vi.fn() });
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(true);
+		library.downloads = [DL, { ...mk('kuwo', 'dev', 'Adele', 'Hello'), uid: deviceUid('77') }];
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		library.downloads = [];
+		clearTried();
+	});
+
+	// ── (a) D-5: offline fires NO walk at all ──────────────────────────────────────────────────
+	it('offline: NEITHER ensureTrackDetails NOR lyricByName is called, and current is untouched', async () => {
+		vi.stubGlobal('navigator', { onLine: false });
+		await playFresh(DL);
+
+		expect(mockEnsure).not.toHaveBeenCalled();
+		expect(mockLyricByName).not.toHaveBeenCalled();
+		expect(player.current?.lrc).toBeNull();
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+	});
+
+	it('offline: a DEVICE track fires no name walk either', async () => {
+		vi.stubGlobal('navigator', { onLine: false });
+		const d: Track = { ...mk('kuwo', '77', 'Adele', 'Hello'), uid: deviceUid('77'), audioUrl: null, lrc: null };
+		await playFresh(d);
+
+		expect(mockLyricByName).not.toHaveBeenCalled();
+		expect(mockEnsure).not.toHaveBeenCalled();
+	});
+
+	it('an environment with no navigator.onLine property reads as ONLINE, never offline', async () => {
+		vi.stubGlobal('navigator', {});
+		mockEnsure.mockResolvedValue({ ...DL, lrc: '[00:01]words' });
+		await playFresh(DL);
+
+		expect(mockEnsure).toHaveBeenCalled();
+	});
+
+	// ── (b) the embed ──────────────────────────────────────────────────────────────────────────
+	it('online: a successful backfill for a DOWNLOADED uid calls syncFileTags ONCE with that LRC', async () => {
+		mockEnsure.mockResolvedValue({ ...DL, lrc: '[00:01]words' });
+		await playFresh(DL);
+
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+		const entry = mockSyncFileTags.mock.calls[0][0];
+		expect(entry.uid).toBe(DL.uid);
+		expect(entry.lyrics).toBe('[00:01]words');
+		// No filename: the sticky base in blob-store is what preserves a user-typed name.
+		expect(entry.filename).toBeUndefined();
+		expect(player.current?.lrc).toBe('[00:01]words');
+	});
+
+	it('the SAME uid does not trigger a second embed later in the session, whatever the first outcome', async () => {
+		mockSyncFileTags.mockResolvedValue('put-failed');
+		mockEnsure.mockResolvedValue({ ...DL, lrc: '[00:01]words' });
+		await playFresh(DL);
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+
+		player.current = null;
+		await playFresh(DL);
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+	});
+
+	// quick-260919-ejm — THIS IS NOW THE ONLY GUARD, not the second one.
+	//
+	// The test name used to read "retagOne refuses it too", and that is no longer true: `retagOne`
+	// writes an imported file in place now, on the user's explicit authorisation. So this guard
+	// stopped being belt-and-braces the moment that refusal was lifted, and it is what keeps D-6
+	// true — `embedLyricsIntoFile` is the ONLY automatic file writer in the app, and a user-file
+	// rewrite must happen from exactly two EXPLICIT gestures (Edit metadata -> Save, and the
+	// confirmed Settings sweep), never from a lyric fetch landing during playback.
+	it('a device: uid NEVER reaches syncFileTags — the automatic writer must not touch a user file', async () => {
+		const d: Track = { ...mk('kuwo', '77', 'Adele', 'Hello'), uid: deviceUid('77'), audioUrl: null, lrc: null };
+		mockLyricByName.mockResolvedValue('[00:05]by-name');
+		await playFresh(d);
+
+		expect(player.current?.lrc).toBe('[00:05]by-name'); // the patch still happens
+		expect(mockSyncFileTags).not.toHaveBeenCalled(); // the WRITE does not
+	});
+
+	it('a uid that is NOT in library.downloads never reaches syncFileTags', async () => {
+		vi.mocked(library.isDownloaded).mockReturnValue(false);
+		// quick-261114-fsync: the embed is twin-aware now, so "no downloaded copy" must ALSO empty
+		// the downloads list — the suite's DL row is the same song (Adele/Hello), and a twin copy
+		// under another uid is exactly what the fsync embed writes into.
+		library.downloads = [];
+		const t = mk('kuwo', 'stream1', 'Adele', 'Hello');
+		mockEnsure.mockResolvedValue({ ...t, lrc: '[00:01]words' });
+		// A streaming play still backfills lyrics on a cache hit; it just has no file to write into.
+		player.setQueue([t], 'downloads');
+		await player.play({ ...t, lrc: null }, { fresh: true });
+		await flush();
+		await flush();
+
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+	});
+
+	it('a backfill that lands AFTER the track changed patches nothing and writes nothing', async () => {
+		const d = deferred<Track>();
+		mockEnsure.mockReturnValueOnce(d.promise);
+		const other = mk('kuwo', 'other', 'B', 'T');
+
+		await playFresh(DL);
+		mockEnsure.mockResolvedValue({ ...other, audioUrl: 'https://cdn/o.mp3' });
+		await player.play(other, { fresh: true }); // bumps playGen
+		await flush();
+
+		d.resolve({ ...DL, lrc: '[00:01]stale' });
+		await flush();
+		await flush();
+
+		expect(player.current?.uid).toBe(other.uid);
+		expect(player.current?.lrc).not.toBe('[00:01]stale');
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+	});
+
+	it('playback is never awaited on: a REJECTING embed cannot escape, and audio.src is untouched', async () => {
+		mockSyncFileTags.mockRejectedValue(new Error('wasm exploded'));
+		mockEnsure.mockResolvedValue({ ...DL, lrc: '[00:01]words' });
+
+		await playFresh(DL);
+		const srcAfterPlay = el.src;
+		await flush();
+		await flush();
+
+		expect(el.src).toBe(srcAfterPlay);
+		expect(player.current?.lrc).toBe('[00:01]words'); // the patch survived the failed write
+		expect(player.error).toBeNull();
+	});
+
+	it('the embed bumps no generation', async () => {
+		mockEnsure.mockResolvedValue({ ...DL, lrc: '[00:01]words' });
+		await playFresh(DL);
+		const gen = (player as unknown as { playGen: number }).playGen;
+		await flush();
+		await flush();
+		expect((player as unknown as { playGen: number }).playGen).toBe(gen);
+	});
+
+	it('the entry carries the library row\'s own display strings, not a bare catalog echo', async () => {
+		library.downloads = [{ ...DL, title: 'Edited Title', artist: 'Edited Artist', album: 'Al' }];
+		mockEnsure.mockResolvedValue({ ...DL, lrc: '[00:01]words' });
+		await playFresh(DL);
+
+		const entry = mockSyncFileTags.mock.calls[0][0];
+		expect(entry.title).toBe('Edited Title');
+		expect(entry.artist).toBe('Edited Artist');
+	});
+
+	// ── quick-261114-fsync: the embed is TWIN-AWARE ────────────────────────────────────────────
+	// The song plays under source B's uid while its file sits under source A's. The old exact-uid
+	// checks wrote nothing; the embed must land on the DOWNLOAD record (uid + names), with the
+	// one-shot budget keyed by the download uid.
+	it('twin: a backfill for a song downloaded under ANOTHER source uid embeds into the TWIN file', async () => {
+		// The suite-wide isDownloaded stub answers true for ANY uid, which short-circuits
+		// downloadUidFor's twin walk at its exact-uid branch — restore the real one so the twin
+		// resolution (and the record lookup under the DOWNLOAD uid) is what runs.
+		vi.mocked(library.isDownloaded).mockRestore();
+		const twin = mk('netease', 'twin1', 'Adele', 'Hello'); // same song, other source
+		mockEnsure.mockResolvedValue({ ...twin, lrc: '[00:02]twin-words' });
+		player.setQueue([twin], 'search');
+		await player.play(twin, { fresh: true });
+		await flush();
+		await flush();
+
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+		const entry = mockSyncFileTags.mock.calls[0][0];
+		expect(entry.uid).toBe(DL.uid); // the DOWNLOAD record's uid, not the playing twin's
+		expect(entry.lyrics).toBe('[00:02]twin-words');
+		expect(entry.filename).toBeUndefined();
+	});
+});
+
+// ── quick-261116-lyrux (Fix 3) — a COMPLETED translation updates the downloaded file ──────────
+//
+// NpLyrics calls player.syncTranslatedLyricsToFile(uid, lang, lrc) at the moment a
+// translation completes (all chunks genuine — the same moment its trCache freezes).
+// These cases pin the writer's gates directly: downloaded → written once per
+// (uid, lang); not downloaded / device / pinned → never written. (The "incomplete
+// translation never calls it" half lives on the NpLyrics side of the seam.)
+describe('player — the automatic translated-lyric file sync (quick-261116-lyrux)', () => {
+	let el: ReturnType<typeof makeFakeAudio>;
+	const DL = mk('kuwo', 'dl1', 'Adele', 'Hello');
+	const TR_LRC = '[00:01.00]你好\n[00:02.00]今晚';
+
+	/** Reach into the private per-session attempt Set so each case starts clean. */
+	const clearTried = () =>
+		(player as unknown as { translatedSyncTried: Set<string> }).translatedSyncTried.clear();
+
+	beforeEach(() => {
+		mockSyncFileTags.mockReset().mockResolvedValue('tagged');
+		clearTried();
+		player.current = DL;
+		player.queue = [DL];
+		player.error = null;
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(true);
+		library.downloads = [DL];
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+	});
+
+	afterEach(() => {
+		library.downloads = [];
+		player.current = null;
+		clearTried();
+		removePinnedLyrics(DL.uid);
+	});
+
+	it('downloaded + complete: syncFileTags fires ONCE with the translated LRC', () => {
+		player.syncTranslatedLyricsToFile(DL.uid, 'zh-Hant', TR_LRC);
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+		const entry = mockSyncFileTags.mock.calls[0][0];
+		expect(entry.uid).toBe(DL.uid);
+		expect(entry.lyrics).toBe(TR_LRC);
+		expect(entry.filename).toBeUndefined();
+	});
+
+	it('the same (uid, lang) never syncs twice in a session; a new lang syncs once more', () => {
+		player.syncTranslatedLyricsToFile(DL.uid, 'zh-Hant', TR_LRC);
+		player.syncTranslatedLyricsToFile(DL.uid, 'zh-Hant', TR_LRC);
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+		player.syncTranslatedLyricsToFile(DL.uid, 'en', '[00:01.00]Hello');
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(2);
+	});
+
+	it('not downloaded: never written', () => {
+		vi.mocked(library.isDownloaded).mockReturnValue(false);
+		library.downloads = [];
+		player.syncTranslatedLyricsToFile(DL.uid, 'zh-Hant', TR_LRC);
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+	});
+
+	it('a device: download twin is never written', () => {
+		const dev = { ...mk('kuwo', 'dev', 'Adele', 'Hello'), uid: deviceUid('77') };
+		player.current = dev;
+		library.downloads = [dev];
+		player.syncTranslatedLyricsToFile(dev.uid, 'zh-Hant', TR_LRC);
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+	});
+
+	it('a lyric PIN outranks the translation — the file keeps its pin', () => {
+		setPinnedLyrics(DL.uid, '[00:09.00]pinned');
+		player.syncTranslatedLyricsToFile(DL.uid, 'zh-Hant', TR_LRC);
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+	});
+
+	it('an empty LRC is a no-op, and a rejecting sync cannot escape', async () => {
+		player.syncTranslatedLyricsToFile(DL.uid, 'zh-Hant', '');
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+		mockSyncFileTags.mockRejectedValue(new Error('wasm exploded'));
+		expect(() => player.syncTranslatedLyricsToFile(DL.uid, 'zh-Hant', TR_LRC)).not.toThrow();
+		await flush();
+	});
+});
+
+describe('player — the automatic cover file sync (quick-261114-fsync)', () => {
+	let el: ReturnType<typeof makeFakeAudio>;
+	let images: Array<{ src: string; onload: (() => void) | null; onerror: (() => void) | null; decoding: string; referrerPolicy: string }>;
+	// The download record carries EDITED display strings so an entry built from the playing
+	// track's catalog strings (instead of the record) fails the assertions below.
+	const DLREC = { ...mk('kuwo', 'cdl1', 'Adele', 'Hello'), title: 'Edited Title', artist: 'Edited Artist', album: 'Edited Album' };
+	const CUR = mk('kuwo', 'cdl1', 'Adele', 'Hello');
+
+	const clearCoverTried = () =>
+		(player as unknown as { coverFileSyncTried: Set<string> }).coverFileSyncTried.clear();
+	const rc = () => (player as unknown as { resolvedCover: string | null }).resolvedCover;
+	const setCurrent = (t: Track, cover: string | null) => {
+		player.current = t;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = cover;
+	};
+	/** Fire the most-recently-constructed probe Image's onload/onerror (healCover's probe). */
+	const fireProbe = (ok: boolean) => {
+		const img = images[images.length - 1];
+		if (ok) img.onload?.();
+		else img.onerror?.();
+	};
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockResolvedValue(mk('kuwo', 'unused', 'U', 'U'));
+		mockUidCover.mockReset().mockReturnValue(null);
+		mockNameCover.mockReset().mockReturnValue(null);
+		mockResolveCover.mockReset().mockResolvedValue(null);
+		mockCandidates.mockReset().mockResolvedValue([]);
+		mockGetPinned.mockReset().mockReturnValue(null);
+		mockSyncFileTags.mockReset().mockResolvedValue('tagged');
+		__resetDeadCoverUrls();
+		(player as unknown as { healProbed: Set<string> }).healProbed.clear();
+		clearCoverTried();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = null;
+		library.downloads = [DLREC];
+		images = [];
+		const ImageCtor = vi.fn(function (this: Record<string, unknown>) {
+			const img = { src: '', onload: null, onerror: null, decoding: '', referrerPolicy: '' };
+			images.push(img);
+			return img;
+		});
+		vi.stubGlobal('Image', ImageCtor);
+		vi.stubGlobal('navigator', { onLine: true });
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		library.downloads = [];
+		clearCoverTried();
+	});
+
+	it('adoptCover on a DOWNLOADED song syncs the file ONCE with the new cover + download-record metadata', () => {
+		setCurrent(CUR, 'https://cdn/old.jpg');
+
+		player.adoptCover(CUR.uid, 'https://cdn/new.jpg');
+
+		expect(rc()).toBe('https://cdn/new.jpg');
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+		const entry = mockSyncFileTags.mock.calls[0][0];
+		expect(entry.uid).toBe(DLREC.uid);
+		expect(entry.cover).toBe('https://cdn/new.jpg');
+		// Built from the DOWNLOAD record, not the playing track's catalog strings.
+		expect(entry.title).toBe('Edited Title');
+		expect(entry.artist).toBe('Edited Artist');
+		expect(entry.album).toBe('Edited Album');
+		expect(entry.filename).toBeUndefined();
+	});
+
+	it('the SAME cover again does not sync a second time (one-shot per dlUid|url)', () => {
+		setCurrent(CUR, 'https://cdn/old.jpg');
+		player.adoptCover(CUR.uid, 'https://cdn/new.jpg');
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+
+		// A different cover lands in between, then the first url is adopted again — its key is
+		// already spent, so no second rewrite of the file for the same art.
+		player.adoptCover(CUR.uid, 'https://cdn/other.jpg');
+		player.adoptCover(CUR.uid, 'https://cdn/new.jpg');
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(2); // new.jpg once + other.jpg once
+	});
+
+	it('a DIFFERENT new cover syncs again (a new key, a real change)', () => {
+		setCurrent(CUR, 'https://cdn/old.jpg');
+		player.adoptCover(CUR.uid, 'https://cdn/new.jpg');
+		player.adoptCover(CUR.uid, 'https://cdn/newer.jpg');
+
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(2);
+		expect(mockSyncFileTags.mock.calls[1][0].cover).toBe('https://cdn/newer.jpg');
+	});
+
+	it('a PINNED (chosen) cover never auto-syncs — the pin gesture writes the file itself', () => {
+		mockGetPinned.mockReturnValue('https://cdn/pinned.jpg');
+		setCurrent(CUR, 'https://cdn/old.jpg');
+
+		player.adoptCover(CUR.uid, 'https://cdn/pinned.jpg'); // the pin itself, via the seam
+
+		expect(rc()).toBe('https://cdn/pinned.jpg'); // the adoption still happens
+		expect(mockSyncFileTags).not.toHaveBeenCalled(); // the automatic writer stays out of it
+	});
+
+	it('a device: uid never reaches syncFileTags, even when a device record sits in downloads', () => {
+		const dev = { ...mk('kuwo', '77', 'Adele', 'Hello'), uid: deviceUid('77') };
+		library.downloads = [dev];
+		setCurrent(dev, 'https://cdn/old.jpg');
+
+		player.adoptCover(dev.uid, 'https://cdn/new.jpg');
+
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+	});
+
+	it('a song with NO downloaded copy never syncs', () => {
+		library.downloads = [];
+		setCurrent(CUR, 'https://cdn/old.jpg');
+
+		player.adoptCover(CUR.uid, 'https://cdn/new.jpg');
+
+		expect(rc()).toBe('https://cdn/new.jpg'); // the in-app adoption is unaffected
+		expect(mockSyncFileTags).not.toHaveBeenCalled();
+	});
+
+	it('twin: the playing uid differs from the download uid — the entry targets the DOWNLOAD record', () => {
+		// Twin identity is name-based (isSameShelfSong), so this record keeps the catalog names —
+		// the distinguishing field is the album, which only the record carries.
+		library.downloads = [{ ...mk('kuwo', 'cdl1', 'Adele', 'Hello'), album: 'Twin Album' }];
+		const twin = mk('netease', 'ctwin1', 'Adele', 'Hello'); // same song, other source
+		setCurrent(twin, 'https://cdn/old.jpg');
+
+		player.adoptCover(twin.uid, 'https://cdn/new.jpg');
+
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+		const entry = mockSyncFileTags.mock.calls[0][0];
+		expect(entry.uid).toBe('kuwo:cdl1'); // the DOWNLOAD uid, not the playing twin's
+		expect(entry.album).toBe('Twin Album'); // built from the download record
+		expect(entry.cover).toBe('https://cdn/new.jpg');
+	});
+
+	it('healCover’s VERIFIED-fresh commit syncs the healed cover into the file', async () => {
+		setCurrent(CUR, 'https://cdn/dead.jpg');
+		mockResolveCover.mockResolvedValue('https://cdn/fresh.jpg');
+
+		const p = player.healCover(CUR.uid);
+		await flush(); // dead-url probe constructed
+		fireProbe(false); // painted cover is dead
+		await flush(); // chain settles → fresh-url verification probe constructed
+		fireProbe(true); // fresh art verified alive → committed
+		await p;
+		await flush();
+
+		expect(rc()).toBe('https://cdn/fresh.jpg');
+		expect(mockSyncFileTags).toHaveBeenCalledTimes(1);
+		const entry = mockSyncFileTags.mock.calls[0][0];
+		expect(entry.uid).toBe(DLREC.uid);
+		expect(entry.cover).toBe('https://cdn/fresh.jpg');
+	});
+});
+
+/**
+ * quick-260919-et3 — the user volume level, and its cooperation with the sleep-timer fade (D-02).
+ *
+ * The fade used to snapshot `audio.volume` at fade start and write it back on finish/abort. With a
+ * user-facing slider that snapshot clobbers in both directions, so `player.volume` is now the
+ * single source of truth: the ramp reads it every tick and the restore writes it. The mid-fade test
+ * is the one that would have caught the old behaviour.
+ */
+describe('volume — user level is the single source of truth (quick-260919-et3)', () => {
+	beforeEach(() => {
+		sleepTimer.cancel();
+		player.volume = 1;
+		player.muted = false;
+	});
+	afterEach(() => sleepTimer.cancel());
+
+	it('setVolume clamps, writes through to the element, and persists under openmusic:volume:v1', () => {
+		const audio = makeSleepAudio();
+		player.attach(audio as unknown as HTMLAudioElement);
+
+		player.setVolume(0.42);
+		expect(player.volume).toBeCloseTo(0.42);
+		expect(audio.volume).toBeCloseTo(0.42);
+		expect(JSON.parse(localStorage.getItem('openmusic:volume:v1') as string)).toEqual({
+			volume: 0.42,
+			muted: false
+		});
+
+		player.setVolume(5);
+		expect(player.volume).toBe(1);
+		player.setVolume(-3);
+		expect(player.volume).toBe(0);
+		player.setVolume(NaN); // garbage is ignored, not turned into NaN volume
+		expect(player.volume).toBe(0);
+	});
+
+	it('attach() restores the persisted level onto the fresh element', () => {
+		localStorage.setItem('openmusic:volume:v1', JSON.stringify({ volume: 0.3, muted: true }));
+		const audio = Object.assign(makeSleepAudio(), { muted: false });
+		player.attach(audio as unknown as HTMLAudioElement);
+
+		expect(player.volume).toBeCloseTo(0.3);
+		expect(player.muted).toBe(true);
+		expect(audio.volume).toBeCloseTo(0.3);
+		expect(audio.muted).toBe(true);
+	});
+
+	it('mute/unmute uses the native flag, so the level comes back untouched', () => {
+		const audio = Object.assign(makeSleepAudio(), { muted: false });
+		player.attach(audio as unknown as HTMLAudioElement);
+		player.setVolume(0.7);
+
+		player.toggleMute();
+		expect(audio.muted).toBe(true);
+		expect(player.volume).toBeCloseTo(0.7); // level never destroyed
+
+		player.toggleMute();
+		expect(audio.muted).toBe(false);
+		expect(audio.volume).toBeCloseTo(0.7); // ...so unmute restores exactly it
+	});
+
+	it('raising the slider off zero unmutes', () => {
+		const audio = Object.assign(makeSleepAudio(), { muted: false });
+		player.attach(audio as unknown as HTMLAudioElement);
+		player.toggleMute();
+		expect(player.muted).toBe(true);
+
+		player.setVolume(0.25);
+		expect(player.muted).toBe(false);
+		expect(audio.muted).toBe(false);
+	});
+
+	it('D-02 TRAP: a volume change mid-fade is NOT clobbered — the ramp follows it and the restore lands on it', () => {
+		vi.useFakeTimers();
+		try {
+			const audio = makeSleepAudio();
+			player.attach(audio as unknown as HTMLAudioElement);
+			sleepTimer.set('minutes', 5);
+			sleepTimer.deadline = Date.now() - 1;
+
+			audio.fire('timeupdate'); // arms the ~10s fade, ramping from player.volume (1)
+			vi.advanceTimersByTime(400);
+			expect(audio.volume).toBeGreaterThan(0.9); // ~1 * (1 - 0.04)
+
+			// The user drags the slider down to 0.5 WHILE the fade is running.
+			player.setVolume(0.5);
+			vi.advanceTimersByTime(400); // one/two more 200ms fade ticks
+
+			// The ramp re-read the new base: ~0.5 * (1 - 0.08), not ~0.92 (old snapshot) and not
+			// 0.5 flat (a naive element write that ignored the fade).
+			expect(audio.volume).toBeLessThan(0.5);
+			expect(audio.volume).toBeGreaterThan(0.4);
+
+			// ...and the end-of-fade restore lands on the USER's level, not the pre-fade 1.
+			vi.advanceTimersByTime(10_000);
+			expect(audio.pause).toHaveBeenCalled();
+			expect(audio.volume).toBeCloseTo(0.5);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
+describe('album Up-Next installed from lazy name stubs (quick-260919-alb)', () => {
+	// The album page now installs its WHOLE tracklist as `resolveByName` name stubs the moment
+	// playback starts, instead of first awaiting the ~10s resolveAll fan-out (the reported "up next
+	// is not instantly populated"). Two things have to hold for that to be safe, and both live in
+	// setListQueue: album ORDER survives, and the already-resolved playing track anchors INSIDE the
+	// list — indexOf(current) must never be -1, or next()/prev()/ensureAhead/prefetchNext all go
+	// dead (the album-and-next-song bug the old ~10s install was written to avoid).
+	//
+	// A stub's uid is SYNTHETIC, so the uid leg of queueWithAnchor cannot match the playing track —
+	// which is exactly why the page drops the resolved track into its own album slot before
+	// installing. Test 2 is what that buys.
+	function nameStub(artist: string, title: string): Track {
+		const songid = `similar-${artist}|${title}`.toLowerCase().replace(/\s+/g, '');
+		return { ...stub('kuwo', songid, artist, title), resolveByName: true };
+	}
+
+	beforeEach(() => {
+		player.queue = [];
+		player.current = null;
+		player.upNextAnchorUid = null;
+	});
+
+	it('Test 1 — the real playing track takes its own album slot: exact order, anchored by uid', () => {
+		const titles = ["Don't Panic", 'Shiver', 'Spies', 'Sparks'];
+		const list = titles.map((t) => nameStub('Coldplay', t));
+		// What the page's albumQueue(at, real) does: slot 2 carries the RESOLVED track, not its stub.
+		const playing = mk('qq', 'alb-spies', 'Coldplay', 'Spies');
+		list[2] = playing;
+		player.current = playing;
+
+		player.setListQueue(list, 'album', null);
+
+		expect(player.queue.map((t) => t.title)).toEqual(titles); // album order, nothing reordered
+		expect(player.queue[2]).toBe(playing); // the exact object → audio keeps playing
+		expect(player.queue.findIndex((t) => t.uid === player.current?.uid)).toBe(2); // next()/prev() alive
+		expect(player.upNextAnchorUid).toBe(playing.uid);
+		expect(player.queue.filter((t) => t.title === 'Spies')).toHaveLength(1); // no stub left behind
+	});
+
+	it('Test 2 — WITHOUT that substitution a metadata mismatch front-splices current and dupes it', () => {
+		// The sameSongKey fallback leg normalizes title+artist, so it only rescues the anchor when the
+		// album tracklist's metadata matches the source's. Trad-vs-Simp is folded by dedupe key() since
+		// quick-260926-n0r, so the demonstration uses a mismatch no script fold touches: the tracklist
+		// names the artist in Latin (Jay Chou), the CN source resolves to 周杰伦.
+		const list = ['最伟大的作品', '说好不哭'].map((t) => nameStub('Jay Chou', t));
+		const playing = mk('qq', 'alb-zjl', '周杰伦', '说好不哭');
+		player.current = playing;
+
+		player.setListQueue(list, 'album', null); // the naive install — stubs only
+
+		expect(player.queue[0]).toBe(playing); // front-spliced, NOT at its album slot
+		expect(player.queue).toHaveLength(3); // ...and its own stub is still in the list
+	});
+});
+
+// debug-share-card-play-dead-replay — "seated" is not "armed". A share link for a song that is
+// ALREADY `current` (played before → persisted → restored) is a D-03 no-op on arrival, so the CTA
+// reduces to toggle(). When the boot restore()'s re-resolve had failed, the <audio> held no src for
+// `current`; the bare audio.play() loaded nothing, fired `play` anyway (→ `playing` stale-true) and
+// every later tap — CTA, nowbar, NowPlaying — was a silent no-op. Reproduced end-to-end in headless
+// Chrome (restore's /api/* blocked at boot → tap → no `play` action, currentTime pinned at 0).
+describe('player.toggle — a seated but UNARMED current re-plays through play() (debug-share-card-play-dead-replay)', () => {
+	type Internals = { armedUid: string | null; playGen: number };
+	const internals = () => player as unknown as Internals;
+
+	it('unarmed → play(current, {fresh:false}) and NO bare audio.play(); armed → the plain resume', () => {
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		const seated = mk('kuwo', 'S', 'Adele', 'Hello');
+		player.current = seated; // restore()/armTrack seated it, but its re-resolve never armed a src
+		internals().armedUid = null;
+		el.paused = true;
+
+		player.toggle();
+		expect(player.play).toHaveBeenCalledWith(seated, { fresh: false }); // the resolve + fallback path
+		expect(el.play).not.toHaveBeenCalled(); // never a play() on an empty element
+
+		// Armed for this uid (the ordinary PWA-reopen resume) → the existing bare resume, no re-play.
+		internals().armedUid = seated.uid;
+		player.toggle();
+		expect(player.play).toHaveBeenCalledTimes(1);
+		expect(el.play).toHaveBeenCalledTimes(1);
+	});
+
+	it('restore() bails when a user play() lands mid-resolve — never clobbers current / audio.src', async () => {
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		const restored = mk('netease', 'RC', 'Adele', 'Hello');
+		localStorage.setItem(
+			'openmusic:player:v1',
+			JSON.stringify({
+				v: 1,
+				current: {
+					uid: restored.uid,
+					source: restored.source,
+					songid: restored.songid,
+					title: restored.title,
+					artist: restored.artist,
+					album: restored.album,
+					cover: restored.cover,
+					quality: restored.quality,
+					qualityLabel: restored.qualityLabel,
+					keyword: restored.keyword,
+					displayIndex: restored.displayIndex
+				},
+				queue: [],
+				currentTime: 0,
+				shuffle: false
+			})
+		);
+		let settle!: (t: Track) => void;
+		mockEnsure.mockReturnValueOnce(new Promise<Track>((r) => (settle = r)));
+		const restoring = player.restore();
+		expect(player.loading).toBe(true);
+		// A share CTA tap (or a warm deep-link arrival) plays something else while the boot resolve is
+		// still in flight — the top of the real play(): bump playGen, take current, attach a src.
+		const chosen = mk('joox', 'CH', 'Adele', 'Easy On Me');
+		internals().playGen++;
+		player.current = chosen;
+		player.loading = false;
+		el.src = 'https://cdn/chosen.ogg';
+		settle({ ...restored, audioUrl: 'https://cdn/restored.mp3', detailsLoaded: true });
+		await restoring;
+		expect(player.current?.uid).toBe(chosen.uid); // not written back to the restored track
+		expect(el.src).toBe('https://cdn/chosen.ogg'); // the late resolve never re-attached its src
+		expect(player.loading).toBe(false); // …and left `loading` to the newer play()
+	});
+
+	it('restore() of a name stub records the RESOLVED uid — the first resume is a plain resume, not a re-play', async () => {
+		const el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		// A persisted name stub (share carrier / Radio tile) — its uid is NOT the one it resolves to.
+		const stub = { ...mk('kuwo', 'similar-adele-hello', 'Adele', 'Hello'), audioUrl: null, detailsLoaded: false };
+		const real = mk('qq', 'MID1', 'Adele', 'Hello');
+		localStorage.setItem(
+			'openmusic:player:v1',
+			JSON.stringify({
+				v: 1,
+				current: { uid: stub.uid, source: stub.source, songid: stub.songid, title: stub.title, artist: stub.artist },
+				queue: [],
+				currentTime: 42,
+				shuffle: false
+			})
+		);
+		mockEnsure.mockResolvedValueOnce(real);
+		await player.restore();
+		expect(player.current?.uid).toBe(real.uid);
+		el.paused = true;
+		player.toggle();
+		expect(el.play).toHaveBeenCalledTimes(1); // resumes the restored src at its saved position
+		expect(player.play).not.toHaveBeenCalled(); // no re-drive that would drop the position
+	});
+});
+
+describe('Phase 40 crowd cover (D-14 / D-16 / D-19)', () => {
+	const CROWD = 'https://e-cdns-images.dzcdn.net/images/cover/crowd/500x500.jpg';
+	const KEYS = { u: 'a'.repeat(32), n: 'b'.repeat(32) };
+	const mockKeys = vi.mocked(coverPickKeys);
+	const mockFetchPick = vi.mocked(fetchCoverPick);
+	const mockSubmitPick = vi.mocked(submitCoverPick);
+	const mockWriteCrowd = vi.mocked(writeCrowdCover);
+	const mockRemoveCrowd = vi.mocked(removeCrowdCover);
+	const mockWriteBoth = vi.mocked(writeCoverBoth);
+	let images: Array<{ src: string; onload: (() => void) | null; onerror: (() => void) | null }>;
+
+	const rc = () => (player as unknown as { resolvedCover: string | null }).resolvedCover;
+	const resolvedOf = (t: Track) => ({ ...mk(t.source, t.songid, t.artist, t.title), cover: t.cover });
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		mockUidCover.mockReset().mockReturnValue(null);
+		mockNameCover.mockReset().mockReturnValue(null);
+		mockResolveCover.mockReset().mockResolvedValue(null);
+		mockCandidates.mockReset().mockResolvedValue([]);
+		__resetDeadCoverUrls();
+		mockGetPinned.mockReset().mockReturnValue(null);
+		mockKeys.mockReset().mockResolvedValue(KEYS);
+		mockFetchPick.mockReset().mockResolvedValue(null);
+		mockSubmitPick.mockClear();
+		mockWriteCrowd.mockClear();
+		mockRemoveCrowd.mockClear();
+		mockWriteBoth.mockClear();
+		mockRemoveCoverBoth.mockClear();
+		mockApiFetch.mockClear();
+		localStorage.clear();
+		player.current = null;
+		player.queue = [];
+		player.error = null;
+		player.loading = false;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = null;
+		(player as unknown as { attachedCover: unknown }).attachedCover = null;
+		(player as unknown as { healProbed: Set<string> }).healProbed.clear();
+		(player as unknown as { crowdRequested: Set<string> }).crowdRequested.clear();
+		(player as unknown as { adoptedCoverUid: string | null }).adoptedCoverUid = null;
+		images = [];
+		vi.stubGlobal(
+			'Image',
+			vi.fn(function (this: Record<string, unknown>) {
+				const img = { src: '', onload: null, onerror: null, decoding: '', referrerPolicy: '' };
+				images.push(img);
+				return img;
+			})
+		);
+		vi.stubGlobal('navigator', {
+			onLine: true,
+			mediaSession: {
+				metadata: null,
+				playbackState: 'none',
+				setPositionState: () => {},
+				setActionHandler: () => {}
+			}
+		});
+		vi.stubGlobal('MediaMetadata', FakeMediaMetadata);
+		coverMetadataSink = [];
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		vi.spyOn(library, 'adoptCover').mockImplementation(() => {});
+	});
+
+	afterEach(() => {
+		localStorage.clear(); // no crowd entry leaks into a later suite
+		vi.unstubAllGlobals();
+		vi.stubGlobal('localStorage', localStorageMock); // re-establish the module-level stub
+		mockKeys.mockReset().mockResolvedValue(null); // back to the network-silent default
+	});
+
+	it('seed: the crowd pick outranks the album-attached cover (D-14a)', () => {
+		const t = { ...stub('qq', 'C1', 'Artist', 'Song'), cover: 'https://src/inline.jpg' };
+		(player as unknown as { attachedCover: unknown }).attachedCover = {
+			url: 'https://album/attached.jpg',
+			keys: new Set([matchKey('Artist', 'Song')])
+		};
+		setCrowdCoverByUid(t.uid, CROWD);
+		mockEnsure.mockReturnValue(new Promise(() => {}));
+		void player.play(t);
+		expect(rc()).toBe(CROWD);
+	});
+
+	it('seed: a pin beats the crowd pick (D-14)', () => {
+		const t = { ...stub('qq', 'C2', 'Artist', 'Song'), cover: 'https://src/inline.jpg' };
+		setCrowdCoverByUid(t.uid, CROWD);
+		mockGetPinned.mockReturnValue('https://pin/chosen.jpg');
+		mockEnsure.mockReturnValue(new Promise(() => {}));
+		void player.play(t);
+		expect(rc()).toBe('https://pin/chosen.jpg');
+	});
+
+	it('seed: with no chosen cover the inline cover still beats the auto cache (unchanged)', () => {
+		const t = { ...stub('qq', 'C3', 'Artist', 'Song'), cover: 'https://src/inline.jpg' };
+		mockUidCover.mockReturnValue('https://cache/auto.jpg');
+		mockEnsure.mockReturnValue(new Promise(() => {}));
+		void player.play(t);
+		expect(rc()).toBe('https://src/inline.jpg');
+	});
+
+	it('Site A: a crowd-seeded cover is never written to the auto layers', () => {
+		const t = stub('qq', 'C4', 'Artist', 'Song');
+		setCrowdCoverByName('Artist', 'Song', CROWD); // name-key crowd hit (cross-uid)
+		mockEnsure.mockReturnValue(new Promise(() => {}));
+		void player.play(t);
+		expect(rc()).toBe(CROWD);
+		expect(mockWriteBoth).not.toHaveBeenCalled();
+	});
+
+	it('crowdCoverAsync: one fetch after play, winner cached + adopted + fresh media metadata', async () => {
+		const t = { ...stub('qq', 'C5', 'Artist', 'Song'), cover: 'https://src/inline.jpg' };
+		mockEnsure.mockResolvedValue(resolvedOf(t));
+		mockFetchPick.mockResolvedValue({ u: CROWD, n: null });
+		await player.play(t);
+		await flush();
+		expect(mockKeys).toHaveBeenCalledWith(t.uid, 'Artist', 'Song');
+		expect(mockFetchPick).toHaveBeenCalledTimes(1);
+		expect(mockFetchPick).toHaveBeenCalledWith(KEYS);
+		expect(mockWriteCrowd).toHaveBeenCalledWith(t.uid, 'Artist', 'Song', { u: CROWD, n: null });
+		expect(rc()).toBe(CROWD); // replaced the inline cover — a human choice (D-14 vs D-09)
+		const md = coverMetadataSink[coverMetadataSink.length - 1];
+		expect((md.artwork as Array<{ src: string }>).some((a) => a.src === CROWD)).toBe(true);
+		expect(mockWriteBoth).not.toHaveBeenCalledWith(t.uid, 'Artist', 'Song', CROWD);
+		expect(mockSubmitPick).not.toHaveBeenCalled(); // the player never votes (D-15)
+	});
+
+	it('crowdCoverAsync: a replay of the same uid in the session does not fetch again', async () => {
+		const t = stub('qq', 'C6', 'Artist', 'Song');
+		mockEnsure.mockResolvedValue(resolvedOf(t));
+		mockFetchPick.mockResolvedValue({ u: null, n: null }); // an answered "no pick" is final
+		await player.play(t);
+		await flush();
+		await player.play(t);
+		await flush();
+		expect(mockFetchPick).toHaveBeenCalledTimes(1);
+	});
+
+	// 40-WR-02: a null (503 / circuit open / timeout) is transient — the next play retries.
+	it('crowdCoverAsync: a failed lookup (null) is retried on the next play of that uid', async () => {
+		const t = stub('qq', 'C6b', 'Artist', 'Song');
+		mockEnsure.mockResolvedValue(resolvedOf(t));
+		await player.play(t); // default mock → null
+		await flush();
+		mockFetchPick.mockResolvedValue({ u: CROWD, n: null });
+		await player.play(t);
+		await flush();
+		expect(mockFetchPick).toHaveBeenCalledTimes(2);
+		expect(rc()).toBe(CROWD);
+	});
+
+	it('crowdCoverAsync: pinned and device: uids never fetch; null keys never fetch', async () => {
+		const pinned = stub('qq', 'C7', 'Artist', 'Song');
+		mockGetPinned.mockReturnValue('https://pin/chosen.jpg');
+		mockEnsure.mockResolvedValue(resolvedOf(pinned));
+		await player.play(pinned);
+		await flush();
+		expect(mockKeys).not.toHaveBeenCalled();
+
+		mockGetPinned.mockReturnValue(null);
+		const dev = { ...stub('qq', 'C8', 'Artist', 'Song'), uid: deviceUid('42') };
+		mockEnsure.mockResolvedValue({ ...resolvedOf(dev), uid: dev.uid });
+		await player.play(dev);
+		await flush();
+		expect(mockKeys).not.toHaveBeenCalled();
+
+		mockKeys.mockResolvedValue(null);
+		const noKeys = stub('qq', 'C9', '', '');
+		mockEnsure.mockResolvedValue(resolvedOf(noKeys));
+		await player.play(noKeys);
+		await flush();
+		expect(mockKeys).toHaveBeenCalledTimes(1);
+		expect(mockFetchPick).not.toHaveBeenCalled();
+	});
+
+	// 40-WR-02: the identity-keyed cache write survives a quick skip; only adoption is gen-gated.
+	it('crowdCoverAsync: a superseded generation caches the pick but adopts nothing', async () => {
+		const a = stub('qq', 'C10', 'Artist', 'Song');
+		const b = stub('qq', 'C11', 'Other', 'Tune');
+		const pick = deferred<{ u: string | null; n: string | null } | null>();
+		mockFetchPick.mockReturnValueOnce(pick.promise);
+		mockEnsure.mockResolvedValueOnce(resolvedOf(a)).mockReturnValueOnce(new Promise(() => {}));
+		await player.play(a);
+		await flush();
+		void player.play(b); // bumps playGen
+		pick.resolve({ u: CROWD, n: null });
+		await flush();
+		expect(mockWriteCrowd).toHaveBeenCalledWith(a.uid, 'Artist', 'Song', { u: CROWD, n: null });
+		expect(rc()).not.toBe(CROWD);
+	});
+
+	it('adoptCover: refuses a non-crowd url when a crowd pick exists; adopts the crowd url without writeCoverBoth', () => {
+		const cur = mk('qq', 'C12', 'Artist', 'Song');
+		player.current = cur;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = 'https://src/old.jpg';
+		setCrowdCoverByUid(cur.uid, CROWD);
+
+		player.adoptCover(cur.uid, 'https://lastfm.freetls.fastly.net/i/u/300x300/other.jpg');
+		expect(rc()).toBe('https://src/old.jpg');
+
+		player.adoptCover(cur.uid, CROWD);
+		expect(rc()).toBe(CROWD);
+		expect(mockWriteBoth).not.toHaveBeenCalled();
+	});
+
+	it('healCover: a dead crowd url is evicted locally and never reaches the server (D-19)', async () => {
+		const t = mk('qq', 'C13', 'Artist', 'Song');
+		player.current = t;
+		(player as unknown as { resolvedCover: string | null }).resolvedCover = CROWD;
+		setCrowdCoverByUid(t.uid, CROWD);
+		mockResolveCover.mockResolvedValue('https://cdn/fresh.jpg');
+
+		const p = player.healCover(t.uid);
+		images[images.length - 1].onerror?.(); // the crowd url is dead
+		await flush(); // chain settles → fresh-url verification probe constructed
+		images[images.length - 1].onload?.(); // fresh loads → verified real
+		await p;
+
+		expect(mockRemoveCrowd).toHaveBeenCalledWith(t.uid, 'Artist', 'Song');
+		expect(mockSubmitPick).not.toHaveBeenCalled();
+		expect(mockApiFetch).not.toHaveBeenCalled();
+		expect(rc()).toBe('https://cdn/fresh.jpg'); // the chain re-resolved
+	});
+});
+
+describe('43-D-08 — version-mismatch notice: play it, surface it once per uid', () => {
+	// Fresh songid per test: repeated plays of ONE uid across tests trip the src re-drive brake.
+	let n = 0;
+	let id = 'V0';
+	const S = () => stub('audius', id, 'Oasis', 'Wonderwall');
+	const versionNotified = () => (player as unknown as { versionNotified: Set<string> }).versionNotified;
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset();
+		vi.spyOn(library, 'isDownloaded').mockReturnValue(false);
+		player.current = null;
+		player.queue = [];
+		player.notice = null;
+		versionNotified().clear();
+		id = `V${++n}`;
+		player.attach(makeFakeAudio() as unknown as HTMLAudioElement);
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it('a flagged resolve emits the toast.mayNotBeOriginal notice and still plays', async () => {
+		const s = S();
+		mockEnsure.mockResolvedValue({ ...s, audioUrl: 'https://x/a.mp3', detailsLoaded: true, resolvedAt: Date.now(), versionMismatch: true });
+		await player.play(s);
+		expect(player.notice).toEqual({ kind: 'version', msg: 'toast.mayNotBeOriginal', title: s.title, artist: s.artist });
+		expect(player.current?.uid).toBe(s.uid);
+	});
+
+	it('the same uid does not re-toast on a second play()', async () => {
+		const s = S();
+		mockEnsure.mockResolvedValue({ ...s, audioUrl: 'https://x/a.mp3', detailsLoaded: true, resolvedAt: Date.now(), versionMismatch: true });
+		await player.play(s);
+		player.notice = null;
+		await player.play(S());
+		expect(player.notice).toBeNull();
+	});
+
+	it('auto-clears after the burst window', async () => {
+		vi.useFakeTimers();
+		const s = S();
+		mockEnsure.mockResolvedValue({ ...s, audioUrl: 'https://x/a.mp3', detailsLoaded: true, resolvedAt: Date.now(), versionMismatch: true });
+		await player.play(s);
+		expect(player.notice?.kind).toBe('version');
+		vi.advanceTimersByTime(2500);
+		expect(player.notice).toBeNull();
+	});
+
+	it('an unflagged resolve emits no notice', async () => {
+		const s = S();
+		mockEnsure.mockResolvedValue({ ...s, audioUrl: 'https://x/a.mp3', detailsLoaded: true, resolvedAt: Date.now() });
+		await player.play(s);
+		expect(player.notice).toBeNull();
+	});
+});
+
+describe('NEVER-STOP buffer gate — China source waits for a head start (Hector 2026-11-19)', () => {
+	// A fake audio WITH an observable buffer: `ranges` is mutated by the test to
+	// simulate the CDN filling the element while play() is gated.
+	function makeBufferedAudio(initial: Array<[number, number]>) {
+		const base = makeFakeAudio();
+		const state = { ranges: initial };
+		const el = {
+			...base,
+			preload: '',
+			load: vi.fn(),
+			removeEventListener() {},
+			get buffered() {
+				const list = state.ranges;
+				return {
+					length: list.length,
+					start: (i: number) => list[i][0],
+					end: (i: number) => list[i][1]
+				};
+			},
+			setRanges(r: Array<[number, number]>) {
+				state.ranges = r;
+			}
+		};
+		return el;
+	}
+	const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockImplementation(async (t: Track) => t);
+		mockCoverResolve.mockReset().mockResolvedValue(null);
+		player.current = null;
+		player.queue = [];
+		player.resolvedCover = null;
+	});
+
+	it('a kuwo fresh play does NOT call audio.play() until ~30s is buffered, then starts', async () => {
+		const el = makeBufferedAudio([[0, 2]]);
+		player.attach(el as unknown as HTMLAudioElement);
+		const t = mk('kuwo', 'BG1', 'A', 'Slow Song');
+		const p = player.play(t, { fresh: true });
+		await tick(350); // several gate polls at a thin 2s buffer
+		expect(el.play).not.toHaveBeenCalled();
+		expect(el.load).toHaveBeenCalled(); // preload nudge fired
+		el.setRanges([[0, 45]]); // CDN catches up — head start reached
+		await p;
+		expect(el.play).toHaveBeenCalled();
+		expect(player.current?.uid).toBe(t.uid);
+	});
+
+	it('a ytmusic fresh play is NOT gated — starts immediately even with a thin buffer', async () => {
+		const el = makeBufferedAudio([[0, 2]]);
+		player.attach(el as unknown as HTMLAudioElement);
+		const t = mk('ytmusic', 'BG2', 'A', 'Fast Song');
+		await player.play(t, { fresh: true });
+		expect(el.play).toHaveBeenCalled();
+	});
+
+	it('a kuwo play already buffered (repeat / media-cache hit) starts with no wait', async () => {
+		const el = makeBufferedAudio([[0, 300]]);
+		player.attach(el as unknown as HTMLAudioElement);
+		const t = mk('kuwo', 'BG3', 'A', 'Cached Song');
+		const started = Date.now();
+		await player.play(t, { fresh: true });
+		expect(el.play).toHaveBeenCalled();
+		expect(Date.now() - started).toBeLessThan(2000); // gate satisfied on first poll, not the 12s cap
+	});
+});
+
+describe('NEVER-STOP resume hysteresis — mid-song stall holds the resume (Hector 2026-11-19)', () => {
+	function makeBufferedAudio(initial: Array<[number, number]>) {
+		const base = makeFakeAudio();
+		const state = { ranges: initial };
+		const el = {
+			...base,
+			preload: '',
+			load: vi.fn(),
+			removeEventListener() {},
+			get buffered() {
+				const list = state.ranges;
+				return {
+					length: list.length,
+					start: (i: number) => list[i][0],
+					end: (i: number) => list[i][1]
+				};
+			},
+			setRanges(r: Array<[number, number]>) {
+				state.ranges = r;
+			}
+		};
+		// Realistic transport: play()/pause() flip `paused` like a real element.
+		el.play = vi.fn(() => {
+			el.paused = false;
+			return Promise.resolve();
+		});
+		el.pause = vi.fn(() => {
+			el.paused = true;
+		});
+		return el;
+	}
+	const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
+	const internals = () => player as unknown as { hasPlayedSinceSrc: boolean };
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockImplementation(async (t: Track) => t);
+		mockCoverResolve.mockReset().mockResolvedValue(null);
+		player.current = null;
+		player.queue = [];
+		player.resolvedCover = null;
+	});
+
+	async function startPlaying(source: SourceId, id: string) {
+		const el = makeBufferedAudio([[0, 300]]);
+		player.attach(el as unknown as HTMLAudioElement);
+		const t = mk(source, id, 'A', 'Song');
+		await player.play(t, { fresh: true });
+		expect(el.play).toHaveBeenCalled();
+		internals().hasPlayedSinceSrc = true; // mid-song now
+		el.play.mockClear();
+		el.pause.mockClear();
+		// The playhead sits at 100s with the buffer drained to a sliver ahead.
+		el.currentTime = 100;
+		el.setRanges([[0, 101]]);
+		return { el, t };
+	}
+
+	it('a kuwo mid-song `waiting` pauses the element and does NOT resume on a sliver — only at the healthy threshold', async () => {
+		const { el } = await startPlaying('kuwo', 'BGH1');
+		el.fire('waiting');
+		await tick(250); // several hold polls at ahead=1s
+		expect(el.pause).toHaveBeenCalled(); // the hold took the element
+		expect(el.play).not.toHaveBeenCalled(); // no sliver-resume — the loop is broken
+		el.setRanges([[0, 120]]); // ahead back to 20s ≥ 15s resume threshold
+		await tick(300);
+		expect(el.play).toHaveBeenCalledTimes(1);
+	});
+
+	it('a ytmusic mid-song `waiting` is NOT held (fast source — browser resume stands)', async () => {
+		const { el } = await startPlaying('ytmusic', 'BGH2');
+		el.fire('waiting');
+		await tick(200);
+		expect(el.pause).not.toHaveBeenCalled();
+	});
+
+	it('a sanctioned pause during the hold cancels the resume (user outranks the machine)', async () => {
+		const { el } = await startPlaying('kuwo', 'BGH3');
+		el.fire('waiting');
+		await tick(150);
+		expect(el.pause).toHaveBeenCalled();
+		(player as unknown as { pauseAudio(): void }).pauseAudio(); // user / MediaSession pause
+		el.setRanges([[0, 200]]); // buffer refills fully…
+		await tick(300);
+		expect(el.play).not.toHaveBeenCalled(); // …but the hold stays cancelled
+	});
+});
+
+describe('ADAPTIVE QUALITY LADDER — current-track downgrade under pressure (Hector 2026-11-19)', () => {
+	// The ladder's defence-order slot: buffer gate → QUALITY DOWNGRADE → proxy
+	// rescue / skip. When a rebuffer hold TIMES OUT, the ladder has stepped down
+	// and holdForRebuffer calls tryPressureDowngrade BEFORE resuming the starved
+	// src: the SAME song re-resolves at the lower tier (catalog's seam answers
+	// the ladder tier) and re-attaches at the same position via reresolveCurrent.
+	// These tests drive that method directly (the hold's 10s timeout is a real
+	// clock the suite cannot wait out; the state machine itself is unit-tested
+	// in services/quality-ladder.test.ts).
+	function makeBufferedAudio(initial: Array<[number, number]>) {
+		const base = makeFakeAudio();
+		const state = { ranges: initial };
+		const el = {
+			...base,
+			preload: '',
+			duration: 300,
+			load: vi.fn(),
+			removeEventListener() {},
+			get buffered() {
+				const list = state.ranges;
+				return {
+					length: list.length,
+					start: (i: number) => list[i][0],
+					end: (i: number) => list[i][1]
+				};
+			},
+			setRanges(r: Array<[number, number]>) {
+				state.ranges = r;
+			}
+		};
+		el.play = vi.fn(() => {
+			el.paused = false;
+			return Promise.resolve();
+		});
+		el.pause = vi.fn(() => {
+			el.paused = true;
+		});
+		return el;
+	}
+	const internals = () =>
+		player as unknown as {
+			playGen: number;
+			currentTime: number;
+			tryPressureDowngrade(gen: number, uid: string): Promise<boolean>;
+		};
+	let prevQuality: typeof settings.defaultQuality;
+	let prevAuto: boolean;
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockImplementation(async (t: Track) => t);
+		mockCoverResolve.mockReset().mockResolvedValue(null);
+		player.current = null;
+		player.queue = [];
+		player.resolvedCover = null;
+		qualityLadder.reset();
+		prevQuality = settings.defaultQuality;
+		prevAuto = settings.autoQuality;
+		settings.defaultQuality = '320';
+		settings.autoQuality = true;
+	});
+
+	afterEach(() => {
+		settings.defaultQuality = prevQuality;
+		settings.autoQuality = prevAuto;
+		qualityLadder.reset();
+	});
+
+	async function startPlaying320() {
+		const el = makeBufferedAudio([[0, 300]]);
+		player.attach(el as unknown as HTMLAudioElement);
+		const t = mk('kuwo', 'QL1', 'A', 'Song');
+		t.quality = '320';
+		t.qualityLabel = '320K';
+		await player.play(t, { fresh: true });
+		expect(el.play).toHaveBeenCalled();
+		// Stall position: 100s in, on both the element and the player state
+		// (reresolveCurrent preserves position from player.currentTime).
+		el.currentTime = 100;
+		internals().currentTime = 100;
+		return { el, t };
+	}
+
+	it('under stepped-down pressure, the playing track re-resolves ONE tier lower and resumes at position', async () => {
+		const { el, t } = await startPlaying320();
+		qualityLadder.noteHoldEnd('timeout'); // hard pressure — ladder at 128
+		expect(qualityLadder.stepDown).toBe(1);
+		mockEnsure.mockImplementation(async (stub: Track) => ({
+			...stub,
+			audioUrl: 'https://cdn.example.com/low.mp3',
+			quality: '128',
+			qualityLabel: '128K',
+			detailsLoaded: true
+		}));
+		const swapped = await internals().tryPressureDowngrade(internals().playGen, t.uid);
+		expect(swapped).toBe(true);
+		expect(el.src).toBe('https://cdn.example.com/low.mp3'); // new, lighter src attached
+		expect(player.current?.quality).toBe('128'); // the tag will tell the truth
+		expect(el.currentTime).toBe(100); // position preserved across the swap
+		// One-shot: a second attempt in the same episode is refused without
+		// touching the resolver again.
+		const calls = mockEnsure.mock.calls.length;
+		expect(await internals().tryPressureDowngrade(internals().playGen, t.uid)).toBe(false);
+		expect(mockEnsure.mock.calls.length).toBe(calls);
+	});
+
+	it('no pressure (ladder at home) → no downgrade attempt, no re-resolve', async () => {
+		const { el, t } = await startPlaying320();
+		const calls = mockEnsure.mock.calls.length;
+		expect(await internals().tryPressureDowngrade(internals().playGen, t.uid)).toBe(false);
+		expect(mockEnsure.mock.calls.length).toBe(calls);
+		expect(el.src).toBe('https://cdn.example.com/a.mp3');
+	});
+
+	it('Auto quality OFF → the ladder never touches the playing track, even under pressure', async () => {
+		const { t } = await startPlaying320();
+		settings.autoQuality = false;
+		qualityLadder.noteHoldEnd('timeout');
+		const calls = mockEnsure.mock.calls.length;
+		expect(await internals().tryPressureDowngrade(internals().playGen, t.uid)).toBe(false);
+		expect(mockEnsure.mock.calls.length).toBe(calls);
+	});
+
+	it('a forced lossless pick is exempt — a FLAC stream is never downgraded', async () => {
+		const el = makeBufferedAudio([[0, 300]]);
+		player.attach(el as unknown as HTMLAudioElement);
+		settings.defaultQuality = 'lossless';
+		const t = mk('kuwo', 'QL2', 'A', 'Song');
+		t.quality = 'FLAC';
+		t.qualityLabel = 'FLAC';
+		await player.play(t, { fresh: true });
+		qualityLadder.noteHoldEnd('timeout');
+		const calls = mockEnsure.mock.calls.length;
+		expect(await internals().tryPressureDowngrade(internals().playGen, t.uid)).toBe(false);
+		expect(mockEnsure.mock.calls.length).toBe(calls);
+	});
+});
