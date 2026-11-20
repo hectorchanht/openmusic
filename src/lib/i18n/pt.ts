@@ -544,6 +544,8 @@ const pt: Dict = {
 	"menu.removeDownloadBody": "A música continua na tua biblioteca e volta a ser transmitida quando lhe tocas. Um ficheiro que guardaste na pasta de transferências do navegador não pode ser alcançado a partir daqui.",
 	"menu.removeDownloadDeleteFile": "Eliminar também a cópia offline neste dispositivo",
 	"menu.removeDownloadAction": "Remover",
+	"menu.removeDownloadAll": "Remover todas as versões",
+	"menu.removeDownloadVersions": "{count} versões baixadas desta música:",
 	"tags.title": "Editar metadados",
 	"tags.fieldTitle": "Título da música",
 	"tags.fieldArtist": "Artista",

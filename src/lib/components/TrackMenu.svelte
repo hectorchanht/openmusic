@@ -38,9 +38,9 @@
 	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the Play-from-source
 	// picker — fired ONLY on the row tap, never on menu open (T-26-10-02).
 	// quick-260916-0d9: the SAME fan-out feeds the Download-from picker (Q1 — no second copy of
-	// song-identity matching), with `versionsIncludingOwn` assembling its rows.
-	import { fetchVariants, versionsIncludingOwn } from '$lib/services/variants';
-	import { mapWithConcurrency } from '$lib/services/discovery';
+	// song-identity matching) — since quick-261119-dldelete that picker is DownloadPickerSheet,
+	// which imports it itself; this menu only needs fetchVariants for Play-from-source.
+	import { fetchVariants } from '$lib/services/variants';
 	import { SOURCES } from '$lib/sources/registry';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import DownloadRing from '$lib/components/DownloadRing.svelte';
@@ -49,11 +49,12 @@
 	// quick-260919-1eh: the tag-edit sheet. Same co-mount arrangement as VersionPicker above — it
 	// owns its own overlay lifecycle under a DISTINCT overlayId.
 	import MetadataEditor from '$lib/components/MetadataEditor.svelte';
-	// quick-260919-vrq: the app's ONLY boolean-control idiom (a real <button role="switch"
-	// aria-checked>). No `type="checkbox"` exists anywhere in src, so the Remove-download confirm
-	// borrows this rather than hand-rolling one.
-	import SettingToggle from '$lib/components/SettingToggle.svelte';
-	import { downloadTrack, downloadTrackWithDonor, pickedFileAlreadyOnDisk } from '$lib/services/download-track';
+	// quick-260919-vrq: the remove-download confirm. quick-261119-dldelete: it is the shared
+	// RemoveDownloadSheet (the same sheet DownloadControl's downloaded ✓ opens), and the
+	// Download-from picker beside it is the shared DownloadPickerSheet.
+	import RemoveDownloadSheet from '$lib/components/RemoveDownloadSheet.svelte';
+	import DownloadPickerSheet from '$lib/components/DownloadPickerSheet.svelte';
+	import { downloadTrack, downloadTrackWithDonor } from '$lib/services/download-track';
 	import { downloadLabel } from '$lib/services/download-label';
 	// quick-261102-qtruth: the Detail sheet's quality merge + label read through the ONE
 	// shared derivation (services/display-quality) — the same one the Now-Playing pill uses.
@@ -64,7 +65,7 @@
 	// quick-260919-3j1 (F2): `localFileMeta` is the SIBLING of probeDownload — same module, same
 	// formatter, opposite question. probeDownload asks the CDN "what WOULD I get"; localFileMeta
 	// reads the bytes on the device and answers "what DO I have", with no network at all.
-	import { probeDownload, localFileMeta, formatDownloadMeta, isLosslessContainer, type DownloadProbe } from '$lib/services/download-probe';
+	import { probeDownload, localFileMeta, formatDownloadMeta, type DownloadProbe } from '$lib/services/download-probe';
 	// quick-260913-jq4: the Check state is backed by the offline copy, not the downloads list.
 	import { blobStore } from '$lib/services/blob-store';
 	// quick-260919-3j1: the app-wide SERIALIZER in front of retagOne — the ONE tag-write path
@@ -106,15 +107,12 @@
 	let { track, open, loading = false, onclose }: { track: Track | null; open: boolean; loading?: boolean; onclose: () => void } = $props();
 
 	let pickerOpen = $state(false);
-	// quick-260919-vrq — the Remove-download CONFIRM, and why it is a SHEET rather than window.confirm.
-	// The confirm carries a toggle whose position changes what the removal actually does (files die vs
-	// files stay), and confirm() cannot hold a control. So it mirrors the playlist picker above
-	// exactly: same scrim / .menu / fly / dragClose / focusTrap, its own overlay id, reset in close().
-	// `rmDeleteFile` defaults ON — that is today's removeDownload behaviour (999.1-D-11: both copies),
-	// so the row keeps meaning what its label says — and is re-armed on every open so an untick made
-	// for one song never silently carries over to the next.
+	// quick-260919-vrq → quick-261119-dldelete — the Remove-download CONFIRM lives in the shared
+	// RemoveDownloadSheet now (the downloaded ✓ in DownloadControl opens the very same sheet).
+	// The old private sheet's `rmDeleteFile` toggle is gone by Hector's call (2026-11-19): its
+	// off path kept the offline bytes behind a "not downloaded" badge — delete here always
+	// removes record + bytes together. This flag is all that remains on the menu side.
 	let rmOpen = $state(false);
-	let rmDeleteFile = $state(true);
 	let detailTrack = $state<Track | null>(null);
 	// quick-260919-1eh: the metadata editor sheet's open flag. No lazy fan-out to guard — the sheet
 	// seeds itself from the track already in hand and saves offline, so there is no gen/abort pair.
@@ -675,21 +673,12 @@
 	let lyricGen = 0;
 	let lyricAc: AbortController | null = null;
 
-	// quick-260916-0d9 — the "Download from…" picker. Same shape as the two pickers above and opened
-	// the same opt-in way (T-26-10-02 posture), except the trigger is a LONG-PRESS on the Download row
-	// rather than a row of its own: one tap must keep doing exactly what it does today.
-	// `dlPickProbes` is uid → probe; ABSENT means still probing (skeleton), a probe whose `track` is
-	// null means that source refused (disabled "Unavailable" row). `dlPickExtra` is the sibling map
-	// for the quick-261020-dl320 second row: uid → the 320k-tier probe of a source whose main probe
-	// landed lossless, rendered as its own row under the source's row. dlPickGen / dlPickAc are PLAIN
-	// fields — supersedence guards the UI never reads reactively (house convention).
+	// quick-260916-0d9: the "Download from..." picker state. quick-261119-dldelete: the
+	// picker itself (probe pool, pick handler, sheet markup) is the shared
+	// DownloadPickerSheet now -- DownloadControl long-press opens the same component.
+	// This menu keeps only the open flag and passes its own-source probe (dlProbe,
+	// below) as the zero-network seed, exactly as its private copy was seeded.
 	let dlPickOpen = $state(false);
-	let dlPickLoading = $state(false);
-	let dlPickList = $state<Track[]>([]);
-	let dlPickProbes = $state<Record<string, DownloadProbe | undefined>>({});
-	let dlPickExtra = $state<Record<string, DownloadProbe | undefined>>({});
-	let dlPickGen = 0;
-	let dlPickAc: AbortController | null = null;
 
 	// The cover the user is CURRENTLY looking at for this track. Hoisted out of doShare (it needed the
 	// identical expression) so the picker can tick the active tile and the share card can carry it —
@@ -839,7 +828,6 @@
 		tagsOpen = false; // quick-260919-1eh: reset alongside the other sheet flags
 		rmOpen = false; // quick-260919-vrq: same — a confirm must never outlive the menu that raised it
 		coverAc?.abort(); // quick-260915-w4f: never leave a candidate fan-out running behind a closed menu
-		dlPickAc?.abort(); // quick-260916-0d9: same rule for the download-picker probe pool
 		lyricAc?.abort(); // quick-260919-1we: same rule for the lyric-candidate walk
 		onclose();
 	}
@@ -1284,40 +1272,21 @@
 		close();
 	}
 
-	// quick-260919-vrq — "Remove download" for an APP-DOWNLOADED song, behind a confirm sheet.
-	//
-	// (a) TOGGLE ON (the default) = delete + exclude, which is what the user asked for verbatim
-	//     ("checkbox on remove file on disk and auto added to exclude list"). The exclusion mark is
-	//     belt-and-braces rather than dead state: `deleteFromMusic` never throws, so a MediaStore
-	//     delete that fails SILENTLY leaves a Music/OpenMusic copy behind that a later scan could
-	//     find — the mark records the user's intent against exactly that case.
-	// (b) TOGGLE OFF = the library row only. `blobStore.del` is never reached, so the app-private
-	//     file and the Music/OpenMusic entry (native) or the IndexedDB copy (web) all survive. NO
-	//     exclusion mark is written: the user chose to KEEP the file, and a mark keyed on the APP uid
-	//     would not block a rescan anyway — a rescan imports that surviving file under a NEW
-	//     `device:` uid. So neither the toast nor the body copy promises it cannot come back.
-	// (c) APP DOWNLOADS ONLY. `blobStore.del` REFUSES a `device:` uid as its first statement (34
-	//     Pitfall 1), so "delete the offline copy" is something the app literally cannot do for an
-	//     import — offering the toggle there would be a UI lie. `device:` keeps noImport.
-	// (d) ON THE WEB the toggle is SHOWN, not hidden or disabled: the browser build's `blobStore.del`
-	//     deletes the IndexedDB offline copy, which is real reachable bytes. Only a file saved through
-	//     the browser's own download folder is out of reach, and `menu.removeDownloadBody` says so —
-	//     the same truth `settings.retagDownloadsDesc` already tells.
+	// quick-261119-dldelete — "Remove download" for an APP-DOWNLOADED song opens the shared
+	// RemoveDownloadSheet (rendered below, outside the menu block). Behaviour notes that the
+	// extraction deliberately settled:
+	// (a) NO import-exclusion mark is written here any more. The old confirm wrote excludeUid
+	//     for the app uid, but exclusions are keyed on `device:` MediaStore ids — for an app
+	//     download the mark was dead state (and could evict a real device mark at the 500 cap).
+	//     If a native public Music/OpenMusic copy ever survives blobStore.del, a later scan
+	//     honestly re-imports it as a `device:` track — the badge mirrors the device, which is
+	//     the point — and THAT row's noImport lane is where an exclusion belongs.
+	// (b) APP DOWNLOADS ONLY, as before: `blobStore.del` refuses a `device:` uid, so "delete
+	//     the offline copy" is something the app cannot do for an import; `device:` keeps
+	//     noImport above.
 	function openRemoveDownload() {
 		if (!track?.uid) return;
-		rmDeleteFile = true;
 		rmOpen = true;
-	}
-	function confirmRemoveDownload() {
-		if (!track?.uid) return;
-		// Same label expression as noImport — `names.dn*` so the recovery list reads in the user's
-		// display script.
-		if (rmDeleteFile)
-			excludeUid(track.uid, `${names.dnArtist(track.artist)} - ${names.dnTitle(track.title, track.artist)}`.trim());
-		library.removeDownload(track.uid, { deleteFile: rmDeleteFile });
-		toast.show(t('toast.downloadRemoved'));
-		rmOpen = false;
-		close();
 	}
 
 	// quick-260913-jq4 — WHAT "DOWNLOADED" MEANS. `library.isDownloaded(uid)` is membership in the
@@ -1436,122 +1405,14 @@
 	const localMeta = $derived(localProbe ? formatDownloadMeta(localProbe) : null);
 	const dlLabel = $derived(dlMeta ? `${t('menu.download')} \u00b7 ${dlMeta}` : t('menu.download'));
 
-	// quick-260916-0d9 \u2014 OPEN THE "Download from\u2026" SHEET (long-press only; one tap is unchanged).
-	//
-	// Q2 PROBE COST. The sheet opens on the SAME tick with the own-source row already labelled: the
-	// main Download row's `dlProbe` was measured under the exact `uid|downloadQuality` memo key
-	// `probeDownload` would use, so seeding it costs zero network AND guarantees that row is never a
-	// skeleton (the service would answer instantly anyway \u2014 seeding skips even the microtask).
-	// `fetchVariants` then runs behind a spinner line (its searchAll is D-04 TTL-memoised, so a
-	// re-open is free), and every OTHER candidate is probed through `mapWithConcurrency(\u2026, 2, \u2026)`.
-	//
-	// WHY 2, AND DO NOT RAISE IT. Each probe is one governed `ensureTrackDetails` + one raw HEAD/Range,
-	// so 2 in flight can hold at most 2 of `apiFetch`'s MAX_CONCURRENT_REQUESTS=8 slots, leaving >=6
-	// for playback. An uncapped `/api/*` fan-out is precisely what froze this app (api-fetch-flood-freeze).
-	async function openDownloadPicker() {
+	// quick-260916-0d9: OPEN THE "Download from..." SHEET (long-press only; one tap is
+	// unchanged). quick-261119-dldelete: the sheet is the shared DownloadPickerSheet;
+	// opening is just the flag -- the component runs the seed + fan-out + probe pool
+	// itself and aborts them on every close route. The guard is the one the private
+	// opener had: no picker for a trackless menu or a device file (already on device).
+	function openDownloadPicker() {
 		if (!track?.uid || isDevice) return;
-		const gen = ++dlPickGen;
-		dlPickAc?.abort();
-		const ac = new AbortController();
-		dlPickAc = ac;
-		const target = track;
-		// quick-261004-o9t: `dlProbe` is the song's OWN probe for every source now (ytmusic included), so
-		// this seeds the song's own row by its uid.
-		dlPickProbes = dlProbe?.track ? { [dlProbe.track.uid]: dlProbe } : {};
-		dlPickExtra = {};
-		// quick-261004-o9t: the YouTube Music row is offered again (own track or donor) — the
-		// quick-260930-uia filter left with the rule it enforced.
-		dlPickList = versionsIncludingOwn(target, []);
-		dlPickLoading = true;
 		dlPickOpen = true;
-		const found = await fetchVariants(target, ac.signal);
-		if (gen !== dlPickGen || ac.signal.aborted) return; // superseded / cancelled
-		dlPickList = versionsIncludingOwn(target, found);
-		dlPickLoading = false;
-		// Per-item write INSIDE fn so each row fills the instant its own probe lands, rather than the
-		// whole sheet unblanking at the end. untrack: probeDownload reads settings/player internally
-		// and this runs inside a user handler, not an effect \u2014 the guard matches the dlProbe effect's.
-		await mapWithConcurrency(
-			dlPickList,
-			2,
-			async (v) => {
-				// The own-source row arrives pre-seeded (the zero-network seed above); every other row
-				// probes at the download tier first. Sequential per item, so the 2-in-flight cap the
-				// api-fetch-flood-freeze rule demands still holds.
-				let p = dlPickProbes[v.uid];
-				if (!p) {
-					p = await untrack(() => probeDownload(v, ac.signal));
-					if (gen !== dlPickGen || ac.signal.aborted) return;
-					dlPickProbes = { ...dlPickProbes, [v.uid]: p };
-				}
-				// quick-261020-dl320: a lossless probe proves this source HAS a full quality ladder —
-				// FLAC sits at its top, so the 320k rung below is near-certainly present too. Probe it
-				// as a second, cheaper row for the same source. Only stored when the probe lands a REAL
-				// 320k file: a ladder that falls through to its own FLAC at the 320 tier must not
-				// produce a duplicate row.
-				if (p?.track?.audioUrl && isLosslessContainer(p.container) && !(v.uid in dlPickExtra)) {
-					const p320 = await untrack(() => probeDownload(v, ac.signal, '320'));
-					if (gen !== dlPickGen || ac.signal.aborted) return;
-					if (p320?.track?.audioUrl && !isLosslessContainer(p320.container)) {
-						dlPickExtra = { ...dlPickExtra, [v.uid]: p320 };
-					}
-				}
-			}
-		);
-	}
-	function closeDownloadPicker() {
-		dlPickOpen = false;
-		dlPickAc?.abort(); // closing the sheet cancels every probe still in flight (T-0d9-01)
-	}
-	// quick-260916-0d9 \u2014 Q5 IDENTITY. `track` (the ORIGINAL the menu opened on) carries the identity;
-	// `audioFrom` carries the row's MEASURED audio. downloadTrack spreads the original, so
-	// library.addDownload and blobStore.put both key by the original uid \u2014 which is what makes
-	// `library.isDownloaded(track.uid)` true and `player.play(track)` take the offline-blob branch and
-	// play the source the user actually chose. It also skips the re-resolve, so the bytes saved are the
-	// bytes the row promised (never a larger re-resolved file \u2014 the 52 MB-FLAC-on-cellular incident).
-	// quick-261020-dl320: the sheet's second (320k) row passes its own probe — the tapped row's
-	// MEASURED audio is what downloadTrack saves, so the label and the bytes always agree.
-	async function pickDownload(v: Track, probe?: DownloadProbe) {
-		if (!track) return;
-		const p = probe ?? dlPickProbes[v.uid];
-		if (!p?.track?.audioUrl) return; // the row is disabled in that state anyway
-		if (library.downloading.has(track.uid)) return; // D-03 equivalent: a second tap while busy is a no-op
-		// quick-261001-grb: label by the ORIGINAL track (the identity, quick-260916-0d9), display-language.
-		const label = downloadLabel(names.dnArtist(track.artist), names.dnTitle(track.title, track.artist));
-		// quick-261007-abq2: the picked source's file may ALREADY be the on-disk file — a replace done
-		// before the auto quality-refresh (quick-261007-abq) left the bytes right but the record's
-		// quality label stale ("std" with the 320k file size). Same byte count = same file: skip the
-		// re-download and just repair the record's quality metadata from the probe. A null byte count
-		// (CDN with no content-length) falls through to the normal replace path — never a wrong skip.
-		if (library.isDownloaded(track.uid)) {
-			const st = await blobStore.stat(track.uid).catch(() => null);
-			if (pickedFileAlreadyOnDisk(p.bytes, st?.bytes ?? null)) {
-				library.updateDownloadQuality(track.uid, {
-					quality: p.track.quality,
-					qualityLabel: p.track.qualityLabel
-				});
-				closeDownloadPicker();
-				toast.show(t('toast.downloadAlreadyThisQuality', { label }));
-				// D-12: the menu itself stays open — the Download row reflects the repaired label inline.
-				await probeBlob();
-				return;
-			}
-		}
-		closeDownloadPicker();
-		toast.show(t('toast.downloading', { label }));
-		const res = await downloadTrack(track, { audioFrom: p.track });
-		// quick-261020-hqswitch: a picked higher-tier version of the PLAYING song swaps
-		// the live stream to the downloaded file (the picker's raison d'être).
-		if (res === 'saved') void player.adoptDownloadedCurrent(track.uid);
-		toast.show(
-			res === 'saved'
-				? t('toast.downloaded', { label })
-				: res === 'no-audio'
-					? t('toast.noAudioFor', { label })
-					: t('toast.downloadFailedKeptInLibrary', { label })
-		);
-		// D-12: the menu itself stays open \u2014 the Download row reflects downloading/downloaded inline.
-		await probeBlob();
 	}
 
 	async function doShare() {
@@ -1749,14 +1610,6 @@
 		if (coverOpen && track) {
 			untrack(() => overlays.open("trackmenu-cover", () => closeCoverPicker()));
 			return () => untrack(() => overlays.dismiss("trackmenu-cover"));
-		}
-	});
-	// quick-260916-0d9: the download picker's own balanced overlay entry — distinct id so Back pops
-	// exactly this sheet, and its close handler aborts the probe pool on every dismiss route.
-	$effect(() => {
-		if (dlPickOpen && track) {
-			untrack(() => overlays.open("trackmenu-dlpick", () => closeDownloadPicker()));
-			return () => untrack(() => overlays.dismiss("trackmenu-dlpick"));
 		}
 	});
 </script>
@@ -2157,25 +2010,31 @@
 	</div>
 {/if}
 
-<!-- quick-260919-vrq: the Remove-download CONFIRM. Mounted OUTSIDE the {#if open && track} block for
-     the same reason as the playlist picker above — it has to survive the parent menu closing. The
-     boolean is a SettingToggle because that is the app's only boolean-control idiom (a real
-     <button role="switch" aria-checked>, so the state is exposed to assistive tech) and no
-     `type="checkbox"` exists anywhere in src. Cancel, the scrim, a drag-down and the Back gesture all
-     converge on `rmOpen = false` through the overlay's close handler: NOTHING is removed on any
-     dismiss route, only the explicit Remove button acts. -->
-{#if rmOpen && track}
-	<button class="scrim" aria-label={t('menu.close')} onclick={() => (rmOpen = false)}></button>
-	<div class="menu" role="dialog" aria-modal="true" aria-label={t('menu.removeDownload')} transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (rmOpen = false) }} use:focusTrap>
-		<div class="menu-head">{t('menu.removeDownload')}</div>
-		<p class="hint">{t('menu.removeDownloadBody')}</p>
-		<SettingToggle label={t('menu.removeDownloadDeleteFile')} checked={rmDeleteFile} onchange={() => (rmDeleteFile = !rmDeleteFile)} />
-		<div class="actions">
-			<MenuActionButton onclick={() => (rmOpen = false)}>{t('tags.cancel')}</MenuActionButton>
-			<button class="mi danger" onclick={confirmRemoveDownload} use:tapBounce><Trash2 size={18} /> {t('menu.removeDownloadAction')}</button>
-		</div>
-	</div>
-{/if}
+<!-- quick-261119-dldelete: the Remove-download CONFIRM is the shared RemoveDownloadSheet,
+     mounted outside the {#if open && track} block so it survives the parent menu closing —
+     the same sheet the downloaded ✓ (DownloadControl) opens. Dismiss routes only close the
+     sheet (the menu stays); a completed delete fires onremoved, which closes the menu too —
+     the old confirm's post-delete close(). -->
+<RemoveDownloadSheet
+	track={track}
+	open={rmOpen}
+	onclose={() => (rmOpen = false)}
+	onremoved={() => close()}
+/>
+
+<!-- quick-261119-dldelete: the "Download from…" picker is the shared DownloadPickerSheet,
+     mounted outside the {#if open && track} block like the other sub-sheets so it survives
+     the menu closing on a pick. This menu's own-source probe (dlProbe) rides in as the
+     zero-network seed; onpicked refreshes the menu's blob probe (the old D-12 behaviour:
+     the menu stays open and its Download row reflects the new state inline). -->
+<DownloadPickerSheet
+	track={track}
+	open={dlPickOpen}
+	seedProbe={dlProbe}
+	overlayId="trackmenu-dlpick"
+	onclose={() => (dlPickOpen = false)}
+	onpicked={probeBlob}
+/>
 
 {#if detailTrack}
 	<button class="scrim" aria-label={t('menu.close')} onclick={() => (detailTrack = null)}></button>
@@ -2313,42 +2172,6 @@
 	</div>
 {/if}
 
-<!-- quick-260916-0d9 — the "Download from…" sheet. Mounted OUTSIDE the {#if open && track} block (like
-     the other sub-sheets) so it survives the menu closing on a pick. One row per SOURCE: the own
-     source first (already labelled from the main row's probe), then whatever the single fan-out
-     found, each filling in as its own capped probe lands. A source whose probe came back empty is a
-     DISABLED "Unavailable" row — a blocked upstream degrades one row, never the sheet. -->
-{#if dlPickOpen && track}
-	<button class="scrim" aria-label={t('menu.close')} onclick={closeDownloadPicker}></button>
-	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: closeDownloadPicker }} use:focusTrap>
-		<div class="menu-head row"><span>{t('menu.downloadFrom')}</span><button class="x" aria-label={t('menu.close')} onclick={closeDownloadPicker} use:tapBounce><X size={18} /></button></div>
-		{#each dlPickList as v (v.uid)}
-			{@const p = dlPickProbes[v.uid]}
-			{@const meta = p ? formatDownloadMeta(p) : null}
-			{@const unavailable = p !== undefined && !p.track?.audioUrl}
-			<MenuActionButton icon={Download} disabled={unavailable} onclick={() => pickDownload(v)}>
-				<!-- quick-261006-zh: source labels ride the tongwentang script lock like all page content. -->
-				<span class="dl-src">{names.zhLock(SOURCES[v.source]?.label ?? v.source)}</span>
-				{#if p === undefined}<span class="count skel" aria-hidden="true"></span>
-				{:else if unavailable}<span class="count">{t('menu.downloadUnavailable')}</span>
-				{:else if meta}<span class="count">{meta}</span>{/if}
-			</MenuActionButton>
-			<!-- quick-261020-dl320: the cheaper second row — this source's real 320k file, probed only
-			     because the main row proved the ladder exists. Tapping it downloads the 320k file. -->
-			{@const p320 = dlPickExtra[v.uid]}
-			{#if p320?.track?.audioUrl}
-				{@const meta320 = formatDownloadMeta(p320)}
-				<MenuActionButton icon={Download} onclick={() => pickDownload(v, p320)}>
-					<span class="dl-src">{names.zhLock(SOURCES[v.source]?.label ?? v.source)}</span>
-					{#if meta320}<span class="count">{meta320}</span>{/if}
-				</MenuActionButton>
-			{/if}
-		{/each}
-		{#if dlPickLoading}
-			<p class="dl-wait" aria-busy="true"><span class="row-spinner motion-always"></span>{t('versions.loading')}</p>
-		{/if}
-	</div>
-{/if}
 
 <!-- Gap 4 (26-10): the Play-from-source VersionPicker. Mounted OUTSIDE the {#if open && track} menu
      block (like the playlist-picker/detail sub-sheets) so it survives the menu closing on a pick.
@@ -2557,15 +2380,9 @@
 	/* The busy cell is disabled-but-working: keep it undimmed like the list row's `.dl-busy`
 	   (at 0.4 the bar and percentage are hard to read). */
 	.gi.dl-busy:disabled { opacity: 1; }
-	/* quick-260919-vrq — the remove-download confirm's body copy + button pair. `.hint` and `.actions`
-	   are taken VERBATIM from MetadataEditor.svelte (its footer is the same shape: a paragraph of
-	   explanation over a Cancel/commit pair), so the two sheets read identically; noted here because
-	   that makes two files carrying the declaration. The danger tint is var(--color-danger-text) (was the #ff7a90 literal), the value already
-	   in system use by SettingRow's `.danger` and RowBadges' `.unavailable` — app.css defines no
-	   --color-danger token and this task does not invent one. */
-	.hint { color: var(--color-text-muted); font-size: 0.75rem; line-height: 1.4; padding: 10px 12px 4px; margin: 0; }
-	.actions { display: flex; gap: 8px; padding: 4px; }
-	.mi.danger { color: var(--color-danger-text); }
+	/* quick-260919-vrq → quick-261119-dldelete: the remove-download confirm's `.hint` / `.actions`
+	   / `.mi.danger` rules left with the sheet into RemoveDownloadSheet.svelte (which mirrors
+	   them there); nothing in this file renders those classes any more. */
 	/* tabular-nums: the download percentage climbs digit by digit and would otherwise jitter the
 	   row's right edge on every repaint (quick-260913-omi). Harmless for the playlist counts. */
 	.mi .count { margin-inline-start: auto; font-size: 0.75rem; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
@@ -2584,7 +2401,7 @@
 	.lyr-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px 2px; font-size: 0.8125rem; color: var(--color-text-muted); }
 	.lyr-cur { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--color-primary); font-size: 0.75rem; white-space: nowrap; }
 	.lyr-body { max-height: 12rem; overflow-y: auto; overscroll-behavior: contain; padding: 4px 12px 8px; font-size: 0.875rem; line-height: 1.5; white-space: pre-line; color: var(--color-text); }
-	.dl-wait { display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); font-size: 0.8125rem; padding: 10px 12px; margin: 0; }
+	/* .dl-wait moved with the picker markup into DownloadPickerSheet (quick-261119-dldelete). */
 	/* quick-260919-vrq: the Download row's TWO-sibling-buttons shape — DELETED by
 	   quick-261006-grd, which moved it to the grid cell's `.gi-split` corner caret (declared with
 	   the grid styles above). */

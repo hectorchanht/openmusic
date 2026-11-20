@@ -566,6 +566,8 @@ const zhHans: Dict = {
 	"menu.removeDownloadBody": "歌曲仍留在你的音乐库中，点按后会重新在线播放。通过浏览器下载文件夹保存的文件，无法从这里处理。",
 	"menu.removeDownloadDeleteFile": "同时删除本设备上的离线副本",
 	"menu.removeDownloadAction": "移除",
+	"menu.removeDownloadAll": "移除全部版本",
+	"menu.removeDownloadVersions": "这首歌有 {count} 个已下载版本：",
 	"tags.title": "编辑歌曲信息",
 	"tags.fieldTitle": "歌曲名",
 	"tags.fieldArtist": "歌手",

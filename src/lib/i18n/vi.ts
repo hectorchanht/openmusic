@@ -544,6 +544,8 @@ const vi: Dict = {
 	"menu.removeDownloadBody": "Bài hát vẫn nằm trong thư viện của bạn và sẽ phát trực tuyến trở lại khi bạn chạm vào. Tệp bạn đã lưu qua thư mục tải xuống của trình duyệt thì không thể chạm tới từ đây.",
 	"menu.removeDownloadDeleteFile": "Xoá luôn bản ngoại tuyến trên thiết bị này",
 	"menu.removeDownloadAction": "Xoá",
+	"menu.removeDownloadAll": "Xoá tất cả phiên bản",
+	"menu.removeDownloadVersions": "{count} phiên bản đã tải của bài hát này:",
 	"tags.title": "Sửa thông tin bài hát",
 	"tags.fieldTitle": "Tên bài hát",
 	"tags.fieldArtist": "Nghệ sĩ",

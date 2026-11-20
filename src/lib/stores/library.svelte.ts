@@ -7,6 +7,7 @@ import { blobStore } from '$lib/services/blob-store';
 import { writeCoverBoth } from '$lib/stores/cover-version.svelte';
 import { hasHttpsScheme } from '$lib/services/url-safety';
 import { matchKey, dedupeShelfList, isSameShelfSong, sameSongStrings, songKey } from '$lib/services/dedupe';
+import { downloadVersionsOf } from '$lib/services/download-versions';
 import { isDeviceUid } from '$lib/services/device-track';
 import { isChineseLine, warmScript } from '$lib/services/zh-convert';
 // quick-261023-syncmerge: tombstone helpers — the `deleted` set lives on the library blob
@@ -704,13 +705,26 @@ class Library {
 	 * device refusal (Plan 34-01), and the player's SILENT eviction site is guarded in player.svelte.ts
 	 * instead.
 	 *
-	 * quick-260919-vrq: `deleteFile: false` is the TrackMenu "Remove download" sheet's UNTICKED path
-	 * — the user chose to keep the files. The row still goes (and its unavailable mark with it), but
-	 * the bytes stay: on native the app-private copy AND the public Music/OpenMusic entry, on the web
-	 * the IndexedDB copy. Recording an import EXCLUSION is deliberately NOT this method's business —
-	 * the caller decides that (see TrackMenu `confirmRemoveDownload`). Omitting the argument is
-	 * byte-for-byte the old behaviour, so every existing call site is untouched.
+	 * quick-260919-vrq: `deleteFile: false` was the TrackMenu "Remove download" sheet's UNTICKED
+	 * path — the row went but the bytes stayed. quick-261119-dldelete REMOVED that user-facing
+	 * option (the badge must mirror device truth: a kept copy behind a "not downloaded" badge is
+	 * a lie), so the sheet now always removes record + bytes together via the default. The opt-out
+	 * survives in the API for internal callers only (the import drop lane's bookkeeping). Recording
+	 * an import EXCLUSION is deliberately NOT this method's business — the caller decides that
+	 * (see TrackMenu `noImport`). Omitting the argument is byte-for-byte the old behaviour, so
+	 * every existing call site is untouched.
 	 */
+	/**
+	 * quick-261119-dldelete: every download record held for this track's SONG (its own uid plus
+	 * the same song under other sources / renditions), exact-uid first. The remove-download
+	 * confirm (RemoveDownloadSheet) lists these when there is more than one, so a version is
+	 * never silently deleted — or silently kept — behind a single ✓. Identity + device
+	 * exclusion live in the pure helper (services/download-versions).
+	 */
+	downloadVersionsFor(track: Track | null | undefined): Track[] {
+		return downloadVersionsOf(this.downloads, track);
+	}
+
 	removeDownload(uid: string, opts: { deleteFile?: boolean } = {}) {
 		this.downloads = this.downloads.filter((t) => t.uid !== uid);
 		// The row is gone, so its unavailable mark has nothing left to annotate.

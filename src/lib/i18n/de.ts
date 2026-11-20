@@ -544,6 +544,8 @@ const de: Dict = {
 	"menu.removeDownloadBody": "Der Song bleibt in deiner Mediathek und wird beim Antippen wieder gestreamt. Eine Datei, die du über den Download-Ordner deines Browsers gespeichert hast, ist von hier aus nicht erreichbar.",
 	"menu.removeDownloadDeleteFile": "Auch die Offline-Kopie auf diesem Gerät löschen",
 	"menu.removeDownloadAction": "Entfernen",
+	"menu.removeDownloadAll": "Alle Versionen entfernen",
+	"menu.removeDownloadVersions": "{count} heruntergeladene Versionen dieses Songs:",
 	"tags.title": "Metadaten bearbeiten",
 	"tags.fieldTitle": "Titel",
 	"tags.fieldArtist": "Interpret",

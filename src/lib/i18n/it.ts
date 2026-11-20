@@ -544,6 +544,8 @@ const it: Dict = {
 	"menu.removeDownloadBody": "Il brano resta nella tua libreria e torna in streaming quando lo tocchi. Un file salvato nella cartella dei download del browser non è raggiungibile da qui.",
 	"menu.removeDownloadDeleteFile": "Elimina anche la copia offline su questo dispositivo",
 	"menu.removeDownloadAction": "Rimuovi",
+	"menu.removeDownloadAll": "Rimuovi tutte le versioni",
+	"menu.removeDownloadVersions": "{count} versioni scaricate di questo brano:",
 	"tags.title": "Modifica metadati",
 	"tags.fieldTitle": "Titolo del brano",
 	"tags.fieldArtist": "Artista",

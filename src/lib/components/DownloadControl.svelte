@@ -17,7 +17,16 @@
 	//                 when its OUTERMOST bracket ends (refcounted) — an album song stays busy through
 	//                 the qq backoff sleeps and the donor walk — and a non-saved outcome lands in
 	//                 `unavailable`, so the tick means "the file is really saved".
-	//   downloaded  → Check icon, greyed, disabled           (library.isDownloaded(uid))
+	//   downloaded  → Check icon, greyed, a real BUTTON     (library.isDownloaded(uid))
+	//                 quick-261119-dldelete: tapping it opens the shared RemoveDownloadSheet
+	//                 confirm (the old D-11 non-interactive span left a downloaded song with
+	//                 no easy way to delete its copy — Hector 2026-11-19). Delete there removes
+	//                 record + offline bytes together, so the badge always mirrors the device.
+	//                 LONG-PRESS opens the same sheet in manage mode (the version list, even
+	//                 for a single version). Idle's LONG-PRESS opens the shared
+	//                 DownloadPickerSheet (choose source/quality instead of the default) —
+	//                 Hector's gesture spec, the same two gestures TrackMenu's Download row
+	//                 has always had. The busy state keeps NO gestures (a span, as before).
 	//   unavailable → CircleAlert, #ff7a90, non-interactive (library.isUnavailable — 34-D-06; re-import
 	//                 is the fix, one tap away in Settings → Downloads; the badge does not try to be
 	//                 a button)
@@ -43,12 +52,15 @@
 	import { library } from '$lib/stores/library.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
+	import { longpress } from '$lib/actions/longpress';
 	import { t } from '$lib/i18n';
 	import { downloadTrackWithDonor } from '$lib/services/download-track';
 import { player } from '$lib/stores/player.svelte';
 	import { downloadLabel } from '$lib/services/download-label';
 	import { names } from '$lib/stores/names.svelte';
 	import DownloadRing from '$lib/components/DownloadRing.svelte';
+	import RemoveDownloadSheet from '$lib/components/RemoveDownloadSheet.svelte';
+	import DownloadPickerSheet from '$lib/components/DownloadPickerSheet.svelte';
 	import { downloadState } from '$lib/components/download-state';
 	import { formatDownloadMeta, probeDownload, type DownloadProbe } from '$lib/services/download-probe';
 	import type { Track } from '$lib/sources/types';
@@ -86,6 +98,12 @@ import { player } from '$lib/stores/player.svelte';
 	// memory via the host row (`resolved`), so a remount shows a running download's ring at once.
 	// Only the pre-uid resolve window is lost on remount, by design.
 	let localBusy = $state(false);
+	// quick-261119-dldelete: the remove-download confirm's open flag (downloaded state only)
+	// + whether it was raised by long-press (manage mode: the version list always renders).
+	let rmOpen = $state(false);
+	let rmManage = $state(false);
+	// The source picker's open flag (idle state, long-press only).
+	let pickOpen = $state(false);
 
 	const uid = $derived(resolved?.uid ?? track?.uid ?? '');
 	// quick-261102-trh (DECISIONS.md §11): the library's answer for THE SONG (downloadUidFor — a twin
@@ -140,6 +158,23 @@ import { player } from '$lib/stores/player.svelte';
 	// Display-language `artist - title` (a song title passes its OWN artist to dnTitle).
 	const labelFor = (s: Track) => downloadLabel(names.dnArtist(s.artist), names.dnTitle(s.title, s.artist));
 
+	// quick-261119-dldelete: idle LONG-PRESS — open the shared DownloadPickerSheet so the
+	// user picks the source/quality instead of taking the default. An album stub resolves
+	// first (the picker needs a real uid to key the download to — the same resolve run()
+	// does). Device files never open it (their bytes are already on the device, and
+	// TrackMenu's picker guards the same way). The longpress action's document-capture
+	// suppressor eats the release click, so a hold can never ALSO start the default
+	// download through run().
+	async function openPicker() {
+		let target = resolved ?? track;
+		if (!target && resolve) {
+			target = await resolve();
+			if (target) resolved = target;
+		}
+		if (!target || target.uid.startsWith('device:')) return;
+		pickOpen = true;
+	}
+
 	async function run() {
 		if (isDownloaded || isDownloading) return;
 		// quick-261001-grb: name the song when we already hold it; an album stub row only has a
@@ -192,24 +227,41 @@ import { player } from '$lib/stores/player.svelte';
 		<CircleAlert size={size} />
 	</span>
 {:else if dlState === 'downloaded'}
-	<!-- Downloaded: a non-interactive span (greyed, disabled-by-absence-of-onclick) — D-11 label. -->
-	<span class="dc downloaded" aria-label={t('menu.downloaded')} title={t('menu.downloaded')}>
+	<!-- quick-261119-dldelete: Downloaded is a BUTTON now — tap opens the shared
+	     RemoveDownloadSheet (delete = record + offline bytes together); LONG-PRESS opens
+	     the same sheet in manage mode (version list). Greyed styling is unchanged (the
+	     .downloaded dim below), so the row reads exactly as before until tapped. -->
+	<button
+		class="dc downloaded"
+		aria-label={`${t('menu.downloaded')} · ${t('menu.removeDownload')}`}
+		title={`${t('menu.downloaded')} · ${t('menu.removeDownload')}`}
+		onclick={() => { rmManage = false; rmOpen = true; }}
+		onlongpress={() => { rmManage = true; rmOpen = true; }}
+		use:longpress
+		use:tapBounce
+	>
 		<Check size={size} />
-	</span>
+	</button>
 {:else if probe}
 	<!-- quick-260915-26g: the probing branch is SEPARATE so the default (probe off) markup below stays
 	     exactly what every list row renders today — one 40×40 button, no wrapper, no extra node. -->
 	<span class="dc-wrap">
-		<button class="dc" aria-label={dlLabel} title={dlLabel} onclick={run} use:tapBounce>
+		<button class="dc" aria-label={dlLabel} title={dlLabel} onclick={run} onlongpress={openPicker} use:longpress use:tapBounce>
 			<Download size={size} />
 		</button>
 		{#if probing}<span class="dc-meta skel" aria-hidden="true"></span>{:else if meta}<span class="dc-meta">{meta}</span>{/if}
 	</span>
 {:else}
-	<button class="dc" aria-label={t('menu.download')} title={t('menu.download')} onclick={run} use:tapBounce>
+	<button class="dc" aria-label={`${t('menu.download')} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onclick={run} onlongpress={openPicker} use:longpress use:tapBounce>
 		<Download size={size} />
 	</button>
 {/if}
+
+<!-- quick-261119-dldelete: both sheets mount OUTSIDE the state branches — a pick that
+     saves flips this control to `downloaded` and a delete flips it back to idle, and the
+     sheet that caused the flip must not unmount with the branch it was raised from. -->
+<RemoveDownloadSheet track={dlTrack} open={rmOpen} manage={rmManage} onclose={() => (rmOpen = false)} />
+<DownloadPickerSheet track={dlTrack} open={pickOpen} overlayId="downloadcontrol-dlpick" onclose={() => (pickOpen = false)} />
 
 <style>
 	.dc {
@@ -253,10 +305,11 @@ import { player } from '$lib/stores/player.svelte';
 		border-radius: var(--radius-full);
 		background: var(--color-surface);
 	}
-	/* Downloaded + busy are non-interactive; greyed to read as "done"/"working". */
+	/* Busy is non-interactive; downloaded stays greyed to read as "done" but IS a button
+	   since quick-261119-dldelete (tap = remove-download confirm). */
 	.dc.downloaded {
 		opacity: 0.4;
-		cursor: default;
+		cursor: pointer;
 	}
 	.dc.busy {
 		cursor: default;

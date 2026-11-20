@@ -544,6 +544,8 @@ const fr: Dict = {
 	"menu.removeDownloadBody": "Le morceau reste dans ta bibliothèque et se relit en streaming quand tu le touches. Un fichier enregistré dans le dossier de téléchargement de ton navigateur reste hors de portée d'ici.",
 	"menu.removeDownloadDeleteFile": "Supprimer aussi la copie hors connexion sur cet appareil",
 	"menu.removeDownloadAction": "Supprimer",
+	"menu.removeDownloadAll": "Supprimer toutes les versions",
+	"menu.removeDownloadVersions": "{count} versions téléchargées de ce morceau :",
 	"tags.title": "Modifier les métadonnées",
 	"tags.fieldTitle": "Titre du morceau",
 	"tags.fieldArtist": "Artiste",

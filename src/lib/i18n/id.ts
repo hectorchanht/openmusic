@@ -544,6 +544,8 @@ const id: Dict = {
 	"menu.removeDownloadBody": "Lagu ini tetap ada di pustaka kamu dan kembali diputar lewat streaming saat kamu mengetuknya. Berkas yang kamu simpan lewat folder unduhan peramban tidak bisa dijangkau dari sini.",
 	"menu.removeDownloadDeleteFile": "Hapus juga salinan offline di perangkat ini",
 	"menu.removeDownloadAction": "Hapus",
+	"menu.removeDownloadAll": "Hapus semua versi",
+	"menu.removeDownloadVersions": "{count} versi unduhan lagu ini:",
 	"tags.title": "Edit metadata",
 	"tags.fieldTitle": "Judul lagu",
 	"tags.fieldArtist": "Artis",

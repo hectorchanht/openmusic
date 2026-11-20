@@ -631,6 +631,8 @@ const en = {
 	"menu.removeDownloadBody": "The song stays in your library and streams again when you tap it. A file you saved through your browser's download folder can't be reached from here.",
 	"menu.removeDownloadDeleteFile": "Also delete the offline copy on this device",
 	"menu.removeDownloadAction": "Remove",
+	"menu.removeDownloadAll": "Remove all versions",
+	"menu.removeDownloadVersions": "{count} downloaded versions of this song:",
 	"tags.title": "Edit metadata",
 	"tags.fieldTitle": "Song title",
 	"tags.fieldArtist": "Artist",

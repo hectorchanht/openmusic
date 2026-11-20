@@ -544,6 +544,8 @@ const tr: Dict = {
 	"menu.removeDownloadBody": "Şarkı kitaplığında kalır ve dokunduğunda yeniden akışla çalar. Tarayıcının indirilenler klasörüne kaydettiğin bir dosyaya buradan erişilemez.",
 	"menu.removeDownloadDeleteFile": "Bu cihazdaki çevrimdışı kopyayı da sil",
 	"menu.removeDownloadAction": "Kaldır",
+	"menu.removeDownloadAll": "Tüm sürümleri kaldır",
+	"menu.removeDownloadVersions": "Bu şarkının indirilmiş {count} sürümü:",
 	"tags.title": "Meta verileri düzenle",
 	"tags.fieldTitle": "Şarkı adı",
 	"tags.fieldArtist": "Sanatçı",

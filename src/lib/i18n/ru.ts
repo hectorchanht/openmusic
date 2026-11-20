@@ -544,6 +544,8 @@ const ru: Dict = {
 	"menu.removeDownloadBody": "Трек остаётся в твоей медиатеке и снова будет играть по сети, когда ты его нажмёшь. До файла, сохранённого в папке загрузок браузера, отсюда не добраться.",
 	"menu.removeDownloadDeleteFile": "Также удалить офлайн-копию на этом устройстве",
 	"menu.removeDownloadAction": "Удалить",
+	"menu.removeDownloadAll": "Удалить все версии",
+	"menu.removeDownloadVersions": "Скачанных версий этой песни: {count}:",
 	"tags.title": "Изменить метаданные",
 	"tags.fieldTitle": "Название песни",
 	"tags.fieldArtist": "Исполнитель",

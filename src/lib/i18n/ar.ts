@@ -544,6 +544,8 @@ const ar: Dict = {
 	"menu.removeDownloadBody": "تبقى الأغنية في مكتبتك وتُشغَّل بالبث مرة أخرى عند الضغط عليها. أما الملف الذي حفظته في مجلد تنزيلات المتصفح فلا يمكن الوصول إليه من هنا.",
 	"menu.removeDownloadDeleteFile": "احذف أيضًا النسخة المتاحة دون اتصال على هذا الجهاز",
 	"menu.removeDownloadAction": "إزالة",
+	"menu.removeDownloadAll": "إزالة كل الإصدارات",
+	"menu.removeDownloadVersions": "{count} إصدارات مُنزَّلة من هذه الأغنية:",
 	"tags.title": "تحرير بيانات الأغنية",
 	"tags.fieldTitle": "اسم الأغنية",
 	"tags.fieldArtist": "الفنان",

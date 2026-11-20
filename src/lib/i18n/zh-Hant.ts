@@ -566,6 +566,8 @@ const zhHant: Dict = {
 	"menu.removeDownloadBody": "歌曲仍留在你的音樂庫中，輕觸後會重新線上播放。透過瀏覽器下載資料夾儲存的檔案，無法從這裡處理。",
 	"menu.removeDownloadDeleteFile": "同時刪除此裝置上的離線副本",
 	"menu.removeDownloadAction": "移除",
+	"menu.removeDownloadAll": "移除全部版本",
+	"menu.removeDownloadVersions": "呢首歌有 {count} 個已下載版本：",
 	"tags.title": "編輯歌曲資訊",
 	"tags.fieldTitle": "歌曲名稱",
 	"tags.fieldArtist": "歌手",

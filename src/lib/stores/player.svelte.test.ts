@@ -5053,6 +5053,51 @@ describe('player.adoptDownloadedCurrent — hot-swap to a downloaded upgrade (qu
 	});
 });
 
+describe('quick-261119-dldelete — deleting the playing track’s download copy mid-song', () => {
+	// Hector's edge case for the tappable ✓: the user deletes the offline copy of the song
+	// that is playing RIGHT NOW from that copy. The element holds an object URL over the
+	// in-memory Blob, and neither library.removeDownload nor blobStore.del revokes it — so
+	// the current song must sound on to its end; only the NEXT play streams. This pins that
+	// no code path from the removal reaches the live element (src / pause / current).
+	let el: ReturnType<typeof makeFakeAudio>;
+
+	beforeEach(() => {
+		mockBlobDel.mockClear();
+		el = makeFakeAudio();
+		player.attach(el as unknown as HTMLAudioElement);
+		library.downloads = [];
+	});
+
+	afterEach(() => {
+		library.downloads = [];
+	});
+
+	it('record + blob go away, but the live blob playback is untouched', () => {
+		const cur = mk('kuwo', '77', 'Artist', 'Song');
+		library.downloads = [cur];
+		player.current = cur;
+		player.queue = [cur];
+		el.src = 'blob:offline-copy';
+		el.paused = false;
+		const internals = player as unknown as {
+			cachedBlobUrl: string | null;
+			lastSrcKind: string;
+		};
+		internals.cachedBlobUrl = 'blob:offline-copy';
+		internals.lastSrcKind = 'download-blob';
+
+		library.removeDownload(cur.uid);
+
+		expect(mockBlobDel).toHaveBeenCalledWith(cur.uid);
+		expect(library.isDownloaded(cur.uid)).toBe(false);
+		// …and the sounding copy plays on: same src, never paused, still current.
+		expect(el.src).toBe('blob:offline-copy');
+		expect(el.pause).not.toHaveBeenCalled();
+		expect(player.current?.uid).toBe(cur.uid);
+		expect(internals.cachedBlobUrl).toBe('blob:offline-copy');
+	});
+});
+
 describe('player.queueContext — context-threaded setQueue/playStub (Phase 17 QUEUE-03)', () => {
 	// These use the global beforeEach's MOCKED play() — we only assert queueContext + that play
 	// is handed the resolved track. setQueue is a synchronous field set, no real <audio> needed.

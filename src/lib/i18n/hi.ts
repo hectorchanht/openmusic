@@ -544,6 +544,8 @@ const hi: Dict = {
 	"menu.removeDownloadBody": "गाना आपकी लाइब्रेरी में बना रहता है और टैप करने पर फिर से स्ट्रीम होता है। ब्राउज़र के डाउनलोड फ़ोल्डर में सहेजी गई फ़ाइल तक यहाँ से नहीं पहुँचा जा सकता।",
 	"menu.removeDownloadDeleteFile": "इस डिवाइस पर रखी ऑफ़लाइन कॉपी भी हटाएँ",
 	"menu.removeDownloadAction": "हटाएँ",
+	"menu.removeDownloadAll": "सभी संस्करण हटाएँ",
+	"menu.removeDownloadVersions": "इस गाने के {count} डाउनलोड किए गए संस्करण:",
 	"tags.title": "मेटाडेटा संपादित करें",
 	"tags.fieldTitle": "गाने का नाम",
 	"tags.fieldArtist": "कलाकार",

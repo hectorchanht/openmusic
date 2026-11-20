@@ -544,6 +544,8 @@ const th: Dict = {
 	"menu.removeDownloadBody": "เพลงยังอยู่ในคลังของคุณและจะสตรีมอีกครั้งเมื่อคุณแตะ ส่วนไฟล์ที่คุณบันทึกผ่านโฟลเดอร์ดาวน์โหลดของเบราว์เซอร์นั้นเข้าถึงจากที่นี่ไม่ได้",
 	"menu.removeDownloadDeleteFile": "ลบสำเนาออฟไลน์ในเครื่องนี้ด้วย",
 	"menu.removeDownloadAction": "นำออก",
+	"menu.removeDownloadAll": "นำออกทุกเวอร์ชัน",
+	"menu.removeDownloadVersions": "เพลงนี้มีเวอร์ชันที่ดาวน์โหลดไว้ {count} เวอร์ชัน:",
 	"tags.title": "แก้ไขข้อมูลเพลง",
 	"tags.fieldTitle": "ชื่อเพลง",
 	"tags.fieldArtist": "ศิลปิน",
