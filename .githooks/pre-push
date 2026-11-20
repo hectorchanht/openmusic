@@ -1,0 +1,7 @@
+#!/bin/sh
+# Dawn Gate - local pre-push check (same rules as CI: .github/dawn-gate/check.py).
+# Git hooks only run when this repo's core.hooksPath points at .githooks:
+#   git config core.hooksPath .githooks
+# Until that is set once per clone, this file is inert - CI is the backstop.
+root=$(git rev-parse --show-toplevel) || exit 1
+exec python3 "$root/.github/dawn-gate/check.py" "$root"
