@@ -24,7 +24,30 @@ import { overlays } from '$lib/stores/overlays.svelte';
 //  - A scroll event that moves OFF the boundary mid-band (e.g. pull-to-refresh took over)
 //    cancels the band instantly instead of fighting the browser.
 //  - destroy() removes listeners, cancels the spring, clears the inline transform.
+//  - INERT on iOS (Safari / WKWebView, incl. the Capacitor iOS shell): iOS rubber-bands
+//    NATIVELY — the whole composited page, the fixed nowbar/tabbar included, bands as one
+//    piece and springs back together. Layering this JS band on top double-bands: the
+//    content takes the native excursion PLUS this transform while the chrome takes only
+//    the native one, tearing the page away from the fixed chrome at the boundary
+//    (Hector 2026-11-20, iPad: mid-scroll the nowbar "left the ground" and floated
+//    mid-screen with page content visible beneath it). This action exists ONLY for UAs
+//    with no native band (Android Chrome / WebView show an edge glow instead).
+//  - NEVER strands a transform: the inline translateY exists only while a band is held
+//    or its spring is settling. springSnap's cancel() deliberately never writes, so a
+//    spring cancelled mid-flight (re-grab, scroll-off) would leave its last pumped
+//    value inline forever — the content stuck shifted against the fixed chrome, which
+//    reads as the chrome floating off the bottom. Every exit path below clears it.
+const hasNativeBand = (): boolean => {
+	if (typeof navigator === 'undefined') return false;
+	// iPadOS with a desktop UA reports platform MacIntel — touch points give it away.
+	return (
+		/iP(?:ad|hone|od)/.test(navigator.userAgent) ||
+		(navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+	);
+};
+
 export const rubberOverscroll: Action<HTMLElement> = (node) => {
+	if (hasNativeBand()) return {};
 	const MAX_PULL = 120; // px — the band's visual asymptote (iOS lets pages stretch ~this far)
 	const ENGAGE_SLOP = 4; // px of pull before the band visibly engages
 	let tracking = false;
@@ -52,6 +75,10 @@ export const rubberOverscroll: Action<HTMLElement> = (node) => {
 		// An overlay open means this content is behind a sheet — never band it.
 		if (overlays.depth > 0) return;
 		snap.cancel();
+		// cancel() stops the pump WITHOUT writing, so a spring interrupted mid-flight
+		// leaves its last value inline. The new gesture owns the node from rest: clear
+		// any stranded offset, or a plain (non-banding) scroll would carry it forever.
+		if (node.style.transform) node.style.transform = '';
 		tracking = true;
 		banding = false;
 		startY = e.clientY;
@@ -76,7 +103,14 @@ export const rubberOverscroll: Action<HTMLElement> = (node) => {
 	function release() {
 		if (!tracking) return;
 		tracking = false;
-		if (!banding) return;
+		if (!banding) {
+			// No band to settle — but a spring cancelled by the pointerdown that began
+			// this gesture may have stranded its last value inline (see down()). With
+			// no band running, nothing else ever clears it: the content would stay
+			// translated against the fixed nowbar/tabbar indefinitely.
+			if (node.style.transform) node.style.transform = '';
+			return;
+		}
 		banding = false;
 		// Real spring settle (replaces the old fixed ease-out) — slight overshoot, Apple-like.
 		snap.snap(band, 0);

@@ -117,6 +117,12 @@ body {
   color: var(--color-text);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+  /* The window is the app scroller and the nowbar/tabbar are fixed to its viewport:
+     never let the UA chain or pull past the document boundary (pull-to-refresh /
+     overscroll glow stealing the gesture the rubberOverscroll band owns). iOS ignores
+     this — its native band is the shell's boundary motion there, and rubberOverscroll
+     stays inert on iOS so the two never stack. */
+  overscroll-behavior-y: none;
 }
 a { color: inherit; text-decoration: none; }
 button { font-family: inherit; }
