@@ -10504,3 +10504,167 @@ describe('NEVER-STOP resume hysteresis — mid-song stall holds the resume (Hect
 		expect(el.play).not.toHaveBeenCalled(); // …but the hold stays cancelled
 	});
 });
+
+describe('NEVER-STOP stall-fallback proxy — a proven-failing kuwo track is rescued via the edge (Hector 2026-11-19)', () => {
+	function makeBufferedAudio(initial: Array<[number, number]>) {
+		const base = makeFakeAudio();
+		const state = { ranges: initial };
+		const el = {
+			...base,
+			preload: '',
+			load: vi.fn(),
+			removeEventListener() {},
+			get buffered() {
+				const list = state.ranges;
+				return {
+					length: list.length,
+					start: (i: number) => list[i][0],
+					end: (i: number) => list[i][1]
+				};
+			},
+			setRanges(r: Array<[number, number]>) {
+				state.ranges = r;
+			}
+		};
+		el.play = vi.fn(() => {
+			el.paused = false;
+			return Promise.resolve();
+		});
+		// A REAL element fires `pause` when pause() lands — and the player's pause
+		// listener is what consumes the hold's deliberatePause flag. Without the event
+		// the flag sticks and onMidSongStall refuses every later stall (a fake-only
+		// trap the single-hold hysteresis tests never trip over).
+		el.pause = vi.fn(() => {
+			el.paused = true;
+			el.fire('pause');
+		});
+		// A REAL element also ABSOLUTIZES src on readback: driveSrc assigns the
+		// relative proxy path, but el.src reads back https://openmusic.lol/api/… —
+		// and shouldBufferGate's http(s) check depends on that absolutized form.
+		let rawSrc = '';
+		Object.defineProperty(el, 'src', {
+			get: () =>
+				rawSrc && !/^(https?|blob):/.test(rawSrc) ? `https://openmusic.lol${rawSrc}` : rawSrc,
+			set: (v: string) => {
+				rawSrc = v;
+			}
+		});
+		return el;
+	}
+	const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
+	const internals = () =>
+		player as unknown as { hasPlayedSinceSrc: boolean; pendingSeek: number | null };
+
+	beforeEach(() => {
+		(player.play as unknown as { mockRestore(): void }).mockRestore?.();
+		mockEnsure.mockReset().mockImplementation(async (t: Track) => t);
+		mockCoverResolve.mockReset().mockResolvedValue(null);
+		player.current = null;
+		player.queue = [];
+		player.resolvedCover = null;
+	});
+
+	async function startPlaying(source: SourceId, id: string) {
+		const el = makeBufferedAudio([[0, 300]]);
+		player.attach(el as unknown as HTMLAudioElement);
+		const t = mk(source, id, 'A', 'Song');
+		await player.play(t, { fresh: true });
+		expect(el.play).toHaveBeenCalled();
+		internals().hasPlayedSinceSrc = true; // mid-song now
+		el.play.mockClear();
+		el.pause.mockClear();
+		// The playhead sits at 100s with the buffer drained to a sliver ahead.
+		el.currentTime = 100;
+		el.setRanges([[0, 101]]);
+		return { el, t };
+	}
+
+	/** One stall whose buffer recovers to the healthy resume threshold (a 'ready' hold). */
+	async function stallAndRecover(el: ReturnType<typeof makeBufferedAudio>) {
+		el.fire('waiting');
+		await tick(150); // hold is polling at ahead=1s
+		expect(el.pause).toHaveBeenCalled();
+		el.setRanges([[0, 120]]); // ahead back to 20s ≥ 15s resume threshold
+		await tick(300);
+		expect(el.play).toHaveBeenCalledTimes(1);
+		el.play.mockClear();
+		el.pause.mockClear();
+		el.setRanges([[0, 101]]); // drained again — the next stall starts from a sliver
+	}
+
+	it('a first hold that RECOVERS does not rescue — the src stays direct (first wobbles are free)', async () => {
+		const { el } = await startPlaying('kuwo', '493469900');
+		await stallAndRecover(el);
+		expect(el.src).toBe('https://cdn.example.com/a.mp3');
+	});
+
+	it('the SECOND hold rescues through the proxy at the preserved position, then resumes on the proxied stream', async () => {
+		const { el } = await startPlaying('kuwo', '493469901');
+		await stallAndRecover(el); // hold #1 recovered — no rescue
+		expect(el.src).toBe('https://cdn.example.com/a.mp3');
+
+		el.fire('waiting'); // hold #2 — the repeat-hold trigger swaps FIRST
+		await tick(200);
+		expect(el.src).toContain('/api/kuwo/stream/493469901?level=');
+		// Position preservation rides pendingSeek (the reresolveCurrent seam): the swap
+		// restarts the element at 0, so the seek back to the stall point must be armed.
+		expect(internals().pendingSeek).toBe(100);
+		expect(el.play).not.toHaveBeenCalled(); // still holding — now against the proxy stream
+
+		el.setRanges([[0, 200]]); // proxied buffer refills past the resume threshold
+		await tick(300);
+		expect(el.play).toHaveBeenCalledTimes(1);
+		expect(el.src).toContain('/api/kuwo/stream/493469901?level=');
+	});
+
+	it('a stall on the PROXY src holds + resumes normally but never re-rescues (no proxy loop)', async () => {
+		const { el } = await startPlaying('kuwo', '493469902');
+		await stallAndRecover(el);
+		el.fire('waiting');
+		await tick(200);
+		const rescuedSrc = el.src;
+		expect(rescuedSrc).toContain('/api/kuwo/stream/493469902?level=');
+		el.setRanges([[0, 200]]);
+		await tick(300);
+		expect(el.play).toHaveBeenCalledTimes(1);
+		el.play.mockClear();
+		el.pause.mockClear();
+
+		el.setRanges([[0, 101]]); // the proxy stream itself starves
+		el.fire('waiting');
+		await tick(200);
+		expect(el.pause).toHaveBeenCalled(); // the hold still engages…
+		expect(el.src).toBe(rescuedSrc); // …but the src is NOT swapped again
+		el.setRanges([[0, 200]]);
+		await tick(300);
+		expect(el.play).toHaveBeenCalledTimes(1);
+	});
+
+	it('the NEXT track starts direct again (the rescue posture is per-track)', async () => {
+		const { el } = await startPlaying('kuwo', '493469903');
+		await stallAndRecover(el);
+		el.fire('waiting');
+		await tick(200);
+		expect(el.src).toContain('/api/kuwo/stream/493469903?level=');
+		el.setRanges([[0, 200]]);
+		await tick(300);
+
+		const next = mk('kuwo', '555000111', 'B', 'Next Song');
+		el.setRanges([[0, 300]]);
+		await player.play(next, { fresh: true });
+		expect(player.current?.uid).toBe(next.uid);
+		expect(el.src).toBe('https://cdn.example.com/a.mp3');
+		expect(el.src).not.toContain('/api/kuwo/stream/');
+	});
+
+	it('a non-kuwo slow source (qq) is NOT rescued in this ship — its holds behave exactly as before', async () => {
+		const { el } = await startPlaying('qq', '123456');
+		await stallAndRecover(el);
+		el.fire('waiting');
+		await tick(200);
+		expect(el.src).toBe('https://cdn.example.com/a.mp3'); // second hold, still direct
+		el.setRanges([[0, 200]]);
+		await tick(300);
+		expect(el.play).toHaveBeenCalledTimes(1);
+	});
+});

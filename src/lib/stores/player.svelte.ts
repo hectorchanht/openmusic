@@ -35,8 +35,17 @@ import {
 	waitForBufferGate,
 	bufferedAheadSec,
 	SLOW_RESUME_TARGET_SEC,
-	SLOW_RESUME_TIMEOUT_MS
+	SLOW_RESUME_TIMEOUT_MS,
+	type BufferGateOutcome
 } from '$lib/services/buffer-gate';
+// STALL-FALLBACK PROXY (option ii, Hector 2026-11-19): a slow-source track that proves
+// it cannot sustain DIRECT playback is rescued through the own-origin byte proxy —
+// see $lib/services/proxy-rescue for the posture + trigger doctrine.
+import {
+	proxyRescueTarget,
+	shouldRescueViaProxy,
+	type ProxyRescuePhase
+} from '$lib/services/proxy-rescue';
 import { tryFallback } from '$lib/services/fallback';
 import { onApiPipelineIdle } from '$lib/services/api-base';
 import { reportDeadUrl } from '$lib/services/resolve-cache-client';
@@ -1844,6 +1853,17 @@ class Player {
 	private stallHold = false;
 
 	/**
+	 * STALL-FALLBACK PROXY (option ii, Hector 2026-11-19): per-(playGen, uid) tally of
+	 * mid-song buffer holds, plus the (playGen, uid) key already rescued through the
+	 * edge byte proxy. A new play (new gen) or a different track resets both by key
+	 * mismatch — the posture is per-track: rescue at most once, and the NEXT track
+	 * starts direct again. Plain fields — internal, never reactive.
+	 */
+	private stallHoldKey = '';
+	private stallHoldCount = 0;
+	private proxyRescuedKey = '';
+
+	/**
 	 * EXTERNAL-PAUSE SELF-HEAL (autoadvance-pauses-after-1s). On Android Chrome a genuinely-playable
 	 * track — typically right after an auto-advance src swap — plays ~1s then gets PAUSED by an
 	 * external event (audio-focus loss to a transient notification sound, background/lock-screen power
@@ -2557,14 +2577,45 @@ class Player {
 		} catch {
 			/* a partial/test element — the hold poll below still governs the resume */
 		}
-		let outcome: string = 'superseded';
+		let outcome: BufferGateOutcome = 'superseded';
 		try {
-			outcome = await waitForBufferGate(el, {
+			// STALL-FALLBACK PROXY (option ii): tally this hold against the (gen, uid)
+			// BEFORE waiting — the repeat-hold trigger reads the count at hold start.
+			const holdKey = `${gen}:${uid}`;
+			if (this.stallHoldKey !== holdKey) {
+				this.stallHoldKey = holdKey;
+				this.stallHoldCount = 0;
+			}
+			this.stallHoldCount += 1;
+			const holdOpts = {
 				targetSec: SLOW_RESUME_TARGET_SEC,
 				timeoutMs: SLOW_RESUME_TIMEOUT_MS,
 				isSuperseded: () =>
 					gen !== this.playGen || !this.stallHold || this.current?.uid !== uid
+			};
+			// Repeat-hold rescue swaps to the proxy FIRST, then the hold below runs
+			// against the proxied stream; a first hold just waits, and only its
+			// TIMEOUT (direct measurably cannot carry the track) rescues afterwards.
+			let rescued = this.tryProxyRescue(gen, uid, {
+				kind: 'hold-start',
+				holdCount: this.stallHoldCount
 			});
+			if (!rescued) {
+				outcome = await waitForBufferGate(el, holdOpts);
+				if (
+					outcome === 'timeout' &&
+					gen === this.playGen &&
+					this.current?.uid === uid &&
+					this.stallHold
+				) {
+					rescued = this.tryProxyRescue(gen, uid, { kind: 'hold-end', outcome });
+				}
+			}
+			if (rescued) {
+				// Hold the resume against the PROXIED stream with the same hysteresis:
+				// the swap alone is not the win — a healthy head start on the new src is.
+				outcome = await waitForBufferGate(el, holdOpts);
+			}
 		} finally {
 			const stillMine = gen === this.playGen && this.current?.uid === uid;
 			this.stallHold = false;
@@ -2582,6 +2633,53 @@ class Player {
 				/* rejected (activation lost in bg) — leave paused; existing seams own it */
 			});
 		}
+	}
+
+	/**
+	 * STALL-FALLBACK PROXY RESCUE (option ii, Hector 2026-11-19): swap the CURRENT
+	 * track's src to the own-origin byte proxy (/api/kuwo/stream/<id>?level=<tier>)
+	 * when the pure policy in proxy-rescue.ts agrees the direct route has failed this
+	 * track (hold timeout, or the repeat-hold threshold). Position is preserved via
+	 * the SAME pendingSeek seam reresolveCurrent uses — a src swap restarts the
+	 * element at 0, so the seek back to the stall point is armed BEFORE the swap and
+	 * the loadedmetadata listener lands it. The swap goes through the braked
+	 * driveSrc authority like every other attach; a braked swap leaves the direct
+	 * src attached and simply reports false (the hold then resumes direct, exactly
+	 * the pre-proxy behaviour). At most one rescue per (playGen, uid): the next
+	 * track — and any fresh play — starts direct again. Synchronous + never throws.
+	 */
+	private tryProxyRescue(gen: number, uid: string, phase: ProxyRescuePhase): boolean {
+		const el = this.audio;
+		const cur = this.current;
+		if (!el || !cur || cur.uid !== uid) return false;
+		const target = proxyRescueTarget(cur, settings.defaultQuality);
+		if (!target) return false;
+		if (
+			!shouldRescueViaProxy({
+				target,
+				currentSrc: el.src,
+				alreadyRescued: this.proxyRescuedKey === `${gen}:${uid}`,
+				phase
+			})
+		)
+			return false;
+		const pos = el.currentTime || 0;
+		this.pendingSeek = pos > 0 ? pos : null;
+		this.pendingSeekUid = this.pendingSeek != null ? uid : null;
+		if (!this.driveSrc(uid, target.url, 'url')) {
+			this.pendingSeek = null;
+			this.pendingSeekUid = null;
+			return false;
+		}
+		this.proxyRescuedKey = `${gen}:${uid}`;
+		logAction('proxy.rescue', {
+			uid,
+			level: target.level,
+			at: Math.round(pos * 10) / 10,
+			holds: this.stallHoldCount,
+			via: phase.kind
+		});
+		return true;
 	}
 
 	/** Disarm the stall watchdog (a real playing/timeupdate, an error, or end-of-track). */
