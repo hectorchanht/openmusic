@@ -130,7 +130,13 @@ function ogFallback(origin: string | null): Response {
 			...corsHeaders(origin),
 			'content-type': OG_FALLBACK_TYPE,
 			'Content-Length': String(OG_FALLBACK_BYTES.length),
-			'Cache-Control': CACHE_CONTROL,
+			// NO-STORE, deliberately not the shared CACHE_CONTROL: the branded card is a
+			// FAILURE placeholder, and a placeholder must never be cached anywhere — not
+			// by the CDN (a globally cached fallback would outlive the transient upstream
+			// slowness that caused it) and not by a crawler (WhatsApp caches the og:image
+			// it fetched; an immutable fallback would pin the wrong card to the link).
+			// Real covers keep the immutable TTL. (quick-261120-mediacard live fix.)
+			'Cache-Control': 'no-store',
 			'x-og-fallback': '1',
 			'Access-Control-Expose-Headers': 'x-og-fallback'
 		}

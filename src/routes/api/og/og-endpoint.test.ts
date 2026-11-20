@@ -865,6 +865,9 @@ describe('/api/og — zero-work short-circuit + input coercion', () => {
 		// from "here is the cover" — both are 200 + image/jpeg. Exposed cross-origin for the APK.
 		expect(res.headers.get('x-og-fallback')).toBe('1');
 		expect(res.headers.get('Access-Control-Expose-Headers')).toContain('x-og-fallback');
+		// The fallback is a failure placeholder: NO-STORE, so neither the CDN nor a
+		// crawler can pin it to the link (live fix, quick-261120-mediacard).
+		expect(res.headers.get('Cache-Control')).toBe('no-store');
 	});
 
 	it('a type outside the closed set is COERCED to song (never a 404/500)', async () => {
