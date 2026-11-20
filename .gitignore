@@ -250,3 +250,7 @@ android/app/src/main/assets/capacitor.config.json
 # Specs/tickets are working notes — local only, never committed.
 .scratch/
 .codegraph/
+
+# Dawn internal - never commit planning or internal docs (2026-11-19)
+.planning/
+plans/
