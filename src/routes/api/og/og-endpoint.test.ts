@@ -1558,15 +1558,16 @@ describe('og-cover — resolveCoverViaSeam, the single seam driven edge-side (qu
 		expect(seamCalls.some((c) => c.includes('type=pic'))).toBe(true);
 	});
 
-	it('the crowd pick wins FIRST — a pick hit costs ONE subrequest and no fan-out', async () => {
+	it('the crowd pick WINS over the fan-out (preference kept; the legs race concurrently)', async () => {
 		const { seamCalls } = stubRoute({
 			pick: JSON.stringify({ ok: true, u: null, n: DZ_COVER }),
 			seamNe: SEAM_NE_HIT
 		});
 		const out = await resolveCoverViaSeam('https://openmusic.lol', '茉ひる/Billy Choi', 'ロストライン', fresh());
 		expect(out).toBe(DZ_COVER);
-		expect(seamCalls).toHaveLength(1);
-		expect(seamCalls[0]).toContain('/api/cover-pick');
+		// The crowd leg and the fan-out start together (serial legs overran the stage
+		// ceiling live, 2026-11-20) — the pick is consulted, and its hit is returned.
+		expect(seamCalls.some((c) => c.includes('/api/cover-pick'))).toBe(true);
 	});
 
 	it('qq: search rows carry no cover — the gated winner takes the detail hop to the T002R800x800 album cover', async () => {

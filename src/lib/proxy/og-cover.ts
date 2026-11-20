@@ -736,37 +736,40 @@ export async function resolveCoverViaSeam(
 		// isCoverOf compares script-folded identity keys — never gate cold.
 		await ensureFoldReady();
 
-		// Stage 1 — the cover chain's crowd layer. A crowd cover can be a Meting redirector
-		// (the app's netease cover form) — dereference it like any seam cover; a failed
-		// deref falls through to the fan-out rather than handing the image fetch a
-		// redirector it cannot afford (see derefMetingPic).
+		// Stages 1+2 run CONCURRENTLY (the cover chain's own race posture): the crowd layer
+		// (stage 1) and resolveStub's search fan-out (stage 2) start together and the stage
+		// costs max(legs), not sum(legs). They used to run serially — crowd, then fan-out,
+		// then the deref/detail hop — and live 2026-11-20 the serial sum (2.5 + 3.5 + 3 s
+		// of per-leg caps) overran the 8 s stage ceiling even when every leg answered, so
+		// resolved songs still fell back. The crowd pick keeps its PREFERENCE (a hit wins
+		// over any fan-out cover); it just no longer blocks the fan-out from starting.
 		// PER-LEG budgets under the stage deadline (tierSignal, the tier chain's own shape):
-		// the fan-out is a Promise.all, so ONE hanging upstream would otherwise discard
-		// every fast leg's rows when the stage signal fires — live 2026-11-20, BIGBANG/LOSER
-		// burned the full 8 s stage budget and fell back although kuwo/qq answer in ~2 s.
-		// A leg that outlives its own cap fails ALONE; its siblings' results survive.
-		const crowd = await crowdPickCover(origin, artist, title, tierSignal(2500, signal), trace);
-		if (crowd) {
-			if (!isMetingPicUrl(crowd)) return crowd;
-			const direct = await derefMetingPic(crowd, tierSignal(3000, signal), trace);
-			if (direct) return direct;
-			if (signal.aborted) return null;
-		}
-
-		// Stage 2 — resolveStub's search fan-out, replayed through the dispatch builders on
-		// the cover chain's folded search terms (coverSearchTerms: the CN catalogs index the
+		// one hanging upstream fails ALONE — its siblings' results survive (the earlier
+		// single-signal Promise.all discarded every fast leg when the stage signal fired).
+		// A crowd cover can be a Meting redirector (the app's netease cover form) — it is
+		// dereferenced inside its own leg (see derefMetingPic).
+		const crowdP = (async (): Promise<string | null> => {
+			const c = await crowdPickCover(origin, artist, title, tierSignal(2500, signal), trace);
+			if (!c) return null;
+			if (!isMetingPicUrl(c)) return c;
+			return derefMetingPic(c, tierSignal(3000, signal), trace);
+		})();
+		// The fan-out replays resolveStub's search through the dispatch builders on the
+		// cover chain's folded search terms (coverSearchTerms: the CN catalogs index the
 		// Simplified fold, so the seam searches folded while identity stays the caller's).
 		const qArtist = await foldScriptReady(artist);
 		const qTitle = await foldScriptReady(title);
 		const keyword = `${qArtist} ${qTitle}`.trim();
 		if (!keyword) return null;
-		const rows = (
-			await Promise.all([
+		const [crowd, rows] = await Promise.all([
+			crowdP,
+			Promise.all([
 				neteaseSeamRows(keyword, tierSignal(3500, signal), trace),
 				qqSeamRows(keyword, tierSignal(3500, signal), trace),
 				kuwoSeamRows(keyword, tierSignal(3500, signal), trace)
-			])
-		).flat();
+			]).then((legs) => legs.flat())
+		]);
+		if (crowd) return crowd;
 		if (signal.aborted) return null;
 
 		// THE seam's own identity gate — the same predicate every in-app cover rung asks.
