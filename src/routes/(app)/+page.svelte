@@ -1221,7 +1221,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 {/if}
 
 <header class="topnav">
-	<div class="brand"><Logo size={26} /> openmusic</div>
+	<div class="brand"><Logo size={26} /><span class="brand-name"><span>Open</span><span class="brand-music">Music</span></span></div>
 	<div class="top-actions">
 		<!-- quick-261119-tiponly: SponsoredStrip is now ONLY the ☕ Tip jar pill (all
 		     referral sponsors cancelled, Hector 2026-11-19) and lives HERE in the
@@ -1872,6 +1872,7 @@ import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	/* quick-261119-tiponly: the header's right-side cluster — tip-jar pill + gear, one row. */
 	.top-actions { display: flex; align-items: center; gap: 8px; }
 	.brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1.35rem; }
+	.brand-music { color: var(--color-primary); }
 	.gear { position: relative; background: none; border: none; color: var(--color-text); cursor: pointer; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; transition: opacity 0.15s ease; }
 	/* quick-261102-sfc: Android 48dp touch floor (PRODUCT.md: APK is first-class); hit box only,
 	   glyph/circle unchanged — the ::after belongs to the button for hit-testing. 38 + 2×5 = 48. */

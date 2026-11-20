@@ -18,7 +18,7 @@
 	// and fires ONE detail call for the `?u=` carrier, or the name resolve when there is none. It
 	// still starts NO audio on mount: quick-260809-38i's no-autoplay decision STANDS (D-06 — a share
 	// navigation is not an in-page gesture and mobile autoplay policy rejects it). What moved back to
-	// mount is the RESOLVE, never the playback; the "Play on openmusic" CTA is the gesture that makes
+	// mount is the RESOLVE, never the playback; the "Play on OpenMusic" CTA is the gesture that makes
 	// sound, and it starts an element that is already armed.
 	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
@@ -254,7 +254,7 @@
 	{#if status === 'resolving'}
 		<p class="status" aria-live="polite"><span class="spinner motion-always" aria-hidden="true"></span> Finding a playable version…</p>
 	{:else if status === 'playing'}
-		<p class="status" aria-live="polite">Now playing on openmusic.</p>
+		<p class="status" aria-live="polite">Now playing on OpenMusic.</p>
 	{:else if status === 'notfound'}
 		<p class="status status--error" aria-live="polite">{notFoundMsg}</p>
 	{/if}
@@ -265,7 +265,7 @@
 	     line still shows), and after a 'notfound' it re-runs it. Available client-side only (retry is
 	     bound in onMount). -->
 	<button class="play-cta" onclick={() => retry?.()} disabled={retry === null}>
-		Play on openmusic
+		Play on OpenMusic
 	</button>
 </section>
 

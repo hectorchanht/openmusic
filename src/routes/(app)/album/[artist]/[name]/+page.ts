@@ -41,7 +41,7 @@ export const load: PageLoad = ({ params, url }) => {
 	// legacy album card. A brand default keeps the head non-empty when the name segment is the '-'
 	// guard (which decodes to '').
 	const og = {
-		...buildOg({ title: name || 'openmusic', artist: artist || undefined, type: 'music.album' }),
+		...buildOg({ title: name || 'OpenMusic', artist: artist || undefined, type: 'music.album' }),
 		image: ogImageUrl(url.origin, 'album', artist, name)
 	};
 

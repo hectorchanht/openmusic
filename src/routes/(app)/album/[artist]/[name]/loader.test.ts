@@ -51,7 +51,7 @@ describe('album/[artist]/[name] loader — path-segment decoding', () => {
 
 	it('never throws on emoji or fully empty segments', () => {
 		expect(run('Artist', '🎵 Album').name).toBe('🎵 Album');
-		expect(run('', '').og.title).toBe('openmusic');
+		expect(run('', '').og.title).toBe('OpenMusic');
 	});
 });
 

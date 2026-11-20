@@ -1,8 +1,10 @@
 <p align="center">
-  <img src="static/og.svg" alt="openmusic" width="640">
+  <img src="static/og.svg" alt="OpenMusic" width="640">
 </p>
 
-<h1 align="center">openmusic 🎧</h1>
+<h1 align="center">OpenMusic 🎧</h1>
+
+<p align="center">OpenMusic — free music streaming and downloads, no ads, no subscription, no account · Web &amp; Android</p>
 
 <p align="center">
   <b>One search box. Twelve music catalogs. Zero tab-hopping.</b><br>
@@ -150,12 +152,12 @@ fallback (`pnpm run deploy`): [docs/DEPLOY.md](docs/DEPLOY.md).
 
 - The big Chinese platforms and 5sing are reached through unofficial APIs. They can change or
   slow down whenever they like, and sometimes they do.
-- openmusic hosts no audio. All music belongs to its artists and platforms.
+- OpenMusic hosts no audio. All music belongs to its artists and platforms.
 - Translations are best effort. If one fails, you get the original.
 
 ## 💜 Credits
 
-openmusic began in June 2026 as *"what if [musicsquare](https://github.com/CharlesPikachu/musicsquare)
+OpenMusic began in June 2026 as *"what if [musicsquare](https://github.com/CharlesPikachu/musicsquare)
 had a nicer mobile UI?"* It got a little carried away and was rebuilt from the ground up, but
 musicsquare's source adapters showed the way for the first Chinese sources.
 [musicdl](https://github.com/CharlesPikachu/musicdl) was the reference for the source list and

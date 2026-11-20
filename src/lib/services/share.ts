@@ -488,7 +488,7 @@ export function buildOg(input: {
 	// the artist when absent so album/artist entity loaders — which pass no artist and override the
 	// description — are unaffected). Description is a short tagline, NOT the old marketing sentence.
 	const title = input.artist ? `${input.title} • ${input.artist}` : input.title;
-	const description = 'Listen on openmusic';
+	const description = 'Listen on OpenMusic';
 	const image = isHttpsUrl(input.cover) ? (input.cover as string) : null;
 	// OG-PAGE-01: per-surface og:type replaces PageOg's hardcoded `music.song`. Optional with a
 	// 'music.song' default so every existing caller keeps compiling while the loaders are converted.

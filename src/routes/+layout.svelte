@@ -21,7 +21,7 @@
 	let restoring: Promise<void> = Promise.resolve();
 
 	const SITE = "https://openmusic.lol";
-	const TITLE = "openmusic — music streaming for earth";
+	const TITLE = "OpenMusic — music streaming for earth";
 	const DESC =
 		"Search and stream music for world. Synced lyrics, translation, playlists, library — a fast mobile-first web player.";
 	const canonical = $derived(`${SITE}${page.url.pathname}`);
@@ -195,7 +195,7 @@
 <svelte:head>
 	<link rel="canonical" href={canonical} />
 	<!-- Open Graph -->
-	<meta property="og:site_name" content="openmusic" />
+	<meta property="og:site_name" content="OpenMusic" />
 	<!-- GLN-4: when the active page supplies its OWN og (page.data.og from a +page.ts load — shared
 	     song / artist / album), render only the page's og:*/twitter:* so crawlers see exactly one of
 	     each property with the page-specific value (PageOg.svelte sets og:type=music.song). The static

@@ -40,7 +40,7 @@
 		href={TIP_JAR_URL}
 		target="_blank"
 		rel="noopener"
-		title="Support openmusic — tip jar"
+		title="Support OpenMusic — tip jar"
 		onclick={() => track('tip_jar_opened', { location: 'header' })}
 	>☕ Tip jar</a>
 {/if}

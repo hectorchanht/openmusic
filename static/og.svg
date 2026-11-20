@@ -30,7 +30,7 @@
   </g>
 
   <!-- wordmark + tagline -->
-  <text x="430" y="300" font-family="Inter, system-ui, sans-serif" font-size="104" font-weight="800" fill="#f4f4f6">openmusic</text>
+  <text x="430" y="300" font-family="Inter, system-ui, sans-serif" font-size="104" font-weight="800" fill="#f4f4f6">Open<tspan fill="#0abab5">Music</tspan></text>
   <!-- <text x="434" y="362" font-family="Inter, system-ui, sans-serif" font-size="34" font-weight="500" fill="#a0a0ad">stream music openly</text> -->
   <text x="434" y="380" font-family="Inter, system-ui, sans-serif" font-size="34" font-weight="600" fill="#0abab5" letter-spacing="2">music streaming for earth</text>
 </svg>

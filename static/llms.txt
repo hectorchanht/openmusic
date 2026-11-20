@@ -1,4 +1,4 @@
-# openmusic
+# OpenMusic
 
 > Search and stream music for world. Synced lyrics, translation, playlists, library — a fast mobile-first web player (installable PWA + Android app). Client-rendered single-page app: page content is built in the browser, so most pages carry little static text.
 

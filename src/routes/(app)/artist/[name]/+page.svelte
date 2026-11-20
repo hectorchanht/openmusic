@@ -494,7 +494,7 @@
 </script>
 
 <!-- quick-261102-tlo (DECISIONS.md §8): every surface on this page shows the header's name -->
-<svelte:head><title>{names.dnArtist(displayName)} · openmusic</title></svelte:head>
+<svelte:head><title>{names.dnArtist(displayName)} · OpenMusic</title></svelte:head>
 {#if data.og}
 	<PageOg og={data.og} />
 {/if}

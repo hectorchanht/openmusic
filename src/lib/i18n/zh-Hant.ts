@@ -97,7 +97,7 @@ const zhHant: Dict = {
 	"search.confirmClearAll": "清除所有最近搜尋？",
 
 	// --- settings ---
-	"settings.title": "設定 · openmusic",
+	"settings.title": "設定 · OpenMusic",
 	"settings.heading": "設定",
 	"settings.appLanguage": "介面語言",
 	"settings.lyricsTranslation": "歌詞翻譯",
@@ -160,11 +160,11 @@ const zhHant: Dict = {
 	"settings.dataCounts": "{liked} 個收藏 · {playlists} 個播放清單 · {downloads} 個下載",
 	"settings.clearPicks": "清除快取的精選推薦",
 	"settings.clearLibrary": "清空音樂庫",
-	"settings.migrateDownloads": "將下載移至 Download/openmusic",
-	"settings.migrateDownloadsDesc": "將已下載的檔案移至新的 Download/openmusic 資料夾並更新索引。只需執行一次；可安全地再次點按。",
+	"settings.migrateDownloads": "將下載移至 Download/OpenMusic",
+	"settings.migrateDownloadsDesc": "將已下載的檔案移至新的 Download/OpenMusic 資料夾並更新索引。只需執行一次；可安全地再次點按。",
 	"settings.migrateDownloadsResult": "已移動 {moved} / {total}",
 	"settings.about": "關於",
-	"settings.aboutLine": "openmusic · 示範版本 · 串流自公開音樂來源",
+	"settings.aboutLine": "OpenMusic · 示範版本 · 串流自公開音樂來源",
 	"settings.whyFree": "Dawn 嘅軟件由一位 creator 為自己而起、畀全世界免費用 — 冇廣告、唔賣數據、基本功能永遠免費。代天而行，願你離苦得樂。",
 	"settings.optOff": "關閉",
 	"settings.optOn": "開啟",
@@ -412,7 +412,7 @@ const zhHant: Dict = {
 	"settings.showSearchPill": "顯示搜尋列",
 	"settings.showRandomize": "顯示隨機推薦按鈕",
 
-	"history.title": "播放紀錄 · openmusic",
+	"history.title": "播放紀錄 · OpenMusic",
 	"history.heading": "播放紀錄",
 	"history.empty": "尚無最近播放的歌曲。",
 	"history.clear": "清除播放紀錄",
@@ -421,7 +421,7 @@ const zhHant: Dict = {
 	"history.plays": "次播放",
 	"history.songs": "首歌",
 	"history.topSongs": "熱播歌曲",
-	"lastfm.title": "Last.fm · openmusic",
+	"lastfm.title": "Last.fm · OpenMusic",
 	"lastfm.heading": "Last.fm",
 	"lastfm.connect": "連接 Last.fm",
 	"lastfm.comingSoon": "即將推出",
@@ -662,7 +662,7 @@ const zhHant: Dict = {
 	"toast.fileMissing": "檔案遺失 · 重新匯入即可還原",
 
 	// --- library ---
-	"library.title": "音樂庫 · openmusic",
+	"library.title": "音樂庫 · OpenMusic",
 	"library.heading": "音樂庫",
 	"library.liked": "收藏",
 	"library.playlists": "播放清單",
@@ -714,7 +714,7 @@ const zhHant: Dict = {
 	"artist.share": "分享",
 
 	// --- album ---
-	"album.title": "{name} · openmusic",
+	"album.title": "{name} · OpenMusic",
 	"album.back": "返回",
 	"album.playAlbum": "播放專輯",
 	"album.derived": "專輯 · {count} 首歌曲（由搜尋衍生）",

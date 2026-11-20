@@ -120,7 +120,7 @@ const en = {
 	"search.confirmClearAll": "Clear all recent searches?",
 
 	// --- settings ---
-	"settings.title": "Settings · openmusic",
+	"settings.title": "Settings · OpenMusic",
 	"settings.heading": "Settings",
 	"settings.appLanguage": "App language",
 	"settings.lyricsTranslation": "Lyrics translation",
@@ -183,11 +183,11 @@ const en = {
 	"settings.dataCounts": "{liked} liked · {playlists} playlists · {downloads} downloads",
 	"settings.clearPicks": "Clear cached top picks",
 	"settings.clearLibrary": "Clear library",
-	"settings.migrateDownloads": "Move downloads to Download/openmusic",
-	"settings.migrateDownloadsDesc": "Relocates already-downloaded files into the new Download/openmusic folder and updates their index. Runs once; safe to tap again.",
+	"settings.migrateDownloads": "Move downloads to Download/OpenMusic",
+	"settings.migrateDownloadsDesc": "Relocates already-downloaded files into the new Download/OpenMusic folder and updates their index. Runs once; safe to tap again.",
 	"settings.migrateDownloadsResult": "Moved {moved} of {total}",
 	"settings.about": "About",
-	"settings.aboutLine": "openmusic · demo build · streams from public music sources",
+	"settings.aboutLine": "OpenMusic · demo build · streams from public music sources",
 	"settings.whyFree": "Dawn's apps are built by one creator, for himself first and for everyone, free — no ads, no data selling, basics free forever.",
 	"settings.optOff": "Off",
 	"settings.optOn": "On",
@@ -463,7 +463,7 @@ const en = {
 	"settings.showSearchPill": "Show search bar",
 	"settings.showRandomize": "Show Randomize button",
 
-	"history.title": "History · openmusic",
+	"history.title": "History · OpenMusic",
 	"history.heading": "History",
 	"history.empty": "No recently played songs yet.",
 	"history.clear": "Clear history",
@@ -472,7 +472,7 @@ const en = {
 	"history.plays": "plays",
 	"history.songs": "songs",
 	"history.topSongs": "Top songs",
-	"lastfm.title": "Last.fm · openmusic",
+	"lastfm.title": "Last.fm · OpenMusic",
 	"lastfm.heading": "Last.fm",
 	"lastfm.connect": "Connect Last.fm",
 	"lastfm.comingSoon": "Coming soon",
@@ -731,7 +731,7 @@ const en = {
 	"toast.fileMissing": "File missing · re-import to restore it",
 
 	// --- library ---
-	"library.title": "Library · openmusic",
+	"library.title": "Library · OpenMusic",
 	"library.heading": "Library",
 	"library.liked": "Liked",
 	"library.playlists": "Playlists",
@@ -784,7 +784,7 @@ const en = {
 	"artist.share": "Share",
 
 	// --- album ---
-	"album.title": "{name} · openmusic",
+	"album.title": "{name} · OpenMusic",
 	"album.back": "Back",
 	"album.playAlbum": "Play album",
 	"album.derived": "Album · {count} tracks (derived from search)",

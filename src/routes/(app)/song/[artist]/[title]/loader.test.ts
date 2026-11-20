@@ -60,12 +60,12 @@ describe('song/[artist]/[title] loader — path-segment decoding', () => {
 		// encodePathSegment emits '-' for an empty input, and '-' decodes back to ''.
 		const out = run('Nirvana', '-');
 		expect(out.name).toBe('');
-		expect(out.og.title).toBe('openmusic • Nirvana');
+		expect(out.og.title).toBe('OpenMusic • Nirvana');
 	});
 
 	it('drops the bullet when both segments are empty and never throws', () => {
 		const out = run('', '');
-		expect(out.og.title).toBe('openmusic');
+		expect(out.og.title).toBe('OpenMusic');
 	});
 });
 

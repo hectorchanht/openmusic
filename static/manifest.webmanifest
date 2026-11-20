@@ -1,6 +1,6 @@
 {
-  "name": "openmusic",
-  "short_name": "openmusic",
+  "name": "OpenMusic",
+  "short_name": "OpenMusic",
   "description": "Stream music aggregated from NetEase, QQ, Kuwo and JOOX — search, play, lyrics, library.",
   "start_url": "/",
   "scope": "/",

@@ -97,7 +97,7 @@ const zhHans: Dict = {
 	"search.confirmClearAll": "清除所有最近搜索？",
 
 	// --- settings ---
-	"settings.title": "设置 · openmusic",
+	"settings.title": "设置 · OpenMusic",
 	"settings.heading": "设置",
 	"settings.appLanguage": "界面语言",
 	"settings.lyricsTranslation": "歌词翻译",
@@ -160,11 +160,11 @@ const zhHans: Dict = {
 	"settings.dataCounts": "{liked} 个收藏 · {playlists} 个播放列表 · {downloads} 个下载",
 	"settings.clearPicks": "清除缓存的精选推荐",
 	"settings.clearLibrary": "清空音乐库",
-	"settings.migrateDownloads": "将下载移至 Download/openmusic",
-	"settings.migrateDownloadsDesc": "将已下载的文件移至新的 Download/openmusic 文件夹并更新索引。只需执行一次；可安全地再次点按。",
+	"settings.migrateDownloads": "将下载移至 Download/OpenMusic",
+	"settings.migrateDownloadsDesc": "将已下载的文件移至新的 Download/OpenMusic 文件夹并更新索引。只需执行一次；可安全地再次点按。",
 	"settings.migrateDownloadsResult": "已移动 {moved} / {total}",
 	"settings.about": "关于",
-	"settings.aboutLine": "openmusic · 演示版本 · 流式播放自公开音乐来源",
+	"settings.aboutLine": "OpenMusic · 演示版本 · 流式播放自公开音乐来源",
 	"settings.whyFree": "Dawn's apps are built by one creator, for himself first and for everyone, free — no ads, no data selling, basics free forever.",
 	"settings.optOff": "关闭",
 	"settings.optOn": "开启",
@@ -412,7 +412,7 @@ const zhHans: Dict = {
 	"settings.showSearchPill": "显示搜索栏",
 	"settings.showRandomize": "显示随机推荐按钮",
 
-	"history.title": "播放记录 · openmusic",
+	"history.title": "播放记录 · OpenMusic",
 	"history.heading": "播放记录",
 	"history.empty": "暂无最近播放的歌曲。",
 	"history.clear": "清除播放记录",
@@ -421,7 +421,7 @@ const zhHans: Dict = {
 	"history.plays": "次播放",
 	"history.songs": "首歌",
 	"history.topSongs": "熱播歌曲",
-	"lastfm.title": "Last.fm · openmusic",
+	"lastfm.title": "Last.fm · OpenMusic",
 	"lastfm.heading": "Last.fm",
 	"lastfm.connect": "连接 Last.fm",
 	"lastfm.comingSoon": "即将推出",
@@ -662,7 +662,7 @@ const zhHans: Dict = {
 	"toast.fileMissing": "文件丢失 · 重新导入以恢复",
 
 	// --- library ---
-	"library.title": "音乐库 · openmusic",
+	"library.title": "音乐库 · OpenMusic",
 	"library.heading": "音乐库",
 	"library.liked": "收藏",
 	"library.playlists": "播放列表",
@@ -714,7 +714,7 @@ const zhHans: Dict = {
 	"artist.share": "分享",
 
 	// --- album ---
-	"album.title": "{name} · openmusic",
+	"album.title": "{name} · OpenMusic",
 	"album.back": "返回",
 	"album.playAlbum": "播放专辑",
 	"album.derived": "专辑 · {count} 首歌曲（由搜索衍生）",

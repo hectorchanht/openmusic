@@ -256,7 +256,7 @@
 	{#if status === 'resolving'}
 		<p class="status" aria-live="polite"><span class="spinner motion-always" aria-hidden="true"></span> Finding a playable version…</p>
 	{:else if status === 'playing'}
-		<p class="status" aria-live="polite">Now playing on openmusic.</p>
+		<p class="status" aria-live="polite">Now playing on OpenMusic.</p>
 	{:else if status === 'notfound'}
 		<p class="status status--error" aria-live="polite">{notFoundMsg}</p>
 	{/if}
@@ -267,7 +267,7 @@
 	     line still shows), and after a 'notfound' it re-runs it. Available client-side only (retry is
 	     bound in onMount). -->
 	<button class="play-cta" onclick={() => retry?.()} disabled={retry === null}>
-		Play on openmusic
+		Play on OpenMusic
 	</button>
 </section>
 

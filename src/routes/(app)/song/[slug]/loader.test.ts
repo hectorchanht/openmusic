@@ -50,7 +50,7 @@ describe('song/[slug] legacy loader — DQ-1/DQ-2 query carriers', () => {
 	});
 
 	it('falls back to the brand title for the `s` placeholder slug with no carriers', () => {
-		expect(run('s').og.title).toBe('openmusic');
+		expect(run('s').og.title).toBe('OpenMusic');
 	});
 
 	it('round-trips CJK carriers untouched', () => {

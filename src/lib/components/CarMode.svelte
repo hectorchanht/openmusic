@@ -96,7 +96,7 @@
 			></span>
 			<span class="cm-meta">
 				<span class="cm-title" use:marquee>
-					<span class="marquee-inner">{np ? names.dnTitle(np.title ?? '', np.artist ?? '') : 'openmusic'}</span>
+					<span class="marquee-inner">{np ? names.dnTitle(np.title ?? '', np.artist ?? '') : 'OpenMusic'}</span>
 				</span>
 				<span class="cm-artist">
 					{#if dot !== 'none'}

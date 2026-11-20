@@ -5,7 +5,7 @@
 	const id = `om-${Math.random().toString(36).slice(2, 8)}`;
 </script>
 
-<svg width={size} height={size} viewBox="0 0 32 32" role="img" aria-label="openmusic" class="logo">
+<svg width={size} height={size} viewBox="0 0 32 32" role="img" aria-label="OpenMusic" class="logo">
 	<defs>
 		<linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
 			<stop offset="0" stop-color="#0abab5" />

@@ -55,7 +55,7 @@ export const load: PageLoad = ({ params, url }) => {
 	// arrives as the '-' guard, which decodes to ''). The card image is absolute + origin-derived so
 	// it stays crawler-valid from ANY deploy origin.
 	const og = {
-		...buildOg({ title: title || 'openmusic', artist: artist || undefined, type: 'music.song' }),
+		...buildOg({ title: title || 'OpenMusic', artist: artist || undefined, type: 'music.song' }),
 		// quick-261120-mediacard: PATH-FORM og:image, keywords only — no carrier echo (see header).
 		image: ogImageUrl(url.origin, 'song', artist, title)
 	};

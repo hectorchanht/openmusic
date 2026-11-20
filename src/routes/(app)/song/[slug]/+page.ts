@@ -53,7 +53,7 @@ export const load: PageLoad = ({ params, url }) => {
 	// DQ-2: OG title = `Song • Artist`; prefer `n`, fall back to the slug-derived title, then a brand
 	// default so the head is NEVER empty. Image = the carried `c` cover when https, else /og.svg (D-07).
 	// OG-PAGE-01: og:type is now per-surface (PageOg used to hardcode it) — this is the song surface.
-	const displayTitle = n || titleFromSlug(params.slug ?? '') || 'openmusic';
+	const displayTitle = n || titleFromSlug(params.slug ?? '') || 'OpenMusic';
 	const og = buildOg({
 		title: displayTitle,
 		artist: a || undefined,
