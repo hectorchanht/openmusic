@@ -1,0 +1,209 @@
+// Last.fm similar-TRACKS proxy (Phase 26, UPNEXT-01 — the 56→1 up-next change).
+//
+// Dedicated route (NOT the /api/[source]/[...path] catch-all): reads the OPTIONAL
+// LASTFM_KEY from platform.env, calls Last.fm track.getSimilar, and returns a clean
+// { tracks: [{ artist, title, match }] } list pre-ranked by Last.fm `match`. The key is
+// injected into the upstream URL on the edge and NEVER reaches the client (threat
+// T-26-03-01, parity with JOOX_TOKEN / T-01-04 and the shipped /api/similar). The key +
+// upstream URL are NEVER logged (T-26-03-01).
+//
+// Mirrors /api/similar's posture EXACTLY. It CANNOT reuse /api/similar (that is
+// artist.getSimilar — artist-only) nor /api/lastfm/info (that whitelists *.getInfo).
+//
+// An ABSENT key is a SUPPORTED state (T-26-03-05 fallback): with no key — or on any
+// upstream error / malformed JSON / Last.fm `error` — we return 200 { tracks: [] } so the
+// service layer (buildSimilarQueue) falls back to the artist-hop and playback is never
+// blocked. CORS is scoped to the own origin via corsHeaders (never `*`, T-26-03-04).
+import type { RequestHandler } from './$types';
+import { fetchWithRetry, corsHeaders, corsPreflight } from '$lib/proxy/http';
+import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
+import type { Env } from '$lib/proxy/proxy-types';
+
+const LASTFM_ENDPOINT = 'https://ws.audioscrobbler.com/2.0/';
+const DEFAULT_LIMIT = 8;
+const MAX_LIMIT = 50;
+
+// track.getSimilar's recommendation graph is near-static → cache the success path 24h (the same
+// stable graph as /api/similar's artist.getSimilar). quick-260713-mqv.
+const SIMILAR_TRACKS_TTL = 86400;
+
+/** Clean client-facing pair. Absent-key / error / miss all return { tracks: [] }. */
+interface SimilarTrack {
+	artist: string;
+	title: string;
+	match: number;
+	// Phase 26-07 (Gap 3): the LARGEST solid https Last.fm cover for this track, so the Up-Next
+	// list can paint without a per-tile Deezer→iTunes→CN chain. Omitted (undefined) when Last.fm
+	// gives only the placeholder-star / non-https / empty images — NEVER a placeholder (T-26-07-01).
+	image?: string;
+}
+
+// Last.fm placeholder-star image hash (the generic "no art" star). Any image URL containing it
+// is NOT a real cover and must be dropped so we never seed a placeholder as a tile cover.
+const LFM_PLACEHOLDER_HASH = '2a96cbd8b46e442fc41c2b86b821562f';
+
+// Largest-first size preference for Last.fm's `image[]` array (D-parity with cover chain: bigger
+// is better for a tile). We scan in this order and take the FIRST solid https URL that survives.
+const IMAGE_SIZE_ORDER = ['extralarge', 'large', 'medium', 'small'] as const;
+
+/**
+ * Pick the largest SOLID https image from a Last.fm track `image[]` array. Prefers
+ * extralarge → large → medium → small; then falls back to ANY https entry (some payloads carry
+ * an unsized mega variant). Drops the placeholder-star hash and any non-https / empty value.
+ * Returns undefined when nothing solid survives (→ the `image` field is omitted entirely).
+ */
+function pickImage(images: LfmImage[] | undefined): string | undefined {
+	if (!Array.isArray(images) || images.length === 0) return undefined;
+	const solid = (url: string | undefined): url is string =>
+		typeof url === 'string' &&
+		url.startsWith('https:') &&
+		!url.includes(LFM_PLACEHOLDER_HASH);
+	// size-preferred pass
+	for (const size of IMAGE_SIZE_ORDER) {
+		const hit = images.find((im) => im.size === size && solid(im['#text']));
+		if (hit?.['#text']) return hit['#text'];
+	}
+	// fall back to any solid https entry (unsized / unexpected size label)
+	const any = images.find((im) => solid(im['#text']));
+	return any?.['#text'];
+}
+
+// ttl is added ONLY on a cacheable success (Cache-Control emitted only when ttl != null) — the
+// !key / missing-param / data.error / catch EMPTY returns pass no ttl so they carry no
+// Cache-Control and are never written to caches.default (quick-260713-mqv).
+function jsonTracks(tracks: SimilarTrack[], origin: string | null, ttl?: number): Response {
+	const headers: Record<string, string> = {
+		...corsHeaders(origin),
+		'content-type': 'application/json'
+	};
+	if (ttl != null) headers['Cache-Control'] = `public, max-age=${ttl}`;
+	return new Response(JSON.stringify({ tracks }), { status: 200, headers });
+}
+
+/** Clamp the client-supplied limit to a small positive integer (T-26-03-03). */
+function clampLimit(raw: string | null): number {
+	const n = Number.parseInt(raw ?? '', 10);
+	if (!Number.isFinite(n) || n <= 0) return DEFAULT_LIMIT;
+	return Math.min(n, MAX_LIMIT);
+}
+
+// ---- Last.fm response sub-shapes (only the fields we read) ----
+interface LfmImage {
+	'#text'?: string;
+	size?: string; // 'small' | 'medium' | 'large' | 'extralarge' (+ occasional unsized/mega)
+}
+interface LfmSimilarTrack {
+	name?: string;
+	match?: string | number;
+	artist?: { name?: string } | string;
+	image?: LfmImage[];
+}
+interface LfmSimilarBlock {
+	track?: LfmSimilarTrack[] | LfmSimilarTrack;
+}
+
+function toMatch(v: string | number | undefined): number {
+	if (v == null) return 0;
+	const n = typeof v === 'number' ? v : Number.parseFloat(v);
+	return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Reshape the upstream `{ similartracks: { track: [...] } }` into the clean
+ * `{ tracks: [{ artist, title, match }] }` list. Handles Last.fm's array-or-single quirk
+ * (a single similar track may come back as an object, as /api/lastfm/info does for
+ * tags/tracks), coerces `match` to a number, trims artist/title, drops entries missing
+ * artist or title, and PRESERVES the upstream match-descending order — capped to `limit`.
+ */
+function reshape(block: LfmSimilarBlock | undefined, limit: number): SimilarTrack[] {
+	if (!block?.track) return [];
+	const arr = Array.isArray(block.track) ? block.track : [block.track];
+	const out: SimilarTrack[] = [];
+	for (const t of arr) {
+		const artist = (typeof t.artist === 'string' ? t.artist : t.artist?.name ?? '').trim();
+		const title = (t.name ?? '').trim();
+		if (!artist || !title) continue; // drop incomplete pairs
+		const pair: SimilarTrack = { artist, title, match: toMatch(t.match) };
+		// Phase 26-07 (Gap 3): attach the largest solid https cover when one survives the
+		// placeholder-star / non-https filter — omit the field entirely otherwise.
+		const image = pickImage(t.image);
+		if (image) pair.image = image;
+		out.push(pair);
+		if (out.length >= limit) break; // upstream is already match-descending
+	}
+	return out;
+}
+
+export const GET: RequestHandler = async ({ url, platform, request }) => {
+	const origin = request.headers.get('origin');
+
+	// platform?.env is the verified Cloudflare-adapter path for bindings/secrets.
+	const env = platform?.env as Env | undefined;
+	const key = env?.LASTFM_KEY;
+
+	// No key configured → supported fallback state. Do NOT throw (unlike JOOX), and
+	// do NOT fetch an api_key=undefined upstream URL (T-26-03-05).
+	if (!key) return jsonTracks([], origin);
+
+	const artist = (url.searchParams.get('artist') ?? '').trim();
+	const track = (url.searchParams.get('track') ?? '').trim();
+	// track.getSimilar needs BOTH artist and track — missing either is a supported empty state.
+	if (!artist || !track) return jsonTracks([], origin);
+	const limit = clampLimit(url.searchParams.get('limit'));
+
+	// Cache key = the OWN-ORIGIN request (NEVER the LASTFM_KEY-bearing upstream URL — T-26-03-01
+	// parity; keep the key out of the cache key). Guarded for `vite dev` (no Cache API) so local
+	// dev still hits live upstream (quick-260713-mqv).
+	const cache = edgeCache();
+	const cacheReq = ownOriginCacheKey(url);
+
+	if (cache) {
+		const hit = await cache.match(cacheReq);
+		if (hit) {
+			// Re-apply CORS for THIS request's origin (WR-01): the stored body is CORS-FREE, so a
+			// cross-origin (preview vs prod) hit never receives a prior requester's ACAO header.
+			const cached = (await hit.json()) as { tracks?: SimilarTrack[] };
+			return jsonTracks(cached.tracks ?? [], origin, SIMILAR_TRACKS_TTL);
+		}
+	}
+
+	// artist + track are URL-encoded passthrough only (T-26-03-02 — no command construction;
+	// method is fixed to track.getsimilar server-side). The key is injected on the edge.
+	const upstream =
+		`${LASTFM_ENDPOINT}?method=track.getsimilar` +
+		`&artist=${encodeURIComponent(artist)}` +
+		`&track=${encodeURIComponent(track)}` +
+		`&autocorrect=1` +
+		`&api_key=${encodeURIComponent(key)}` +
+		`&format=json&limit=${limit}`;
+
+	try {
+		// Bounded retry + native timeout (T-26-03-03). NEVER log the key or upstream URL (T-26-03-01).
+		const res = await fetchWithRetry(upstream, { signal: AbortSignal.timeout(8000) }, 2);
+		const data = (await res.json()) as { error?: number; similartracks?: LfmSimilarBlock };
+		// Last.fm error-6 (not found) and friends → silent empty best-effort. NO cache write.
+		if (data?.error) return jsonTracks([], origin);
+		const tracks = reshape(data.similartracks, limit);
+		if (cache) {
+			// Cache a CORS-FREE copy of the success (origin re-applied per request on a hit, WR-01).
+			// quick-260713-mqv.
+			await cache.put(
+				cacheReq,
+				new Response(JSON.stringify({ tracks }), {
+					status: 200,
+					headers: {
+						'content-type': 'application/json',
+						'Cache-Control': `public, max-age=${SIMILAR_TRACKS_TTL}`
+					}
+				})
+			);
+		}
+		return jsonTracks(tracks, origin, SIMILAR_TRACKS_TTL);
+	} catch {
+		// Upstream error / malformed JSON → best-effort empty; client falls back. NO cache write.
+		return jsonTracks([], origin);
+	}
+};
+
+// CORS preflight — scoped to the own origin via corsHeaders (never `*`, T-26-03-04).
+export const OPTIONS: RequestHandler = ({ request }) => corsPreflight(request);

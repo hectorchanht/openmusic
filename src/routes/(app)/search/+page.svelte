@@ -1,0 +1,1114 @@
+<script lang="ts">
+	import { onDestroy, onMount, tick } from 'svelte';
+	import { afterNavigate, goto } from '$app/navigation';
+	import { searchAll } from '$lib/services/catalog';
+	import { prewarmTrack } from '$lib/services/prewarm';
+	import { dedupeBest } from '$lib/services/dedupe';
+	import { rankPool } from '$lib/services/song-variant';
+	import { scoreMatch } from '$lib/services/score-match';
+	import { computeSetContext, tokenizeQuery } from '$lib/services/score-context';
+	// quick-260910-qwt: the shared row cover read (resolved → track.cover → the shared cache).
+	import { enrichArtist } from '$lib/services/lastfm';
+	import { deezerArtistCover, deezerSearchTopN, type DeezerHit } from '$lib/services/deezer';
+	import {
+		deriveSuggestions,
+		suggestionKeyword,
+		debounce,
+		MIN_QUERY_LEN,
+		SUGGEST_CAP,
+		type Suggestion
+	} from '$lib/search/autocomplete-logic';
+	import { mapWithConcurrency } from '$lib/services/discovery';
+	import { initialSearch } from '$lib/services/search-url';
+	import { syncTabUrl } from '$lib/services/url-tab';
+	import { settings } from '$lib/stores/settings.svelte';
+	import {
+		mergeArtistTiles,
+		prioritizeArtistIntent,
+		type ArtistTile
+	} from '$lib/services/artist-tiles';
+	import { player } from '$lib/stores/player.svelte';
+	import { names } from '$lib/stores/names.svelte';
+	import { searchSession } from '$lib/stores/searchSession.svelte';
+	import { searchHistory } from '$lib/stores/searchHistory.svelte';
+	import { online } from '$lib/stores/online.svelte';
+	import { t } from '$lib/i18n';
+	import { LoaderCircle, X, Trash2, Search } from '@lucide/svelte';
+	import { tapBounce } from '$lib/actions/tapBounce';
+	import { dragScroll } from '$lib/actions/dragScroll';
+	import { toast } from '$lib/stores/toast.svelte';
+	import SongRow from '$lib/components/SongRow.svelte';
+	import SwipeReveal from '$lib/components/SwipeReveal.svelte';
+	import TrackMenu from '$lib/components/TrackMenu.svelte';
+	import SettingsGear from '$lib/components/SettingsGear.svelte';
+	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
+	// User 2026-10-06 (audit): replace native confirm() with in-app ConfirmModal for consistency.
+	import type { Track } from '$lib/sources/types';
+
+	// UX-04 / D-03/D-04 swipe-right = like (quick-261104-swipe), swipe-left = play next: the handlers moved INTO
+	// SongRow (quick-260919-l9e), which is why this page no longer declares them. The reveal
+	// layers below stay here — they are the .swipe-wrap's decoration, not the row's.
+
+	let menuTrack = $state<Track | null>(null);
+	let menuOpen = $state(false);
+
+	let q = $state('');
+	let queryInputEl = $state<HTMLInputElement | null>(null);
+	let results = $state<Track[]>([]);
+	// SRCH-02 / COVER-02 cover resolution (the per-row lazyCover + the shared pickRowCover read
+	// over the reactive cover cache) now lives INSIDE SongRow — quick-260919-l9e — so this page no
+	// longer keeps a uid->url map of its own. The behaviour is unchanged: a cover resolved on any
+	// other surface still paints here on first render with no intersection and no network.
+	let loading = $state(false);
+	let searched = $state(false);
+	// quick-260927-e5w: the query the address bar's ?q= names, i.e. the last COMMITTED search (set
+	// beside every syncTabUrl write). The afterNavigate hook's prior. Not `q`, which is the live box
+	// and may hold unsubmitted typing. Not searchSession.q, which is only persisted on settle, so it
+	// lags an in-flight search. Plain field (not $state), like `ac`: nothing renders from it.
+	let committedQ = '';
+	let ac: AbortController | null = null;
+
+	// BUGFIX (search-skeleton-not-showing): the D-01 first-load and load-more skeletons
+	// were gated directly on `loading`/`loadingMore`, which on a D-04 cache HIT (or any
+	// fast settle) flip true→false within a single microtask — BEFORE the browser ever
+	// paints a frame. `await searchAll(...)` resolves a cached value via Promise.resolve(),
+	// whose continuation fires onPartial (overwriting `results`) in the NEXT MICROTASK; a
+	// paint only happens on a macrotask/animation-frame boundary, so zero paints occurred
+	// while the skeleton gate was true. The skeleton DOM was created and torn down inside a
+	// single frame and was never visible (a genuinely slow cache-miss search DID show it).
+	// Fix: hold a dedicated skeleton flag for a minimum on-screen DWELL so it always
+	// survives ≥1 paint frame, then yields to results. A slow search already exceeds the
+	// floor, so it gets ZERO added delay — D-06 progressive streaming + D-04 caching stay
+	// intact; only a near-instant cache hit now flashes the skeleton for the floor.
+	const SKELETON_MIN_MS = 280;
+	let showFirstSkeleton = $state(false); // first-load skeleton visibility (dwell-floored)
+	let showMoreSkeleton = $state(false); // load-more skeleton visibility (dwell-floored)
+
+	// Resolve after the remainder of the dwell floor (0 if the floor already elapsed). A
+	// near-instant cache hit gets the full floor; a slow search (elapsed ≥ floor) resolves
+	// immediately and adds nothing. Called in run()/loadMore() finally blocks before the
+	// skeleton flag is cleared.
+	function minDwell(startedAt: number): Promise<void> {
+		const remaining = SKELETON_MIN_MS - (Date.now() - startedAt);
+		return remaining > 0 ? new Promise((r) => setTimeout(r, remaining)) : Promise.resolve();
+	}
+
+	// D-05: focus tracking for the past-search suggestion list (idle pre-query state).
+	let inputFocused = $state(false);
+
+	// ql0: typeahead suggestions (live Deezer song + artist suggestions under the bar). The
+	// pure dedupe/cap/interleave + debounce primitive live in autocomplete-logic.ts; this
+	// component owns the runes state, the AbortController, and the render. `suggestAc` is a
+	// PAGE-LOCAL transient (never lifted into searchSession — same discipline as `ac`/`moreAc`).
+	let suggestions = $state<Suggestion[]>([]);
+	let suggestAc: AbortController | null = null;
+
+	// quick-261102-rrb: ARIA combobox state. `typeaheadOpen` is the SAME gate the dropdown has
+	// always used (no inputFocused — see debug-search-typeahead-hidden-mobile below), now named
+	// so aria-expanded and the keyboard handler share it. `activeIdx` is the keyboard-highlighted
+	// option (-1 = none); every new suggestion list resets it so a stale index never points into
+	// a different list.
+	let typeaheadOpen = $derived(q.trim().length >= MIN_QUERY_LEN && suggestions.length > 0);
+	let activeIdx = $state(-1);
+	$effect(() => {
+		void suggestions;
+		activeIdx = -1;
+	});
+
+	// quick-261102-rrb: ArrowUp/ArrowDown move (wrapping) through the options, Enter picks the
+	// highlighted one (instead of submitting the form), Escape closes the list. With nothing
+	// highlighted Enter still submits the typed query as before.
+	function onSuggestKeydown(e: KeyboardEvent) {
+		if (!typeaheadOpen) return;
+		const n = suggestions.length;
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			activeIdx = (activeIdx + 1) % n;
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			activeIdx = activeIdx <= 0 ? n - 1 : activeIdx - 1;
+		} else if (e.key === 'Enter' && activeIdx >= 0 && activeIdx < n) {
+			e.preventDefault();
+			pickSuggestion(suggestions[activeIdx]);
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			fetchSuggestions.cancel();
+			suggestAc?.abort();
+			suggestions = [];
+		}
+	}
+
+
+	// Debounced suggestion fetch: at most one network call per ~300ms typing pause. A fresh
+	// keystroke restarts the timer (in oninput) so only the trailing pause fetches. Inside, we
+	// abort any in-flight request before issuing the next, then guard against a stale query
+	// before committing results (mirrors the run()/loadMore() race guards).
+	const fetchSuggestions = debounce((kw: string) => {
+		suggestAc?.abort();
+		suggestAc = new AbortController();
+		const sig = suggestAc.signal;
+		// deezerSearchTopN never throws (returns [] on abort/non-ok/malformed JSON), so no
+		// try/catch is needed — a failure degrades silently to no suggestions.
+		void deezerSearchTopN(kw, SUGGEST_CAP, sig).then((hits: DeezerHit[]) => {
+			if (sig.aborted || kw !== q.trim()) return; // stale-query / aborted guard
+			suggestions = deriveSuggestions(hits, kw);
+		});
+	}, 300);
+
+	// oninput handler: clear + cancel when below the min length, else (re)schedule a fetch.
+	function onSuggestInput() {
+		const kw = q.trim();
+		if (kw.length < MIN_QUERY_LEN) {
+			fetchSuggestions.cancel();
+			suggestAc?.abort();
+			suggestions = [];
+			// quick-260711-sm7: typing the input back to empty collapses the content area to the
+			// recent-keywords idle state (clears any prior result set / "no results" message).
+			if (kw.length === 0) resetResults();
+			return;
+		}
+		fetchSuggestions(kw);
+	}
+
+	// quick-260831-rjo: a suggestion tap is now KIND-BRANCHED instead of always committing a search.
+	//  - artist (♪) → navigate to /artist/{name}; that page derives its own hit-song list, so a
+	//    search commit here would just be a slower detour to the same information.
+	//  - song  (♫) → PLAY it. A Suggestion is Deezer-derived and carries no uid/source/Track, so
+	//    the optimistic resolve-on-tap primitive playStub() is the right entry: it locks the stub
+	//    into the now-bar synchronously and owns pendingGen supersedence + same-key dedupe.
+	//    quick-260919-pbs SUPERSEDES rjo's `q`-untouched half: the tap now ALSO commits a search
+	//    for suggestionKeyword(s) — `"<title> <artist>"`, or the title alone when the suggestion
+	//    carries no artist. rjo's objection was "committed-looking text over a content area that
+	//    never searched for it"; it no longer applies, because the content area now searches for
+	//    exactly the text the input shows, so the two are consistent rather than contradictory.
+	//    ORDERING (established by reading, not assumed): play FIRST, then `q = …; run()`. The IIFE
+	//    runs synchronously up to spliceStub's first await, so the stub lands in the now-bar in the
+	//    same tick as the click, and playback stops depending on run()'s early returns (`!kw`,
+	//    offline). Safe in either order — run() aborts only ac/moreAc/suggestAc, none of which is
+	//    threaded into playStub (whose 3rd arg is `cover`, not a signal), and it never touches
+	//    player state or pendingGen — but play-first is the order whose safety does not depend on
+	//    run()'s internals staying as they are.
+	//  - album (◎) → unchanged: fill the input and run the full search.
+	function pickSuggestion(s: Suggestion) {
+		inputFocused = false;
+		suggestions = [];
+		fetchSuggestions.cancel();
+		suggestAc?.abort();
+		if (s.kind === 'artist') {
+			// Same nav idiom as the artist TILE handler below: names.artistHref encodes once —
+			// SvelteKit decodes the param itself, OG-COMPAT-01 — and applies the script lock
+			// (quick-260926-hl9).
+			goto(names.artistHref(s.title));
+			return;
+		}
+		if (s.kind === 'song') {
+			// Don't block the click handler on the resolve. spliceStub returns null for BOTH a miss
+			// AND a supersede, so gate the toast on pendingTrack (a supersede leaves it non-null).
+			// quick-261103-tapsplice: a suggestion tap is a song tap — it splices like a Related tap.
+			void (async () => {
+				const tr = await player.tapStub(s.artist ?? '', s.title, undefined, 'search');
+				if (tr === null && player.pendingTrack == null) toast.show(t('home.unplayable'));
+			})();
+			// quick-260919-pbs: …and commit the search too. No teardown here — pickSuggestion's
+			// prologue already did it and run() repeats its own.
+			q = suggestionKeyword(s);
+			run();
+			return;
+		}
+		q = s.title;
+		run();
+	}
+
+	// quick-260711-sm7: reset the content area back to the idle (pre-search) state without
+	// touching the query string. Clears the result set + all its derived UI (variant groups,
+	// artist tiles, pagination, "some failed" flag) so an emptied input renders ONLY the
+	// recent-keywords list. Shared by clearSearch() (the X button) and onSuggestInput()
+	// (typing back to empty).
+	function resetResults() {
+		results = [];
+		lastPrewarmedUid = ''; // 31-D-03: a fresh query may pre-warm its own top row
+		artistTiles = [];
+		artistTilesFor = '';
+		hasMore = false;
+		page = 1;
+		searched = false;
+		// quick-260927-dz0: the ONE shared clear point for the X button (clearSearch) and typing
+		// back to empty (onSuggestInput) — strip ?q= so the address bar stops naming a search that
+		// is no longer on screen. An empty value DELETES the param (the url-tab D-5 default rule).
+		committedQ = '';
+		syncTabUrl('q', '', '');
+	}
+
+	// quick-260711-sm7 (req 1+2): the clear (X) button empties the input and collapses content
+	// to the recent-keywords state. Cancels the typeahead + any in-flight search/load-more,
+	// resets the result set, and wipes the in-memory session (searchSession.reset) so a
+	// tab-return does NOT restore the prior results (D-02). Keeps focus so the user can retype.
+	function clearSearch() {
+		q = '';
+		fetchSuggestions.cancel();
+		suggestAc?.abort();
+		suggestions = [];
+		ac?.abort();
+		moreAc?.abort();
+		resetResults();
+		searchSession.reset();
+		inputFocused = true;
+		queryInputEl?.focus();
+	}
+
+	// quick-260711-sm7 (req 3): remove a single recent keyword, gated by ConfirmModal —
+	// the app-wide destructive-action idiom (mirrors settings/data clearLibraryConfirm).
+	// User 2026-10-06 (audit): was native confirm(), now in-app ConfirmModal.
+	let removeRecentOpen = $state(false);
+	let removeRecentQuery = $state('');
+	function removeRecent(query: string) {
+		removeRecentQuery = query;
+		removeRecentOpen = true;
+	}
+	function confirmRemoveRecent() {
+		searchHistory.remove(removeRecentQuery);
+		removeRecentOpen = false;
+	}
+
+	let clearAllOpen = $state(false);
+
+	// kyf + ljl-followup: artist tiles row above the song list. Every UNIQUE artist that
+	// appears in the result set becomes a tile (no count threshold, no name-match filter, no
+	// limit — the row is horizontally scrollable so all of them ride together). Sorted by how
+	// often the artist appears in the results so the most-represented are first / above the
+	// fold. Avatars resolve via LF-primary → Deezer-fallback (race-guarded on the active query).
+	// quick-260831-s0c: ArtistTile now carries Last.fm's canonical name so duplicate spellings of
+	// one artist can be merged (see mergeArtistTiles).
+	let artistTiles = $state<ArtistTile[]>([]);
+	let artistTilesFor = '';
+
+	function deriveArtistTiles(rows: Track[], query: string): ArtistTile[] {
+		if (!query.trim() || rows.length === 0) return [];
+		// Group by case-insensitive artist key; preserve the FIRST seen casing as the display
+		// name (the case the source actually returned).
+		const groups = new Map<string, { name: string; count: number; firstIdx: number }>();
+		rows.forEach((row, idx) => {
+			const display = (row.artist ?? '').trim();
+			if (!display) return;
+			const key = display.toLowerCase();
+			const existing = groups.get(key);
+			if (existing) existing.count++;
+			else groups.set(key, { name: display, count: 1, firstIdx: idx });
+		});
+		// Sort: track count desc (most-represented first); tie-break on first-seen order so the
+		// row mirrors the song-list relevance ranking when counts are equal.
+		const sorted = [...groups.values()].sort((a, b) =>
+			b.count - a.count || a.firstIdx - b.firstIdx
+		);
+		const tiles = sorted.map((g) => ({
+			name: g.name,
+			image: null,
+			trackCount: g.count,
+			canonical: null
+		}));
+		// quick-261024-cig: count alone put the queried artist's tile fifth behind
+		// high-row-count uploaders — the artist the query NAMES leads the row.
+		return prioritizeArtistIntent(tiles, tokenizeQuery(query));
+	}
+
+	async function refreshArtistTiles(query: string, rows: Track[]) {
+		const tiles = deriveArtistTiles(rows, query);
+		const tag = query.trim().toLowerCase();
+		artistTilesFor = tag;
+		artistTiles = tiles; // immediate paint with name + gradient fallback (zero-network)
+		if (!tiles.length) return;
+		// Concurrency-capped LF-primary → Deezer-fallback (cap 6 — higher than kyf's 3 to keep
+		// the longer tile list filling in promptly). Both helpers are ttl-cached client-side, so
+		// repeat-query runs hit cache for free.
+		const withCovers = await mapWithConcurrency(tiles, 6, async (tile) => {
+			const lf = await enrichArtist(tile.name).catch(() => null);
+			const img = lf?.lastfmArt ?? (await deezerArtistCover(tile.name).catch(() => null));
+			// quick-260831-s0c: keep Last.fm's CANONICAL name from the call we were already making
+			// for the avatar. It is the merge key — Last.fm resolves 周傑倫 / 周杰倫 / 周杰伦 /
+			// "Jay Chou" to one entity, which is why that search produced three tiles for one artist.
+			return { ...tile, image: img, canonical: lf?.name ?? null };
+		});
+		if (artistTilesFor !== tag) return; // race guard — newer query took over
+		// Merge only AFTER enrichment: before it every tile has canonical:null and would group by
+		// its own name, i.e. exactly the unmerged row we paint immediately for zero-latency.
+		// quick-261024-cig: the merge re-sorts by count, so re-apply the artist-intent lead
+		// or the merged row would demote the queried artist back behind the uploaders.
+		artistTiles = prioritizeArtistIntent(
+			mergeArtistTiles(withCovers, settings.artistLang),
+			tokenizeQuery(query)
+		);
+	}
+
+	function fallbackArtistCover(name: string): string {
+		const h = (name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) * 47) % 360;
+		return `linear-gradient(145deg, hsl(${h} 55% 32%), hsl(${(h + 40) % 360} 55% 18%))`;
+	}
+
+	// Infinite-scroll pagination state.
+	let page = $state(1); // last page successfully loaded
+	let loadingMore = $state(false); // true ONLY while a NEXT-page batch is in flight
+	let hasMore = $state(false); // whether another batch might yield net-new tracks
+
+	// quick-261102-rrb: one polite live-region message for the search status, so screen readers
+	// hear searching / no results / the result count without moving focus.
+	// quick-261102-s0k: announce the count on every successful search (was silent when hasMore,
+	// and said "No more results." first when results fit one page). search.noMore stays on the
+	// visible end note only.
+	let statusMsg = $derived(
+		showFirstSkeleton || loading
+			? t('search.searching')
+			: !searched
+				? ''
+				: results.length === 0
+					? t('search.empty')
+					: t('search.resultsCount', { n: results.length })
+	);
+	let moreAc: AbortController | null = null; // separate controller for load-more requests
+
+	// Sentinel + observer (sentinel binding/observer creation live in the template/$effect).
+	// ac/moreAc/io/sentinelEl are PAGE-LOCAL transients — never lifted into searchSession.
+	let sentinelEl = $state<HTMLLIElement | null>(null);
+	let io: IntersectionObserver | null = null;
+
+	// D-02: persist the live result set into the in-memory session so a tab return
+	// restores instantly. Called after run()/loadMore() settle (browser-side only).
+	function persistSession() {
+		searchSession.save({
+			q: q.trim(),
+			results,
+			page,
+			hasMore,
+			searched,
+			artistTiles,
+			artistTilesFor
+		});
+	}
+
+	// SRCH-01 / D-01 + D-02: full score-based re-sort of the (already-deduped) result set.
+	// Computes the per-set context ONCE (cross-source artist map + query length), then sorts a
+	// COPY descending by scoreMatch. Per researcher Q2/A4, the raw trimmed keyword is fed into
+	// BOTH the artist and title query slots: the similarity term degrades to token-overlap (still
+	// useful) while the new short-title / artist-frequency boosts + the sub-60s 試聽 penalty are
+	// the dominant search-list signals. scoreMatch is deterministic, so equal scores keep
+	// dedupeBest's appearance order (the tie-break) — the sort is stable in practice.
+	// quick-261102-t7i (DECISIONS.md §4): THE pool ranker (song-variant rankPool) — official before
+	// variant, full length before clips, THEN scoreMatch with the set context — the same order the
+	// auto-pick and the VersionPicker consume. The page only truncates it.
+	function rankList(rows: Track[], query: string): Track[] {
+		const ctx = computeSetContext(rows, query);
+		const qObj = { artist: query, title: query };
+		return rankPool(rows, query, { score: (c) => scoreMatch(qObj, c, ctx) });
+	}
+
+	// 31-D-03 PRE-WARM (trigger 1 of the phase's two; trigger 2 is TrackMenu open). Speculatively
+	// resolve the TOP result of a SETTLED search, so the most-likely tap plays without a cold
+	// resolve — the click-to-play win comes from resolving BEFORE the tap, not from failing over
+	// sooner (31-D-01 leaves every timeout alone).
+	//
+	// FIRED IMPERATIVELY AT THE TERMINAL RANKING EVENT, NOT REACTIVELY (quick-260809-cyk). This was
+	// an `$effect` reading `results[0]`; `results` is reassigned 4-8× per query — once per source
+	// partial inside onPartial (:373), once on the authoritative settle (:378), and again when the
+	// Deezer-boosted re-rank lands — and the IDENTITY of results[0] changes across them, so a uid
+	// compare could not collapse them. MEASURED on the workerd preview build: 5 `/api/resolve`
+	// calls for one search, 2 for another. Firing from the tail of the boost chain instead makes it
+	// 1 — that chain is the last thing that can reassign `results` for a query, so the top row is
+	// only known there. Gating on `!loading` does NOT work: the boost is fire-and-forget and lands
+	// AFTER the `finally` clears `loading`.
+	//
+	// `lastPrewarmedUid` is PLAIN, not $state (the UI never reads it; the house idiom is TrackMenu's
+	// versionGen). It is the per-query bound — reset in resetResults() and at the top of run() so a
+	// genuinely new query gets its own single pre-warm — and the first of three composed-free bounds:
+	// prewarmTrack's own uid Set is the second and apiFetch's in-flight GET dedupe is the third. NO
+	// timer here — composing a fresh local bound with the governor is the documented root cause of
+	// the api-fetch-flood-freeze class of bug.
+	//
+	// Deliberately gesture-only: nothing pre-warms on scroll. A viewport-observer trigger over the
+	// visible rows is the exact traffic shape behind that freeze and is a deferred idea, not a
+	// stretch goal — the two triggers above are the whole feature.
+	let lastPrewarmedUid = '';
+
+	async function run(e?: Event) {
+		e?.preventDefault();
+		const kw = q.trim();
+		if (!kw) return;
+		// OFFL-03 / D-10: SHORT-CIRCUIT when offline — never enter the loading state / fire
+		// searchAll (which would hang on a dead network and strand a spinner). The inline offline
+		// state renders instead (gated on !online.isOnline in the markup). No redirect (D-09).
+		if (!online.isOnline) return;
+		// quick-260927-dz0: write the committed query to the address bar as ?q=<term>, the write
+		// half of the dh5 deep link — a typed search is now reloadable and shareable. Written only
+		// once a search actually STARTS (past the empty + offline short-circuits), so the URL always
+		// names the query whose results are on screen. Every commit path funnels through here: form
+		// submit, recent-keyword tap, song-suggestion tap, and the dh5 mount run (which harmlessly
+		// re-writes the same normalized q). Typing / the typeahead never writes.
+		// syncTabUrl, not goto()/shallow routing: it is a raw history.replaceState — no history
+		// entry, so Back still leaves /search and the overlay-depth == history-depth invariant holds,
+		// with no router-index desync — built from the LIVE location.href, so the (app) layout's
+		// script-lock rewrite survives. Nothing on /search reads page.url.search (the rail lights by
+		// pathname, dh5 reads location.search), so the stale-page.url concern that put the library
+		// page on goto() does not apply here.
+		committedQ = kw;
+		syncTabUrl('q', kw, '');
+		ac?.abort();
+		moreAc?.abort(); // cancel any in-flight load-more from a previous query
+		// ql0: committing a search closes the typeahead — cancel a pending debounced fetch,
+		// abort any in-flight suggestion request, and clear the list.
+		fetchSuggestions.cancel();
+		suggestAc?.abort();
+		suggestions = [];
+		queryInputEl?.blur();
+		ac = new AbortController();
+		const myAc = ac; // capture for the onPartial stale-guard (survives a later ac swap)
+		// D-05: record the user-intent query on submit (even a zero-result one, so a
+		// typo'd query the user wants to retry is still listed). De-dupe/cap are in the store.
+		searchHistory.add(kw);
+		// D-02: a NEW query resets pagination AND clears the prior result set so the
+		// D-01 first-load skeleton shows immediately.
+		results = [];
+		lastPrewarmedUid = ''; // 31-D-03: the new query's top row is a new pre-warm candidate
+		inputFocused = false;
+		loading = true;
+		// BUGFIX: raise the dwell-floored skeleton flag and stamp the start so the finally
+		// block can guarantee a minimum visible window even on an instant cache hit.
+		showFirstSkeleton = true;
+		const startedAt = Date.now();
+		searched = true;
+		try {
+			// D-06: stream partials so results render as each source settles. The first-load
+			// skeleton (showFirstSkeleton) yields to results once the dwell floor elapses.
+			// Two-layer abort guard (mirrors the loadMore race guard) drops a superseded
+			// query's partials.
+			const { interleaved } = await searchAll(kw, 1, {}, ac.signal, (partial) => {
+				if (myAc.signal.aborted || kw !== q.trim()) return;
+				// SRCH-01/D-02: re-sort by score INSIDE the race guard (Pitfall 3 — a superseded
+				// partial returns above before ever reaching here).
+				results = rankList(dedupeBest(partial.interleaved, settings.preferredSource), kw);
+			});
+			// Final value is authoritative — re-derive from the complete superset, then re-sort.
+			results = rankList(dedupeBest(interleaved, settings.preferredSource), kw);
+			// kyf: derive artist tiles from the settled result set (race-guarded inside).
+			void refreshArtistTiles(kw, results);
+			// Reset pagination: assume more may exist whenever page 1 returned anything;
+			// loadMore() flips hasMore off once a page stops growing.
+			page = 1;
+			hasMore = results.length > 0;
+			persistSession(); // D-02: store the fresh set (overwrites the prior session)
+			// quick-261102-t7i: the jip Deezer-boosted re-rank is GONE — a second ranker that swapped
+			// group winners after first paint. rankPool + dedupeBest's ranked group head decide once,
+			// so THIS settle is the TERMINAL RANKING EVENT (31-D-03, quick-260809-cyk): the single
+			// place the settled top row is known. Same supersede guard as above.
+			if (!myAc.signal.aborted && kw === q.trim()) {
+				const top = results[0];
+				if (top && top.uid !== lastPrewarmedUid) {
+					lastPrewarmedUid = top.uid;
+					prewarmTrack(top);
+				}
+			}
+		} catch (err) {
+			// WR-01: a superseded query (AbortError) must NOT clobber state.
+			if (err instanceof DOMException && err.name === 'AbortError') return;
+			// Genuine failure: reset to the empty state (no results, no more pages).
+			results = [];
+			hasMore = false;
+		} finally {
+			loading = false;
+			// BUGFIX: hold the skeleton for the remainder of the dwell floor, then clear —
+			// but only if THIS query still owns the screen (a newer run() may have raised the
+			// flag again; clearing it then would hide that newer query's skeleton).
+			await minDwell(startedAt);
+			if (myAc === ac) showFirstSkeleton = false;
+		}
+	}
+
+	async function loadMore() {
+		// Guards: no concurrent batch, no firing during initial search, past the end,
+		// or before any search has run.
+		if (loadingMore || loading || !hasMore || !searched) return;
+		const kw = q.trim(); // capture BEFORE awaiting (race guard)
+		if (!kw) return;
+		loadingMore = true;
+		// BUGFIX: dwell-floored load-more skeleton (same microtask-collapse fix as run()).
+		showMoreSkeleton = true;
+		const startedAt = Date.now();
+		const next = page + 1;
+		moreAc?.abort();
+		moreAc = new AbortController();
+		const myMoreAc = moreAc; // capture for the dwell ownership guard below
+		try {
+			const { interleaved } = await searchAll(kw, next, {}, moreAc.signal);
+			// SRCH-01/D-02: re-sort the cumulative superset by score. rankList is pure; the
+			// race guard below still prevents a superseded batch from assigning to `results`.
+			const merged = rankList(dedupeBest(interleaved, settings.preferredSource), kw);
+			// Race guard: user searched something else mid-fetch — bail without touching state.
+			if (kw !== q.trim()) return;
+			if (merged.length <= results.length) {
+				// Sources exhausted: no net-new unique tracks.
+				hasMore = false;
+			} else {
+				// REPLACE with the cumulative superset (never concatenate — see pagination_mechanism).
+				results = merged;
+				page = next;
+				persistSession(); // D-02: keep the session fresh so a mid-scroll nav restores the larger set
+			}
+		} catch (err) {
+			// AbortError = a newer request superseded this one: do nothing.
+			if (err instanceof DOMException && err.name === 'AbortError') return;
+			// Any other failure: stop hammering a failing source.
+			hasMore = false;
+		} finally {
+			loadingMore = false;
+			// BUGFIX: hold the load-more skeleton for the dwell floor, then clear if this
+			// batch still owns the load-more slot (a superseding request swaps moreAc).
+			await minDwell(startedAt);
+			if (myMoreAc === moreAc) showMoreSkeleton = false;
+		}
+	}
+
+	// D-02 + D-05: hydrate search history; restore a prior in-session search INSTANTLY
+	// (no refetch) including scroll, after results paint.
+	onMount(async () => {
+		searchHistory.load();
+		// quick-260927-dh5: a `/search?q=<term>` link runs <term> on mount (or restores the session
+		// when it already holds that query). The mount run re-enters run(), which writes the same
+		// ?q= back (quick-260927-dz0), so a reload keeps re-running it.
+		// quick-260927-e5w: a SAME-PAGE navigation (link/goto/popstate to /search?q=…) does not remount,
+		// so the afterNavigate hook below owns that case; this mount run stays the only owner of the first entry.
+		const init = initialSearch(location.search, searchSession);
+		if (init.action === 'restore') {
+			q = searchSession.q;
+			// quick-260927-dz0: a tab-return to bare /search restores the session without run(), so
+			// put its ?q= back here too — the address bar names the query on screen and a reload
+			// re-runs it. On a matching ?q= link this re-writes the same value (harmless).
+			committedQ = searchSession.q;
+			syncTabUrl('q', searchSession.q, '');
+			results = searchSession.results;
+			page = searchSession.page;
+			hasMore = searchSession.hasMore;
+			searched = searchSession.searched;
+			// Restore artist tiles if cached for this query.
+			artistTiles = searchSession.artistTiles;
+			artistTilesFor = searchSession.artistTilesFor;
+
+			// Restore scroll AFTER the {#each results} renders so the document has height
+			// (the WINDOW scrolls — see the IO root:null below). Pitfall 6.
+			await tick();
+			window.scrollTo(0, searchSession.scrollY);
+		} else if (init.action === 'run') {
+			// quick-260927-dh5: reuse run() (not a new fetch path) so history recording, partial
+			// streaming and the OFFL-03 offline short-circuit match a typed submit. Fire-and-forget,
+			// like the suggestion call sites; a non-empty q keeps D-17 below from stealing focus.
+			q = init.q;
+			run();
+		}
+		// RHX-01 / SRCH-03: mount-time-only focus on an EMPTY query so the mobile keyboard
+		// rises. Evaluated AFTER the hasPrior restore above — a restored prior query makes `q`
+		// non-empty so focus is not stolen (D-17). Lives in onMount (NOT a $effect keyed on
+		// `q`) so clearing the input mid-session does NOT re-grab focus.
+		// D-19: also set inputFocused = true so the recent-searches list opens on a fresh empty
+		// visit even if the programmatic .focus() does not synchronously fire the onfocus
+		// handler. iOS keyboard restriction accepted (D-18) — success = focused input (ring +
+		// caret); no gesture-chained nav hack.
+		if (!q.trim()) {
+			queryInputEl?.focus();
+			inputFocused = true;
+		}
+	});
+
+	// quick-260927-e5w: follow a SAME-PAGE navigation to /search?q=… (an in-app link, goto, or
+	// popstate Back/Forward between two such entries) — the page stays mounted, so onMount never
+	// sees the new ?q=. Registered at component init: afterNavigate cannot be called from onMount.
+	//  - Guard: a mount (first load = 'enter', or arriving from another route) is owned by onMount,
+	//    so the hook acts only when both ends are /search and never double-runs the mount.
+	//  - Only pathname is compared on from/to: our raw replaceState ?q= writes leave the router's
+	//    page.url.search stale relative to location, so to.url.search (the router's fresh target)
+	//    is the only search string read.
+	//  - No loop, no echo guard: every ?q= write on this page (run(), resetResults(), the onMount
+	//    restore, the restore branch here) goes through syncTabUrl = raw history.replaceState, which
+	//    fires neither popstate nor afterNavigate, so the hook never observes its own write. (The
+	//    library page's oc6 appliedSearch guard exists because it writes via goto, which re-fires.)
+	//  - The prior is `committedQ` (the query the bar names), not the box text `q` (typing it and
+	//    then tapping the rail would put the unsubmitted text in ?q=). Not searchSession either: it
+	//    is only persisted on settle, so it lags an in-flight search.
+	afterNavigate(({ from, to, type }) => {
+		if (type === 'enter' || from?.url.pathname !== '/search' || to?.url.pathname !== '/search') return;
+		const init = initialSearch(to.url.search, { hasPrior: !!committedQ, q: committedQ });
+		if (init.action === 'run') {
+			// Same fire-and-forget run() as the mount run: history, partial streaming, OFFL-03, and
+			// the dz0 ?q= write-back all come with it.
+			q = init.q;
+			run();
+		} else if (init.action === 'restore') {
+			// The results on screen already are this query (matching ?q=) or the prior (bare /search,
+			// e.g. the rail link) — only re-assert the dz0 invariant that the bar names the on-screen
+			// query. No run, no reset, no focus move.
+			syncTabUrl('q', committedQ, '');
+		}
+	});
+
+	// D-02: on navigate-away, capture the live set + current scroll so a tab return restores it.
+	onDestroy(() => {
+		io?.disconnect();
+		if (searched && typeof window !== 'undefined') {
+			persistSession();
+			searchSession.setScroll(window.scrollY);
+		}
+	});
+
+	// Create / tear down the IntersectionObserver whenever the sentinel mounts or
+	// changes. root:null = the viewport because the WINDOW scrolls (see reuse_note);
+	// rootMargin prefetches the next batch slightly before the true bottom.
+	$effect(() => {
+		const el = sentinelEl;
+		if (!el) return;
+		io?.disconnect();
+		io = new IntersectionObserver(
+			(entries) => {
+				if (entries[0]?.isIntersecting) loadMore();
+			},
+			{ root: null, rootMargin: '400px 0px' }
+		);
+		io.observe(el);
+		return () => io?.disconnect();
+	});
+</script>
+
+<!-- quick-261006-gear: settings gear at the top-right corner (every page). -->
+<header class="head"><h1>{t('search.title')}</h1><SettingsGear /></header>
+
+<form class="bar" onsubmit={run}>
+	<div class="input-wrap">
+		<!-- quick-260919-keys: the `/` shortcut in (app)/+layout.svelte finds THIS field by attribute
+		     (it has to reach across the route boundary, and this is the app's only search input).
+		     An inert data-* hook — no layout, styling, focus order or a11y change, so mobile is
+		     untouched. -->
+		<!-- quick-261102-rrb: type=search + accessible name + ARIA combobox wiring to the
+		     #search-suggest listbox (native WebKit cancel X hidden in CSS — the custom X stays). -->
+		<input
+			data-search-input
+			bind:this={queryInputEl}
+			bind:value={q}
+			type="search"
+			aria-label={t('search.placeholder')}
+			role="combobox"
+			aria-autocomplete="list"
+			aria-controls="search-suggest"
+			aria-expanded={typeaheadOpen}
+			aria-activedescendant={typeaheadOpen && activeIdx >= 0 ? `search-opt-${activeIdx}` : undefined}
+			onkeydown={onSuggestKeydown}
+			placeholder={t('search.placeholder')}
+			autocomplete="off"
+			autocapitalize="off"
+			oninput={onSuggestInput}
+			onfocus={() => (inputFocused = true)}
+			onblur={() => {
+				// Delay closing so a suggestion tap (mousedown→click) registers before blur
+				// hides the list. The suggestion buttons also preventDefault on mousedown so
+				// focus never leaves the input on tap (belt-and-braces).
+				setTimeout(() => (inputFocused = false), 150);
+			}}
+		/>
+		<!-- quick-260711-sm7 (req 1): clear (X) button — shown only when the input has text.
+		     mousedown preventDefault keeps focus on the input so the mobile keyboard doesn't
+		     drop, and clearSearch() refocuses anyway. -->
+		{#if q}
+			<button
+				type="button"
+				class="clear-input"
+				aria-label={t('search.clearInput')}
+				onmousedown={(e) => e.preventDefault()}
+				onclick={clearSearch}
+				use:tapBounce
+			>
+				<X size={18} />
+			</button>
+		{/if}
+	</div>
+	<button type="submit" disabled={loading} aria-busy={loading} aria-label={t('search.go')} use:tapBounce>
+		{#if loading}<span class="spin motion-always" aria-hidden="true"><LoaderCircle size={18} /></span>{:else}<Search size={18} />{/if}
+	</button>
+</form>
+
+<!-- D-05: tappable past-search suggestions in the idle pre-query state.
+     quick-260711-sm7 (req 2): gate on an EMPTY input only (dropped the inputFocused/!searched
+     conditions) so an emptied search bar always collapses to just this recent-keywords list. -->
+{#if q.trim() === '' && searchHistory.entries.length > 0}
+	<div class="suggest">
+		<div class="suggest-head">
+			<span class="suggest-title">{t('search.recent')}</span>
+			<!-- quick-260711-sm7 (req 4): clear-all now behind ConfirmModal (was native confirm).
+			     User 2026-10-06 (audit): consistency with settings pages. -->
+			<!-- quick-261006-ico: icon-only Clear history (icon-first UI pass) — Trash2, labelled
+			     via aria-label + title. -->
+			<button type="button" class="suggest-clear" onmousedown={(e) => e.preventDefault()} onclick={() => (clearAllOpen = true)} use:tapBounce aria-label={t('search.clear')} title={t('search.clear')}>
+				<Trash2 size={16} />
+			</button>
+		</div>
+		<ul class="list">
+			{#each searchHistory.entries as entry (entry.query)}
+				<!-- quick-260711-sm7 (req 3): keyword button + sibling bin (its own ≥44px hit area,
+				     mirroring the VERSIONS-01 .row-line/.ver layout) — the bin is never nested inside
+				     the keyword's tap target. -->
+				<li class="recent-line">
+					<button
+						type="button"
+						class="row suggest-row"
+						onmousedown={(e) => e.preventDefault()}
+						onclick={() => {
+							q = entry.query;
+							inputFocused = false;
+							run();
+						}}
+						use:tapBounce
+					>
+						<span class="suggest-q">{entry.query}</span>
+					</button>
+					<button
+						type="button"
+						class="recent-del"
+						aria-label={t('search.removeRecent')}
+						onmousedown={(e) => e.preventDefault()}
+						onclick={() => removeRecent(entry.query)}
+						use:tapBounce
+					>
+						<Trash2 size={16} />
+					</button>
+				</li>
+			{/each}
+		</ul>
+	</div>
+{/if}
+
+<!-- ql0: live typeahead suggestions with ≥2 chars and ≥1 result. The gate is mutually
+     exclusive with the recent block above (recent requires q.trim()==='' ; this requires
+     length ≥ MIN_QUERY_LEN) so the two never co-render.
+     debug-search-typeahead-hidden-mobile: do NOT gate on `inputFocused`. On mobile Android
+     Chrome the soft-keyboard/touch focus lifecycle drops input focus mid-type; the onblur
+     150ms timeout then set inputFocused=false and nothing re-set it, so a POPULATED typeahead
+     was suppressed on mobile (worked on desktop, where focus is stable). `suggestions` is
+     already cleared on submit/pick/clear/below-2-chars, so this gate is self-limiting (no
+     lingering dropdown). Mirrors the same inputFocused-drop done for the recent block (sm7). -->
+{#if typeaheadOpen}
+	<div class="suggest">
+		<div class="suggest-head">
+			<span class="suggest-title">{t('search.suggestions')}</span>
+		</div>
+		<!-- quick-261102-rrb: listbox/option semantics; the input owns focus and points at the
+		     highlighted option via aria-activedescendant, so options are tabindex=-1. -->
+		<ul class="list" id="search-suggest" role="listbox" aria-label={t('search.suggestions')}>
+			{#each suggestions as s, i (s.key)}
+				<li role="none">
+					<button
+						type="button"
+						class="row suggest-row"
+						class:active={i === activeIdx}
+						role="option"
+						id="search-opt-{i}"
+						aria-selected={i === activeIdx}
+						tabindex="-1"
+						onmousedown={(e) => e.preventDefault()}
+						onclick={() => pickSuggestion(s)}
+						use:tapBounce
+					>
+						<!-- quick-260712-gm4: 3-way kind glyph — song ♫ / artist ♪ / album ◎. Album rows
+						     show the album artist as the muted sub-line, like a song row. -->
+						<span class="suggest-kind" aria-hidden="true">{s.kind === 'album' ? '◎' : s.kind === 'artist' ? '♪' : '♫'}</span>
+						<!-- quick-261102-rrb: spoken kind cue for the aria-hidden glyph (existing keys). -->
+						<span class="vh">{s.kind === 'album' ? t('menu.detailAlbum') : s.kind === 'artist' ? t('menu.detailArtist') : t('tags.fieldTitle')}</span>
+						<span class="suggest-meta">
+							<span class="suggest-q">{names.dnTitle(s.title, s.kind === 'song' ? s.artist : undefined)}</span>
+							{#if (s.kind === 'song' || s.kind === 'album') && s.artist}
+								<span class="suggest-sub">{names.dnArtist(s.artist)}</span>
+							{/if}
+						</span>
+					</button>
+				</li>
+			{/each}
+		</ul>
+	</div>
+{/if}
+
+<!-- OFFL-03 inline offline state: short-circuits the fetch (run() bails when offline) and
+     promotes Downloads/Library. No redirect (D-09); reconnect lets the next search run. -->
+{#if !online.isOnline}
+	<div class="offline-state">
+		<p class="offline-title">{t('offline.title')}</p>
+		<p class="offline-body">{t('offline.body')}</p>
+		<button type="button" class="offline-cta" onclick={() => goto('/library')} use:tapBounce>{t('offline.goToLibrary')}</button>
+	</div>
+{/if}
+
+<!-- ONE skeleton-row definition shared by the D-01 first-load gate and the existing
+     load-more position (no second skeleton style). quick-261102-rrb: blocks use the global .sk
+     (theme-safe greys + shimmer, reduce-motion re-asserted in app.css); the line spans are
+     .sk-line, not .bar — .bar collided with the search form's flex + margin-bottom and made
+     skeleton rows taller than real rows. -->
+{#snippet skeletonRows(count: number)}
+	<!-- quick-261102-s0k: decorative only; the role=status region below is the single
+	     "searching" announcement (the aria-label + .vh copy here read it three times). -->
+	<li class="skel-wrap" aria-hidden="true">
+		{#each Array(count) as _, i (i)}
+			<span class="row skel">
+				<span class="art sk"></span>
+				<span class="meta">
+					<span class="sk sk-line sk-title"></span>
+					<span class="sk sk-line sk-artist"></span>
+				</span>
+			</span>
+		{/each}
+	</li>
+{/snippet}
+
+{#if showFirstSkeleton}
+	<!-- D-01: first-load skeleton. Gated on a dwell-floored flag (NOT raw `loading`/empty)
+	     so a D-04 cache HIT / fast settle can't collapse it below one paint frame. -->
+	<ul class="list">
+		{@render skeletonRows(6)}
+	</ul>
+{:else if searched && !loading && results.length === 0}
+	<p class="muted">{t('search.empty')}</p>
+{:else}
+	{#if artistTiles.length}
+		<div class="artist-row">
+			<h2 class="artist-row-h">{t('search.artists')}</h2>
+			<div class="artist-tiles" use:dragScroll>
+				{#each artistTiles as tile (tile.name)}
+					<!-- quick-260910-qjv: artist tap feedback, parity with song rows -->
+					<button class="artist-tile" use:tapBounce onclick={() => goto(names.artistHref(tile.name))}>
+						<!-- quick-261102-rrb: the gradient is always the background; the photo is a lazy
+						     <img> on top, so offscreen tiles in the horizontal scroller don't fetch and a
+						     failed load falls back to the gradient. <img src>, not CSS url() (T-rrb-01). -->
+						<span class="artist-avatar" style:background-image={fallbackArtistCover(tile.name)}>
+							{#if tile.image}
+								<img
+									src={tile.image}
+									alt=""
+									loading="lazy"
+									decoding="async"
+									referrerpolicy="no-referrer"
+									onerror={(e) => ((e.currentTarget as HTMLImageElement).hidden = true)}
+								/>
+							{/if}
+						</span>
+						<span class="artist-name">{names.dnArtist(tile.name)}</span>
+					</button>
+				{/each}
+			</div>
+		</div>
+	{/if}
+	<ul class="list">
+		{#each results as t (t.uid)}
+			<!-- quick-260910-qwt: the shared three-rung row cover read. It must sit directly under the
+			     {#each} — Svelte only allows {@const} as an immediate block child. -->
+			<li class="row-line">
+				<!-- quick-261104-nover (Hector 2026-11-04): the leading VERSIONS-01 Layers trigger is gone —
+				     this was the only list that rendered one. Play-from-source stays reachable via the
+				     long-press TrackMenu (openVersions). -->
+				<div class="swipe-wrap">
+					<!-- UX-04 reveal layers sit BEHIND the row; the row translateX (use:swipeAction) slides
+					     to expose them. Right-drag exposes the left-anchored like affordance (quick-261104-swipe); left-drag
+					     exposes the right-anchored like affordance. aria-hidden — the equivalent actions stay
+					     reachable via the long-press TrackMenu (swipe is an enhancement). -->
+					<SwipeReveal />
+					<!-- quick-260919-l9e: the shared row. `swipe` is OMITTED on purpose — this page wanted
+					     exactly the app convention (right = like, left = play next — quick-261104-swipe), which now lives in
+					     the component, so the page's own swipeQueue/swipeNext are gone. Ordering is
+					     untouched: `results` is already rankList-sorted by scoreMatch and the row neither
+					     reads nor re-sorts it. quick-261103-tapsplice (Hector 2026-11-03): a tap routes
+					     through player.tapPlay — the settings.tapUpnext decider (Preserve splices it
+					     into the queue, history kept; Generate rebuilds the tail from it). The results
+					     pool no longer installs. Supersedes the quick-261024-sets fresh-play install. -->
+					<!-- quick-261010-sar: the artist-name rule, app-wide — the row's artist
+					     name is the SMART-resolved (auto-updating) one, not the raw source string. -->
+					<SongRow
+						track={t}
+						smartArtist
+						showAlbumTag={false}
+						onplay={() => player.tapPlay(t)}
+						onrequestmenu={() => { menuTrack = t; menuOpen = true; }}
+					/>
+				</div>
+			</li>
+		{/each}
+
+		{#if showMoreSkeleton}
+			{@render skeletonRows(4)}
+		{/if}
+
+		{#if hasMore}
+			<li class="sentinel" bind:this={sentinelEl}></li>
+		{:else if results.length > 0 && !loading && !loadingMore}
+			<li class="end-note">{t('search.noMore')}</li>
+		{/if}
+	</ul>
+{/if}
+
+<!-- quick-261102-rrb: always mounted so a status change is announced (a region inserted with its
+     text already in it is often not read). -->
+<p class="vh" role="status" aria-live="polite">{statusMsg}</p>
+
+<TrackMenu track={menuTrack} open={menuOpen} onclose={() => (menuOpen = false)} />
+
+<!-- User 2026-10-06 (audit): in-app confirms replacing native confirm(). -->
+<ConfirmModal
+	open={removeRecentOpen}
+	title={t('search.confirmRemoveRecent', { q: removeRecentQuery })}
+	body={t('search.confirmRemoveRecent', { q: removeRecentQuery })}
+	confirmLabel={t('search.clear')}
+	onconfirm={confirmRemoveRecent}
+	onclose={() => (removeRecentOpen = false)}
+/>
+<ConfirmModal
+	open={clearAllOpen}
+	title={t('search.clear')}
+	body={t('search.confirmClearAll')}
+	confirmLabel={t('search.clear')}
+	onconfirm={() => { searchHistory.clear(); clearAllOpen = false; }}
+	onclose={() => (clearAllOpen = false)}
+/>
+
+<style>
+	/* quick-261006-gear: flex row so the settings gear sits at the top-right corner. The
+	   16px/12px vertical rhythm moves from the h1 to the row so the gear aligns with it. */
+	.head { display: flex; align-items: center; justify-content: space-between; margin: 16px 0 12px; }
+	.head h1 { font-size: calc(1.4rem * var(--fs-title, 1)); margin: 0; }
+	.bar { display: flex; gap: 8px; margin-bottom: 8px;}
+	/* quick-260711-sm7: relative container so the clear (X) can sit inside the input's right edge. */
+	.input-wrap { position: relative; flex: 1; min-width: 0; display: flex; }
+	.bar input {
+		flex: 1; min-width: 0; background: var(--color-surface-2); border: 1px solid var(--color-border);
+		color: var(--color-text); border-radius: 999px; padding: 12px; font-size: 0.9375rem; outline: none; height: 44px;
+	}
+	/* User 2026-10-06 (audit): 40px -> 44px for minimum touch target. */
+	.bar input:focus { /* quick-261102-s0k: focus token, >=3:1 on every theme */ border-color: var(--color-focus); }
+	/* quick-261102-rrb: visible keyboard focus ring (outline:none above removed the default). */
+	.bar input:focus-visible { /* quick-261102-s0k: focus token, >=3:1 on every theme */ box-shadow: 0 0 0 2px var(--color-focus); }
+	/* quick-261102-rrb: type=search draws its own cancel X in WebKit; the custom .clear-input
+	   button already does that job. */
+	.bar input::-webkit-search-cancel-button,
+	.bar input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
+	/* quick-260711-sm7: clear (X) button — full input-height grid-centred (NO translateY, so the
+	   use:tapBounce scale keyframe can't displace it). Shown only when the input has text. */
+	.clear-input {
+		position: absolute; inset-inline-end: 0; top: 0; bottom: 0; width: 44px;
+		display: grid; place-items: center; background: none; border: none; padding: 0;
+		color: var(--color-text-muted); cursor: pointer;
+		background: transparent !important;
+	}
+	/* User 2026-10-06 (audit): 34px -> 44px width for minimum touch target. */
+	@media (hover: hover) { .clear-input:hover { color: var(--color-text); } }
+	.bar button {
+		background: var(--color-primary); border: none; color: var(--color-on-primary); /* quick-261102-rrb */ border-radius: 999px;
+		width: 44px; height: 44px; font-weight: 700; cursor: pointer;
+		display: inline-flex; align-items: center; justify-content: center;
+	}
+	/* User 2026-10-06 (audit): 40px -> 44px for minimum touch target. */
+	.bar button[disabled] { opacity: 0.8; cursor: default; }
+	.spin { display: inline-flex; animation: spin 0.7s linear infinite; }
+	@keyframes spin { to { transform: rotate(360deg); } }
+	.muted { color: var(--color-text-muted); font-size: 0.875rem; }
+	.end-note { list-style: none; text-align: center; color: var(--color-text-muted); font-size: 0.75rem; padding: 16px 0 4px; }
+	/* kyf + ljl-followup: artist tiles row — round avatars above the song list. Every unique
+	   artist in the result set gets a tile; the row scrolls HORIZONTALLY (use:dragScroll on
+	   the inner container) so there's no count cap. */
+	.artist-row { margin: 0 0 14px; }
+	.artist-row-h { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 8px; }
+	.artist-tiles { display: flex; gap: 12px; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+	.artist-tiles::-webkit-scrollbar { display: none; }
+	.artist-tile { flex: 0 0 96px; background: none; border: none; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--color-text); }
+	.artist-avatar { width: 96px; height: 96px; border-radius: 50%; background-size: cover; background-position: center; overflow: hidden; display: block; }
+	/* quick-261102-rrb: lazy photo layered over the gradient background. */
+	.artist-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 50%; }
+	.artist-name { font-size: 0.75rem; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 96px; color: var(--color-text);}
+
+	/* OFFL-03 inline offline empty-state (shared idiom across online-only surfaces). */
+	.offline-state { text-align: center; padding: 32px 16px; color: var(--color-text-muted); }
+	.offline-title { font-size: 0.9375rem; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
+	.offline-body { font-size: 0.8125rem; margin: 0 0 16px; }
+	.offline-cta {
+		background: var(--color-primary); border: none; color: var(--color-on-primary); /* quick-261102-rrb */ border-radius: 999px;
+		padding: 9px 18px; font-size: 0.8125rem; font-weight: 600; cursor: pointer;
+	}
+
+	/* --- D-05 past-search suggestions --- */
+	.suggest { margin-bottom: 14px; }
+	.suggest-head {
+		display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;
+	}
+	.suggest-title { font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); letter-spacing: 0.02em; }
+	/* quick-261006-ico: icon-only clear-history — 44px ghost circle, Trash2.
+	   quick-261102-rrb: 40px -> 44px minimum touch target. */
+	.suggest-clear {
+		background: none; border: none; color: var(--color-text-muted);
+		cursor: pointer; width: 44px; height: 44px; padding: 0; border-radius: 50%;
+		display: inline-grid; place-items: center;
+	}
+	.suggest-clear:hover { background: var(--color-surface); }
+	.suggest-row { padding: 10px 8px; }
+	/* quick-260711-sm7 (req 3): recent keyword row = keyword button (flex:1) + sibling bin. The bin
+	   is its own ≥44px tap target (mirrors .row-line/.ver), never nested in the keyword button. */
+	.recent-line { display: flex; align-items: center; gap: 4px; }
+	.recent-line > .suggest-row { flex: 1; min-width: 0; width: auto; }
+	.recent-del {
+		flex: none; width: 44px; height: 44px; display: grid; place-items: center;
+		background: none; border: none; border-radius: var(--radius-full, 999px);
+		color: var(--color-text-muted); cursor: pointer;
+	}
+	@media (hover: hover) { .recent-del:hover { background: var(--color-surface); color: var(--color-text); } }
+	.suggest-q {
+		font-size: 0.875rem; color: var(--color-text);
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+	}
+	/* ql0: typeahead suggestion rows — a small kind glyph + title/artist stack. */
+	.suggest-kind { flex: none; width: 18px; text-align: center; color: var(--color-text-muted); font-size: 0.8125rem; }
+	.suggest-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+	.suggest-sub {
+		font-size: 0.75rem; color: var(--color-text-muted);
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+	}
+
+	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+	/* A song row = the swipeable play row (the leading VERSIONS-01 trigger was removed in
+	   quick-261104-nover). The swipe-wrap flexes to fill the remaining width. */
+	.row-line { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+	/* UX-04: positioning context for the swipe reveal layers. The reveal spans sit BEHIND the row
+	   (the row carries an opaque background); the row's translateX (use:swipeAction) slides to
+	   expose the correct side. overflow:hidden clips the row's off-screen travel + keeps the
+	   reveal masked at rest. */
+	.swipe-wrap { position: relative; overflow: hidden; border-radius: 10px; flex: 1; min-width: 0; }
+	/* Right-drag (queue, --color-primary) reveals from the LEFT edge; left-drag (play-next,
+	   --src-netease field) reveals from the RIGHT edge — matching the drag direction. */
+	/* quick-260919-l9e: the RESULT row is SongRow.svelte now (its styles travelled with it).
+	   `.row` / `.art` / `.meta` and the :hover are KEPT — the 6-row loading skeleton and BOTH
+	   typeahead dropdowns (.row.suggest-row: recent searches + live suggestions) still use them.
+	   The result-row-only rules (.row.is-active, .r-title, .r-artist) went with the markup. */
+	.row {
+		width: 100%; display: flex; align-items: center; gap: 12px; padding: 8px;
+		background: var(--color-bg); position: relative; z-index: 1;
+		border: none; border-radius: 10px; cursor: pointer; text-align: start; transition: background 0.12s ease;
+	}
+	/* MENU-03 / D-12: hover-capable devices only — touch otherwise latches this :hover
+	   background on a row under a held finger while the track menu opens. */
+	@media (hover: hover) { .row:hover { background: var(--color-surface); } }
+	/* quick-261102-rrb: keyboard-highlighted typeahead option — same look as hover. */
+	/* quick-261102-s0k: the surface fill alone is 1.09:1 on the page — add a focus-token inset
+	   ring so the aria-activedescendant option is actually visible. */
+	.row.active { background: var(--color-surface); box-shadow: inset 0 0 0 2px var(--color-focus); }
+	.art { width: 48px; height: 48px; border-radius: 8px; background-size: cover; background-position: center; flex: none; }
+	.meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+	/* --- infinite-scroll loading state --- */
+	.sentinel { height: 1px; margin: 0; padding: 0; list-style: none; }
+	.skel-wrap { display: flex; flex-direction: column; gap: 6px; list-style: none; }
+	/* Skeleton row mirrors .row sizing so placeholders line up with real rows. */
+	.skel { pointer-events: none; }
+	.skel .meta { gap: 7px; }
+	/* quick-261102-rrb: sizing only — colour + shimmer come from the global .sk. */
+	.sk-line { display: block; height: 9px; border-radius: 5px; }
+	.sk-title { width: 62%; }
+	.sk-artist { width: 40%; }
+	/* Visually-hidden screen-reader cue for the skeleton container. */
+	.vh {
+		position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+		overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+	}
+</style>

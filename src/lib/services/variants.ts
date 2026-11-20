@@ -1,0 +1,121 @@
+// On-demand cross-source variant fetch (Phase 26-08, VERSIONS-01 / Gap 4 foundation).
+//
+// A played/queued song carries only its OWN source, so discovering the other sources'
+// variants outside the search page needs an explicit lookup. This is that lookup — but
+// deliberately LAZY: it fires EXACTLY ONE all-source `searchAll`, and ONLY when the caller
+// invokes it (the 26-10 mount plan gates it behind a picker-open tap). It never loops
+// per-source and never runs as a background prefetch — the UAT's explicit API-cost
+// constraint (T-26-08-01). searchAll's own D-04 TTL memoization makes a repeat open free.
+//
+// Pure `.ts` (node-testable): reuses `searchAll` + `groupVariants` + `sameSongKey` — it does
+// NOT re-implement song identity and does NOT import a `*.svelte.ts`. Never-throw — any
+// failure, an aborted signal, a blank query, or a no-match all map to [].
+import type { Track } from '$lib/sources/types';
+import { searchAll } from './catalog';
+import { collapseVariants, groupVariants, sameSongKey, songKey } from './dedupe';
+
+// quick-261021-cache1 (user): in-memory memo for fetchVariants.
+// The data (cross-source variants) doesn't change frequently, so cache by track UID.
+// searchAll has its own TTL cache, but the menu needs instant open — this skips even the
+// cache-key computation and grouping on repeat opens.
+const variantsMemo = new Map<string, Track[]>();
+
+/** Test hook (mirrors ttl-cache's __clearSearchCache): the memo is session-scoped by
+ *  design, so suites that re-drive fetchVariants with fixture uids must reset it. */
+export function __clearVariantsCache(): void {
+	variantsMemo.clear();
+}
+
+/**
+ * Fetch the cross-source variants of ONE song on demand.
+ *
+ * Issues a SINGLE all-source `searchAll` (prefs {} = every enabled source) for
+ * `${track.artist} ${track.title}`, groups the interleaved hits by song identity via
+ * `groupVariants`, and returns the group that matches `track` — the same-song variant list
+ * across sources, including the track's own source when present. Returns [] on a blank
+ * query, an aborted signal, any error, or when no group matches — NEVER throws.
+ *
+ * The returned list is variant rows suitable for VersionPicker: length > 1 means a real
+ * cross-source choice; length ≤ 1 lets the caller decide whether to surface the control.
+ *
+ * quick-261021-cache1: results are memoized by track UID — repeat opens are instant.
+ */
+export async function fetchVariants(track: Track, signal?: AbortSignal): Promise<Track[]> {
+	// Memo hit — instant.
+	const memoKey = track.uid;
+	if (memoKey && variantsMemo.has(memoKey)) {
+		return variantsMemo.get(memoKey)!;
+	}
+	const query = `${track.artist ?? ''} ${track.title ?? ''}`.trim();
+	if (!query) return [];
+	try {
+		// The ONE deliberate cross-source fan-out — prefs {} = all enabled sources (D-04 memoized).
+		const result = await searchAll(query, 1, {}, signal);
+		// Supersedence/timeout: a newer caller (or a cancel) aborted mid-flight → drop this result.
+		if (signal?.aborted) return [];
+		// Group by the SAME normalized identity dedupeBest/groupVariants use (one source of truth),
+		// then return the group that IS this song. sameSongKey guards a blank/untitled key so a
+		// no-title stub never matches a garbage group.
+		// quick-260927-2wt: sameSongKey now also matches a bilingual artist alias (G.E.M. vs
+		// G.E.M.邓紫棋), so an alias group earlier in the list could shadow this song's exact group.
+		// Exact-first keeps the old answer: groupVariants keys by key(t) === songKey(t.artist, t.title),
+		// and a blank-key track never hits (blank stubs are keyed by uid) so it falls through to the
+		// loop, whose blank guard still returns []. The alias fallback is a pure improvement (it used
+		// to return []).
+		const groups = groupVariants(result.interleaved);
+		const exact = groups.get(songKey(track.artist ?? '', track.title ?? ''));
+		if (exact) {
+			if (memoKey) variantsMemo.set(memoKey, exact);
+			return exact;
+		}
+		for (const variants of groups.values()) {
+			if (variants.some((v) => sameSongKey(v, track))) {
+				if (memoKey) variantsMemo.set(memoKey, variants);
+				return variants;
+			}
+		}
+		return [];
+	} catch {
+		// Never-throw: a transient upstream/proxy failure must not break the picker-open path.
+		return [];
+	}
+}
+
+/**
+ * The "Download from…" picker's row list: the song's OWN source first, then one row per other
+ * source that has it (quick-260916-0d9).
+ *
+ * Two jobs, both borrowed rather than reinvented (Q1 — no third copy of song identity anywhere):
+ *   - the own track is ALWAYS present, even when `fetchVariants` returned [] (CN blocked, offline,
+ *     no match) — the picker must never open with zero rows for a song that is right there;
+ *   - `collapseVariants` (the SAME intra-source collapse VersionPicker applies at render) folds a
+ *     source's ten near-identical hits into one row, so the list reads one-row-per-source.
+ *
+ * Slot 0 of the collapsed list is always the own track's bucket (collapseVariants preserves
+ * first-appearance bucket order and `track` is input[0]), but its WINNER may be a same-source /
+ * same-album search hit that `better()` outranked it with. We force our own object back into that
+ * slot: the caller seeds its probe map by the ORIGINAL uid and records the download under the
+ * ORIGINAL identity, so a swapped uid would leave that row a permanent skeleton and save the song
+ * under a uid the menu never opened on.
+ *
+ * Pure, never throws, no network.
+ */
+export function versionsIncludingOwn(track: Track, variants: Track[]): Track[] {
+	const collapsed = collapseVariants([track, ...variants]);
+	const rows = collapsed[0]?.uid === track.uid ? collapsed : [track, ...collapsed.slice(1)];
+	// ONE ROW PER SOURCE — and collapseVariants alone does NOT give that. It buckets by
+	// `source|album|tag`, so against live data ("Hello" / Adele, measured through the dev server) it
+	// returned 3 qq + 3 netease + 4 ytmusic rows: eleven rows, each labelled with nothing but its
+	// source name, with no way for the user to tell one "YouTube Music" from the next three. A row's
+	// identity in this picker IS the source (Q3 — at a fixed tier each adapter's ladder yields one
+	// url per source, and the container is a property of that url), so keep each source's FIRST row
+	// (already the best within its bucket, in search-rank order) and drop the rest. Subsumes uid
+	// dedupe, keeps the own track (it is rows[0], so it claims its source first), and cuts the
+	// caller's probe pool from eleven to four on that same query.
+	const seen = new Set<string>();
+	return rows.filter((v) => {
+		if (seen.has(v.source)) return false;
+		seen.add(v.source);
+		return true;
+	});
+}

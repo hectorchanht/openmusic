@@ -1,0 +1,14 @@
+# openmusic
+
+> Search and stream music for world. Synced lyrics, translation, playlists, library — a fast mobile-first web player (installable PWA + Android app). Client-rendered single-page app: page content is built in the browser, so most pages carry little static text.
+
+## Pages
+
+- [Home](https://openmusic.lol/): chart shelves (Apple Music, Deezer, KKBOX, YouTube charts) and personal picks
+- [Search](https://openmusic.lol/search): search songs, artists and albums across sources
+- [Library](https://openmusic.lol/library): liked songs, playlists, downloads and history (stored on the device)
+- [Settings](https://openmusic.lol/settings): language, sources, playback and cache options
+
+## Optional
+
+- [Sitemap](https://openmusic.lol/sitemap.xml)

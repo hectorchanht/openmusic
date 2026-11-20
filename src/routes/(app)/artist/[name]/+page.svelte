@@ -1,0 +1,799 @@
+<script lang="ts">
+	// Artist page. DATA CONSTRAINT: the source adapters expose only search + detail
+	// (no real artist/album API). So this is DERIVED: searchAll(artistName) →
+	// "Hit songs" = the result list; "Albums" = results grouped by track.album.
+	// Not a true artist catalog — an approximation from cross-source search.
+	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
+	import { ChevronDown, ChevronRight, Heart, Play, Share2 } from '@lucide/svelte';
+	import { searchAll } from '$lib/services/catalog';
+	import { dedupeBest, rankByArtistExactness } from '$lib/services/dedupe';
+	import { settings } from '$lib/stores/settings.svelte';
+	import { entityCardUrl } from '$lib/services/share';
+	import { player } from '$lib/stores/player.svelte';
+	import { library } from '$lib/stores/library.svelte';
+	import { names } from '$lib/stores/names.svelte';
+	import { toast } from '$lib/stores/toast.svelte';
+	import { online } from '$lib/stores/online.svelte';
+	import { t, type TranslationKey } from '$lib/i18n';
+	import { dragScroll } from '$lib/actions/dragScroll';
+	import { tapBounce } from '$lib/actions/tapBounce';
+	import { marquee } from '$lib/actions/marquee';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import SongRow from '$lib/components/SongRow.svelte';
+	import TrackMenu from '$lib/components/TrackMenu.svelte';
+	import TagChips from '$lib/components/TagChips.svelte';
+	import { enrichArtist, type EnrichResult } from '$lib/services/lastfm';
+	import { getSimilarArtists } from '$lib/services/similar';
+	import { deezerArtistCover, deezerArtistWithFallbacks, type DeezerArtistInfo } from '$lib/services/deezer';
+	import { fullestDisplayName, creditSegments, pickHeroCover } from '$lib/services/artist-display';
+	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
+	import { isCoverUrlDead } from '$lib/services/dead-cover-urls';
+	import { filterByType, typeLabelKey, releaseYear, albumHref, fallbackCoverSeed, type DiscographyEntry } from '$lib/services/discography';
+	import { coverGradient } from '$lib/services/cover-gradient';
+	import { loadDiscography, isCjkName } from '$lib/services/discography-source';
+	import { pickLocaleName, mbArtist } from '$lib/services/musicbrainz';
+	import { mergeEnrichArtist } from '$lib/services/enrich-merge';
+	import { mapWithConcurrency } from '$lib/services/discovery';
+	import { lazyBg } from '$lib/actions/lazyBg';
+	import PageOg from '$lib/components/PageOg.svelte';
+	import type { PageData } from './$types';
+	import type { Track } from '$lib/sources/types';
+
+	// `data.og` comes from the universal +page.ts load (artist title/description derived at SSR) so
+	// the artist page emits a crawler-correct OG card in the server HTML (GLN-4).
+	let { data }: { data: PageData } = $props();
+
+	let menuTrack = $state<Track | null>(null);
+	let menuOpen = $state(false);
+
+	// OG-COMPAT-01 / Pitfall 1: read the param DIRECTLY — SvelteKit decoded it already
+	// (decode_params, utils/routing.js:304). Decoding a second time threw URIError on any artist name
+	// containing a literal '%', which crashed the SSR render (`GET /artist/50%25%20Cent` → 500). This
+	// is the FOURTH double-decode site; RESEARCH §A.3 listed only three, but the loader fix alone left
+	// the route 500ing here. The literal param stays the RESOLUTION key (CONTEXT: `dn`/the card are
+	// display-only), so no lookup behavior changes — only the crash goes away.
+	const name = $derived(page.params.name ?? '');
+
+	let songs = $state<Track[]>([]);
+	let loading = $state(true);
+	let loadedFor = '';
+
+	// quick-260831-rjo: the hit-songs list used to be hard-capped at a 30-row render slice, so a
+	// prolific artist's deeper songs were unreachable. Pagination here is TWO layers: a render
+	// window (`shown`) over the already-deduped `songs`, and a deeper searchAll page fetch once
+	// that window exhausts the loaded set. searchAll(kw, page) returns a CUMULATIVE SUPERSET, so
+	// a deeper page REPLACES `songs` — never concatenate (duplicate uids would break the keyed
+	// {#each}). Playback semantics are unchanged: the row tap still calls
+	// player.setListQueue(rankedSongs, 'artist'), which queues the FULL loaded set (in
+	// exact-artist-first order), not the render window.
+	const SONGS_PAGE_SIZE = 30;
+	let shown = $state(SONGS_PAGE_SIZE);
+	let songsPage = $state(1);
+	let hasMoreSongs = $state(true);
+	let loadingMoreSongs = $state(false);
+
+	// ---- Last.fm enrichment (Phase 8, ENRICH-01/02 · D-07/D-08) ----
+	// Best-effort, AUGMENTS the derived track-list — it never blocks or replaces the
+	// searchAll load below (D-02). A SEPARATE $effect keyed on `name` with its own
+	// guard void-fires enrichArtist (never awaited, never throws) and assigns the
+	// result only if `name` still matches (race guard). A CN artist with no Last.fm
+	// match / absent key resolves to the all-empty shape, so nothing extra renders.
+	let enrich = $state<EnrichResult | null>(null);
+	let enrichedFor = '';
+	// In-flight flag for the About/bio skeleton (enrich settling to its all-empty shape is
+	// indistinguishable from a no-bio result via `enrich` alone, and a failed fetch must not
+	// leave the skeleton up forever — so track the settle explicitly).
+	let enrichLoading = $state(true);
+
+	// ---- Artist albums (Phase 9 D-04 + Phase 23 ART-01 / D-18 / D-19; pre-gate RELAXED quick-260711-te4) ----
+	// Show every album that EXISTS — no trackless pre-gate. Previously (D-18) we verified each
+	// album had resolvable tracks before rendering: the Deezer path filtered on `nb_tracks > 0`, the
+	// Last.fm path ran a CAPPED per-album `getAlbumTracklist` count and hid any album that resolved
+	// to 0 tracks. That gated the whole shelf on song-resolvability and spent N per-album fetches
+	// (Path B) purely to decide whether to draw a card. It's redundant: the album *detail* page
+	// already resolves the songs within lazily on tap (resolveStub, D-05). So the shelf now renders
+	// as soon as the album LIST is known and defers song resolution to the album page. Source
+	// priority (quick-260831-re9, see discography-source.ts): MusicBrainz for a CJK artist, else
+	// Deezer, else Last.fm. Every path drops only obvious stub names (isStubAlbumName) — a
+	// garbage-name filter, NOT a resolvability gate. Unified { name, image } shape so nav (which
+	// keys on the album name) is unchanged.
+	// quick-260831-qkx: RenderAlbum is now the shared DiscographyEntry — it carries the Deezer
+	// album `id` (so the album page can fetch the REAL tracklist instead of re-matching by name),
+	// plus `releaseDate`/`type` for the newest-first sort and the albums+EPs filter. The Last.fm
+	// fallback path supplies null for all three, which every rule tolerates.
+	type RenderAlbum = DiscographyEntry;
+	// FULL discography (every record type), newest-first. The shelf renders a filtered view.
+	let albums = $state<RenderAlbum[]>([]);
+	let albumsFor = '';
+	// In-flight flag for the Albums skeleton (an empty result and "still loading" are both
+	// `albums.length === 0`, so the settle is tracked explicitly).
+	let albumsLoading = $state(true);
+	// The shelf shows albums + EPs only (user decision, 2026-09-01): Coldplay's real discography is
+	// 123 releases — 17 albums, 5 EPs, 101 singles — so an unfiltered shelf is the reported noise.
+	// The full list stays available on the discography page.
+	const shelfAlbums = $derived(filterByType(albums, 'main'));
+	// quick-260831-re9: MusicBrainz identity for a CJK artist. One artist carries every script +
+	// the romanized form ({en:"Eason Chan", zh-Hant:"陳奕迅", zh-Hans:"陈奕迅"}), so the hero can
+	// render the name for the user's artist-language setting instead of whichever spelling the
+	// route happened to be opened with.
+	let mbNames = $state<Record<string, string>>({});
+	let mbCanonical = $state<string | null>(null);
+	/** The artist name to DISPLAY. Falls back to the route name whenever MusicBrainz was not the
+	 *  source (non-CJK artists keep today's behaviour exactly). */
+	const displayArtist = $derived(
+		mbCanonical || Object.keys(mbNames).length
+			? pickLocaleName(mbNames, mbCanonical, settings.artistLang, name)
+			: name
+	);
+
+	// quick-261010-exact: exact-artist-first hit-song ranking. `songs` stays the LOADED list
+	// (searchAll relevance order); `rankedSongs` is the display/queue order — tier 0 is a
+	// script-EXACT artist match or a track carrying a DISTINCTIVE MusicBrainz alias
+	// ("Keung To" for 姜濤), so the mainland folk singer 姜涛's same-folded-name tracks no
+	// longer interleave with Keung To's own above them. mbNames lands async via the albums
+	// effect (CJK artists); before that the folded ranking applies — progressive enhancement,
+	// no extra fetch (the dz effect below warms the same mb:artist cache key).
+	const mbAliases = $derived(Object.values(mbNames));
+	const rankedSongs = $derived(rankByArtistExactness(songs, name, mbAliases));
+
+	// 2026-11-02 (Hector's sunkis report): displayArtist above is a MATCHING-side answer —
+	// MusicBrainz's canonical for sunkis is the Latin-only "sunkis" (aliases split the name
+	// into {zh: 宋秉勤, en: Chris Sung}), so with the default 'off' artist-language the
+	// header dropped 宋秉勤 entirely even though every source credits him bilingually.
+	// Canonical forms are for matching/lookup, never for display replacement when SHORTER
+	// than the credited name: fullestDisplayName restores the most complete credited form
+	// that belongs to this artist (the route name first, then the loaded tracks' credited
+	// segments). Identity/queue/favourite behaviour still keys off the route `name`.
+	const artistForms = $derived(
+		[name, mbCanonical ?? '', ...mbAliases].map((s) => s.trim()).filter(Boolean)
+	);
+	const creditedForms = $derived.by(() => {
+		const out: string[] = [name];
+		for (const t of rankedSongs) {
+			for (const seg of creditSegments(t.artist)) {
+				if (seg && !out.includes(seg)) out.push(seg);
+			}
+		}
+		return out;
+	});
+	const displayName = $derived(fullestDisplayName(displayArtist, creditedForms, artistForms));
+
+	// "More like this" shelf (quick-260607-jip). getSimilarArtists() chains Last.fm → Deezer
+	// (jau-added fallback) → same-artist. Each related artist gets its avatar via Deezer's
+	// artist-picture endpoint (4 in-flight cap; never throws). Race-guarded on `name`.
+	type RelatedArtist = { name: string; image: string | null };
+	let related = $state<RelatedArtist[]>([]);
+	let relatedFor = '';
+	let relatedLoading = $state(true);
+
+	// ---- Deezer artist info (Phase 17, ENRICH-04 / D-14·D-16) ----
+	// PARALLEL race-guarded effect cloning the enrichedFor idiom with its own `dzFor` guard.
+	// deezerArtistWithFallbacks never throws (own-origin /api/deezer/artist proxy) — a miss
+	// settles `dz` to null → the Deezer info section is silently absent (D-14). Best-quality image + counts are
+	// merged with the Last.fm enrich via the pure mergeEnrichArtist helper (D-15).
+	let dz = $state<DeezerArtistInfo | null>(null);
+	let dzFor = '';
+	let dzLoading = $state(true);
+	// Field-precedence merge of the Last.fm EnrichResult + Deezer info (D-15). Recomputes
+	// reactively as either source settles. The merged image generalizes the old
+	// `enrich?.lastfmArt ?? hero` precedent (Deezer hi-res wins, never downgrades to null).
+	const merged = $derived(mergeEnrichArtist(enrich, dz));
+
+	// quick-260919-l9e: the hit-song row's cover plumbing (the COVER-02 D-14 uid→url map, the
+	// quick-260910-qwt three-rung pickRowCover read and the placeholder gradient) moved INTO
+	// SongRow with the markup it fed — it was per-row state that no other shelf on this page
+	// touches. The album / related shelves keep their own `fallbackCoverSeed` chain, untouched.
+
+	// kmn: action-bar state. Heart fills when artist is in library.favArtists; header Play
+	// starts the top-ranked song + queues the whole ranked list in order; share uses Web Share API.
+	// quick-260926-hl9: this read went through names.zhLock so a cold deep link, whose first favKey
+	// ran before t2s was warm, repainted once the lock dict landed.
+	// quick-260926-hze: library now repaints ITSELF via foldRev (it warms the fold whenever a
+	// favourite is Chinese, lock on or off), so the zhLock detour is redundant and gone.
+	const favArtist = $derived(library.isFavArtist(name));
+
+	// WR-06 / D-15: feedback goes through the GLOBAL toast store (rendered once by ToastHost) —
+	// the local toastMsg/toastTimer copy this page shipped was re-consolidated away.
+	function toggleFavourite() {
+		const was = favArtist;
+		library.toggleFavArtist(name);
+		toast.show(was ? t('toast.artistUnfavorited') : t('toast.artistFavorited'));
+	}
+
+	// quick-261015-artistplay (app-wide Play rule): header Play starts the top-ranked song
+	// instantly and installs the whole ranked list as Up Next in order — replaces the old
+	// random-pick-first behavior. `sameList` keeps the install through the fresh-play tail.
+	// Row taps keep their per-song semantics (generate similar-songs Up Next).
+	function playArtist() {
+		if (!rankedSongs.length) return;
+		player.setListQueue(rankedSongs, 'artist');
+		void player.play(rankedSongs[0], { fresh: true, sameList: true });
+	}
+
+	async function shareArtist() {
+		// SHARE-02 / D-04 / OG-PATH-02: the artist entity link. The /artist/[name] route is the
+		// readable entity page (SSR-opted-in by 24-04 for the crawler OG head) and the AUTHORITATIVE
+		// round-trip key is the literal artist name in the path — ONE segment, since an artist has no
+		// secondary name. Never an ASCII slug: entityShareUrl() slugifies CJK to '' (share.ts), which
+		// would yield a non-reopening link for the app's primary CJK catalog. No ?play= carrier — an
+		// artist page is an entity, not a now-playing restore (D-06). location guarded for SSR safety.
+		//
+		// quick-260723-ry1 (match the song card) — the link is now CARRIER-FREE (no `?` at all):
+		//  - OG-EP-01: no `c` cover carrier; the card image is the own-origin /api/og endpoint, which
+		//    re-resolves the hero art server-side.
+		//  - OG-ZH-01 / RESEARCH §E.17: the `dn` DISPLAY QUERY CARRIER is retired.
+		//
+		// quick-260808-urx: the single path segment now carries the DISPLAY-language artist name —
+		// what this user actually sees — not the raw catalog metadata, per the user's ask ("zht user
+		// must not share zhs"). NOT a reversal of OG-ZH-01: the dn carrier stays dead; display text
+		// rides the PATH, the single value used for BOTH display and resolution.
+		//
+		// Reliability (verified — do not re-check): names.resolve() returns the cached display string
+		// and falls back to the raw text on a miss, so this is exactly what the page rendered; the
+		// zh-Hant s2t dict is boot-warmed (quick-260712-et3) → synchronous. The recipient-side
+		// Traditional-vs-Simplified resolution risk is closed by resolveStub's t2s rescue-on-miss.
+		const dName = names.dnArtist(displayName); // quick-261102-tlo: same name the header shows
+		const url = entityCardUrl({ type: 'artist', name: dName });
+		const title = dName;
+		try {
+			const nav = navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
+			// quick-260808-vkd — the link rides `text`, NOT `url`. DO NOT "fix" this back.
+			// The Web Share API spec URL-PARSES `ShareData.url` and re-serializes it, and the WHATWG
+			// URL serializer percent-encodes every path code point above U+007E — so a `url` member
+			// silently undoes encodePathSegment's raw-CJK output (quick-260807-vl1) at the very last
+			// step. `ShareData.text` is NOT parsed; it is passed through verbatim. WhatsApp /
+			// iMessage / Slack auto-linkify a bare URL inside shared text and still fetch its OG
+			// card, so no preview is lost. Sending BOTH would duplicate the link in the message
+			// (once readable, once encoded) on every target that concatenates the two members.
+			// The former `text: title` was redundant with `title` — the link takes that slot.
+			// quick-260808-vzu — the title line is now OPT-IN (settings.shareIncludeTitle, default
+			// OFF). Concatenating targets (WhatsApp) render `title` and `text` as two separate lines,
+			// so an unconditional title showed the artist name above the link and then AGAIN inside
+			// the OG card the link unfurls into. It is a SETTING, not a deletion — some users want the
+			// context inline, so the old behavior is one toggle away in Settings → General. Tradeoff
+			// when OFF: targets that use `title` as a subject line (email, some Slack surfaces) get a
+			// barer share. No placeholder title in the OFF branch — the Web Share spec needs at least
+			// one of title/text/url, and `{ text: url }` satisfies it.
+			if (nav.share) await nav.share(settings.shareIncludeTitle ? { title, text: url } : { text: url });
+			else { await navigator.clipboard.writeText(url); toast.show(t('toast.shareCopied')); }
+		} catch {
+			/* user dismissed / clipboard blocked — no toast on cancel */
+		}
+	}
+
+	// 2026-11-02 (Hector's sunkis report): the hero fallback used to be the first ranked
+	// track with ANY cover — for sunkis that was KnowKnow's "BRAND NEW", a single he merely
+	// features on, while his own top hit sat below it. pickHeroCover now requires the
+	// PRIMARY credit first (his own release), falling back to the first cover of any kind
+	// only when no primary-credit cover exists. The cover read mirrors the rows' chain
+	// (shared cache, then the stub cover unless known-dead) so the hero paints the same
+	// art as the hit-song row for that track. A real artist photo still outranks this via
+	// merged.image below (Deezer hi-res > Last.fm art).
+	const hero = $derived(
+		pickHeroCover(rankedSongs, artistForms, (trk) =>
+			readCoverByUidOrName(trk.uid, trk.artist, trk.title) ??
+			(trk.cover && !isCoverUrlDead(trk.cover) ? trk.cover : null)
+		)
+	);
+	// Prefer the best-quality enrichment image (Deezer hi-res > Last.fm art, via the merge)
+	// ONLY when present; otherwise keep the derived cover so a real hero NEVER regresses to a
+	// placeholder (ENRICH-02/D-15 override D-03).
+	const heroImg = $derived(merged.image ?? hero);
+
+	$effect(() => {
+		const n = name;
+		// OFFL-03 / D-10: SHORT-CIRCUIT when offline — never fire searchAll (which would hang and
+		// strand the hit-songs skeleton). Clear `loading` so the inline offline state shows instead
+		// of a stuck spinner. No redirect (D-09). The fetch resumes on the next online visit.
+		// WR-01: do NOT gate this on `n` — an empty name AND offline (deep link `/artist/`) must
+		// still clear the loader, else the skeleton is stuck forever (the fetch branch below also
+		// never runs when `!n`).
+		if (!online.isOnline) {
+			loading = false;
+			return;
+		}
+		if (n && loadedFor !== n) {
+			loadedFor = n;
+			loading = true;
+			songs = [];
+			// quick-260831-rjo: reset the pagination state too, so an artist→artist nav doesn't
+			// leak the previous artist's render window / page depth / exhausted flag.
+			shown = SONGS_PAGE_SIZE;
+			songsPage = 1;
+			hasMoreSongs = true;
+			loadingMoreSongs = false; // a stale in-flight page won't clear this (loadedFor guard)
+			searchAll(n, 1)
+				// quick-261010-exact: the exact-artist-first re-rank now lives in the `rankedSongs`
+				// $derived (MusicBrainz aliases feed it once the identity lands), so the loaded
+				// list stays in searchAll relevance order here.
+				.then((r) => (songs = dedupeBest(r.interleaved, settings.preferredSource)))
+				.catch(() => (songs = []))
+				.finally(() => (loading = false));
+		}
+	});
+
+	// quick-260831-rjo: "Show more" for hit songs. Reveals already-loaded rows first (zero
+	// network), and only fetches a deeper page once the render window has caught up with the
+	// loaded set. Tap-gated (no auto-loop) + a re-entry flag, so it can't storm the proxy.
+	function loadMoreSongs() {
+		if (loadingMoreSongs) return;
+		// Cheap path: more loaded rows than we're rendering → just widen the window.
+		if (songs.length > shown) {
+			shown += SONGS_PAGE_SIZE;
+			return;
+		}
+		// OFFL-03: never fire searchAll while offline (it would hang behind a dead network).
+		if (!hasMoreSongs || !online.isOnline) return;
+		const n = name; // capture BEFORE awaiting (race guard, same idiom as the enrich effect)
+		loadingMoreSongs = true;
+		const next = songsPage + 1;
+		searchAll(n, next)
+			.then((r) => {
+				if (loadedFor !== n) return; // superseded by an artist nav — discard
+				const merged = dedupeBest(r.interleaved, settings.preferredSource);
+				if (merged.length <= songs.length) {
+					hasMoreSongs = false; // sources exhausted: the deeper page added nothing new
+				} else {
+					// quick-261010-exact: the cumulative superset REPLACES the loaded list; the
+					// `rankedSongs` $derived re-applies the exact-artist-first order on top.
+					songs = merged; // cumulative superset REPLACES the list
+					songsPage = next;
+					shown += SONGS_PAGE_SIZE;
+				}
+			})
+			.catch(() => {
+				if (loadedFor === n) hasMoreSongs = false; // stop hammering a failing source
+			})
+			.finally(() => {
+				if (loadedFor === n) loadingMoreSongs = false;
+			});
+	}
+
+	// SEPARATE enrichment effect (D-02: augment, never block/replace the searchAll
+	// load above). Keyed on `name` with its own `enrichedFor` guard.
+	$effect(() => {
+		const n = name;
+		// OFFL-03: don't fire enrichment when offline; clear the bio skeleton flag so the hero
+		// doesn't sit on a stuck skeleton (the `loading || enrichLoading` gate). Resumes online.
+		// WR-01: ungated on `n` so an empty-name offline deep link clears this skeleton too.
+		if (!online.isOnline) {
+			enrichLoading = false;
+			return;
+		}
+		if (n && enrichedFor !== n) {
+			enrichedFor = n;
+			enrich = null;
+			enrichLoading = true;
+			void enrichArtist(n)
+				.then((r) => {
+					if (enrichedFor === n) enrich = r; // race guard — discard if name changed
+				})
+				.finally(() => {
+					if (enrichedFor === n) enrichLoading = false;
+				});
+		}
+	});
+
+	// Drop obvious stubs UP FRONT before any verification (D-18): an empty / whitespace-only name,
+	// or a known placeholder string. Applied to BOTH the Deezer and the Last.fm list paths.
+	// SEPARATE albums effect (D-04 + ART-01 D-18/D-19). Mirrors the enrichedFor race guard with
+	// its own `albumsFor` key. Never blocks the Hit-songs / bio load; an empty settle → the
+	// section hides. Verify-before-render: skeleton stays up until track-counts are known.
+	$effect(() => {
+		const n = name;
+		// OFFL-03: skip the albums fetch offline; clear the skeleton flag (no stuck loader).
+		// WR-01: ungated on `n` so an empty-name offline deep link clears this skeleton too.
+		if (!online.isOnline) {
+			albumsLoading = false;
+			return;
+		}
+		if (n && albumsFor !== n) {
+			albumsFor = n;
+			albums = [];
+			albumsLoading = true;
+			void (async () => {
+				try {
+					// quick-260831-re9: source selection moved into loadDiscography — MusicBrainz for a
+					// CJK artist (original-script titles; 陳奕迅 is 102 release-groups there vs the 5
+					// Deezer was showing), Deezer for everyone else, Last.fm last. Non-CJK artists take
+					// exactly the path they took before.
+					const load = await loadDiscography(n);
+					if (albumsFor !== n) return; // race guard
+					albums = load.entries;
+					mbNames = load.names;
+					mbCanonical = load.canonicalName;
+				} finally {
+					if (albumsFor === n) albumsLoading = false;
+				}
+			})();
+		}
+	});
+
+	// SEPARATE more-like-this effect (jip, ju0 avatar fix). getSimilarArtists chains LF →
+	// Deezer → []. Avatar source CHANGED ju0: Last.fm enrichArtist primary (matches the hero
+	// — the user reported Deezer often returns wrong avatars due to partial-name matches);
+	// Deezer falls back ONLY when LF is empty. Capped at 4 in-flight, race-guarded.
+	$effect(() => {
+		const n = name;
+		// OFFL-03: skip the more-like-this fetch offline; clear the skeleton flag (no stuck loader).
+		// WR-01: ungated on `n` so an empty-name offline deep link clears this skeleton too.
+		if (!online.isOnline) {
+			relatedLoading = false;
+			return;
+		}
+		if (n && relatedFor !== n) {
+			relatedFor = n;
+			related = [];
+			relatedLoading = true;
+			void (async () => {
+				try {
+					const names = await getSimilarArtists(n);
+					if (relatedFor !== n) return; // race guard
+					if (!names.length) return;
+					const withCovers = await mapWithConcurrency(names, 4, async (nm: string) => {
+						// Last.fm primary (same source as hero) — exact-name-keyed, fewer wrong matches.
+						const lf = await enrichArtist(nm).catch(() => null);
+						const lfImg = lf?.lastfmArt ?? null;
+						if (lfImg) return { name: nm, image: lfImg };
+						// Fall back to Deezer only when LF has no picture for this artist.
+						const dz = await deezerArtistCover(nm).catch(() => null);
+						return { name: nm, image: dz };
+					});
+					if (relatedFor === n) related = withCovers;
+				} finally {
+					if (relatedFor === n) relatedLoading = false;
+				}
+			})();
+		}
+	});
+
+	// SEPARATE Deezer-info effect (ENRICH-04, D-14). Clones the enrichedFor race guard with its
+	// own `dzFor` key. Never blocks the searchAll load / enrich; a null settle → section absent.
+	$effect(() => {
+		const n = name;
+		// OFFL-03: skip the Deezer-info fetch offline; clear the skeleton flag (no stuck loader).
+		// WR-01: ungated on `n` so an empty-name offline deep link clears this skeleton too.
+		if (!online.isOnline) {
+			dzLoading = false;
+			return;
+		}
+		if (n && dzFor !== n) {
+			dzFor = n;
+			dz = null;
+			dzLoading = true;
+			void (async () => {
+				try {
+					// quick-261010-exact: CJK artists resolve the MusicBrainz identity FIRST so the
+					// Deezer pick treats every known name variant as "exact". Without this, the
+					// search for 姜濤 picks the exact-spelled 13-fan impostor profile (whose picture
+					// is Gin Lee's 沈慧雯 duet artwork) over the real "Keung To" profile (128 fans,
+					// real photo). mbArtist is client-cached (24h), so the albums effect's later
+					// loadDiscography call reuses it for free; a miss/throw → no forms → the
+					// pre-fix behaviour exactly.
+					// 2026-11-02: the forms (canonical FIRST, then aliases) now also feed
+					// deezerArtistWithFallbacks' retry searches — the alias params alone only
+					// re-rank one search's candidates, and Deezer returns ZERO candidates for a
+					// combined credited name ("sunkis 宋秉勤"), which silently cost the hero
+					// its artist photo even though "sunkis" / "宋秉勤" each find the real one.
+					let forms: string[] = [];
+					if (isCjkName(n)) {
+						const identity = await mbArtist(n).catch(() => null);
+						if (dzFor !== n) return; // superseded while the identity resolved
+						forms = [identity?.name ?? '', ...Object.values(identity?.names ?? {})];
+					}
+					const r = await deezerArtistWithFallbacks(n, forms);
+					if (dzFor === n) dz = r; // race guard — discard if name changed
+				} finally {
+					if (dzFor === n) dzLoading = false;
+				}
+			})();
+		}
+	});
+
+</script>
+
+<!-- quick-261102-tlo (DECISIONS.md §8): every surface on this page shows the header's name -->
+<svelte:head><title>{names.dnArtist(displayName)} · openmusic</title></svelte:head>
+{#if data.og}
+	<PageOg og={data.og} />
+{/if}
+
+<PageHeader backLabel={t('common.back')} showSettings />
+
+<!-- quick-260919-hdr: the chevron left this hero for the shared PageHeader, so the hero is a
+     plain <div> now — two <header> elements on one page, one of them holding only a back button,
+     was never the right shape. -->
+<div class="hero">
+	<!-- quick-261102-w2q: the photo paints OVER the seeded placeholder (same two-layer trick as the
+	     album shelf), so a 404 hero shows the gradient instead of an empty circle. The fallback was a
+	     hard-coded purple that ignored the theme and every other surface's coverGradient. -->
+	{#if heroImg}
+		<div class="herocover" style:background-image={`url(${heroImg}), ${coverGradient(name)}`}></div>
+	{:else if loading || enrichLoading}
+		<div class="herocover sk" aria-hidden="true"></div>
+	{:else}
+		<div class="herocover" style:background-image={coverGradient(name)}></div>
+	{/if}
+	<!-- quick-260831-re9: displayArtist is the MusicBrainz locale-resolved name when MB identified
+	     this artist (so 周傑倫 / Jay Chou / 周杰倫 all render per the artist-language setting), else
+	     the route name. names.dnArtist still runs so the existing translation layer is unchanged
+	     for every non-MB artist. 2026-11-02: the header renders displayName — displayArtist
+	     passed through fullestDisplayName, so a canonical/locale pick SHORTER than the
+	     credited name (MB canonical "sunkis" for "sunkis 宋秉勤") can no longer shrink the
+	     header below the name the user arrived with. -->
+	<h1>{names.dnArtist(displayName)}</h1>
+
+	<!-- quick-261103-hdn: the Favourite toggle keeps ONE accessible name and lets aria-pressed carry
+	     the state — a label that flipped to "Unfavourite" read as "Unfavourite, pressed" (a double
+	     negative). The visual title tooltip still names the next action.
+	     kmn: action bar — Favourite / Play (random hit) / Share. quick-260926-vdp: round icon-only
+	     buttons in the album-page action-bar visual language (34px circles, a 56px primary Play);
+	     the labels live in aria-label + title. -->
+	<div class="actions">
+		<button class="act" class:on={favArtist} aria-pressed={favArtist} aria-label={t('artist.favorite')} title={favArtist ? t('artist.unfavorite') : t('artist.favorite')} onclick={toggleFavourite} use:tapBounce>
+			<Heart size={20} fill={favArtist ? 'currentColor' : 'none'} />
+		</button>
+		<button class="act play" aria-label={t('artist.playArtist')} title={t('artist.playArtist')} disabled={loading || !rankedSongs.length} onclick={playArtist} use:tapBounce>
+			<Play size={20} fill="currentColor" />
+		</button>
+		<button class="act" aria-label={t('artist.share')} title={t('artist.share')} onclick={shareArtist} use:tapBounce>
+			<Share2 size={20} />
+		</button>
+	</div>
+
+	{#if enrich?.tags?.length}
+		<div class="herotags"><TagChips tags={enrich.tags} /></div>
+	{/if}
+
+	<!-- Bio (quick-260607-f4y: HTML-stripped, auto-translated to the app language via
+	     names.dnBio — bio is one of the only two translated surfaces). Gated on BOTH bio
+	     AND bioUrl so the required attribution link is never missing (D-08). -->
+	{#if enrichLoading}
+		<section class="bio" aria-hidden="true">
+			<span class="sk sk-h2"></span>
+			<span class="sk sk-line"></span>
+			<span class="sk sk-line"></span>
+			<span class="sk sk-line short"></span>
+		</section>
+	{:else if enrich?.bio && enrich?.bioUrl && names.dnBio(enrich.bio) && names.dnBio(enrich.bio).length}
+		<section class="bio">
+			<h2><!-- quick-261103-hdn: target=_blank is announced, not a surprise (WCAG 3.2.5 advisory). -->
+				<a class="" href={enrich.bioUrl} target="_blank" rel="noopener noreferrer" aria-label={`${t('lastfm.about')} (${t('common.opensNewTab')})`}>{t('lastfm.about')}<ChevronRight size={18} class="dir-flip" /></a></h2>
+			<p>{names.dnBio(enrich.bio)}</p>
+		</section>
+	{/if}
+</div>
+
+{#if !online.isOnline && !rankedSongs.length}
+	<!-- OFFL-03 inline offline state: artist discovery needs the network — the effects above
+	     short-circuit when offline (no stuck skeletons). Promote Downloads/Library; no redirect
+	     (D-09). Shown only when there's nothing already loaded to interact with. -->
+	<div class="offline-state">
+		<p class="offline-title">{t('offline.title')}</p>
+		<p class="offline-body">{t('offline.body')}</p>
+		<button type="button" class="offline-cta" onclick={() => goto('/library')} use:tapBounce>{t('offline.goToLibrary')}</button>
+	</div>
+{/if}
+
+{#if albumsLoading}
+	<section>
+		<h2>{t('artist.albums')}</h2>
+		<div class="albumrow">
+			{#each Array(4) as _, i (i)}
+				<div class="album" aria-hidden="true">
+					<span class="al-cover sk"></span>
+					<span class="sk sk-albumname"></span>
+					<span class="sk sk-albumcount"></span>
+				</div>
+			{/each}
+		</div>
+	</section>
+{:else if shelfAlbums.length}
+	<section>
+		<h2 class="albums-head">
+			<a class="" href={names.artistHref(name) + '/albums'}>
+				{t('artist.albums')}
+				<span class="count">{shelfAlbums.length}</span>
+				<ChevronRight size={18} class="dir-flip" />
+			</a>
+			<!-- quick-261023-discmerge: the Pack page is merged into /albums (the single album
+			     entrance); the heading link goes there. quick-260831-qkx: the shelf is albums+EPs
+			     only; the full discography (every record type, filterable) lives on that page. -->
+		</h2>
+		<div class="albumrow" use:dragScroll>
+			{#each shelfAlbums as al (al.mbid ?? al.id ?? al.name)}
+				<!-- quick-260926-hze: album title + artist follow the script lock.
+				     quick-261103-hdn: use:lazyBg defers the cover URL until the tile nears view. -->
+				<button class="album" onclick={() => goto(names.lockUrl(albumHref(al, name)))} use:tapBounce>
+					<span class="al-cover" use:lazyBg={{ image: al.image ? `url(${al.image}), ${fallbackCoverSeed(al.name)}` : fallbackCoverSeed(al.name), fallback: fallbackCoverSeed(al.name) }}></span>
+					<span class="al-name" use:marquee><span class="marquee-inner">{names.dnTitle(al.name)}</span></span>
+					<span class="al-count" use:marquee><span class="marquee-inner">
+						{#if typeLabelKey(al.type)}{t(typeLabelKey(al.type) as TranslationKey)}{:else}{t('artist.albumLabel')}{/if}{#if releaseYear(al.releaseDate)}{' · ' + releaseYear(al.releaseDate)}{/if}
+					</span></span>
+				</button>
+			{/each}
+		</div>
+	</section>
+{/if}
+
+{#if loading}
+	<section>
+		<h2>{t('artist.hitSongs')}</h2>
+		<ul class="list" aria-label={t('artist.loading', { name: names.dnArtist(displayName) })}>
+			{#each Array(8) as _, i (i)}
+				<li>
+					<span class="row" aria-hidden="true">
+						<span class="art sk"></span>
+						<span class="meta"><span class="sk sk-rtitle"></span><span class="sk sk-rsub"></span></span>
+					</span>
+				</li>
+			{/each}
+		</ul>
+	</section>
+{:else if online.isOnline || rankedSongs.length}
+	<!-- Offline with nothing loaded: the inline offline state above covers it, so the empty
+	     hit-songs section is suppressed (no duplicate dead screen — D-10). -->
+	<section>
+		<h2>{t('artist.hitSongs')}<span class="count">{rankedSongs.length}</span></h2>
+		{#if rankedSongs.length}
+			<ul class="list">
+				{#each rankedSongs.slice(0, shown) as track, i (track.uid)}
+					<!-- quick-260919-l9e: the shared row. Swipe is omitted ON PURPOSE — this page wants
+					     exactly the app convention (right = like, left = play next — quick-261104-swipe), which now lives
+					     inside the component. The key stays `track.uid` (IDENTITY).
+					     quick-261103-tapsplice (Hector 2026-11-03): a row tap splices the song into the listener's
+					     queue after current — `rankedSongs` no longer installs over it (the header
+					     Play button still installs the full loaded set, quick-260831-rjo). -->
+					<li>
+						<!-- quick-261010-sar: smartArtist — the row's second line is the SMART-resolved
+						     artist name (auto-updating, same pipeline as Now Playing), not the album.
+						     The album-first default read as a wrong ARTIST name here ("COMPOSITION",
+						     "原創", the single title under the SongRow convention). -->
+						<SongRow
+							{track}
+							smartArtist
+							onplay={() => player.tapPlay(track)}
+							onrequestmenu={() => { menuTrack = track; menuOpen = true; }}
+						/>
+					</li>
+				{/each}
+			</ul>
+			<!-- quick-260831-rjo: reveal the next 30 loaded rows, fetching a deeper searchAll page
+			     when the render window has caught up with the loaded set. Hidden once the sources
+			     are exhausted AND everything loaded is on screen. -->
+			{#if loadingMoreSongs}
+				<div class="more"><p class="muted">{t('search.loadingMore')}</p></div>
+			{:else if rankedSongs.length > shown || hasMoreSongs}
+				<div class="more"><button class="act" use:tapBounce onclick={loadMoreSongs}>{t('artist.showMore')}<ChevronDown size={18}/></button></div>
+			{/if}
+		{:else}<p class="muted">{t('artist.noSongs', { name: names.dnArtist(displayName) })}</p>{/if}
+	</section>
+{/if}
+
+<!-- More like this (jip) — round avatar shelf, tap to navigate to that artist. -->
+{#if relatedLoading}
+	<section>
+		<h2>{t('artist.moreLikeThis')}</h2>
+		<div class="albumrow">
+			{#each Array(6) as _, i (i)}
+				<div class="album" aria-hidden="true">
+					<span class="al-cover round sk"></span>
+					<span class="sk sk-albumname"></span>
+				</div>
+			{/each}
+		</div>
+	</section>
+{:else if related.length}
+	<section>
+		<h2>{t('artist.moreLikeThis')}</h2>
+		<div class="albumrow" use:dragScroll>
+			{#each related as a (a.name)}
+				<button class="album" onclick={() => goto(names.artistHref(a.name))} use:tapBounce>
+					<!-- quick-261102-w2q: two layers like the album tiles — a dead avatar URL shows the gradient.
+				     quick-261103-hdn: use:lazyBg defers the URL until the tile nears view. -->
+					<span class="al-cover round" use:lazyBg={{ image: a.image ? `url(${a.image}), ${fallbackCoverSeed(a.name)}` : fallbackCoverSeed(a.name), fallback: fallbackCoverSeed(a.name) }}></span>
+					<span class="al-name center" use:marquee><span class="marquee-inner">{names.dnArtist(a.name)}</span></span>
+				</button>
+			{/each}
+		</div>
+	</section>
+{/if}
+
+<TrackMenu track={menuTrack} open={menuOpen} onclose={() => (menuOpen = false)} />
+
+
+<style>
+	.hero { padding: 0px; text-align: center; }
+	.herocover { width: 160px; height: 160px; border-radius: 50%; margin: 4px auto; background-size: cover; background-position: center; } /* quick-261102-w2q: no shadow — Flat-Until-It-Floats */
+	/* quick-261103-2xk: a long unbroken name wraps instead of pushing the page sideways. */
+	.hero h1 { font-size: calc(1.7rem * var(--fs-title, 1)); margin: 0; overflow-wrap: anywhere; }
+	.herotags { display: flex; justify-content: center; margin: 4px; }
+	/* kmn: action bar centered under the hero title/note. quick-260926-vdp: round icon buttons with
+	   the album page's values. The round look is scoped to `.actions` because the "Show more" button
+	   further down also uses `.act` and must stay a text pill. */
+	.actions { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 8px 0; }
+	.act { display: inline-flex; align-items: center; gap: 8px; background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 9px 16px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
+	@media (hover: hover) { .act:hover { background: var(--color-surface); } }
+	.act:disabled { opacity: 0.45; cursor: default; }
+	.act.on { color: var(--color-primary); border-color: var(--color-primary); }
+	.actions .act { position: relative; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; gap: 0; border-radius: 50%; border-color: transparent; transition: background 0.15s, transform 0.1s; }
+	/* quick-261102-w2q: the 34px circle stays the visual; the hit area grows to the 44px floor. */
+	.actions .act::before { content: ''; position: absolute; inset: -5px; border-radius: 50%; }
+	.actions .act.on { border-color: var(--color-primary); }
+	@media (hover: hover) { .actions .act:active { transform: scale(0.92); } }
+	.actions .act.play { width: 56px; height: 56px; background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ }
+	@media (hover: hover) { .actions .act.play:hover { filter: brightness(1.06); } }
+	.bio { text-align: start; margin: 18px 0; }
+	.bio h2 { font-size: calc(1.1rem * var(--fs-title, 1)); margin: 0;  display: flex; align-items: center; }
+	.bio p { color: var(--color-text-muted); font-size: 0.8125rem; line-height: 1.55; margin: 0; }
+	section { margin: 18px 0; }
+	section h2 { font-size: calc(1.1rem * var(--fs-title, 1)); margin: 0 0 12px; }
+	/* quick-260831-re9: album covers are painted as TWO layers — the cover URL over the deterministic
+	   gradient. MusicBrainz albums get their art from Cover Art Archive, which can 404 (8/8 hit on a
+	   sample, but not guaranteed); a failed image layer simply does not paint, so the gradient shows
+	   through instead of a blank tile. No probe request needed to know whether art exists. */
+	/* quick-260831-qkx: the Albums heading is the link to the full discography. */
+	.albums-head a { display: flex; align-items: center; justify-content: start; width: fit-content; }
+	/* quick-261103-hdn: the heading links were ~26px tall; padding grows the hit area to 44px and the
+	   equal negative margin keeps the heading where it was. */
+	.albums-head a, .bio h2 a { padding-block: 9px; margin-block: -9px; }
+	.albumrow { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; }
+	/* min-width:0 + max-width:130px lock the tile width even when a long artist/album name's
+	   intrinsic content-width would otherwise stretch it. flex-basis alone is a hint — the
+	   default `min-width: auto` on flex items respects content size and `max-width` is needed
+	   to seal off the "grows to fit content" path. With both locked at 130px, .al-name's
+	   overflow:hidden produces a real clientWidth < scrollWidth, so the use:marquee action
+	   detects the overflow and bounce-scrolls the text (instead of a static ellipsis). Same
+	   pattern as home .album. */
+	.album { flex: 0 0 130px; min-width: 0; max-width: 130px; background: none; border: none; padding: 0; cursor: pointer; text-align: start; display: flex; flex-direction: column; gap: 4px; }
+	.al-cover { width: 130px; height: 130px; border-radius: 10px; /* rounded.tile */ background-size: cover; background-position: center; }
+	.al-cover.round { border-radius: 50%; }
+	.al-name { font-size: calc(0.75rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.al-name.center { text-align: center; }
+	.al-count { font-size: calc(0.6875rem * var(--fs-artist, 1)); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.count { color: var(--color-text-muted); font-size: 0.6875rem; font-weight: 400; padding: 1px 4px; margin-inline-start: 8px; border-radius: 999px; background: var(--color-surface); }
+	/* Marquee animation lives globally in app.css (transform-based .marquee-inner). The
+	   .al-name / .al-count clips above + the use:marquee action + inner .marquee-inner span
+	   in the markup are the only per-file pieces — the global rule animates them. */
+	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+	/* quick-260919-l9e: the real hit-song row moved to SongRow.svelte (Svelte scopes styles per
+	   component, so its rules travelled with it). These three are KEPT because the `{#if loading}`
+	   SKELETON above still renders `<span class="row">` with `.art` / `.meta` / the .sk-* bars —
+	   8 rows tall, and the first thing a user sees on a cold artist page. The interactive-only
+	   rules (.rank, .r-title, .r-sub and the :hover) are gone with the markup that used them. */
+	.row { width: 100%; text-align: start; background: none; border: none; padding: 6px; border-radius: 8px; display: flex; align-items: center; gap: 12px; }
+	.art { width: 44px; height: 44px; border-radius: 6px; background-size: cover; background-position: center; flex: none; }
+	.meta { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+	.muted { color: var(--color-text-muted); font-size: 0.875rem; }
+	/* quick-260831-rjo: centered "Show more" / "Loading more…" slot under the hit-songs list.
+	   The button reuses the existing .act pill so it matches the hero action bar. */
+	.more { display: flex; justify-content: center; margin-top: 12px; }
+	/* quick-261103-2xk: the Show-more pill is ~35px tall; the ring takes its hit area to 44px. */
+	.more .act { position: relative; }
+	.more .act::before { content: ''; position: absolute; inset: -5px 0; }
+	.more .muted { margin: 0; font-size: 0.8125rem; }
+
+	/* OFFL-03 inline offline empty-state (shared idiom across online-only surfaces). */
+	.offline-state { text-align: center; padding: 32px 16px; color: var(--color-text-muted); }
+	.offline-title { font-size: 0.9375rem; font-weight: 600; color: var(--color-text); margin: 0 0 6px; }
+	.offline-body { font-size: 0.8125rem; margin: 0 0 16px; }
+	.offline-cta {
+		background: var(--color-primary); border: none; color: var(--color-on-primary); /* quick-261102-rrb */ border-radius: 999px;
+		padding: 9px 18px; font-size: 0.8125rem; font-weight: 600; cursor: pointer; position: relative;
+	}
+	/* quick-261103-2xk: the pill is ~34px tall; the invisible ring takes the hit area to 44px. */
+	.offline-cta::before { content: ''; position: absolute; inset: -5px 0; }
+
+	/* ---- loading skeletons (global .sk in app.css supplies the grey + shimmer; these size the
+	   blocks to match the real content they stand in for) ---- */
+	.bio .sk-h2 { display: block; width: 96px; height: 18px; margin-bottom: 12px; }
+	.bio .sk-line { display: block; width: 100%; height: 12px; margin-bottom: 8px; }
+	.bio .sk-line.short { width: 55%; }
+	/* album-row skeleton tiles: .al-cover sizes the square (130px), bars sit under it */
+	.sk-albumname { display: block; width: 78%; height: 12px; }
+	.sk-albumcount { display: block; width: 48%; height: 11px; }
+	/* hit-songs skeleton rows: reuse .row/.art/.meta layout, grey the bars */
+	.meta .sk-rtitle { display: block; width: 80%; height: 13px; margin-bottom: 7px; }
+	.meta .sk-rsub { display: block; width: 45%; height: 11px; }
+</style>

@@ -1,0 +1,74 @@
+// upnext-covers — the two PURE decisions behind Up-Next cover art (quick-260910-q5a).
+//
+// WHY THIS EXISTS: Gap 3 (26-07) seeds a similarity stub's cover from the Last.fm `track.getSimilar`
+// image, and Gap 3 (26-10) then deliberately removed the per-tile `use:lazyCover` chain from the
+// Up-Next list because it was the observed /api/deezer/search flood (T-26-10-01). That left the list
+// depending entirely on the 26-07 seed — and the seed is DEAD IN PRACTICE: a live probe of 20
+// `track.getSimilar` pairs returned `withImage: 0`. So a similarity-generated Up Next renders as 20
+// gradients and nothing that lands later can ever repaint it (the tile read was not bound to the
+// shared reactive cover cache either).
+//
+// The fix is a bounded, post-paint fill through the EXISTING sanctioned `backfillCovers` (Deezer →
+// iTunes → CN, CAP=6 pool, skip-cached, 5-min negative-miss memo), fired from ONE gated `$effect` in
+// NowPlaying.svelte. This module owns the two pure decisions that effect needs, so the component
+// stays a thin caller and both decisions are node-testable:
+//   - upNextCoverNeeds() — which rows are worth submitting (and how many).
+//   - the tile's cover read order now lives in row-cover.ts `pickRowCover` (quick-260910-qwt): it was
+//     generalised out of here once EVERY row surface (search, library, artist, CompactRow, Related)
+//     adopted the same three-rung read, so it is no longer Up-Next-specific.
+// Pure `.ts`: no runes, no store import, no cache read — node-Vitest-testable like dedupe.ts matchKey.
+import { matchKey } from '$lib/services/dedupe';
+import type { CoverNeed } from '$lib/services/cover-backfill';
+import type { Track } from '$lib/sources/types';
+import { hasHttpsScheme } from './url-safety';
+import { isCoverUrlDead } from './dead-cover-urls';
+
+/**
+ * Hard bound on rows submitted per fill. Equals SIMILAR_TRACK_LIMIT — one attempt per generated row.
+ * The stated cost: ≤20 tier-1 `/api/deezer/search` calls per fill, ≤6 in flight (backfillCovers'
+ * CAP=6 pool). iTunes (a direct CORS-open fetch, not `/api`) and the CN `searchAll` tier fire ONLY
+ * per Deezer-miss row, so the worst case (all 20 miss Deezer — a CN-heavy list) is
+ * 20 × (1 Deezer + 1 iTunes + one CN fan-out), still behind the `apiFetch` governor (8 concurrent,
+ * GET dedupe, circuit breaker) and the 5-min negative-miss memo.
+ *
+ * Do NOT add another throttle in this module: composing local bounds on top of the governor was the
+ * `api-fetch-flood-freeze` root cause. One cap, one pool, one governor.
+ */
+export const UPNEXT_COVER_MAX = 20;
+
+
+/**
+ * Pick the Up-Next rows that still need a cover, de-duped and capped.
+ *
+ * Skips any row that already carries an https cover — that covers a real source cover AND a
+ * quick-260910-piz album seed, so an album-installed queue is never even submitted to the backfill.
+ * Drops fully blank rows, de-dupes by `matchKey` (first occurrence wins), then slices to `max`.
+ *
+ * It deliberately does NOT consult the cover cache: `backfillCovers` already skips cached and
+ * recently-missed rows, and keeping cache reads OUT of here means the calling `$effect` never takes a
+ * `coverVersion()` dependency — i.e. `onResolved → bumpCoverVersion` cannot re-trigger the effect
+ * that started the fill (cf. `restore-effect-self-invalidation-loop`, T-q5a-03).
+ */
+export function upNextCoverNeeds(
+	list: ReadonlyArray<Pick<Track, 'artist' | 'title' | 'cover'> & { uid?: string }>,
+	max: number = UPNEXT_COVER_MAX
+): CoverNeed[] {
+	const seen = new Set<string>();
+	const needs: CoverNeed[] = [];
+	for (const t of list) {
+		// quick-261020-batch4 (C8): a DEAD-marked seeded cover counts as coverless — it must not
+		// block backfill submission (the pane's pickRowCover render already dead-skips it, so
+		// without this the row sat on gradient while a fresh cover was one backfill away).
+		if (hasHttpsScheme(t.cover) && !isCoverUrlDead(t.cover)) continue; // already has art (source cover / piz album seed)
+		const artist = t.artist ?? '';
+		const title = t.title ?? '';
+		if (!artist && !title) continue;
+		const key = matchKey(artist, title);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		// 40-WR-03: carry the uid so backfillCovers also writes the per-uid layer (the D-11b
+		// YTM name-layer exclusion was retired by quick-261008-cov1 — every winner writes both).
+		needs.push(t.uid ? { artist, title, uid: t.uid } : { artist, title });
+	}
+	return needs.slice(0, Math.max(0, max));
+}

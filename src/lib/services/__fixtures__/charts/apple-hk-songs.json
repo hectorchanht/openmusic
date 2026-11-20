@@ -1,0 +1,50 @@
+{
+	"feed": {
+		"title": "熱門歌曲",
+		"id": "https://rss.marketingtools.apple.com/api/v2/hk/music/most-played/50/songs.json",
+		"country": "hk",
+		"updated": "Sat, 26 Sep 2026 02:35:19 +0000",
+		"results": [
+			{
+				"id": "6814412779",
+				"name": "淺粉紅 pale pink",
+				"artistName": "Gareth.T",
+				"artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/10/4f/5c/104f5c02-abe1-1072-43ef-17250e5602ed/1200220171101.jpg/100x100bb.jpg",
+				"releaseDate": "2026-09-24",
+				"url": "https://music.apple.com/hk/album/%E6%B7%BA%E7%B2%89%E7%B4%85-pale-pink/6814412776?i=6814412779"
+			},
+			{
+				"id": "1816674595",
+				"name": "用背脊唱情歌",
+				"artistName": "Gareth.T",
+				"artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/f8/44/d1/f844d1ca-9db5-e05a-21c2-f1619daa4eea/5021732818638.jpg/100x100bb.jpg",
+				"releaseDate": "2026-03-26",
+				"url": "https://music.apple.com/hk/album/%E7%94%A8%E8%83%8C%E8%84%8A%E5%94%B1%E6%83%85%E6%AD%8C/1816674588?i=1816674595"
+			},
+			{
+				"id": "1784959357",
+				"name": "說謊者",
+				"artistName": "MC 張天賦",
+				"artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/33/ea/3a/33ea3ace-3c37-002d-efb6-c08af9e172c7/5021732589972.jpg/100x100bb.jpg",
+				"releaseDate": "2025-01-01",
+				"url": "https://music.apple.com/hk/album/%E8%AA%AA%E8%AC%8A%E8%80%85/1784959356?i=1784959357"
+			},
+			{
+				"id": "6789835836",
+				"name": "旋轉木馬",
+				"artistName": "米爺 & 黃淑蔓",
+				"artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/df/fa/de/dffadeeb-b441-d6e9-7a1a-545e75b3bb42/754213536251.jpg/100x100bb.jpg",
+				"releaseDate": "2026-07-13",
+				"url": "https://music.apple.com/hk/album/%E6%97%8B%E8%BD%89%E6%9C%A8%E9%A6%AC/6789835835?i=6789835836"
+			},
+			{
+				"id": "6814412781",
+				"name": "淺粉紅 baby pink",
+				"artistName": "Gareth.T",
+				"artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/10/4f/5c/104f5c02-abe1-1072-43ef-17250e5602ed/1200220171101.jpg/100x100bb.jpg",
+				"releaseDate": "2026-09-24",
+				"url": "https://music.apple.com/hk/album/%E6%B7%BA%E7%B2%89%E7%B4%85-baby-pink/6814412776?i=6814412781"
+			}
+		]
+	}
+}

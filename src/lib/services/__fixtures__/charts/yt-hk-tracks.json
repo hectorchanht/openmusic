@@ -1,0 +1,192 @@
+{
+	"contents": {
+		"sectionListRenderer": {
+			"contents": [
+				{
+					"musicAnalyticsSectionRenderer": {
+						"content": {
+							"perspectiveMetadata": {
+								"requestParams": {
+									"perspective": "CHART_DETAILS",
+									"chartParams": {
+										"countryCode": "hk",
+										"chartType": "CHART_TYPE_TRACKS",
+										"chartPeriodType": "CHART_PERIOD_TYPE_WEEKLY"
+									}
+								}
+							},
+							"trackTypes": [
+								{
+									"listType": "TOP_VIEWS_CHART",
+									"chartPeriodType": "CHART_PERIOD_TYPE_WEEKLY",
+									"endDate": "2026-09-17",
+									"trackViews": [
+										{
+											"id": "G:-H756D2ZHNE",
+											"name": "What Makes A Man",
+											"thumbnail": {
+												"thumbnails": [
+													{
+														"url": "https://yt3.googleusercontent.com/uPpqXUnbGdmQ82cg7rpsy4liWWG7ULspVJgol7ptMzvB9MFfI2VLoAZDQ2IwOx5CO1mH-GMdW8tASewH=w180-h180-l90-rj",
+														"width": 180,
+														"height": 180
+													}
+												]
+											},
+											"encryptedVideoId": "g1GBE8eeNyM",
+											"chartEntryMetadata": {
+												"currentPosition": 1,
+												"previousPosition": 3,
+												"percentViewsChange": -0.05358001,
+												"periodsOnChart": 17
+											},
+											"artists": [
+												{
+													"kgMid": "/g/11j4b0r92_",
+													"name": "MC Cheung Tinfu"
+												}
+											],
+											"releaseDate": {
+												"year": 2026,
+												"month": 5,
+												"day": 27
+											}
+										},
+										{
+											"id": "G:5JDC-S4SAuo",
+											"name": "我看見今晚的月色很美，你呢？",
+											"thumbnail": {
+												"thumbnails": [
+													{
+														"url": "https://yt3.googleusercontent.com/mLVhG1hrTNlFP-YXeyRXTmyidH5zjRFzVxKg_N-J1xIuHOer5h-vu12oKEhjRkL05qwUY4gpDydO88dz=w180-h180-l90-rj",
+														"width": 180,
+														"height": 180
+													}
+												]
+											},
+											"encryptedVideoId": "q70X4QvSZ9M",
+											"chartEntryMetadata": {
+												"currentPosition": 2,
+												"previousPosition": 4,
+												"percentViewsChange": -0.04987749,
+												"periodsOnChart": 22
+											},
+											"artists": [
+												{
+													"kgMid": "/g/11xd4vg6dl",
+													"name": "晚安莉莉"
+												}
+											],
+											"releaseDate": {
+												"year": 2025,
+												"month": 10,
+												"day": 6
+											}
+										},
+										{
+											"id": "G:XmCWS3zgVLI",
+											"name": "SaWaDiKa",
+											"thumbnail": {
+												"thumbnails": [
+													{
+														"url": "https://yt3.googleusercontent.com/lph_AYE9fU1VteHx7zG6DGesN-NvVDTs79j1q4DCHZS980-UryiOlKlLgtDkIBr2niDVO0WZdTg2fnA=w180-h180-l90-rj",
+														"width": 180,
+														"height": 180
+													}
+												]
+											},
+											"encryptedVideoId": "FyS5dAywkEo",
+											"chartEntryMetadata": {
+												"currentPosition": 3,
+												"previousPosition": 1,
+												"percentViewsChange": -0.4372675,
+												"periodsOnChart": 2
+											},
+											"artists": [
+												{
+													"kgMid": "/g/11c1p4b_sm",
+													"name": "LISA"
+												}
+											],
+											"releaseDate": {
+												"year": 2026,
+												"month": 8,
+												"day": 27
+											}
+										},
+										{
+											"id": "G:ixxikhuoc3g",
+											"name": "用背脊唱情歌",
+											"thumbnail": {
+												"thumbnails": [
+													{
+														"url": "https://yt3.googleusercontent.com/Yue-cc8RE7czrfVZBVtViZ32qskgHgcHss7vVJuewRBJqA6l3M6L1arY17a1ElcehDUHS08e9SjmuWcq=w180-h180-l90-rj",
+														"width": 180,
+														"height": 180
+													}
+												]
+											},
+											"encryptedVideoId": "falq0Gr3rc0",
+											"chartEntryMetadata": {
+												"currentPosition": 4,
+												"previousPosition": 6,
+												"percentViewsChange": -0.041044448,
+												"periodsOnChart": 22
+											},
+											"artists": [
+												{
+													"kgMid": "/g/11f7j37nyv",
+													"name": "Gareth.T"
+												}
+											],
+											"releaseDate": {
+												"year": 2025,
+												"month": 6,
+												"day": 8
+											}
+										},
+										{
+											"id": "G:kR-AHlIyiN8",
+											"name": "旋轉木馬",
+											"thumbnail": {
+												"thumbnails": [
+													{
+														"url": "https://yt3.googleusercontent.com/w7qU8SExug0soUZdYMdlQFHQigh9I91SAYweuUG_jyTQ23kUmiXsV7EtyVCGUsK80MCOn5SOeR_duRbm=w180-h180-l90-rj",
+														"width": 180,
+														"height": 180
+													}
+												]
+											},
+											"encryptedVideoId": "N4hKAVbncCE",
+											"chartEntryMetadata": {
+												"currentPosition": 11,
+												"previousPosition": 10,
+												"percentViewsChange": 0.17049015,
+												"periodsOnChart": 10
+											},
+											"artists": [
+												{
+													"kgMid": "/g/11vr6mz9nw",
+													"name": "米爺"
+												},
+												{
+													"kgMid": "/g/11f0l1d92l",
+													"name": "黃淑蔓"
+												}
+											],
+											"releaseDate": {
+												"year": 2026,
+												"month": 7,
+												"day": 12
+											}
+										}
+									]
+								}
+							]
+						}
+					}
+				}
+			]
+		}
+	}
+}

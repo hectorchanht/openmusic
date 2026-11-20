@@ -1,0 +1,460 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { netease, extractLrcFromJson, extractLrcFromBody } from './netease';
+import type { Track } from './types';
+import fixture from './__fixtures__/netease.search.json';
+import { neteaseHealth, DRY_THRESHOLD } from '../services/netease-health';
+import { jbsouHealth } from '../services/jbsou-health';
+import { __resetGovernor } from '../services/api-base';
+import { __resetDirectUrlCache } from '../services/direct-url-cache';
+
+const ac = new AbortController();
+
+function mockFetchOnce(body: unknown, contentType = 'application/json') {
+	return vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => {
+		return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
+			status: 200,
+			headers: { 'content-type': contentType }
+		});
+	});
+}
+
+beforeEach(() => {
+	vi.restoreAllMocks();
+	// Reset the module-scope health gate + fetch governor so state never leaks across cases (a
+	// prior case that trips the gate would otherwise short-circuit a later search to []).
+	neteaseHealth.__reset();
+	jbsouHealth.__reset();
+	__resetGovernor();
+	// quick-261006-r2: the client-side direct-URL cache is module state too — a prior case's
+	// cached resolve would otherwise short-circuit a later case's stubbed /api/stream-url.
+	__resetDirectUrlCache();
+});
+afterEach(() => {
+	vi.restoreAllMocks();
+	neteaseHealth.__reset();
+	jbsouHealth.__reset();
+	__resetGovernor();
+	__resetDirectUrlCache();
+});
+
+describe('netease.search (fixture-backed)', () => {
+	// Test 1: normalization — colon uid, source, audioUrl+lrcUrl populated, songid from ?id=.
+	it('normalizes the recorded search fixture into canonical Track[]', async () => {
+		vi.stubGlobal('fetch', mockFetchOnce(fixture));
+
+		const tracks = await netease.search('周杰伦', 1, ac.signal);
+
+		expect(tracks.length).toBe(fixture.length);
+		const first = tracks[0];
+		// songid extracted from the audio url's ?id= param
+		const expectedId = new URL(fixture[0].url).searchParams.get('id')!;
+		expect(first.songid).toBe(expectedId);
+		// canonical COLON-form uid (D-10)
+		expect(first.uid).toBe(`netease:${expectedId}`);
+		expect(first.source).toBe('netease');
+		// Netease supplies audioUrl + lrcUrl at SEARCH time, but Meting hands back UPSTREAM urls
+		// (https://api.qijieya.cn/meting/?...). Those used to be adopted verbatim and fed straight to
+		// <audio>.src, which bypasses our proxy — on device it failed in ~23ms and then cost a resolve
+		// watchdog plus a cross-source fallback walk for every netease track. They are rewritten to
+		// the same /api/* paths resolve() builds, so search keeps its head start and every byte still
+		// goes through the proxy (DATA-02).
+		const lrcId = new URL(fixture[0].lrc).searchParams.get('id')!;
+		expect(first.audioUrl).toBe(`/api/netease/url?id=${expectedId}`);
+		expect(first.lrcUrl).toBe(`/api/netease/lrc?id=${lrcId}`);
+		expect(first.audioUrl).not.toContain('/meting/'); // never hand <audio> the upstream host
+		// `cover` is DELIBERATELY still the upstream url: the proxy has no `pic` type, and a relative
+		// /api/... path would fail the httpsOnly gate the cover cache uses. A failing cover self-heals
+		// through the Deezer/iTunes chain, so it is left alone.
+		expect(first.cover).toBe(fixture[0].pic);
+		expect(first.title).toBe(fixture[0].name);
+		expect(first.keyword).toBe('周杰伦');
+		expect(first.displayIndex).toBe(1);
+		expect(first.detailsLoaded).toBe(false);
+	});
+
+	it('hits the qijieya Meting upstream DIRECTLY with id + limit (browser-direct, quick-261020-speed)', async () => {
+		const spy = mockFetchOnce(fixture);
+		vi.stubGlobal('fetch', spy);
+
+		await netease.search('hello', 2, ac.signal);
+
+		expect(spy).toHaveBeenCalled();
+		const calledUrl = String(spy.mock.calls[0][0]);
+		// quick-261020-speed: search no longer rides the same-origin /api proxy — qijieya
+		// sends Access-Control-Allow-Origin: *, so the browser calls it directly.
+		expect(calledUrl).toMatch(/^https:\/\/api\.qijieya\.cn\/meting\/\?server=netease&type=search&/);
+		expect(calledUrl).toContain('id=hello');
+		// page=2 → requestLimit = 2 * 10 = 20 (limit-multiplication pagination)
+		expect(calledUrl).toContain('limit=20');
+	});
+
+	// Test 3: failure isolation — non-array body THROWS (not swallow-and-return-0).
+	it('THROWS on a non-array (contract-drift) body', async () => {
+		vi.stubGlobal('fetch', mockFetchOnce({ error: 'nope' }));
+		await expect(netease.search('x', 1, ac.signal)).rejects.toThrow(/contract-drift/);
+	});
+});
+
+describe('netease.resolve', () => {
+	function stubTrack(): Track {
+		return {
+			uid: 'netease:509781655',
+			source: 'netease',
+			songid: '509781655',
+			title: '想你就写信',
+			artist: '周杰伦',
+			album: '',
+			cover: null,
+			audioUrl: null,
+			lrc: null,
+			lrcUrl: null,
+			detailsLoaded: false,
+			quality: null,
+			qualityLabel: null,
+			keyword: '周杰伦',
+			displayIndex: 1
+		};
+	}
+
+	// A track minted BEFORE the search-time rewrite — from the 60-minute searchAll TTL cache, or a
+	// queue entry carried across a session — still holds the raw upstream meting url. resolve()'s
+	// `if (!track.audioUrl)` guard alone would treat it as already-resolved and keep it FOREVER, so
+	// the bad url has to be actively dropped first.
+	it('replaces a stale UPSTREAM meting url with the proxy path', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => new Response('[00:01.00]x', { status: 200, headers: { 'content-type': 'text/plain' } }))
+		);
+
+		const track = stubTrack();
+		track.audioUrl = 'https://api.qijieya.cn/meting/?server=netease&type=url&id=509781655';
+		track.lrcUrl = 'https://api.qijieya.cn/meting/?server=netease&type=lrc&id=509781655';
+
+		const out = await netease.resolve(track, ac.signal);
+
+		expect(out.audioUrl).toBe('/api/netease/url?id=509781655');
+		expect(out.lrcUrl).toBe('/api/netease/lrc?id=509781655');
+		expect(out.audioUrl).not.toContain('/meting/');
+	});
+
+	// …but a url that is ALREADY a proxy path must be left exactly as it is (no churn, no re-build).
+	it('leaves an existing proxy-path audioUrl untouched', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => new Response('[00:01.00]x', { status: 200, headers: { 'content-type': 'text/plain' } }))
+		);
+
+		const track = stubTrack();
+		track.audioUrl = '/api/netease/url?id=509781655';
+
+		const out = await netease.resolve(track, ac.signal);
+
+		expect(out.audioUrl).toBe('/api/netease/url?id=509781655');
+	});
+
+	// Test 2: resolve sets audioUrl + lrc (sniffed) + quality + detailsLoaded.
+	it('sets audioUrl/lrcUrl, fetches a plain-text LRC, infers quality, marks loaded', async () => {
+		const lrcText = '[00:01.00]line one\n[00:12.00]line two';
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => new Response(lrcText, { status: 200, headers: { 'content-type': 'text/plain' } }))
+		);
+
+		const track = stubTrack();
+		const out = await netease.resolve(track, ac.signal);
+
+		expect(out.audioUrl).toBe('/api/netease/url?id=509781655');
+		expect(out.lrcUrl).toBe('/api/netease/lrc?id=509781655');
+		expect(out.lrc).toBe(lrcText);
+		// audioUrl ends in no lossless ext → 320K
+		expect(out.quality).toBe('320k');
+		expect(out.qualityLabel).toBe('320K');
+		expect(out.detailsLoaded).toBe(true);
+	});
+
+	it('content-type-sniffs a JSON-wrapped LRC body', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ lrc: '[00:00.00]json-wrapped' }), {
+						status: 200,
+						headers: { 'content-type': 'application/json' }
+					})
+			)
+		);
+
+		const out = await netease.resolve(stubTrack(), ac.signal);
+		expect(out.lrc).toBe('[00:00.00]json-wrapped');
+		expect(out.detailsLoaded).toBe(true);
+	});
+
+	// quick-260629-nyl Task 3 regression: the live upstream now returns PLAIN LRC text with an
+	// intermittent/absent Content-Type, which the proxy defaults to `application/json`. The OLD
+	// header-sniff then called lr.json() on plain text → threw → "No lyrics". The fix is
+	// content-type-independent (read text, try JSON, fall back to text), so a plain LRC body
+	// MISLABELED application/json must now still yield the lyrics.
+	it('extracts a plain-text LRC body even when mislabeled application/json (regression fix)', async () => {
+		const lrcText = '[00:00.000] 作词 : 林秋离\n[00:37.010] 风到这里就是粘';
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(
+				async () =>
+					new Response(lrcText, {
+						status: 200,
+						// proxy default-to-json when the upstream omits the header — the regression trigger
+						headers: { 'content-type': 'application/json' }
+					})
+			)
+		);
+
+		const out = await netease.resolve(stubTrack(), ac.signal);
+		expect(out.lrc).toBe(lrcText);
+		expect(out.detailsLoaded).toBe(true);
+	});
+
+	it('extracts a plain-text LRC body with NO content-type header at all', async () => {
+		const lrcText = '[00:01.00]line one\n[00:12.00]line two';
+		vi.stubGlobal('fetch', vi.fn(async () => new Response(lrcText, { status: 200 })));
+		const out = await netease.resolve(stubTrack(), ac.signal);
+		expect(out.lrc).toBe(lrcText);
+	});
+	describe('netease.resolve direct-first', () => {
+		const DIRECT = 'https://m8.music.126.net/song.mp3?id=509781655';
+		/** Route-aware stub: /api/stream-url answers JSON, the lrc path answers LRC text. */
+		function stubRouted(streamUrlBody: unknown, streamUrlStatus = 200) {
+			return vi.fn(async (input: RequestInfo | URL) => {
+				const u = String(input);
+				if (u.includes('/api/stream-url')) {
+					return new Response(JSON.stringify(streamUrlBody), {
+						status: streamUrlStatus,
+						headers: { 'content-type': 'application/json' }
+					});
+				}
+				return new Response('[00:01.00]x', { status: 200, headers: { 'content-type': 'text/plain' } });
+			});
+		}
+
+		it('stamps the direct CDN URL as audioUrl and keeps the proxy path as proxyUrl', async () => {
+			vi.stubGlobal('fetch', stubRouted({ url: DIRECT }));
+
+			const out = await netease.resolve(stubTrack(), ac.signal);
+
+			expect(out.audioUrl).toBe(DIRECT);
+			expect(out.proxyUrl).toBe('/api/netease/url?id=509781655');
+		});
+
+		it('upgrades a search-stamped proxy audioUrl to the direct URL', async () => {
+			vi.stubGlobal('fetch', stubRouted({ url: DIRECT }));
+
+			const track = stubTrack();
+			track.audioUrl = '/api/netease/url?id=509781655';
+
+			const out = await netease.resolve(track, ac.signal);
+
+			expect(out.audioUrl).toBe(DIRECT);
+			expect(out.proxyUrl).toBe('/api/netease/url?id=509781655');
+		});
+
+		it('keeps the proxy path as audioUrl when the direct fetch fails (zero listener impact)', async () => {
+			vi.stubGlobal('fetch', stubRouted({ error: 'upstream failed' }, 502));
+
+			const out = await netease.resolve(stubTrack(), ac.signal);
+
+			expect(out.audioUrl).toBe('/api/netease/url?id=509781655');
+			expect(out.proxyUrl).toBe('/api/netease/url?id=509781655');
+		});
+
+		// quick-261101-jbs: when the direct hop fails, the JBSou pipe is the LAST fallback
+		// before the proxy path — a rescued URL becomes audioUrl, and the proxy path stays
+		// on proxyUrl so the player's proxy step still has its fallback.
+		it('falls through to the JBSou pipe when the direct hop fails, keeping proxyUrl', async () => {
+			const JB = 'https://m801.music.126.net/20261101/deadbeef/song.mp3';
+			vi.stubGlobal(
+				'fetch',
+				vi.fn(async (input: RequestInfo | URL) => {
+					const u = String(input);
+					if (u.includes('/api/stream-url')) {
+						return new Response(JSON.stringify({ error: 'no redirect' }), {
+							status: 503,
+							headers: { 'content-type': 'application/json' }
+						});
+					}
+					if (u.includes('/api/jbsou/resolve')) {
+						return new Response(JSON.stringify({ url: JB }), {
+							status: 200,
+							headers: { 'content-type': 'application/json' }
+						});
+					}
+					return new Response('[00:01.00]x', { status: 200, headers: { 'content-type': 'text/plain' } });
+				})
+			);
+
+			const out = await netease.resolve(stubTrack(), ac.signal);
+
+			expect(out.audioUrl).toBe(JB);
+			expect(out.proxyUrl).toBe('/api/netease/url?id=509781655');
+			expect(out.detailsLoaded).toBe(true);
+		});
+
+		// A JBSou miss (200 {url:null}) must be invisible: the pre-JBSou behaviour stands.
+		it('keeps the proxy path when JBSou has no confident match either', async () => {
+			vi.stubGlobal(
+				'fetch',
+				vi.fn(async (input: RequestInfo | URL) => {
+					const u = String(input);
+					if (u.includes('/api/stream-url')) {
+						return new Response(JSON.stringify({ error: 'no redirect' }), {
+							status: 503,
+							headers: { 'content-type': 'application/json' }
+						});
+					}
+					if (u.includes('/api/jbsou/resolve')) {
+						return new Response(JSON.stringify({ url: null }), {
+							status: 200,
+							headers: { 'content-type': 'application/json' }
+						});
+					}
+					return new Response('[00:01.00]x', { status: 200, headers: { 'content-type': 'text/plain' } });
+				})
+			);
+
+			const out = await netease.resolve(stubTrack(), ac.signal);
+
+			expect(out.audioUrl).toBe('/api/netease/url?id=509781655');
+			expect(out.proxyUrl).toBe('/api/netease/url?id=509781655');
+		});
+
+		// The pipe is consulted ONLY on the failure path: a healthy direct hop must not
+		// spend a JBSou call (it is the slowest leg in the chain).
+		it('never calls JBSou when the direct hop succeeds', async () => {
+			const spy = stubRouted({ url: DIRECT });
+			vi.stubGlobal('fetch', spy);
+
+			await netease.resolve(stubTrack(), ac.signal);
+
+			expect(spy.mock.calls.some((c) => String(c[0]).includes('/api/jbsou/'))).toBe(false);
+		});
+
+		it('rejects a non-https direct URL and keeps the proxy path', async () => {
+			vi.stubGlobal('fetch', stubRouted({ url: 'http://m8.music.126.net/song.mp3' }));
+
+			const out = await netease.resolve(stubTrack(), ac.signal);
+
+			expect(out.audioUrl).toBe('/api/netease/url?id=509781655');
+		});
+	});
+
+});
+
+describe('netease extractLrcFromBody / extractLrcFromJson (shape-tolerant, never-throw)', () => {
+	it('returns a plain-text LRC body as-is (current upstream shape)', () => {
+		const lrc = '[00:01.00]line one\n[00:12.00]line two';
+		expect(extractLrcFromBody(lrc)).toBe(lrc);
+	});
+
+	it('extracts from a json-wrapped {lrc} body (old shape)', () => {
+		expect(extractLrcFromBody(JSON.stringify({ lrc: '[00:00.00]old' }))).toBe('[00:00.00]old');
+	});
+
+	it('returns null on an empty / whitespace body (true miss)', () => {
+		expect(extractLrcFromBody('')).toBeNull();
+		expect(extractLrcFromBody('   \n  ')).toBeNull();
+	});
+
+	it('returns null when JSON parses but carries no lyric (e.g. {error})', () => {
+		expect(extractLrcFromBody(JSON.stringify({ error: 'not found' }))).toBeNull();
+		expect(extractLrcFromBody('{}')).toBeNull();
+	});
+
+	it('extractLrcFromJson reads the existing keys (old shapes)', () => {
+		expect(extractLrcFromJson({ lrc: 'A' })).toBe('A');
+		expect(extractLrcFromJson({ lyric: 'B' })).toBe('B');
+		expect(extractLrcFromJson({ data: { lrc: 'C' } })).toBe('C');
+		expect(extractLrcFromJson({ data: { lyric: 'D' } })).toBe('D');
+		expect(extractLrcFromJson({ data: 'E' })).toBe('E');
+		expect(extractLrcFromJson('F')).toBe('F');
+	});
+
+	it('extractLrcFromJson reads a NESTED lyric object (new shape)', () => {
+		expect(extractLrcFromJson({ lyric: { lyric: '[00:00.00]nested' } })).toBe('[00:00.00]nested');
+		expect(extractLrcFromJson({ lrc: { lrc: '[00:01.00]nested2' } })).toBe('[00:01.00]nested2');
+	});
+
+	it('extractLrcFromJson joins a lines[] array of {time,text} into LRC text (new shape)', () => {
+		const out = extractLrcFromJson({
+			lines: [
+				{ time: 0, text: 'first' },
+				{ time: 61.5, text: 'second' }
+			]
+		});
+		expect(out).toContain('[00:00.00]first');
+		expect(out).toContain('[01:01.50]second');
+	});
+
+	it('extractLrcFromJson treats ms timestamps as ms (lines[] with timestamp)', () => {
+		const out = extractLrcFromJson({ lrclist: [{ timestamp: 61500, lyric: 'x' }] });
+		expect(out).toBe('[01:01.50]x');
+	});
+
+	it('extractLrcFromJson returns null on a genuine no-lyric body', () => {
+		expect(extractLrcFromJson({})).toBeNull();
+		expect(extractLrcFromJson({ data: {} })).toBeNull();
+		expect(extractLrcFromJson(null)).toBeNull();
+		expect(extractLrcFromJson(42)).toBeNull();
+	});
+});
+
+describe('netease.search health-gate (Plan 26-05, NETEASE-01)', () => {
+	it('short-circuits to [] WITHOUT calling apiFetch once a dry run trips the gate', async () => {
+		// A "dry" upstream: every call returns an empty array (spikes 001/004 behavior).
+		const spy = mockFetchOnce([]);
+		vi.stubGlobal('fetch', spy);
+
+		// DRY_THRESHOLD live dry searches hit the upstream, return [], and trip the gate.
+		for (let i = 0; i < DRY_THRESHOLD; i++) {
+			const out = await netease.search('anything', 1, ac.signal);
+			expect(out).toEqual([]);
+		}
+		expect(spy).toHaveBeenCalledTimes(DRY_THRESHOLD);
+		expect(neteaseHealth.isGated()).toBe(true);
+
+		// The NEXT search must SHORT-CIRCUIT: still [] but NO new upstream fetch.
+		spy.mockClear();
+		const gatedOut = await netease.search('anything', 1, ac.signal);
+		expect(gatedOut).toEqual([]);
+		expect(spy).not.toHaveBeenCalled();
+	});
+
+	it('records ok on a non-empty result so a subsequent search still hits the upstream (gate cleared)', async () => {
+		// Two drys — below the threshold of 3, so the gate is NOT yet tripped.
+		vi.stubGlobal('fetch', mockFetchOnce([]));
+		await netease.search('x', 1, ac.signal);
+		await netease.search('x', 1, ac.signal);
+		expect(neteaseHealth.isGated()).toBe(false);
+
+		// A non-empty result records ok → resets the accumulated dry streak.
+		const live = mockFetchOnce(fixture);
+		vi.stubGlobal('fetch', live);
+		const out = await netease.search('周杰伦', 1, ac.signal);
+		expect(live).toHaveBeenCalled();
+		expect(out.length).toBe(fixture.length);
+		expect(neteaseHealth.isGated()).toBe(false);
+
+		// One more dry after the ok must NOT trip (the streak was reset), so the upstream is still hit.
+		const after = mockFetchOnce([]);
+		vi.stubGlobal('fetch', after);
+		await netease.search('x', 1, ac.signal);
+		expect(after).toHaveBeenCalled();
+		expect(neteaseHealth.isGated()).toBe(false);
+	});
+
+	it('a non-array (contract-drift) body still THROWS and is NOT recorded as dry', async () => {
+		vi.stubGlobal('fetch', mockFetchOnce({ error: 'nope' }));
+		// Even repeated drift throws must never trip the DRY gate — drift ≠ dry spell.
+		for (let i = 0; i < DRY_THRESHOLD + 1; i++) {
+			await expect(netease.search('x', 1, ac.signal)).rejects.toThrow(/contract-drift/);
+		}
+		expect(neteaseHealth.isGated()).toBe(false);
+	});
+});

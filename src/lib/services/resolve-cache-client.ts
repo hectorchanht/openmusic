@@ -1,0 +1,181 @@
+// resolve-cache-client — the client half of the edge resolve cache (/api/resolve).
+//
+// POSTURE (31-D-08, copied from deezer.ts — the house never-throw template):
+//  - Every network path NEVER throws: a non-ok response / { hit: false } / malformed JSON /
+//    a caller abort / the per-call timeout / an OPEN circuit breaker all return null. A null
+//    means "no cached data — resolve normally", never a rejection into the render tree.
+//  - That mapping is what makes 31-D-08's "the cache is ADVISORY, never AUTHORITATIVE" true in
+//    code rather than just in the plan: the caller's pre-existing resolve path runs untouched on
+//    every one of those outcomes, and the user sees nothing.
+//  - 31-D-11 goes further and treats the FAILURE path as the load-bearing one: a globally-shared
+//    audio URL can be IP- or region-bound and WILL 403 for some other user. reportDeadUrl is that
+//    repair, and it is SELF-GATING (see the served-url registry below) so no caller has to know
+//    whether a URL came from the cache.
+//  - Every call goes through the apiFetch governor. A raw fetch to /api/* would bypass the
+//    concurrency cap, the GET dedupe and the circuit breaker — the named `api-fetch-flood-freeze`
+//    root cause. No second throttle/debounce is added here for the same reason.
+//  - NO secret, NO new npm dependency, NO reactive state (this is a pure service, not a runes
+//    store — nothing here is UI-read, so every module field is a plain Map/Set).
+//
+// Deliberately NOT wrapped in cached()/ttl-cache: catalog.ts documents that the client TTL cache
+// caches search METADATA only and never short-lived resolved audio URLs. 31-D-06(b) breaks that
+// rule at the EDGE layer only, where the TTL and the bust live together.
+import type { ResolveEntry } from '$lib/proxy/resolve-cache';
+import { apiFetch } from './api-base';
+import { combinedSignal as combineWithTimeout } from './abort-signal';
+
+const RESOLVE_PATH = '/api/resolve';
+
+/**
+ * 31-D-08: the tight deadline. A cache MISS must not measurably delay a cold play, so the lookup
+ * is bounded hard and falls straight through to the normal resolver. This is ONE own-origin
+ * lookup placed serially ahead of ONE source resolve — NOT the 31-D-02-rejected hedged/parallel
+ * multi-source race, and 31-D-01's RESOLVE_WATCHDOG_MS (6000) is untouched.
+ */
+const RESOLVE_CACHE_TIMEOUT_MS = 400;
+
+/** This module's calls all share one deadline — bind it once so every call site stays
+ *  `combinedSignal(signal)` and the timeout is named in exactly one place. */
+const combinedSignal = (caller?: AbortSignal) => combineWithTimeout(RESOLVE_CACHE_TIMEOUT_MS, caller);
+
+/**
+ * How many served URLs stay reportable. A handful of plays are ever in flight; the cap only
+ * exists so a long session cannot grow these unboundedly. Oldest-out (Map/Set preserve insertion
+ * order), plain fields — never reactive (C-02).
+ */
+const SERVED_CAP = 32;
+
+/**
+ * The served-url registry: every audio URL THIS cache is responsible for (32-D-10: the url a
+ * cached `song_mid` was resolved into, registered by the caller), mapped back to the terms that
+ * would bust its entry. This is what makes reportDeadUrl self-gating — the player calls it
+ * unconditionally on every audio.error and a URL that came from the normal resolver simply is not
+ * in here, so it issues no request at all. Keeping the gate HERE rather than in the store is what
+ * avoids adding a fourth provenance flag to an already ~3600-line god object.
+ */
+const servedUrls = new Map<string, { a: string; t: string }>();
+
+/** URLs already reported once. apiFetch only dedupes body-less GETs, so a POST always reaches the
+ *  server — a repeated audio.error on the same dead URL needs this client-side one-shot to not
+ *  storm the bust endpoint (T-31-04-02). */
+const reported = new Set<string>();
+
+/** TEST-ONLY: drop the registry + one-shot set so module state cannot leak across tests. Mirrors
+ *  api-base's `__resetGovernor`. No production caller. */
+export function __resetResolveCacheClient(): void {
+	servedUrls.clear();
+	reported.clear();
+}
+
+/**
+ * 32-D-10a: register a url THIS cache is responsible for, so `reportDeadUrl` can repair its entry.
+ *
+ * In 31 the entry carried the url itself, so `readOrThrow` could register it on the way past. Under
+ * 32-D-10 the entry carries only a permanent `song_mid`, which is not playable — the caller
+ * (catalog's mid-hit branch) turns it into a url via one qq resolve and registers THAT. Same
+ * registry, same self-gating `reportDeadUrl`, one hop later; and it keeps the bust wired as the
+ * only repair for a permanent-but-wrong mid (a matchKey collision), which 32-D-11 requires.
+ */
+export function registerServedResolve(url: string, artist: string, title: string): void {
+	if (!url) return;
+	remember(url, (artist ?? '').trim(), (title ?? '').trim());
+}
+
+/** Insert with oldest-out eviction, re-inserting to refresh recency. */
+function remember(url: string, a: string, t: string): void {
+	servedUrls.delete(url);
+	servedUrls.set(url, { a, t });
+	if (servedUrls.size > SERVED_CAP) {
+		const oldest = servedUrls.keys().next().value;
+		if (oldest !== undefined) servedUrls.delete(oldest);
+	}
+}
+
+/**
+ * Combine the caller's AbortSignal (if any) with the per-call deadline so a hung lookup always
+ * settles. Copied from deezer.ts — AbortSignal.any with the `typeof` feature check and a
+ * timeout-only fallback (still bounded; the caller's pre-fetch `aborted` check covers the common
+ * supersede case).
+ */
+
+/**
+ * Bounded GET of the edge cache → the entry, or null for a genuine miss. THROWS on a non-ok
+ * response, malformed JSON, abort/timeout or network failure; the exported boundary below maps
+ * every one of those to null (the deezer.ts throw-inside / null-outside split).
+ */
+async function readOrThrow(
+	a: string,
+	t: string,
+	signal?: AbortSignal
+): Promise<ResolveEntry | null> {
+	const path = `${RESOLVE_PATH}?a=${encodeURIComponent(a)}&t=${encodeURIComponent(t)}`;
+	const res = await apiFetch(path, { signal: combinedSignal(signal) }); // governed; abort/timeout REJECT
+	if (!res.ok) throw new Error(String(res.status));
+	const body = (await res.json()) as { hit?: boolean; entry?: ResolveEntry | null } | null;
+	// 32-D-10: nothing is registered here any more — the entry carries a song_mid, not a url. The
+	// caller registers the url it resolves OUT of that mid via registerServedResolve above.
+	// 32-D-20: a url served straight off the entry is registered by the CALLER too (catalog's
+	// url-hit branch), exactly like a mid-resolved one, so reportDeadUrl covers both provenances
+	// with zero new API.
+	const entry = body?.hit ? (body.entry ?? null) : null;
+	// 32-D-20 REPORTED-DEAD STRIP — the client half of "a poisoned hit is indistinguishable from a
+	// miss". reportDeadUrl fires the POST bust, but that bust is async AND PoP-local, so a
+	// re-resolve inside the race window would read the not-yet-busted entry and re-adopt the exact
+	// url it just reported dead. Stripping here, at the ONE read seam, makes the fall-through
+	// DETERMINISTIC rather than eventual and completes 31-D-09/31-D-11's repair contract. Reads the
+	// `reported` set, never `servedUrls`, because reportDeadUrl evicts from the latter on the way past.
+	if (entry?.url && reported.has(entry.url)) {
+		return { ...entry, url: null, urlExp: null, urlQuality: null };
+	}
+	return entry;
+}
+
+/**
+ * Look the song up in the edge resolve cache. Returns the entry (including a cached known-none,
+ * whose `avail` hints still save a source call) or null on a miss OR on any failure whatsoever.
+ * Never rejects — 31-D-08.
+ */
+export async function readResolveCache(
+	artist: string,
+	title: string,
+	signal?: AbortSignal
+): Promise<ResolveEntry | null> {
+	if (signal?.aborted) return null;
+	const a = (artist ?? '').trim();
+	const t = (title ?? '').trim();
+	// Nothing to look up → no request at all (mirrors the route's own blank-input short-circuit).
+	if (!a && !t) return null;
+	return readOrThrow(a, t, signal).catch(() => null);
+}
+
+/**
+ * 31-D-09 / 31-D-11: report a dead audio URL so the edge drops its entry.
+ *
+ * SELF-GATING BY CONSTRUCTION: a URL this cache never served is not in the registry, so the call
+ * is a silent no-op and issues ZERO requests. That is the whole reason the player's error handler
+ * can call this unconditionally with `audio.src` and gain exactly one line — a normally-resolved
+ * URL that fails is never reported.
+ *
+ * One-shot per URL, fire-and-forget, returns void, never rejects. The bust is delete-only at the
+ * edge and PoP-local, so the worst case of a spurious report is one cold resolve.
+ */
+export function reportDeadUrl(url: string): void {
+	if (!url) return;
+	const terms = servedUrls.get(url);
+	if (!terms) return; // never served from the cache — nothing to repair
+	servedUrls.delete(url);
+	if (reported.has(url)) return;
+	reported.add(url);
+	if (reported.size > SERVED_CAP) {
+		const oldest = reported.values().next().value;
+		if (oldest !== undefined) reported.delete(oldest);
+	}
+	void apiFetch(RESOLVE_PATH, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ a: terms.a, t: terms.t })
+	}).catch(() => {
+		// Best-effort repair: a bust that does not land just means the next play in this PoP still
+		// gets the stale entry and reports again. It must never surface as a playback failure.
+	});
+}

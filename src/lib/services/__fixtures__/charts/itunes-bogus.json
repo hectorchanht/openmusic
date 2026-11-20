@@ -1,0 +1,285 @@
+{
+	"feed": {
+		"title": {
+			"label": "iTunes Store：熱門歌曲"
+		},
+		"updated": {
+			"label": "2026-09-25T19:35:24-07:00"
+		},
+		"id": {
+			"label": "https://itunes.apple.com/hk/rss/topsongs/limit=100/genre=99999/json"
+		},
+		"entry": [
+			{
+				"im:name": {
+					"label": "Patient Zero"
+				},
+				"im:image": [
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/a0/dd/fd/a0ddfd72-ee9e-f046-6466-a5dbefc696fa/26UM1IM21436.rgb.jpg/55x55bb.png",
+						"attributes": {
+							"height": "55"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/a0/dd/fd/a0ddfd72-ee9e-f046-6466-a5dbefc696fa/26UM1IM21436.rgb.jpg/60x60bb.png",
+						"attributes": {
+							"height": "60"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/a0/dd/fd/a0ddfd72-ee9e-f046-6466-a5dbefc696fa/26UM1IM21436.rgb.jpg/170x170bb.png",
+						"attributes": {
+							"height": "170"
+						}
+					}
+				],
+				"im:artist": {
+					"label": "Taylor Swift",
+					"attributes": {
+						"href": "https://music.apple.com/hk/artist/taylor-swift/159260351?uo=2"
+					}
+				},
+				"title": {
+					"label": "Patient Zero - Taylor Swift"
+				},
+				"id": {
+					"label": "https://music.apple.com/hk/album/patient-zero/6814997249?i=6814997425&uo=2",
+					"attributes": {
+						"im:id": "6814997425"
+					}
+				},
+				"category": {
+					"attributes": {
+						"im:id": "14",
+						"term": "Pop",
+						"scheme": "https://music.apple.com/hk/genre/%E9%9F%B3%E6%A8%82-%E6%B5%81%E8%A1%8C%E6%A8%82/id14?uo=2",
+						"label": "流行樂"
+					}
+				},
+				"im:releaseDate": {
+					"label": "2026-09-24T00:00:00-07:00",
+					"attributes": {
+						"label": "2026年09月24日"
+					}
+				}
+			},
+			{
+				"im:name": {
+					"label": "四"
+				},
+				"im:image": [
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/73/b2/d8/73b2d885-c9d6-84cd-84d8-1c8086777594/301627920840.jpg/55x55bb.png",
+						"attributes": {
+							"height": "55"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/73/b2/d8/73b2d885-c9d6-84cd-84d8-1c8086777594/301627920840.jpg/60x60bb.png",
+						"attributes": {
+							"height": "60"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/73/b2/d8/73b2d885-c9d6-84cd-84d8-1c8086777594/301627920840.jpg/170x170bb.png",
+						"attributes": {
+							"height": "170"
+						}
+					}
+				],
+				"im:artist": {
+					"label": "Ian 陳卓賢",
+					"attributes": {
+						"href": "https://music.apple.com/hk/artist/ian-%E9%99%B3%E5%8D%93%E8%B3%A2/1666288520?uo=2"
+					}
+				},
+				"title": {
+					"label": "四 - Ian 陳卓賢"
+				},
+				"id": {
+					"label": "https://music.apple.com/hk/album/%E5%9B%9B/6814391571?i=6814391574&uo=2",
+					"attributes": {
+						"im:id": "6814391574"
+					}
+				},
+				"category": {
+					"attributes": {
+						"im:id": "1251",
+						"term": "Cantopop",
+						"scheme": "https://music.apple.com/hk/genre/%E9%9F%B3%E6%A8%82-%E6%B5%81%E8%A1%8C%E6%A8%82-%E5%BB%A3%E6%9D%B1%E6%AD%8C-%E9%A6%99%E6%B8%AF%E6%B5%81%E8%A1%8C%E6%A8%82/id1251?uo=2",
+						"label": "廣東歌/香港流行樂"
+					}
+				},
+				"im:releaseDate": {
+					"label": "2026-09-23T05:00:00-07:00",
+					"attributes": {
+						"label": "2026年09月23日"
+					}
+				}
+			},
+			{
+				"im:name": {
+					"label": "Babylon"
+				},
+				"im:image": [
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/a0/dd/fd/a0ddfd72-ee9e-f046-6466-a5dbefc696fa/26UM1IM21436.rgb.jpg/55x55bb.png",
+						"attributes": {
+							"height": "55"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/a0/dd/fd/a0ddfd72-ee9e-f046-6466-a5dbefc696fa/26UM1IM21436.rgb.jpg/60x60bb.png",
+						"attributes": {
+							"height": "60"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/a0/dd/fd/a0ddfd72-ee9e-f046-6466-a5dbefc696fa/26UM1IM21436.rgb.jpg/170x170bb.png",
+						"attributes": {
+							"height": "170"
+						}
+					}
+				],
+				"im:artist": {
+					"label": "Taylor Swift",
+					"attributes": {
+						"href": "https://music.apple.com/hk/artist/taylor-swift/159260351?uo=2"
+					}
+				},
+				"title": {
+					"label": "Babylon - Taylor Swift"
+				},
+				"id": {
+					"label": "https://music.apple.com/hk/album/babylon/6814997249?i=6814997429&uo=2",
+					"attributes": {
+						"im:id": "6814997429"
+					}
+				},
+				"category": {
+					"attributes": {
+						"im:id": "14",
+						"term": "Pop",
+						"scheme": "https://music.apple.com/hk/genre/%E9%9F%B3%E6%A8%82-%E6%B5%81%E8%A1%8C%E6%A8%82/id14?uo=2",
+						"label": "流行樂"
+					}
+				},
+				"im:releaseDate": {
+					"label": "2026-09-24T00:00:00-07:00",
+					"attributes": {
+						"label": "2026年09月24日"
+					}
+				}
+			},
+			{
+				"im:name": {
+					"label": "Cleveland!"
+				},
+				"im:image": [
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/a0/dd/fd/a0ddfd72-ee9e-f046-6466-a5dbefc696fa/26UM1IM21436.rgb.jpg/55x55bb.png",
+						"attributes": {
+							"height": "55"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/a0/dd/fd/a0ddfd72-ee9e-f046-6466-a5dbefc696fa/26UM1IM21436.rgb.jpg/60x60bb.png",
+						"attributes": {
+							"height": "60"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/a0/dd/fd/a0ddfd72-ee9e-f046-6466-a5dbefc696fa/26UM1IM21436.rgb.jpg/170x170bb.png",
+						"attributes": {
+							"height": "170"
+						}
+					}
+				],
+				"im:artist": {
+					"label": "Taylor Swift",
+					"attributes": {
+						"href": "https://music.apple.com/hk/artist/taylor-swift/159260351?uo=2"
+					}
+				},
+				"title": {
+					"label": "Cleveland! - Taylor Swift"
+				},
+				"id": {
+					"label": "https://music.apple.com/hk/album/cleveland/6814997249?i=6814997427&uo=2",
+					"attributes": {
+						"im:id": "6814997427"
+					}
+				},
+				"category": {
+					"attributes": {
+						"im:id": "14",
+						"term": "Pop",
+						"scheme": "https://music.apple.com/hk/genre/%E9%9F%B3%E6%A8%82-%E6%B5%81%E8%A1%8C%E6%A8%82/id14?uo=2",
+						"label": "流行樂"
+					}
+				},
+				"im:releaseDate": {
+					"label": "2026-09-24T00:00:00-07:00",
+					"attributes": {
+						"label": "2026年09月24日"
+					}
+				}
+			},
+			{
+				"im:name": {
+					"label": "Pink Clouding"
+				},
+				"im:image": [
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/a0/dd/fd/a0ddfd72-ee9e-f046-6466-a5dbefc696fa/26UM1IM21436.rgb.jpg/55x55bb.png",
+						"attributes": {
+							"height": "55"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/a0/dd/fd/a0ddfd72-ee9e-f046-6466-a5dbefc696fa/26UM1IM21436.rgb.jpg/60x60bb.png",
+						"attributes": {
+							"height": "60"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/a0/dd/fd/a0ddfd72-ee9e-f046-6466-a5dbefc696fa/26UM1IM21436.rgb.jpg/170x170bb.png",
+						"attributes": {
+							"height": "170"
+						}
+					}
+				],
+				"im:artist": {
+					"label": "Taylor Swift",
+					"attributes": {
+						"href": "https://music.apple.com/hk/artist/taylor-swift/159260351?uo=2"
+					}
+				},
+				"title": {
+					"label": "Pink Clouding - Taylor Swift"
+				},
+				"id": {
+					"label": "https://music.apple.com/hk/album/pink-clouding/6814997249?i=6814997428&uo=2",
+					"attributes": {
+						"im:id": "6814997428"
+					}
+				},
+				"category": {
+					"attributes": {
+						"im:id": "14",
+						"term": "Pop",
+						"scheme": "https://music.apple.com/hk/genre/%E9%9F%B3%E6%A8%82-%E6%B5%81%E8%A1%8C%E6%A8%82/id14?uo=2",
+						"label": "流行樂"
+					}
+				},
+				"im:releaseDate": {
+					"label": "2026-09-24T00:00:00-07:00",
+					"attributes": {
+						"label": "2026年09月24日"
+					}
+				}
+			}
+		]
+	}
+}

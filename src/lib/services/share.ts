@@ -1,0 +1,614 @@
+// Encode a track (and its up-next queue) into a base64url share token so a link can
+// re-open + play the same song AND restore the queue. The token carries lightweight
+// stubs; ensureTrackDetails re-resolves the (expiring) audio URL on play, so we never
+// embed a stale stream URL. The visible URL also carries a human-readable `?t=<slug>`
+// segment for readability — the authoritative decode reads the opaque `play` payload.
+import { apiOrigin } from '$lib/services/api-base';
+// device-track.ts is PURE (it imports only $lib/sources/types), so share.ts stays server-importable.
+import { isDeviceUid } from '$lib/services/device-track';
+import type { Track } from '$lib/sources/types';
+
+export type Stub = Pick<Track, 'uid' | 'source' | 'songid' | 'title' | 'artist' | 'album' | 'cover'>;
+
+/**
+ * The origin every share link is built on (quick-260919-0mw).
+ *
+ * WHY: a share link is for SOMEONE ELSE's browser, so it must carry an origin that resolves off
+ * this device. The Capacitor WebView reports `location.origin === 'https://localhost'`, so a link
+ * copied inside the APK read `https://localhost/song/古巨基/愛得太遲?ci=…` — a dead link for the
+ * recipient. A dev server (`http://localhost:4321`) has the same problem.
+ *
+ * Fixed ONCE here rather than at the four builders: the reported bug came through songShareUrl,
+ * but entityCardUrl / entityShareUrl / shareUrl inlined the same origin read, so patching only the
+ * reported path would have left the album/artist card links broken from the APK.
+ *
+ * CONTRACT:
+ *  - SSR (`typeof location === 'undefined'`) → `''`, exactly as before, so the link stays relative
+ *    and this module stays server-importable (several loaders import it).
+ *  - A REAL web origin passes through UNCHANGED — the deployed website's links must be
+ *    byte-identical to today. The rewrite can only ever narrow to one known-good host.
+ *  - localhost / 127.0.0.1 / [::1], a `capacitor:` or `file:` protocol, or the literal `'null'` an
+ *    opaque origin yields → the public origin.
+ *
+ * Matched on hostname + protocol via `new URL`, NOT a substring: `origin.includes('localhost')`
+ * would also rewrite a legitimate host like `localhost.example.com`. The parse is wrapped because
+ * a share builder must never throw.
+ */
+export function shareOrigin(): string {
+	if (typeof location === 'undefined') return '';
+	const origin = location.origin;
+	// An opaque origin (sandboxed iframe, some file: contexts) serialises to the string 'null'.
+	if (origin && origin !== 'null') {
+		try {
+			const u = new URL(origin);
+			const local =
+				u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '[::1]';
+			const nonWeb = u.protocol === 'capacitor:' || u.protocol === 'file:';
+			if (!local && !nonWeb) return origin;
+		} catch {
+			/* unparseable origin — fall through to the public one */
+		}
+	}
+	// VITE_API_BASE is the native build's deployed origin. The literal is the fallback for a WEB
+	// build (which leaves it empty) that somehow reports a localhost origin — i.e. a dev server,
+	// where the developer still wants a link they can actually send.
+	return apiOrigin() || 'https://openmusic.lol';
+}
+
+/** v2 share payload: current track + a capped queue. Legacy v1 tokens are a bare Stub. */
+interface SharePayloadV2 {
+	v: 2;
+	c: Stub;
+	q: Stub[];
+}
+
+/** Cap the queue carried in a share URL so the URL stays bounded (T-gln-01 DoS bound). */
+const QUEUE_CAP = 30;
+
+// --- base64url transform (shared by encode/decode; btoa/atob exist in the Workers runtime) ---
+function toBase64Url(json: string): string {
+	const b64 = btoa(unescape(encodeURIComponent(json)));
+	return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function fromBase64Url(token: string): string {
+	const b64 = token.replace(/-/g, '+').replace(/_/g, '/');
+	return decodeURIComponent(escape(atob(b64)));
+}
+
+function toStub(t: Track): Stub {
+	return {
+		uid: t.uid,
+		source: t.source,
+		songid: t.songid,
+		title: t.title,
+		artist: t.artist,
+		album: t.album,
+		cover: t.cover
+	};
+}
+
+/** Rehydrate a persisted stub into a full (unresolved) Track — audio URL/lyrics re-fetched on play. */
+export function stubToTrack(v: Stub): Track {
+	return {
+		...v,
+		audioUrl: null,
+		lrc: null,
+		lrcUrl: null,
+		detailsLoaded: false,
+		quality: null,
+		qualityLabel: null,
+		keyword: v.title,
+		displayIndex: 1
+	};
+}
+
+/** Validate a decoded value is a usable Stub (required identity fields present). */
+function isStub(v: unknown): v is Stub {
+	return (
+		!!v &&
+		typeof v === 'object' &&
+		typeof (v as Stub).uid === 'string' &&
+		!!(v as Stub).uid &&
+		typeof (v as Stub).source === 'string' &&
+		!!(v as Stub).source
+	);
+}
+
+/**
+ * Human-readable, URL-safe ASCII slug for `${title} ${artist}` (D-05). CJK / non-ASCII
+ * codepoints are STRIPPED to ASCII (NOT preserved): the string is NFKD-normalised, combining
+ * marks dropped, then every run of non-`[a-z0-9]` (which includes all CJK + punctuation +
+ * whitespace) collapses to a single '-'. The slug is COSMETIC and copy-paste-clean — the
+ * trailing `{source}{id}` key (see entityShareUrl/parseEntityParam) is the AUTHORITATIVE decode
+ * key, so an all-CJK title legitimately yields '' here. Capped at ~60 chars. Pure — no
+ * browser/DOM access. e.g. slugify('Hello World!!','A B') === 'hello-world-a-b';
+ * slugify('稻香','Jay Chou') === 'jay-chou'; slugify('情非得已','') === ''.
+ */
+export function slugify(title: string, artist: string): string {
+	const raw = `${title ?? ''} ${artist ?? ''}`.trim().toLowerCase();
+	const slug = raw
+		.normalize('NFKD')
+		// WR-05: strip ALL combining marks left over from NFKD decomposition via the Unicode
+		// mark property escape (\p{M}, requires the `u` flag) instead of a raw literal of the
+		// U+0300–U+036F block. `\p{M}` covers every mark category (incl. U+1AB0–U+1AFF,
+		// U+20D0–U+20FF), and avoids embedding raw combining characters in source (editor/VCS
+		// fragility). Cosmetically redundant with the `[^a-z0-9]+` collapse below, but explicit.
+		.replace(/\p{M}/gu, '')
+		// Collapse every run of non-ASCII-alnum to a single '-'. CJK and all other non-ASCII
+		// letters are NOT [a-z0-9], so they are dropped here (ASCII-only output, D-05).
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/-+/g, '-')
+		.replace(/^-+|-+$/g, '');
+	return slug.slice(0, 60).replace(/-+$/g, '');
+}
+
+/**
+ * OG-PATH-01: encode ONE raw title/artist into a URL path segment. Original CASE is
+ * PRESERVED (the OG card title is read straight back out of the path, so lowercasing
+ * would force a title-case reconstruction that renders `DNA` as `Dna`). Whitespace runs
+ * collapse to a single '-'.
+ *
+ * quick-260807-vl1: raw UTF-8 is LEFT RAW — CJK, emoji, Arabic and every other non-ASCII
+ * codepoint go into the path unescaped, so a shared Chinese song reads `/song/周傑倫/止戰之殤`
+ * instead of `/song/%E5%91%A8%E5%82%91%E5%80%AB/…`. This was live-verified against production
+ * before the change: `curl "https://openmusic.lol/song/周傑倫/止戰之殤"` (raw, unencoded) →
+ * 200 with `og:title` = `止戰之殤 • 周傑倫`. A path segment is NOT ASCII-limited, and every
+ * browser/messenger renders the raw form as-is. The previous `encodeURIComponent(collapsed)`
+ * escaped ALL non-ASCII, which is legal but unreadable in a shared link.
+ *
+ * Only genuinely path-unsafe characters are percent-escaped now, in ONE pass:
+ *  - `%`  — would otherwise be read as the start of an escape (this is also why a single pass
+ *           is required: the replacement text is never re-scanned, so the `%25` it emits
+ *           cannot be double-escaped).
+ *  - `/`  — splits the segment.
+ *  - `\`  — WHATWG URL parsers NORMALIZE a backslash to `/` in a special-scheme path, so a raw
+ *           one splits the segment exactly like `/` does (same failure class).
+ *  - `?` / `#` — terminate the path (query / fragment).
+ *  - control chars U+0000–U+001F and U+007F — not transmittable in a request line.
+ * `&`, `+`, `:`, `;`, `=` are legal path sub-delims and stay literal; `decodeURIComponent`
+ * leaves them untouched, so the round-trip is unaffected.
+ *
+ * THREE guards, all load-bearing:
+ *  - EMPTY: an empty segment would make the path `/song/Artist/` → the required `([^/]+?)`
+ *    group cannot match → 404. Emit '-' (which decodes back to '').
+ *  - WHITESPACE: every `\s+` run collapses to a single '-' (the decoder's inverse).
+ *  - DOT-ONLY: the WHATWG URL parser treats `.` / `..` AND their percent-encoded forms
+ *    (`%2e`, `%2E%2E`) as dot path segments and normalizes them AWAY before the request
+ *    reaches us (verified: both 404). Appending one '-' makes the segment non-dot-only and
+ *    the decoder's hyphen→space+trim recovers the original exactly. `.` is deliberately NOT
+ *    in the escape set above, so this test still sees literal dots.
+ */
+export function encodePathSegment(raw: string): string {
+	const collapsed = (raw ?? '').trim().replace(/\s+/g, '-');
+	if (!collapsed) return '-';
+	// quick-260807-vl1: SINGLE pass — see the `%` note above. Control ranges are written as
+	// \u escapes rather than raw literals (editor/VCS fragility, the WR-05 discipline).
+	const seg = collapsed.replace(/[%\/?#\\\u0000-\u001F\u007F]/gu, (c) => encodeURIComponent(c));
+	return /^\.+$/.test(seg) ? `${seg}-` : seg;
+}
+
+/**
+ * OG-PATH-01 inverse. `seg` is ALREADY decodeURIComponent'd by SvelteKit
+ * (decode_params, utils/routing.js) — decoding again throws URIError on a literal '%'
+ * (live-verified 500 on the legacy /album/{name} route). Do NOT decode here.
+ *
+ * KNOWN LOSSY EDGE (accepted, CONTEXT LOCKED): every '-' becomes a space, so a title with
+ * a literal hyphen decodes with a space (`Spider-Man` → `Spider Man`). matchKey strips all
+ * punctuation AND whitespace, so scoreMatch is EXACTLY insensitive to this (see RESEARCH B.8).
+ */
+export function decodePathSegment(seg: string): string {
+	return (seg ?? '').replace(/-+/g, ' ').trim();
+}
+
+/**
+ * Encode the current track + a capped queue into a base64url v2 share token.
+ * The queue is capped at QUEUE_CAP stubs to bound URL length.
+ */
+export function encodeShare(current: Track, queue: Track[]): string {
+	const payload: SharePayloadV2 = {
+		v: 2,
+		c: toStub(current),
+		q: (queue ?? []).slice(0, QUEUE_CAP).map(toStub)
+	};
+	return toBase64Url(JSON.stringify(payload));
+}
+
+/**
+ * Decode a share token to `{ current, queue }`. Accepts BOTH the new v2 payload
+ * `{ v:2, c, q }` and a LEGACY v1 token (a bare Stub object — today's encodeTrack output,
+ * detected by the absence of `v`/`q` and the presence of `uid`). Legacy → current = the
+ * track, queue = [current]. Malformed / oversized / unparseable input → {current:null, queue:[]}
+ * (T-gln-01). PURE — no browser/DOM/$state, so a server `load` can import it.
+ */
+export function decodeShare(token: string): { current: Track | null; queue: Track[] } {
+	try {
+		const v = JSON.parse(fromBase64Url(token)) as unknown;
+		// v2 payload: { v:2, c:Stub, q:Stub[] }
+		if (v && typeof v === 'object' && (v as SharePayloadV2).v === 2) {
+			const p = v as SharePayloadV2;
+			if (!isStub(p.c)) return { current: null, queue: [] };
+			const current = stubToTrack(p.c);
+			const rawQueue = Array.isArray(p.q) ? p.q : [];
+			const queue = rawQueue.slice(0, QUEUE_CAP).filter(isStub).map(stubToTrack);
+			return { current, queue: queue.length ? queue : [current] };
+		}
+		// Legacy v1: a bare Stub (no v/q field).
+		if (isStub(v)) {
+			const current = stubToTrack(v);
+			return { current, queue: [current] };
+		}
+		return { current: null, queue: [] };
+	} catch {
+		return { current: null, queue: [] };
+	}
+}
+
+/** Legacy single-track decode — kept so existing callers don't break. Returns just `current`. */
+export function decodeTrack(token: string): Track | null {
+	return decodeShare(token).current;
+}
+
+/** Legacy single-track encode — kept for callers that only encode one track. */
+export function encodeTrack(t: Track): string {
+	const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(toStub(t)))));
+	return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/**
+ * Build a share URL carrying the current track + (optional) up-next queue. The visible URL
+ * reads `${origin}/?t=<slug>&play=<payload>` — the `t` slug is human-readable; the authoritative
+ * decode reads the opaque `play` payload. `origin` comes from shareOrigin() (SSR-guarded).
+ */
+export function shareUrl(current: Track, queue?: Track[]): string {
+	const base = shareOrigin(); // quick-260919-0mw — public origin when the runtime one is localhost/capacitor/file
+	const slug = slugify(current.title, current.artist);
+	const payload = encodeShare(current, queue ?? []);
+	const slugSeg = slug ? `t=${encodeURIComponent(slug)}&` : '';
+	return `${base}/?${slugSeg}play=${payload}`;
+}
+
+// =============================================================================================
+// quick-260809-3uo — coverToken: the CLIENT half of the `ci` cover-id carrier
+// =============================================================================================
+//
+// WHY A CARRIER IS BACK AT ALL: /api/og re-resolves the cover server-side from artist+title TEXT
+// through a chain that is completely independent of the client's cover authority, so a song the app
+// is visibly showing art for could still unfurl a blank card (reported: 你瞞我瞞 / 陳柏宇 —
+// Quinquennium art on the hero, nothing in WhatsApp). Adding more server tiers is whack-a-mole; the
+// client already knows the right cover at the moment the user taps share.
+//
+// WHAT IS CARRIED IS NOT A URL. It is a SHORT COVER ID from a closed tag set; /api/og rebuilds the
+// image URL from its own fixed template. No sharer-supplied host or path ever reaches the fetcher —
+// which is why this is a tighter posture than the retired `?c=`, not a reopening of it.
+//
+// ADVISORY, NEVER REQUIRED: omitted, unrecognised, or rejected edge-side → the card falls through
+// to the server tier chain and behaves exactly as it did before this change.
+//
+// 🔴 THIS IS THE INVERSE of `coverUrlFromToken` in $lib/proxy/og-cover, and the two MUST agree.
+// They are deliberately NOT imported into each other (client/edge split — og-cover pulls in proxy
+// code). What pins them is the both-directions round-trip test in share.test.ts,
+// 'coverToken ⇄ coverUrlFromToken'. Edit one grammar, run that test.
+
+/** Mirrors TOKEN_MAX_CHARS in og-cover.ts. The longest token we can emit is 38 chars. */
+const TOKEN_MAX_CHARS = 64;
+
+/** A token is usable only when non-empty and within the cap — used by BOTH carriers below. */
+function usableToken(token: string | null | undefined): token is string {
+	return typeof token === 'string' && token.length > 0 && token.length <= TOKEN_MAX_CHARS;
+}
+
+/** Deezer ALBUM covers only — `/images/artist/` is out of grammar (a song share never needs it). */
+const DZ_COVER_PATH = /^\/images\/cover\/([0-9a-f]{32})\/[^/]+$/;
+/** Last.fm art: an optional size segment, then `<32hex>.<jpg|png>`. The size is discarded. */
+const LF_IMG_PATH = /^\/i\/u\/(?:[^/]+\/)?([0-9a-f]{32})\.(jpg|png)$/;
+/** kuwo ALBUM covers only — `/star/starheads/` (artist heads) is a different family. */
+const KW_COVER_PATH = /^\/star\/albumcover\/[0-9]+\/([a-z0-9]{1,8})\/([0-9]{1,4})\/([0-9]{4,12})\.jpg$/;
+/** iTunes: the numeric id the CALLER retained, never anything off the URL. */
+const IT_ID = /^[0-9]{1,12}$/;
+/** The Last.fm grey-star placeholder (the same constant og-cover.ts rejects at its allow-list). */
+const LASTFM_GREY_STAR = '2a96cbd8b46e442fc41c2b86b821562f';
+
+/**
+ * Derive a `<tag>:<id>` cover token from a resolved cover URL, or null for anything unrecognised.
+ *
+ * PURE and node-testable: it parses with `new URL()` inside a try/catch and reads no store and no
+ * storage. `itunesId` is passed IN by the caller for the same reason the cover URL is — a store
+ * never flows into a pure service (CLAUDE.md); the component does the lookup.
+ *
+ * Size is ACCEPTED AND DISCARDED for every tier: the server rebuilds at the card size, so carrying
+ * a size would only add another sharer-influenced field. Never throws.
+ *
+ * TIER COVERAGE. Covered: Deezer, Last.fm, kuwo, iTunes — every host an /api/og tier already
+ * fetches. NOT covered by construction: netease / qq / joox cover hosts, which are on NO tier
+ * allow-list — carrying one would WIDEN the set of hosts /api/og fetches, and the carrier is only
+ * ever allowed to change WHICH allow-listed host is picked (T-3uo-02).
+ *
+ * iTunes is carried by NUMERIC ID, not by path: an mzstatic URL is a ~90-char irregular path
+ * fragment, so a path token would be neither short nor structural. The id is not derivable from the
+ * URL, so the caller must have retained it (see `recallItunesId` in $lib/services/itunes-cover); a
+ * cover cached BEFORE that retention existed simply yields null here → no carrier → today's chain.
+ */
+export function coverToken(
+	url: string | null | undefined,
+	itunesId?: string | null
+): string | null {
+	if (!url || typeof url !== 'string') return null;
+	try {
+		const u = new URL(url);
+		if (u.protocol !== 'https:') return null;
+		const host = u.hostname.toLowerCase();
+		const path = u.pathname;
+
+		if (host === 'cdn-images.dzcdn.net' || host.endsWith('.dzcdn.net')) {
+			const m = DZ_COVER_PATH.exec(path);
+			return m ? `d:${m[1]}` : null;
+		}
+		if (host === 'last.fm' || host.endsWith('.last.fm') || host.endsWith('.fastly.net')) {
+			const m = LF_IMG_PATH.exec(path);
+			// ENRICH-02 / D-04 g2: the grey star is a REAL 200 image, so without this a placeholder
+			// would be carried as if it were art.
+			if (!m || m[1] === LASTFM_GREY_STAR) return null;
+			return `l:${m[1]}.${m[2]}`;
+		}
+		if (host.endsWith('.kuwo.cn')) {
+			const m = KW_COVER_PATH.exec(path);
+			// No `/` ever enters a token — the two shard dirs + the id are hyphen-joined.
+			return m ? `k:${m[1]}-${m[2]}-${m[3]}` : null;
+		}
+		if (host.endsWith('.mzstatic.com')) {
+			return itunesId && IT_ID.test(itunesId) ? `i:${itunesId}` : null;
+		}
+		return null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Build the SHORT, readable SONG share URL `${origin}/song/{artist}/{title}` (DQ-1, OG-PATH-02).
+ * This SUPERSEDES the old `entityShareUrl('song', t) + ?play=<token>` song link for the share
+ * button: there is NO base64 `?play=` token and NO trailing `{source}{id}` key in the path.
+ *
+ * ZERO query carriers. The two PATH SEGMENTS are the AUTHORITATIVE human-readable key
+ * (OG-PATH-01/02) — they replace the former `?n=`/`?a=` pair. ARTIST FIRST (CONTEXT lock, mirroring
+ * Last.fm's `/music/{artist}/_/{track}`). A path segment is NOT ASCII-limited, so CJK needs no
+ * special handling: quick-260807-vl1 it now travels RAW on the wire (`/song/周傑倫/止戰之殤`,
+ * production-verified 200), instead of the percent-escaped form the old encoder emitted — so the
+ * link is readable in the message the recipient actually sees. The OG card is built server-side
+ * from the decoded segments (DQ-2) and the page resolves a playable track by name+artist at open
+ * time via the existing aggregator (DQ-3).
+ *
+ * quick-260723-r4p (prose corrected, OG-EP-01): the cover no longer rides a `?c=` carrier — the
+ * card image is the own-origin `/api/og` endpoint (see ogImageUrl), which re-resolves the cover
+ * server-side. So `cover` has left this signature entirely; a caller has nothing to pass.
+ *
+ * quick-260809-3uo — AMENDMENT to the paragraph above (the OG-EP-01 ref STAYS; it records why the
+ * URL carrier left). A carrier is back for the song surface, but it is a SHORT COVER ID, not a URL:
+ * the caller passes the resolved cover URL it is DISPLAYING, this function derives a closed-grammar
+ * token from it via `coverToken`, and /api/og rebuilds the image URL from its own fixed template.
+ * It exists because server-side text re-resolution is structurally blind to the client's chain — a
+ * song the app was visibly showing art for still unfurled a blank card. It is safe because no
+ * sharer-supplied host or path ever reaches the fetcher.
+ *
+ * The carrier is OPTIONAL and ADVISORY: pass nothing, pass a cover from an uncovered host, or have
+ * the edge reject the token, and the card falls through to the server tier chain — i.e. exactly
+ * today's behaviour. With no cover argument this function is byte-identical to before, still ZERO
+ * query params (names.test.ts pins that and must not need editing). `dn`/`da` DISPLAY carriers stay
+ * dead — this is NOT a reopening of OG-ZH-01, which was about display text diverging from the
+ * resolution key; a cover id is neither.
+ *
+ * OG-ZH-01 (RESEARCH §E.17): the `dn`/`da` DISPLAY QUERY CARRIERS are retired and stay retired —
+ * this function emits ZERO query params. What it puts in the path is whatever the CALLER passed.
+ *
+ * quick-260808-urx (prose corrected): callers now pass DISPLAY-language strings (`names.dnTitle` /
+ * `names.dnArtist` output), so a zh-Hant user shares `/song/李悅君/夢伴` — the text they see —
+ * rather than the Simplified catalog metadata. This function is UNCHANGED and stays PURE: it never
+ * imports the `names` store (CLAUDE.md — stores never flow into a pure service) and its signature is
+ * not widened; the language decision lives entirely at the call site. The stale claim that "the
+ * LITERAL original-script title/artist go in the path" no longer describes the callers. The
+ * recipient-side resolution risk that wording worried about (a Traditional query against the
+ * mostly-Simplified CN index) is closed one layer down, by resolveStub's t2s rescue-on-miss.
+ *
+ * The empty-input guard is `encodePathSegment`'s `'-'` (it decodes back to ''), replacing the old
+ * `slugify(...) || 's'` placeholder — `'s'` would have decoded to a bogus literal OG title.
+ * `origin` comes from shareOrigin(), the same way shareUrl / entityShareUrl read it. `slugify` and the
+ * queue-restore encode/decode path are UNTOUCHED — they still depend on the exports below.
+ */
+export function songShareUrl(
+	t: { title: string; artist: string },
+	coverUrl?: string | null,
+	itunesId?: string | null,
+	id?: { uid: string; source: string; songid: string } | null
+): string {
+	const base = shareOrigin(); // quick-260919-0mw — public origin when the runtime one is localhost/capacitor/file
+	const path = `${base}/song/${encodePathSegment(t.artist)}/${encodePathSegment(t.title)}`;
+	// quick-260809-3uo: a cover that does not tokenize adds NO param at all — never `?ci=` empty,
+	// never a junk value. The path segments are untouched, so raw CJK survives (quick-260807-vl1).
+	const token = coverToken(coverUrl, itunesId);
+	const withCi = usableToken(token) ? `${path}?ci=${encodeURIComponent(token)}` : path;
+	// 38-D-08: `ci` stays FIRST, `u` second — the `/song/{artist}/{title}?ci=` prefix is a pinned
+	// contract, and a carrier-free call appends nothing, so today's links stay byte-identical.
+	const u = uidCarrier(id);
+	return u ? `${withCi}${withCi.includes('?') ? '&' : '?'}u=${encodeURIComponent(u)}` : withCi;
+}
+
+/**
+ * 38-D-08/D-09: the song-identity carrier value for `?u=`, or `null` for "emit nothing".
+ *
+ * FORM — separator-less `{source}{songid}` (`kuwo123`), NOT the colon uid. That is exactly what
+ * `parseEntityParam` already decodes, so the recipient reuses a TESTED validator verbatim instead
+ * of getting a second, subtly-different source check (RESEARCH §7c option 1). D-09's "readable in a
+ * URL bar" holds either way.
+ *
+ * EMIT ONLY IF IT DECODES — the quick-260809-3uo rule applied to `u`. A songid that does not round
+ * trip (empty, or a ytmusic id containing `-`, which the `[A-Za-z0-9]+` anchor rejects) would be a
+ * junk param the recipient must ignore anyway, so it is never written. Such a link degrades to
+ * today's name resolve (D-10), never to a broken carrier.
+ *
+ * DEVICE TRACKS ARE SKIPPED — 34-D-01: a `device:` track's `source` is a PLACEHOLDER (`'kuwo'`)
+ * that is never dispatched. Emitting `u=kuwo{mediastore id}` would make the recipient resolve and
+ * play a COMPLETELY DIFFERENT song under the local file's title. The uid is the only honest
+ * discriminator, so the gate reads it rather than the source.
+ */
+function uidCarrier(id?: { uid: string; source: string; songid: string } | null): string | null {
+	if (!id || isDeviceUid(id.uid)) return null;
+	const param = `${id.source}${id.songid}`;
+	return parseEntityParam(param) ? param : null;
+}
+
+/**
+ * quick-260723-ry1: build a readable ALBUM/ARTIST share URL that mirrors the song card, now
+ * carrier-free (OG-PATH-02): `${origin}/album/{artist}/{name}` and `${origin}/artist/{name}`
+ * (an artist page has no secondary name, so it stays ONE segment).
+ *
+ * Unlike entityShareUrl (ASCII slug, drops CJK), the album/artist page's AUTHORITATIVE round-trip
+ * key is the LITERAL name — it is what getAlbumTracklist/enrichAlbum/searchAll resolve against. It
+ * now lives in the path segments in its ORIGINAL script (OG-PATH-01), which is why the former
+ * `?artist=` functional carrier is gone: the artist IS segment 1. quick-260807-vl1: those segments
+ * are RAW UTF-8 now (`/album/周傑倫/范特西`), not percent-escaped — same encoder change as the song
+ * card, same readability reason.
+ *
+ * quick-260723-ry1 (prose corrected): the `c` cover carrier is retired in favour of the own-origin
+ * `/api/og` card image (OG-EP-01, see ogImageUrl). The `dn`/`da` DISPLAY QUERY CARRIERS are retired
+ * with it (OG-ZH-01 / RESEARCH §E.17) and stay retired — this function emits ZERO query params.
+ *
+ * quick-260808-urx (prose corrected): the album/artist call sites now pass DISPLAY-language strings
+ * (`names.dnTitle` / `names.dnArtist` output), matching the song card, so the former "accepted
+ * regression — a Traditional-preferring sharer's card shows the catalog's original script" no longer
+ * applies to the SHARER'S OWN link. This is not a carrier: the display text IS the path segment,
+ * i.e. the single value used for both display and resolution, so nothing can diverge from the
+ * round-trip key. This function is unchanged and stays PURE — no `names` import (CLAUDE.md: stores
+ * never flow into a pure service), signature unwidened; the language decision lives at the caller.
+ * The in-app page still re-converts per the VIEWER's own setting on hydration via the `names` store.
+ */
+export function entityCardUrl(opts: { type: 'album' | 'artist'; name: string; artist?: string }): string {
+	const base = shareOrigin(); // quick-260919-0mw — public origin when the runtime one is localhost/capacitor/file
+	if (opts.type === 'artist') return `${base}/artist/${encodePathSegment(opts.name)}`;
+	return `${base}/album/${encodePathSegment(opts.artist ?? '')}/${encodePathSegment(opts.name)}`;
+}
+
+/** The fixed source enum the readable share path encodes. Because source names are a closed
+ *  set, `{source}{id}` is unambiguously separable from the cosmetic slug (D-04 / A7). This list
+ *  MUST stay aligned with the live `SourceId` union in $lib/sources/types (24-04 reconcile:
+ *  the previous `kugou|migu` anchor was stale — those sources don't exist; the real set is
+ *  netease|qq|kuwo|joox|fivesing|jamendo, so fivesing/jamendo entity links now decode).
+ *  38-D-30: it was stale AGAIN — `audius` and `ytmusic` shipped without being added here, so those
+ *  entity links silently fell through to the name resolve. It matters more now than it did: this
+ *  alternation is ALSO the V5 input-validation allowlist for the attacker-controllable `?u=` share
+ *  carrier (T-38-01), the only gate between a query param and a `SOURCES[source].resolve` dispatch.
+ *  It MUST equal the `SourceId` union in $lib/sources/types — check both when adding a source. */
+// WR-03: anchor on the LAST `-{source}{id}` boundary. The leading `.*` is greedy, so the regex
+// consumes as much of the cosmetic slug as possible before backtracking to the final valid
+// `-{source}{id}` occurrence — a slug whose text contains an earlier source-name word (e.g.
+// `kuwo-mix-qq42`) no longer mis-splits on the earlier token. The `^` + `.*` keeps the match
+// rooted so partial mid-string matches can't sneak in.
+const ENTITY_SOURCE_RE = /^.*-(netease|qq|kuwo|joox|fivesing|jamendo|audius|ytmusic)([A-Za-z0-9]+)$/;
+const ENTITY_SOURCE_ONLY_RE = /^(netease|qq|kuwo|joox|fivesing|jamendo|audius|ytmusic)([A-Za-z0-9]+)$/;
+
+/**
+ * Build a readable per-entity share URL `${origin}/{type}/{slug}-{source}{id}` (D-04). The slug
+ * is cosmetic (ASCII, may be '' for an all-CJK title — see slugify); the trailing `{source}{id}`
+ * is the AUTHORITATIVE decode key. When the slug is empty the leading hyphen is dropped so the
+ * path is `/{type}/{source}{id}`. `origin` comes from shareOrigin() (reused by all four builders).
+ * Pure apart from the optional `location` read — server-importable.
+ */
+export function entityShareUrl(
+	type: 'song' | 'album' | 'artist',
+	t: { title: string; artist: string; source: string; songid: string }
+): string {
+	const base = shareOrigin(); // quick-260919-0mw — public origin when the runtime one is localhost/capacitor/file
+	const slug = slugify(t.title, t.artist);
+	const id = `${t.source}${t.songid}`;
+	const path = slug ? `${slug}-${id}` : id;
+	return `${base}/${type}/${path}`;
+}
+
+/**
+ * Decode a readable entity path param back to its authoritative `{ source, id, uid }` key (D-04).
+ * The cosmetic slug is ignored; only the trailing `{source}{id}` anchored on the fixed source enum
+ * is read. Handles both the slug-prefixed form (`qing-fei-de-yi-qq123`) and the empty-slug form
+ * (`qq123`). Returns `null` on no-match — mirrors isStub's pure-validator discipline, NEVER throws
+ * (T-24-03: this is the validation gate before the param is used downstream). Pure — SSR-safe.
+ *
+ * WR-02: the visible path key stays the separator-less `{source}{id}` form (authoritative decode
+ * unchanged), but the canonical `Track.uid` is the COLON form `${source}:${songid}` (see makeUid in
+ * $lib/sources/types). To stop every consumer from hand-joining `source + id` (which would produce
+ * `netease7`, NOT the canonical `netease:7`), this returns a ready-made `uid` in the colon form so
+ * the decoded identity always agrees with the rest of the codebase's uid convention.
+ */
+export function parseEntityParam(
+	param: string
+): { source: string; id: string; uid: string } | null {
+	if (typeof param !== 'string' || !param) return null;
+	const m = param.match(ENTITY_SOURCE_RE) ?? param.match(ENTITY_SOURCE_ONLY_RE);
+	if (!m) return null;
+	const source = m[1];
+	const id = m[2];
+	return { source, id, uid: `${source}:${id}` };
+}
+
+/**
+ * The closed set of `og:type` values this app emits — one per share surface (OG-PAGE-01):
+ * song → `music.song`, album → `music.album`, artist → `profile`. A closed union (never free
+ * text) is what keeps the value safe to bind straight into a `<meta content>` (T-gln-02).
+ */
+export type OgType = 'music.song' | 'music.album' | 'profile';
+
+/**
+ * OG-EP-01: build the own-origin card-image URL `${origin}/api/og?type=&artist=&title=`.
+ * `title` is the secondary name (song title / album name) and is OMITTED when empty — an
+ * artist card has no secondary name.
+ *
+ * This is a CONSTRUCTED OWN-ORIGIN URL, not a sharer-supplied cover, so it is emitted into the
+ * `og:image` meta tag DIRECTLY and is deliberately NOT put through the `isHttpsUrl` carrier gate
+ * (that gate exists for the legacy `?c=` carrier, where the URL came from the sharer's client).
+ * The T-24-08 posture is preserved one layer down: the crawler fetches `/api/og`, which resolves
+ * the cover server-side through the per-tier host allowlist. Pure — no `location` read, so an SSR
+ * loader can call it with the request's own origin.
+ *
+ * quick-260809-3uo — the optional trailing `cardCoverToken` is an ALREADY-DERIVED TOKEN, not a cover
+ * URL (the loader that calls this is ECHOING a query param, not parsing a cover — hence the name).
+ * It is appended as `&ci=` only when non-empty and within the cap, so a pathological value never
+ * reaches the emitted meta tag. Omitted → byte-identical to before. The real gate is
+ * `coverUrlFromToken` inside /api/og; this layer only bounds the length.
+ */
+export function ogImageUrl(
+	origin: string,
+	type: 'song' | 'album' | 'artist',
+	artist: string,
+	title = '',
+	cardCoverToken = ''
+): string {
+	const t = title ? `&title=${encodeURIComponent(title)}` : '';
+	const ci = usableToken(cardCoverToken) ? `&ci=${encodeURIComponent(cardCoverToken)}` : '';
+	return `${origin}/api/og?type=${type}&artist=${encodeURIComponent(artist)}${t}${ci}`;
+}
+
+/**
+ * Pure OG-card derivation (item 4 / GLN-4). Builds crawler-facing title/description/image from a
+ * track-or-entity's display fields. Node-testable; imported by the universal `+page.ts` loads so
+ * the values land in the SSR-rendered `<svelte:head>`. The image is only used when it is a usable
+ * absolute https URL (T-gln-02: cover URLs constrained, else the caller falls back to /og.svg).
+ */
+export function buildOg(input: {
+	title: string;
+	artist?: string;
+	album?: string;
+	cover?: string | null;
+	type?: OgType;
+}): { title: string; description: string; image: string | null; type: OgType } {
+	// quick-260723-r4p: YouTube-Music-style simplified card. Title is `Song • Artist` (bullet, drops
+	// the artist when absent so album/artist entity loaders — which pass no artist and override the
+	// description — are unaffected). Description is a short tagline, NOT the old marketing sentence.
+	const title = input.artist ? `${input.title} • ${input.artist}` : input.title;
+	const description = 'Listen on openmusic';
+	const image = isHttpsUrl(input.cover) ? (input.cover as string) : null;
+	// OG-PAGE-01: per-surface og:type replaces PageOg's hardcoded `music.song`. Optional with a
+	// 'music.song' default so every existing caller keeps compiling while the loaders are converted.
+	return { title, description, image, type: input.type ?? 'music.song' };
+}
+
+/** True only for an absolute https:// URL (the only cover shape we surface to crawlers). */
+export function isHttpsUrl(url: string | null | undefined): boolean {
+	return typeof url === 'string' && /^https:\/\/\S+$/.test(url);
+}

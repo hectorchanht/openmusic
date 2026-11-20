@@ -1,0 +1,171 @@
+// The ONLY place client source adapters are enumerated (DATA-04). Aggregation and
+// dispatch code resolve adapters through SOURCES / getEnabledAdapters — they never
+// name a source. Adding a source = a new adapter file + one import line here.
+import type { SourceAdapter, SourceId } from './types';
+import { netease } from './netease';
+import { gdnetease } from './gdnetease';
+import { qq } from './qq';
+import { kuwo } from './kuwo';
+import { suyin } from './suyin';
+import { joox } from './joox';
+import { kugou } from './kugou';
+import { migu } from './migu';
+import { fivesing } from './fivesing';
+import { jamendo } from './jamendo';
+import { audius } from './audius';
+import { archive } from './archive';
+import { bilibili } from './bilibili';
+import { ccmixter } from './ccmixter';
+import { bandcamp } from './bandcamp';
+import { ytmusic } from './ytmusic';
+import { settings } from '$lib/stores/settings.svelte';
+import { PLAYBACK_ORDER, TIER_1_SIZE } from './source-order';
+export { PLAYBACK_ORDER, COVER_ORDER, COVER_SKIP, COVER_RACE_TIERS, PRIORITY_WINDOW_MS, playbackRank } from './source-order';
+
+// Enumeration ORDER is load-bearing (D-08 / POLICY.md, spikes 001+004): getEnabledAdapters walks
+// SOURCES in this order, and fallbackOrder (fallback.ts) + resolveNameStub/crossSourceLyric
+// (catalog.ts) + interleave (catalog.ts) all inherit it.
+//
+// debug/upnext-diverse-fallback-kuwo-dead (2026-08-31): kuwo was FIRST under D-08 because it was
+// empirically 100% playable + cover-inline across all 14 language/region×genre segments. That
+// premise is DEAD: its upstream `kw-api.cenguigui.cn` (proxy/kuwo.ts KUWO_BASE) serves a TLS
+// certificate that expired 2026-04-14, so Cloudflare returns 526 for every /api/kuwo/* request and
+// kuwo.search() throws contract-drift on every call. Left in the primary seat it poisoned every
+// consumer of this order — most visibly similar.ts, whose two fallback paths pin to
+// getEnabledAdapters({})[0] and therefore returned EMPTY for every track, collapsing Up-Next to the
+// buildDiversePicks grab-bag whenever Last.fm track.getSimilar was dry.
+//
+// qq takes the primary seat (proven: it is what actually resolves and plays today). netease is #2 —
+// rich, and its intermittent upstream (api.qijieya.cn) is an acceptable RUNNER-UP even though the
+// old comment rightly kept it out of the primary seat. kuwo is demoted to #3 rather than removed:
+// the `SourceId` union, adapter contract, and enabledByDefault flag are untouched, so if the cert is
+// renewed the only change needed to restore it is moving `kuwo` back to the front of this literal.
+//
+// This reorder is the stop-the-bleeding half. The durable half lives in similar.ts, which no longer
+// pins to a SINGLE source — see `sourceLadder()` there. The `SourceId` union, adapter contracts,
+// enabledByDefault flags, and dedupe's separate SOURCE_RANK tie-break are all UNCHANGED.
+//
+// ytmusic (Plan 27, YT-SRC-01) is appended LAST and is OFF the kuwo-first resolve floor: it is
+// enabledByDefault:true (discoverable in the search fan-out) but carries autoResolveEligible:false,
+// so cross-source failover / name-stub resolution must never pick it as a TARGET for a non-ytmusic
+// track (mirrors how audius/jamendo are searchable-but-off-the-hot-path). That flag is unaffected by
+// the 2026-08-31 reorder above — the resolve floor is now qq→netease→kuwo→joox; the code that honors
+// the flag lands in Plan 27-04.
+// quick-261020-kugo: kugou takes the seat AFTER joox — it is a full mainstream catalog
+// (autoResolveEligible stays undefined = on the resolve floor), but the proven
+// qq→netease→kuwo→joox floor order is untouched ahead of it.
+// quick-261020-migu: migu follows kugou, same mainstream posture (floor-eligible).
+// quick-261020-bili: bilibili is appended just before ytmusic — search-only
+// (autoResolveEligible: false), and ytmusic keeps the load-bearing LAST seat.
+// quick-261020-arch: archive sits with the other off-floor legal catalogs
+// (autoResolveEligible: false), just ahead of bilibili.
+// quick-261101-ccm: ccmixter joins the off-floor legal catalogs right after
+// archive (search-only CC remix/indie; autoResolveEligible: false), ahead of
+// bilibili; ytmusic keeps the load-bearing LAST seat.
+// quick-261020-suyin: suyin （溯音 Kuwo via oiapi.net) sits right after kuwo —
+// a second independent Kuwo pipe (browser-direct, CORS *).
+// quick-261020-gdnt: gdnetease (GD音乐台 Netease via music-api.gdstudio.xyz)
+// sits right after netease — a second independent Netease pipe (via /api proxy,
+// no CORS). Neither disturbs the proven qq→netease→kuwo→joox floor ahead.
+// quick-261020-joox1: joox moves to #2 (right after qq). Hector reports JOOX has
+// the best audio quality and the most authentic (non-伴奏/同人) versions —
+// verified 2026-10-20: 給我一首歌的時間 resolves to the 魔杰座 original with a
+// 母带无损 FLAC url (206 audio/x-flac), while qijieya netease returns 同人
+// versions and suyin returns a DJ版 for the same query. Trying JOOX early in
+// the fallback walk means its authentic version wins over other pipes'
+// variant versions.
+// quick-261102-sqn (DECISIONS.md §5): the history above explains how the order evolved; the
+// ORDER ITSELF now lives in source-order.ts PLAYBACK_ORDER (product truth: joox, kuwo, kugou, qq,
+// netease, migu, suyin last). SOURCES is BUILT from that table, so object-key order — which every
+// getEnabledAdapters consumer (search fan-out, interleave, name-stub walk, lyric walk, fallback
+// base) inherits — can never drift from it.
+// 43: bandcamp — own-audio Western source, floor-eligible (autoResolveEligible undefined) and seated
+// right after suyin, so it is a last-resort failover / name-stub target and past tier-1 by position.
+const ADAPTERS: Record<SourceId, SourceAdapter> = { qq, joox, netease, gdnetease, kuwo, suyin, kugou, migu, fivesing, jamendo, audius, archive, ccmixter, bandcamp, bilibili, ytmusic };
+export const SOURCES: Record<SourceId, SourceAdapter> = Object.fromEntries(
+	PLAYBACK_ORDER.map((id) => [id, ADAPTERS[id]])
+) as Record<SourceId, SourceAdapter>;
+
+/**
+ * The enabled adapters for a search fan-out. Precedence (highest first):
+ *   1. explicit `prefs[id]` (true/false) — passed by a caller that wants ONE source
+ *      (e.g. cross-source fallback's per-source retry).
+ *   2. `settings.enabledSources[id]` — the user's persisted override (ii6).
+ *   3. adapter's own `enabledByDefault`.
+ * The chain stops at the first non-undefined value.
+ */
+export const getEnabledAdapters = (
+	prefs: Partial<Record<SourceId, boolean>> = {}
+): SourceAdapter[] => {
+	const userPrefs = settings.enabledSources;
+	return Object.values(SOURCES).filter((a) => {
+		if (prefs[a.id] !== undefined) return prefs[a.id];
+		if (userPrefs[a.id] !== undefined) return userPrefs[a.id];
+		return a.enabledByDefault;
+	});
+};
+
+/** quick-261102-u4t (DECISIONS.md §14): is this source enabled by the user's settings? The one
+ *  question a direct per-source caller (e.g. the QQ cover tier) asks before bypassing the fan-out. */
+export function isSourceEnabled(id: SourceId): boolean {
+	return getEnabledAdapters({}).some((a) => a.id === id);
+}
+
+/**
+ * A `prefs` object that enables EXACTLY one source and explicitly disables every other.
+ *
+ * Lives here because it is derived from SOURCES and is the counterpart to `getEnabledAdapters` —
+ * the single-source fan-out every walk uses (the cross-source fallback, the name-stub resolve, the
+ * cross-source lyric lookup). It was three byte-equivalent copies in catalog.ts / fallback.ts /
+ * similar.ts, differing only in whitespace and a local variable name.
+ *
+ * Every id is set explicitly rather than relying on omission: `getEnabledAdapters` honours an
+ * explicit `prefs[id]` over the user/default setting, so a MISSING key would let a user-enabled
+ * source leak into a walk that is supposed to touch exactly one.
+ */
+export function onlySource(id: SourceId): Partial<Record<SourceId, boolean>> {
+	const prefs: Partial<Record<SourceId, boolean>> = {};
+	for (const sourceId of Object.keys(SOURCES) as SourceId[]) prefs[sourceId] = false;
+	prefs[id] = true;
+	return prefs;
+}
+
+// --- SPEED TIERS (quick-261020-speed) ---------------------------------------------------------
+// Discovery and fallback search tier-1 first; only if no official version is found do they expand
+// to the full set (~5s → ~2s). quick-261102-sqn: tier-1 is DERIVED — the first TIER_1_SIZE
+// auto-resolvable sources of PLAYBACK_ORDER (was a hand-kept qq/joox/kuwo/netease/suyin literal).
+export const TIER_1_SOURCES: readonly SourceId[] = PLAYBACK_ORDER.filter(
+	(id) => ADAPTERS[id].autoResolveEligible !== false
+).slice(0, TIER_1_SIZE);
+
+/**
+ * A `prefs` object that enables ONLY the tier-1 sources.
+ * Counterpart to onlySource() for the tiered search path.
+ */
+export function tier1Only(): Partial<Record<SourceId, boolean>> {
+	const prefs: Partial<Record<SourceId, boolean>> = {};
+	for (const sourceId of Object.keys(SOURCES) as SourceId[]) {
+		prefs[sourceId] = (TIER_1_SOURCES as readonly string[]).includes(sourceId);
+	}
+	return prefs;
+}
+
+/**
+ * The ONE predicate for "may this source be auto-selected to resolve a track it did not
+ * originate" — a cross-source failover target (fallback.ts), an Up-Next name-stub resolve
+ * (catalog.ts resolveNameStub), and candidate preference in the shared name resolver
+ * (discovery.ts resolveStub). quick-260926-c69: hoisted here after the rule had been inlined
+ * twice and was missing from the third consumer entirely.
+ *
+ * Reads the registry FLAG, so no consumer ever names a source. `undefined` = eligible, per the
+ * `SourceAdapter.autoResolveEligible` doc in types.ts (only an explicit `false` opts out).
+ */
+export function isAutoResolveEligible(id: SourceId): boolean {
+	return SOURCES[id].autoResolveEligible !== false;
+}
+
+/** The player's initial-load retry budget for this source (`SourceAdapter.loadRetries`, default 0).
+ *  Reads the registry flag so the player never names a source. */
+export function loadRetriesFor(id: SourceId): number {
+	return SOURCES[id]?.loadRetries ?? 0;
+}

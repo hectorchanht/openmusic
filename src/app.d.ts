@@ -1,0 +1,76 @@
+// See https://svelte.dev/docs/kit/types#app.d.ts
+// for information about these interfaces.
+//
+// App.Platform.env is the Cloudflare-adapter runtime path for bindings/secrets
+// (svelte.dev/docs/kit/adapter-cloudflare). The JOOX token lives ONLY here —
+// it is injected into the upstream URL on the edge and never reaches the client
+// bundle (Phase 1 success criterion #2 / threat T-01-04).
+declare global {
+	namespace App {
+		interface Platform {
+			env: {
+				JOOX_TOKEN: string;
+				// OPTIONAL Last.fm key for /api/similar — server-side only, never on the
+				// client bundle (threat T-5ug-01, parity with JOOX_TOKEN / T-01-04).
+				LASTFM_KEY?: string;
+				// OPTIONAL Last.fm shared secret for SIGNED calls (auth.getSession,
+				// track.love, track.scrobble). Server-side only — used to compute the
+				// md5 api_sig on the edge, never on the client bundle.
+				LASTFM_SECRET?: string;
+				// Phase 33 diagnostics (D-07 / D-03). This declaration is the SvelteKit-facing
+				// mirror; the functional contract with the doc comments is `Env` in
+				// $lib/proxy/proxy-types.ts, which every route casts `platform?.env` to.
+				DIAG?: R2Bucket;
+				// Server-only bearer tokens — `wrangler pages secret put`, never a VITE_ var.
+				DIAG_UPLOAD_TOKEN?: string;
+				DIAG_READ_TOKEN?: string;
+				// ANALYTICS (2026-10-10): anonymous play-count store — D1 binding
+				// `openmusic-analytics`, wired in wrangler.jsonc d1_databases. The
+				// endpoint degrades to { ok:false } when absent (local dev / tests).
+				ANALYTICS_DB?: D1Database;
+				// ACCOUNTS (quick-261020-acct): magic-link auth + cross-device sync —
+				// D1 binding `openmusic-accounts` (PII: emails), wired in wrangler.jsonc
+				// d1_databases. Absent ⇒ the auth routes answer logged-out / 503,
+				// never a throw. Mirror of `Env` in $lib/proxy/proxy-types.ts.
+				ACCOUNTS_DB?: D1Database;
+				// SUPPORTERS WALL (2026-10-24): public opt-in wall store — D1 binding
+				// `openmusic-supporters`, wired in wrangler.jsonc d1_databases. Holds
+				// ONLY what a verified tipper chose to publish (display name + short
+				// message), keyed by the SHA-256 of their license key — no raw keys,
+				// no emails, deliberately separate from ACCOUNTS_DB (PII) and
+				// ANALYTICS_DB (anonymous). Absent ⇒ verify still works, the wall
+				// reads empty. Mirror of `Env` in $lib/proxy/proxy-types.ts.
+				SUPPORTERS_DB?: D1Database;
+				// TRANSLATE CACHE (quick-261116-kvprog): KV namespace
+				// `openmusic-translate-cache`, wired in wrangler.jsonc kv_namespaces —
+				// the global L2 for /api/translate (edge Cache API is the per-PoP L1).
+				// Absent ⇒ the route degrades to L1 + cascade. Mirror of `Env` in
+				// $lib/proxy/proxy-types.ts.
+				TRANSLATE_CACHE?: KVNamespace;
+				// Resend API key for the magic-link email. Server-side only —
+				// `wrangler pages secret put RESEND_API_KEY`, never on the client
+				// bundle (threat parity with JOOX_TOKEN / T-01-04). Absent ⇒ the
+				// magic-link route FAILS CLOSED with 500 'not configured'.
+				RESEND_API_KEY?: string;
+				// OPTIONAL `From:` for the magic-link email, e.g.
+				// `OpenMusic <login@openmusic.lol>`. Absent ⇒ that exact default is
+				// used by the route (see $lib/auth/auth-core).
+				MAGIC_LINK_FROM?: string;
+			};
+			// 31-D-06: the Cloudflare ExecutionContext. `waitUntil()` keeps the Worker alive for a
+			// background job AFTER the response has already been sent — the /api/resolve edge-cache
+			// fill uses it so a cache MISS never delays the client (awaiting the fill on the hot
+			// path is the anti-pattern that design exists to avoid). OPTIONAL: absent under
+			// `vite dev` and in unit tests, so every call site must be `platform?.ctx?.waitUntil`.
+			// `ctx` is the live field name — adapter-cloudflare's `context` alias is @deprecated.
+			ctx?: ExecutionContext;
+		}
+
+		// interface Error {}
+		// interface Locals {}
+		// interface PageData {}
+		// interface PageState {}
+	}
+}
+
+export {};

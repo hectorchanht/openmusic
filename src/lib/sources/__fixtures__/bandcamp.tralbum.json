@@ -1,0 +1,145 @@
+{
+	"id": 2834446269,
+	"type": "t",
+	"title": "LOFI (w/ DJ Earl)",
+	"bandcamp_url": "https://invt.bandcamp.com/track/lofi-w-dj-earl",
+	"art_id": 2734277808,
+	"band": {
+		"band_id": 2636669871,
+		"name": "INVT",
+		"image_id": 20290614,
+		"bio": "DUO FROM MIAMI MAKING SOUND SYSTEM MUSIC\n\nBOOKINGS:\nUS & Canada: amctaggart@tbaagency.com \nROW: mikel@b4bookings.net\n\nSTORE:\nwww.invt.store",
+		"location": "Miami, Florida"
+	},
+	"tralbum_artist": "INVT",
+	"package_art": [],
+	"featured_track_id": 2834446269,
+	"tracks": [
+		{
+			"track_id": 2834446269,
+			"track_license_id": null,
+			"title": "LOFI (w/ DJ Earl)",
+			"track_num": null,
+			"streaming_url": {
+				"mp3-128": "https://bandcamp.com/stream_redirect?enc=mp3-128&track_id=2834446269&ts=1793848229&t=fb5cc5e5f22b6625f127e448431c01219af0ab36"
+			},
+			"duration": 206.875,
+			"encodings_id": 472663804,
+			"album_title": null,
+			"band_name": "INVT",
+			"art_id": null,
+			"album_id": null,
+			"is_streamable": true,
+			"has_lyrics": true,
+			"is_set_price": false,
+			"price": 3.05,
+			"has_digital_download": true,
+			"merch_ids": null,
+			"merch_sold_out": null,
+			"currency": "USD",
+			"require_email": false,
+			"is_purchasable": true,
+			"band_id": 2636669871,
+			"label": null,
+			"label_id": null,
+			"track_url": null
+		}
+	],
+	"credits": null,
+	"about": "https://www.instagram.com/p/BpFwHo3lTxn/?taken-by=invt305",
+	"album_id": null,
+	"album_title": null,
+	"release_date": 1540166400,
+	"is_purchasable": true,
+	"free_download": false,
+	"is_preorder": false,
+	"tags": [
+		{
+			"name": "Electronic",
+			"norm_name": "electronic",
+			"url": "/discover/electronic",
+			"isloc": false,
+			"loc_id": null,
+			"geoname": null
+		},
+		{
+			"name": "dubstep",
+			"norm_name": "dubstep",
+			"url": "/discover/dubstep",
+			"isloc": false,
+			"loc_id": null,
+			"geoname": null
+		},
+		{
+			"name": "footwork",
+			"norm_name": "footwork",
+			"url": "/discover/footwork",
+			"isloc": false,
+			"loc_id": null,
+			"geoname": null
+		},
+		{
+			"name": "latin bass",
+			"norm_name": "latin-bass",
+			"url": "/discover/latin-bass",
+			"isloc": false,
+			"loc_id": null,
+			"geoname": null
+		},
+		{
+			"name": "lofi",
+			"norm_name": "lofi",
+			"url": "/discover/lofi",
+			"isloc": false,
+			"loc_id": null,
+			"geoname": null
+		},
+		{
+			"name": "tribal house",
+			"norm_name": "tribal-house",
+			"url": "/discover/tribal-house",
+			"isloc": false,
+			"loc_id": null,
+			"geoname": null
+		},
+		{
+			"name": "tribal techno",
+			"norm_name": "tribal-techno",
+			"url": "/discover/tribal-techno",
+			"isloc": false,
+			"loc_id": null,
+			"geoname": null
+		},
+		{
+			"name": "ukg",
+			"norm_name": "ukg",
+			"url": "/discover/ukg",
+			"isloc": false,
+			"loc_id": null,
+			"geoname": null
+		},
+		{
+			"name": "Miami",
+			"norm_name": "miami",
+			"url": "/discover/miami",
+			"isloc": true,
+			"loc_id": 951248632,
+			"geoname": {
+				"id": 4164138,
+				"name": "Miami",
+				"fullname": "Miami, Florida"
+			}
+		}
+	],
+	"currency": "USD",
+	"is_set_price": false,
+	"price": 3.05,
+	"require_email": false,
+	"label": null,
+	"label_id": null,
+	"package_details_lite": {},
+	"has_digital_download": true,
+	"num_downloadable_tracks": 1,
+	"merch_sold_out": null,
+	"streaming_limit": 3
+}

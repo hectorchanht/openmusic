@@ -1,0 +1,380 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// Poison-resistant caching contract for translate.ts (WR / debug:dashboard-liked-not-translated).
+// During the /api/translate echo-mode bug the endpoint returned ORIGINALS as a "success" and the
+// client persisted them as final translations → liked/library names stuck Simplified forever.
+// These tests pin the fix: (a) only fully-translated batches are persisted; (b) the cache key
+// carries a version segment so pre-version (poisoned) entries are abandoned + purged.
+//
+// Runs under the node project: flip `browser` ON (so persist() runs) and back it with a minimal
+// in-memory localStorage, mirroring stores/player.svelte.test.ts.
+vi.mock('$app/environment', () => ({ browser: true }));
+
+const fetchMock = vi.fn();
+vi.mock('./api-base', () => ({ apiFetch: (...a: unknown[]) => fetchMock(...a) }));
+
+const memStore = new Map<string, string>();
+const localStorageMock: Storage = {
+	get length() {
+		return memStore.size;
+	},
+	clear: () => memStore.clear(),
+	getItem: (k: string) => (memStore.has(k) ? (memStore.get(k) as string) : null),
+	key: (i: number) => Array.from(memStore.keys())[i] ?? null,
+	removeItem: (k: string) => void memStore.delete(k),
+	setItem: (k: string, v: string) => void memStore.set(k, String(v))
+};
+vi.stubGlobal('localStorage', localStorageMock);
+
+function jsonRes(body: unknown) {
+	return { json: async () => body } as Response;
+}
+const lsKeys = () => Array.from(memStore.keys());
+
+beforeEach(() => {
+	fetchMock.mockReset();
+	memStore.clear();
+	vi.resetModules();
+});
+afterEach(() => {
+	vi.restoreAllMocks();
+	vi.stubGlobal('localStorage', localStorageMock);
+});
+
+describe('translateLinesEx — fallback signal + poison-resistant cache', () => {
+	it('persists a fully-translated batch (all flags true)', async () => {
+		const { translateLinesEx } = await import('./translate');
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['杜國華', '周杰倫'], flags: [true, true] }));
+		const r = await translateLinesEx(['杜国华', '周杰伦'], 'zh-Hant');
+		expect(r.out).toEqual(['杜國華', '周杰倫']);
+		expect(r.complete).toBe(true);
+		expect(lsKeys().filter((k) => k.startsWith('openmusic:lyrics-tr:v3:')).length).toBe(1);
+	});
+
+	it('does NOT persist when any non-blank line fell back (echo / failure)', async () => {
+		const { translateLinesEx } = await import('./translate');
+		// Kana lines are API-bound under zh-Hant (D-04 — offline branch skips them), so this still
+		// exercises the API echo/fallback cache gate (Chinese lines would now convert offline).
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['さくら', '飛舞飄散'], flags: [false, true] }));
+		const r = await translateLinesEx(['さくら', '舞い散る'], 'zh-Hant');
+		expect(r.complete).toBe(false);
+		expect(lsKeys().filter((k) => k.startsWith('openmusic:lyrics-tr:')).length).toBe(0);
+	});
+
+	it('treats blank lines as not blocking persistence', async () => {
+		const { translateLinesEx } = await import('./translate');
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['', '歌詞', ''], flags: [false, true, false] }));
+		const r = await translateLinesEx(['', '歌词', ''], 'zh-Hant');
+		expect(r.complete).toBe(true);
+		expect(lsKeys().filter((k) => k.startsWith('openmusic:lyrics-tr:v3:')).length).toBe(1);
+	});
+
+	it('infers per-line flags when the server omits them (output differs from input)', async () => {
+		const { translateLinesEx } = await import('./translate');
+		// Kana lines are API-bound under zh-Hant; the server omits flags so translate.ts infers them.
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['櫻花', 'まだ'] })); // no flags
+		const r = await translateLinesEx(['さくら', 'まだ'], 'zh-Hant');
+		expect(r.flags).toEqual([true, false]); // line 2 unchanged → fallback
+		expect(r.complete).toBe(false);
+	});
+
+	it('serves a versioned cache hit without re-requesting', async () => {
+		const { translateLinesEx } = await import('./translate');
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['簡體'], flags: [true] }));
+		await translateLinesEx(['简体'], 'zh-Hant');
+		const calls = fetchMock.mock.calls.length;
+		const again = await translateLinesEx(['简体'], 'zh-Hant');
+		expect(again.out).toEqual(['簡體']);
+		expect(fetchMock.mock.calls.length).toBe(calls); // no new request
+	});
+
+	it('purges pre-version (poisoned) lyrics keys on first call', async () => {
+		memStore.set('openmusic:lyrics-tr:zh-Hant:abc123', JSON.stringify(['杜国华']));
+		const { translateLinesEx } = await import('./translate');
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['簡體'], flags: [true] }));
+		await translateLinesEx(['简体'], 'zh-Hant');
+		expect(memStore.get('openmusic:lyrics-tr:zh-Hant:abc123')).toBeUndefined();
+	});
+
+	it('translateLines wrapper preserves the string[] contract', async () => {
+		const { translateLines } = await import('./translate');
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['a', 'b'], flags: [true, true] }));
+		const out = await translateLines(['x', 'y'], 'zh-Hant');
+		expect(out).toEqual(['a', 'b']);
+	});
+
+	it('off / empty are identity pass-throughs', async () => {
+		const { translateLinesEx } = await import('./translate');
+		expect((await translateLinesEx(['x'], 'off')).out).toEqual(['x']);
+		expect((await translateLinesEx([], 'zh-Hant')).out).toEqual([]);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});
+
+// REGRESSION (WR / debug:lyric-tr-not-shown-hide-paren): a flaky upstream made /api/translate
+// return the ORIGINALS as a fake HTTP-200 success (flags=false). translateLines() returned those
+// originals with length === lines.length, so NowPlaying's showTr stayed TRUE and the lyrics block
+// silently rendered untranslated originals ("translation shown nowhere"), recurring every render
+// (incomplete batches are never cached). These tests pin the resilience fix: an incomplete soft-fail
+// (or a thrown transport failure) is retried with backoff so a transient blip self-heals, and the
+// BEST result across attempts is returned so a partial recovery still surfaces. Fake timers keep the
+// backoff instant for the suite.
+describe('translateLinesEx — transient-failure resilience (retry + best-result)', () => {
+	beforeEach(() => vi.useFakeTimers());
+	afterEach(() => vi.useRealTimers());
+
+	// Drive a translateLinesEx() call to completion while flushing the retry backoff timers.
+	async function runWithRetries<T>(p: Promise<T>): Promise<T> {
+		let settled = false;
+		const wrapped = p.then((v) => {
+			settled = true;
+			return v;
+		});
+		// Each await yields to the microtask queue (resolving the in-flight fetch/json) before we
+		// advance the fake backoff timer; loop until the call resolves.
+		while (!settled) {
+			await Promise.resolve();
+			await Promise.resolve();
+			await vi.advanceTimersByTimeAsync(2000);
+		}
+		return wrapped;
+	}
+
+	it('retries an INCOMPLETE soft-fail (echoed originals) and recovers on a later attempt', async () => {
+		const { translateLinesEx } = await import('./translate');
+		// Attempt 1: transient soft-fail — server echoed the originals (all flags false).
+		// Attempt 2: upstream recovered — genuine translation.
+		fetchMock
+			.mockResolvedValueOnce(jsonRes({ translated: ['さくら', '舞い散る'], flags: [false, false] }))
+			.mockResolvedValueOnce(jsonRes({ translated: ['櫻花', '飛舞飄散'], flags: [true, true] }));
+		const r = await runWithRetries(translateLinesEx(['さくら', '舞い散る'], 'zh-Hant'));
+		expect(fetchMock.mock.calls.length).toBe(2); // retried after the soft-fail
+		expect(r.out).toEqual(['櫻花', '飛舞飄散']); // recovered translation surfaces
+		expect(r.complete).toBe(true);
+		// A recovered, complete batch is cached so the next session is instant.
+		expect(lsKeys().filter((k) => k.startsWith('openmusic:lyrics-tr:v3:')).length).toBe(1);
+	});
+
+	it('retries a THROWN transport failure and recovers', async () => {
+		const { translateLinesEx } = await import('./translate');
+		fetchMock
+			.mockRejectedValueOnce(new Error('ETIMEDOUT'))
+			.mockResolvedValueOnce(jsonRes({ translated: ['櫻花'], flags: [true] }));
+		const r = await runWithRetries(translateLinesEx(['さくら'], 'zh-Hant'));
+		expect(fetchMock.mock.calls.length).toBe(2);
+		expect(r.out).toEqual(['櫻花']);
+		expect(r.complete).toBe(true);
+	});
+
+	it('returns the BEST partial result across attempts when none is fully complete', async () => {
+		const { translateLinesEx } = await import('./translate');
+		// Attempt 1: line 1 translated, line 2 echoed. Attempt 2: line 1 echoed, line 2 translated.
+		// Neither attempt is complete, but the best-per-attempt should keep the most translated lines.
+		fetchMock
+			.mockResolvedValueOnce(jsonRes({ translated: ['櫻花', 'まだ'], flags: [true, false] }))
+			.mockResolvedValueOnce(jsonRes({ translated: ['さくら', 'まだ'], flags: [false, false] }))
+			.mockResolvedValueOnce(jsonRes({ translated: ['さくら', 'まだ'], flags: [false, false] }));
+		const r = await runWithRetries(translateLinesEx(['さくら', 'まだ'], 'zh-Hant'));
+		// Best attempt (1 line translated) is retained even though later attempts regressed.
+		expect(r.flags.filter(Boolean).length).toBe(1);
+		expect(r.out[0]).toBe('櫻花');
+		expect(r.complete).toBe(false);
+		// An incomplete batch is NEVER cached (no poison).
+		expect(lsKeys().filter((k) => k.startsWith('openmusic:lyrics-tr:')).length).toBe(0);
+	});
+
+	it('gives up after the bounded retries and returns the (incomplete) best, never blanking length', async () => {
+		const { translateLinesEx } = await import('./translate');
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['さくら', '舞い散る'], flags: [false, false] }));
+		const r = await runWithRetries(translateLinesEx(['さくら', '舞い散る'], 'zh-Hant'));
+		// 1 initial + 2 retries = 3 attempts, then settles with the originals (length preserved so the
+		// UI never breaks alignment) but complete=false (so it stays retryable / uncached).
+		expect(fetchMock.mock.calls.length).toBe(3);
+		expect(r.out.length).toBe(2);
+		expect(r.complete).toBe(false);
+	});
+});
+
+// OFFLINE zh-Hant ROUTING (Phase 25 / D-02 / D-04): when to === 'zh-Hant', Chinese-detected lines
+// are converted CLIENT-SIDE (zero network) by the s2t converter (Plan 01) and ONLY the non-Chinese
+// remainder is sent to /api/translate. zh-convert is PURE, so we let the REAL converter run (no
+// mock) and assert on fetchMock's call count + request body to prove the routing + the D-04 JA-kana
+// guard + the preserved positional-alignment contract (out.length === lines.length).
+describe('translateLinesEx — zh-Hant offline s2t routing (D-02 / D-04)', () => {
+	// Parse the JSON body the client POSTed to /api/translate on a given call.
+	const sentLines = (call: number): string[] =>
+		JSON.parse((fetchMock.mock.calls[call][1] as { body: string }).body).lines;
+
+	it('all-Chinese zh-Hant batch is converted offline with ZERO API calls + cached (v3)', async () => {
+		const { translateLinesEx } = await import('./translate');
+		const r = await translateLinesEx(['简体', '中文'], 'zh-Hant');
+		expect(fetchMock).not.toHaveBeenCalled(); // no line reached the API
+		expect(r.out).toEqual(['簡體', '中文']); // real s2t Traditional output
+		expect(r.complete).toBe(true);
+		expect(lsKeys().filter((k) => k.startsWith('openmusic:lyrics-tr:v3:')).length).toBe(1);
+	});
+
+	it('mixed batch sends ONLY the non-Chinese line to the API; out stays aligned', async () => {
+		const { translateLinesEx } = await import('./translate');
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['HELLO'], flags: [true] }));
+		const r = await translateLinesEx(['简体', 'hello'], 'zh-Hant');
+		expect(fetchMock.mock.calls.length).toBe(1); // '简体' handled offline
+		expect(sentLines(0)).toEqual(['hello']); // only the non-Chinese line was sent
+		expect(r.out[0]).toBe('簡體'); // offline Traditional form
+		expect(r.out[1]).toBe('HELLO'); // API result
+		expect(r.out.length).toBe(2); // out.length === lines.length
+	});
+
+	it('a JA-kana line under zh-Hant IS sent to the API (offline branch skipped it — D-04)', async () => {
+		const { translateLinesEx } = await import('./translate');
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['桜'], flags: [true] }));
+		const r = await translateLinesEx(['さくら'], 'zh-Hant');
+		expect(fetchMock.mock.calls.length).toBe(1);
+		expect(sentLines(0)).toEqual(['さくら']); // routed to the API, NOT offline-converted
+		expect(r.out.length).toBe(1);
+	});
+
+	it('a non-zh-Hant target is unchanged: the FULL batch (incl the Chinese line) goes to the API', async () => {
+		const { translateLinesEx } = await import('./translate');
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['A', 'B'], flags: [true, true] }));
+		const r = await translateLinesEx(['简体', 'hello'], 'en');
+		expect(fetchMock.mock.calls.length).toBe(1);
+		expect(sentLines(0)).toEqual(['简体', 'hello']); // no offline branch — full lines sent
+		expect(r.out).toEqual(['A', 'B']);
+	});
+});
+
+// quick-260926-kvz — zh-Hant batches persisted BEFORE the s2t merge served an already-Traditional
+// 杰 as 傑 (周杰倫 → 周傑倫) for as long as the cache lived, and a cold names flush could copy that
+// back into the name cache. The localStorage hit now re-derives the Chinese positions offline.
+describe('translateLinesEx — zh-Hant lyrics cache heals pre-merge batches offline (quick-260926-kvz)', () => {
+	/** Let translateLinesEx write the REAL key for `lines`, overwrite its value with `stored`, then
+	 *  drop the module (and its in-memory cache) so the next call reads localStorage. */
+	async function seedBatch(lines: string[], to: string, api: string[], stored: string[]): Promise<string> {
+		const { translateLinesEx } = await import('./translate');
+		fetchMock.mockResolvedValue(jsonRes({ translated: api, flags: api.map(() => true) }));
+		await translateLinesEx(lines, to);
+		const key = lsKeys().find((k) => k.startsWith(`openmusic:lyrics-tr:v3:${to}:`));
+		expect(key).toBeDefined();
+		memStore.set(key as string, JSON.stringify(stored));
+		fetchMock.mockReset();
+		vi.resetModules();
+		return key as string;
+	}
+
+	it('heals a poisoned Chinese position with ZERO fetches, keeps the API line, rewrites storage', async () => {
+		const key = await seedBatch(['周杰倫', 'Hello'], 'zh-Hant', ['你好'], ['周傑倫', '你好']);
+		const { translateLinesEx } = await import('./translate');
+		const r = await translateLinesEx(['周杰倫', 'Hello'], 'zh-Hant');
+		expect(r.out).toEqual(['周杰倫', '你好']);
+		expect(r.complete).toBe(true);
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(JSON.parse(memStore.get(key) as string)).toEqual(['周杰倫', '你好']);
+	});
+
+	it('does not rewrite a clean batch', async () => {
+		await seedBatch(['周杰倫', 'Hello'], 'zh-Hant', ['你好'], ['周杰倫', '你好']);
+		const { translateLinesEx } = await import('./translate');
+		const setItem = vi.spyOn(localStorageMock, 'setItem');
+		const r = await translateLinesEx(['周杰倫', 'Hello'], 'zh-Hant');
+		expect(r.out).toEqual(['周杰倫', '你好']);
+		expect(setItem).not.toHaveBeenCalled();
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('a non-zh-Hant hit is returned untouched without importing zh-convert', async () => {
+		const key = await seedBatch(['周杰倫'], 'ja', ['周杰倫'], ['周傑倫']);
+		const loaded = vi.fn();
+		vi.doMock('./zh-convert', async (orig) => {
+			loaded();
+			return await orig();
+		});
+		const { translateLinesEx } = await import('./translate');
+		const r = await translateLinesEx(['周杰倫'], 'ja');
+		expect(r.out).toEqual(['周傑倫']);
+		expect(loaded).not.toHaveBeenCalled();
+		expect(JSON.parse(memStore.get(key) as string)).toEqual(['周傑倫']);
+		vi.doUnmock('./zh-convert');
+	});
+
+	it('an s2t chunk failure keeps the cached value (never downgrades to the original)', async () => {
+		const key = await seedBatch(['周杰伦', 'Hello'], 'zh-Hant', ['你好'], ['周杰倫', '你好']);
+		vi.doMock('tongwen-dict/dist/s2t-char.min.json', () => {
+			throw new Error('chunk load failed');
+		});
+		const { translateLinesEx } = await import('./translate');
+		const r = await translateLinesEx(['周杰伦', 'Hello'], 'zh-Hant');
+		expect(r.out).toEqual(['周杰倫', '你好']);
+		expect(JSON.parse(memStore.get(key) as string)).toEqual(['周杰倫', '你好']);
+		vi.doUnmock('tongwen-dict/dist/s2t-char.min.json');
+	});
+});
+
+// quick-261116-lyrux (Task 4) — LINE-LEVEL cache. Hector's toggle scenario: the Korean
+// lines are translated with English skipped; he then un-skips English, which changes
+// the batch composition (and every batch-level key) — the already-translated lines
+// must resolve from the per-line cache so the API only ever sees the NEW line.
+describe('translateLinesEx — line-level cache (quick-261116-lyrux)', () => {
+	const sentLines = (call: number): string[] =>
+		JSON.parse((fetchMock.mock.calls[call][1] as { body: string }).body).lines;
+	const lineKeys = () => lsKeys().filter((k) => k.startsWith('openmusic:line-tr:v3:'));
+
+	/** The API stub translates whatever it is sent, prefixing each line. */
+	function wirePrefixApi() {
+		fetchMock.mockImplementation(async (_url: unknown, init: { body: string }) => {
+			const body = JSON.parse(init.body) as { lines: string[] };
+			return jsonRes({
+				translated: body.lines.map((l) => '譯:' + l),
+				flags: body.lines.map(() => true)
+			});
+		});
+	}
+
+	it('toggling the send set only fetches the NEW lines (KR lines served per-line)', async () => {
+		const { translateLinesEx } = await import('./translate');
+		wirePrefixApi();
+		// Round 1: the KR-only send set (English skipped upstream in NpLyrics).
+		const r1 = await translateLinesEx(['사랑해', '너를 원해'], 'zh-Hant');
+		expect(r1.complete).toBe(true);
+		expect(r1.out).toEqual(['譯:사랑해', '譯:너를 원해']);
+		expect(lineKeys().length).toBe(2); // both KR lines persisted per-line
+		fetchMock.mockClear();
+		// Round 2: English un-skipped — a NEW composition (batch keys all miss), with
+		// the KR lines interleaved around a brand-new English line.
+		const r2 = await translateLinesEx(['사랑해', 'Hello tonight', '너를 원해'], 'zh-Hant');
+		expect(fetchMock.mock.calls.length).toBe(1);
+		expect(sentLines(0)).toEqual(['Hello tonight']); // ONLY the new line hit the API
+		expect(r2.out).toEqual(['譯:사랑해', '譯:Hello tonight', '譯:너를 원해']);
+		expect(r2.flags).toEqual([true, true, true]);
+		expect(r2.complete).toBe(true);
+	});
+
+	it('line entries survive a module reset via localStorage (new session, same device)', async () => {
+		const { translateLinesEx } = await import('./translate');
+		wirePrefixApi();
+		await translateLinesEx(['사랑해'], 'zh-Hant');
+		vi.resetModules(); // drop the in-memory line cache; localStorage persists
+		fetchMock.mockClear();
+		const { translateLinesEx: fresh } = await import('./translate');
+		const r = await fresh(['사랑해', '새로운 줄'], 'zh-Hant');
+		expect(sentLines(0)).toEqual(['새로운 줄']); // the known line came from storage
+		expect(r.out).toEqual(['譯:사랑해', '譯:새로운 줄']);
+		expect(r.complete).toBe(true);
+	});
+
+	it('echoed lines never enter the line cache (per-line poison rule)', async () => {
+		const { translateLinesEx } = await import('./translate');
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['さくら'], flags: [false] }));
+		const r = await translateLinesEx(['さくら'], 'zh-Hant');
+		expect(r.complete).toBe(false);
+		expect(lineKeys().length).toBe(0);
+	});
+
+	it('Chinese lines under zh-Hant stay OFF the line cache (offline path untouched)', async () => {
+		const { translateLinesEx } = await import('./translate');
+		const r = await translateLinesEx(['简体中文'], 'zh-Hant');
+		expect(fetchMock).not.toHaveBeenCalled(); // converted offline as always
+		expect(r.out).toEqual(['簡體中文']);
+		expect(lineKeys().length).toBe(0); // not line-cached — kvz heal semantics preserved
+	});
+});

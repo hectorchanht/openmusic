@@ -1,0 +1,396 @@
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { Music, Radio, Maximize2, Download, Sliders, ListMusic, SquareActivity, RotateCcw, Clapperboard, MonitorPlay, History, ArrowLeftRight, SkipForward, SkipBack, Heart, ListStart, ListEnd, Ban } from '@lucide/svelte';
+	import { settings, type DefaultQuality, type DefaultSource } from '$lib/stores/settings.svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import SettingPicker from '$lib/components/SettingPicker.svelte';
+	import SettingHint from '$lib/components/SettingHint.svelte';
+	import { PACK_CONTEXTS, VIDEO_QUALITIES, SWIPE_ACTS } from '$lib/config/defaults';
+	import type { UpnextMode, TapUpnextMode, UpnextSettingKey, VideoQuality, SwipeAct } from '$lib/config/defaults';
+	import { SOURCES } from '$lib/sources/registry';
+	import type { SourceId } from '$lib/sources/types';
+	import { names } from '$lib/stores/names.svelte';
+	import { tapBounce } from '$lib/actions/tapBounce';
+	import { t, type TranslationKey } from '$lib/i18n';
+	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
+
+	onMount(() => settings.load());
+
+	// User call 2026-10-06: the reset button opens an in-app confirm modal (not the
+	// native window.confirm).
+	let resetOpen = $state(false);
+
+	// Quality tokens (320k/128k) are literal; Auto/Lossless are chrome.
+	const qualities: { v: DefaultQuality; key?: string; literal?: string }[] = [
+		{ v: 'auto', key: 'settings.optAuto' },
+		{ v: 'lossless', key: 'settings.optLossless' },
+		{ v: '320', literal: '320k' },
+		{ v: '128', literal: '128k' }
+	];
+	// Proper-noun source labels stay literal; only 'Auto (all)' is chrome.
+	const sources: { v: DefaultSource; key?: string; literal?: string }[] = [
+		{ v: 'auto', key: 'settings.optAutoAll' },
+		{ v: 'netease', literal: 'NetEase' },
+		{ v: 'qq', literal: 'QQ' },
+		{ v: 'kuwo', literal: 'Kuwo' },
+		{ v: 'kugou', literal: 'Kugou' },
+		{ v: 'migu', literal: 'Migu' },
+		{ v: 'joox', literal: 'JOOX' }
+	];
+
+	function setQuality(v: DefaultQuality) { settings.defaultQuality = v; settings.save(); }
+	function setDownloadQuality(v: DefaultQuality) { settings.downloadQuality = v; settings.save(); }
+	function setSource(v: DefaultSource) { settings.defaultSource = v; settings.save(); }
+	// quick-261024-vid1: the MV layer — master switch + height cap. The NP quality menu
+	// writes settings.videoQuality too (one setting, two surfaces).
+	function toggleVideos(v: 'off' | 'on') { settings.videoEnabled = v === 'on'; settings.save(); }
+	function setVideoQuality(v: string) {
+		const n = Number(v);
+		if ((VIDEO_QUALITIES as readonly number[]).includes(n)) { settings.videoQuality = n as VideoQuality; settings.save(); }
+	}
+	// quick-260919-ebi: the preview picker hands back the PICKED state ('off'|'on'), so tapping the
+	// card that is already selected must be a no-op — a bare `!x` flip would toggle it off again.
+	function toggleExpand(v: 'off' | 'on') { settings.autoExpandOnPlay = v === 'on'; settings.save(); }
+	// ii6: per-source enable/disable. Precedence in getEnabledAdapters: explicit prefs >
+	// settings.enabledSources > adapter.enabledByDefault. Helper resolves the effective state.
+	function sourceEnabled(id: SourceId): boolean {
+		const v = settings.enabledSources[id];
+		return v !== undefined ? v : SOURCES[id].enabledByDefault;
+	}
+	function toggleSource(id: SourceId) {
+		const cur = sourceEnabled(id);
+		settings.enabledSources = { ...settings.enabledSources, [id]: !cur };
+		settings.save();
+	}
+
+	// Phase 17 (QUEUE-03 / D-01/D-02): per-context up-next sourcing. One selector row per
+	// context (Settings → Playback ONLY — no queue-header chip). Each row reflects the
+	// effective mode and writes a per-context override, mirroring the setSource handler.
+	// Labels reuse existing surface keys where they exist (liked/playlists/downloads/history/
+	// album) and use the Phase-17 ctx* keys for the rest.
+	// quick-261024-sets (Hector 2026-10-24): the six chart-pack contexts join the list — pack
+	// pages install their pack unpinned now, so their sourcing is governed here like every
+	// other surface; the pack rows reuse the packs' own title keys.
+	const upnextContexts: { ctx: UpnextSettingKey; key: TranslationKey }[] = [
+		{ ctx: 'liked', key: 'library.liked' },
+		{ ctx: 'search', key: 'settings.ctxSearch' },
+		{ ctx: 'downloads', key: 'library.downloads' },
+		{ ctx: 'playlist', key: 'library.playlists' },
+		{ ctx: 'album', key: 'settings.ctxAlbum' },
+		{ ctx: 'artist', key: 'settings.ctxArtist' },
+		{ ctx: 'home-discovery', key: 'settings.ctxHomeDiscovery' },
+		{ ctx: 'history', key: 'history.heading' },
+		// quick-261024-sets4: ONE row for every country pack — the 'pack' family key.
+		{ ctx: 'pack', key: 'settings.ctxPack' },
+		{ ctx: 'songs-of-year', key: 'home.songsOfYear' }
+	];
+	function setUpnext(ctx: UpnextSettingKey, v: UpnextMode) {
+		if (ctx === 'pack') {
+			// quick-261024-sets4: writing the family key clears any per-pack leftovers, so the
+			// one pack value truly governs every country pack from this tap on.
+			const next = { ...settings.upnextPerContext };
+			for (const p of PACK_CONTEXTS) delete next[p];
+			next.pack = v;
+			settings.upnextPerContext = next;
+		} else {
+			settings.upnextPerContext = { ...settings.upnextPerContext, [ctx]: v };
+		}
+		settings.save();
+	}
+
+	// quick-260919-ebi: the labelled controls on this page now come from the ONE SettingPicker.
+	// $derived so a live app-language change relabels them, exactly as the old inline t() calls did.
+	const qualityOptions = $derived(
+		qualities.map((q) => ({ v: q.v, label: q.key ? t(q.key as TranslationKey) : (q.literal ?? '') }))
+	);
+	// quick-260919-ebi: these two per-context buttons were icon-only with NO accessible name at all
+	// — 16 unlabelled buttons. SettingPicker gives every option an aria-label for free, so the
+	// icon-only look survives and the a11y hole closes.
+	const upnextOptions = $derived([
+		{ v: 'same-list' as UpnextMode, label: t('settings.upnextSameList'), icon: ListMusic },
+		{ v: 'generated' as UpnextMode, label: t('settings.upnextGenerated'), icon: Radio }
+	]);
+	// quick-261103-tapsplice (Hector 2026-11-03): the casual song-tap choice — ONE global
+	// row above the per-context list-sourcing rows. Preserve = the tap splices into the
+	// queue; Generate = the tail rebuilds from the tapped song. History is kept under both.
+	const tapOptions = $derived([
+		{ v: 'preserve' as TapUpnextMode, label: t('settings.tapPreserve'), icon: History },
+		{ v: 'generate' as TapUpnextMode, label: t('settings.tapGenerate'), icon: Radio }
+	]);
+	function setTapUpnext(v: TapUpnextMode) {
+		settings.tapUpnext = v;
+		settings.save();
+	}
+	// quick-261108-swp: the swipe pickers. Labels reuse the existing transport / menu keys.
+	const swipeOpt = $derived({
+		next: { v: 'next' as SwipeAct, label: t('nowplaying.next'), icon: SkipForward },
+		prev: { v: 'prev' as SwipeAct, label: t('nowplaying.previous'), icon: SkipBack },
+		like: { v: 'like' as SwipeAct, label: t('menu.like'), icon: Heart },
+		playNext: { v: 'playNext' as SwipeAct, label: t('menu.playNext'), icon: ListStart },
+		queue: { v: 'queue' as SwipeAct, label: t('menu.addToQueue'), icon: ListEnd },
+		off: { v: 'off' as SwipeAct, label: t('settings.optOff'), icon: Ban }
+	});
+	const swipeGroups = $derived([
+		{
+			key: 'swipePlayer' as const,
+			title: 'settings.swipePlayer' as TranslationKey,
+			options: [swipeOpt.next, swipeOpt.prev, swipeOpt.like, swipeOpt.off]
+		},
+		{
+			key: 'swipeRow' as const,
+			title: 'settings.swipeRow' as TranslationKey,
+			options: SWIPE_ACTS.map((a) => swipeOpt[a])
+		}
+	]);
+	function setSwipe(key: 'swipePlayer' | 'swipeRow', dir: 'left' | 'right', v: SwipeAct) {
+		settings[key] = { ...settings[key], [dir]: v };
+		settings.save();
+	}
+	// quick-260919-ebi: Off/On captions for the three preview pickers below.
+	const offOn = $derived([
+		{ v: 'off' as const, label: t('settings.optOff') },
+		{ v: 'on' as const, label: t('settings.optOn') }
+	]);
+	/** A boolean setting rendered as a two-card preview picker: 'off' | 'on' <-> false | true. */
+	const boolValue = (b: boolean) => (b ? 'on' : 'off');
+	// quick-261024-vid1: MV height caps — numerals need no i18n.
+	const videoQualityOptions = VIDEO_QUALITIES.map((q) => ({ v: String(q), label: `${q}p` }));
+</script>
+
+<svelte:head><title>{t('settings.title')}</title></svelte:head>
+
+<PageHeader title={t('settings.groupPlayback')} backLabel={t('settings.backToSettings')} onback={() => goto('/settings')}>
+	{#snippet trailing()}
+		<!-- quick-261006-ico: icon-only reset (icon-first UI pass) — resetGroup doubles as aria-label + title. -->
+		<button class="reset" onclick={() => (resetOpen = true)} use:tapBounce aria-label={t('settings.resetGroup')} title={t('settings.resetGroup')}><RotateCcw size={16} /></button>
+	{/snippet}
+</PageHeader>
+
+<ConfirmModal
+	open={resetOpen}
+	title={t('settings.resetGroup')}
+	body={t('settings.resetConfirm')}
+	confirmLabel={t('settings.resetGroup')}
+	onconfirm={() => settings.resetPlayback()}
+	onclose={() => (resetOpen = false)}
+/>
+
+<section>
+	<h2><Music size={15} /> {t('settings.defaultQuality')}<SettingHint label={t('settings.defaultQuality')} text={t('settings.defaultQualityNote')} /></h2>
+	<!-- quick-260919-ebi: NO preview here on purpose — stream quality is a network + behaviour
+	     setting. A mockup would have to draw a difference the user cannot see on screen, so the
+	     labels and the note stay. -->
+	<SettingPicker label={t('settings.defaultQuality')} options={qualityOptions} value={settings.defaultQuality} onpick={setQuality} />
+</section>
+
+<section>
+	<h2><Download size={15} /> {t('settings.downloadQuality')}<SettingHint label={t('settings.downloadQuality')} text={t('settings.downloadQualityNote')} /></h2>
+	<!-- quick-260919-ebi: kept beside defaultQuality (not moved to Downloads) precisely so the two
+	     read as an identical control the user can compare. Same reason it gets no preview. -->
+	<SettingPicker label={t('settings.downloadQuality')} options={qualityOptions} value={settings.downloadQuality} onpick={setDownloadQuality} />
+</section>
+
+<section>
+	<h2><Radio size={15} /> {t('settings.defaultSource')}<SettingHint label={t('settings.defaultSource')} text={t('settings.defaultSourceNote')} /></h2>
+	<div class="chips">
+		{#each sources as s (s.v)}
+			<button class="chip" class:on={settings.defaultSource === s.v} onclick={() => setSource(s.v)} use:tapBounce>{s.key ? t(s.key as TranslationKey) : s.literal}</button>
+		{/each}
+	</div>
+</section>
+
+<!-- quick-261103-stg: Advanced > Sources moved up beside Default source — both answer "where
+     does the music come from". -->
+<!-- ii6: Advanced > Sources — tucked behind a <details> accordion so the Playback tab
+	   stays speed/quality-first. Per-source enable/disable chips (5sing ships enabled by default). -->
+<details class="advanced">
+	<summary><Sliders size={15} /> {t('settings.sourcesAdvanced')}<SettingHint label={t('settings.sourcesAdvanced')} text={t('settings.sourcesAdvancedNote')} /></summary>
+	<div class="chips">
+		{#each Object.values(SOURCES) as adapter (adapter.id)}
+			<!-- quick-261006-zh: source labels ride the tongwentang script lock like all page content. -->
+			<button class="chip" class:on={sourceEnabled(adapter.id)} onclick={() => toggleSource(adapter.id)} use:tapBounce>{names.zhLock(adapter.label)}</button>
+		{/each}
+	</div>
+</details>
+
+
+
+<!-- quick-260919-ebi (F3): three booleans that are PURELY about what lands on screen, so each
+     one is now picked by tapping the state you want rather than reading a paragraph about it.
+     Every mock below is built from the shared .mock-* primitives in SettingPicker. -->
+
+<!-- autoExpandOnPlay — Off: a content page with the docked mini bar at the bottom.
+     On: the full-screen now-playing sheet (cover block, title lines, transport row). -->
+{#snippet expandOff()}
+	<span class="mock-chrome">
+		<span class="mock-bar"><span class="mock-line" style:width="35%"></span></span>
+		<span class="mock-col">
+			{#each [0, 1, 2] as r (r)}
+				<span class="mock-row">
+					<span class="mock-tile" style:width="9px"></span>
+					<span class="mock-line" style:width="60%"></span>
+				</span>
+			{/each}
+		</span>
+		<span class="mock-bar">
+			<span class="mock-tile" style:width="10px"></span>
+			<span class="mock-col">
+				<span class="mock-line" style:width="70%"></span>
+				<span class="mock-line dim" style:width="45%"></span>
+			</span>
+		</span>
+	</span>
+{/snippet}
+{#snippet expandOn()}
+	<span class="mock-chrome">
+		<span class="mock-row" style:justify-content="center">
+			<span class="mock-tile" style:width="30px"></span>
+		</span>
+		<span class="mock-col" style:align-items="center">
+			<span class="mock-line" style:width="60%"></span>
+			<span class="mock-line dim" style:width="40%"></span>
+		</span>
+		<span class="mock-row" style:justify-content="center" style:gap="8px">
+			<span class="mock-tile" style:width="5px" style:border-radius="999px"></span>
+			<span class="mock-tile" style:width="9px" style:border-radius="999px"></span>
+			<span class="mock-tile" style:width="5px" style:border-radius="999px"></span>
+		</span>
+	</span>
+{/snippet}
+
+<!-- quick-261103-stg: auto-expand is the one "Playback & motion" row that is BEHAVIOUR (what
+     happens when you tap play), so it stays here as its own section. The quality tag, source tag
+     and now-bar lyric pickers are pure display and moved to Appearance. -->
+<section>
+	<h2><Maximize2 size={15} /> {t('settings.autoExpand')}<SettingHint label={t('settings.autoExpand')} text={t('settings.autoExpandDesc')} /></h2>
+	<SettingPicker
+		variant="preview"
+		label={t('settings.autoExpand')}
+		options={[
+			{ ...offOn[0], preview: expandOff },
+			{ ...offOn[1], preview: expandOn }
+		]}
+		value={boolValue(settings.autoExpandOnPlay)}
+		onpick={toggleExpand}
+	/>
+
+</section>
+
+<section>
+	<h2><SquareActivity size={15} /> {t('settings.upnextSourcing')}</h2>
+		<span class="muted">
+			<ListMusic size={12} />	
+			{t('settings.upnextSameList')}
+			/
+			<Radio size={14} />	
+			{t('settings.upnextGenerated')}
+		</span>
+	<!-- quick-261024-sets: visible explainer (Hector) — what the two modes DO and which
+	     surfaces default to which, so the rows below need no guessing. -->
+	<p class="upnext-desc">{t('settings.upnextSourcingDesc')}</p>
+
+	<!-- quick-261103-tapsplice: the tap choice governs casual song taps app-wide; the
+	     per-context rows below govern list plays (Play / Shuffle on a list). -->
+	<div class="upnext-row">
+		<span class="ctx-label">{t('settings.tapUpnext')}</span>
+		<SettingPicker
+			label={t('settings.tapUpnext')}
+			options={tapOptions}
+			value={settings.tapUpnext}
+			onpick={setTapUpnext}
+			iconOnly
+		/>
+	</div>
+	<p class="upnext-desc">{t('settings.tapUpnextDesc')}</p>
+
+	{#each upnextContexts as c (c.ctx)}
+		<div class="upnext-row">
+			<span class="ctx-label">{t(c.key)}</span>
+			<!-- quick-260919-ebi: no preview — up-next is about where the NEXT song comes from,
+			     which is behaviour, not a look. The two icons already carry it. -->
+			<SettingPicker
+				label={`${t(c.key)} · ${t('settings.upnextSourcing')}`}
+				options={upnextOptions}
+				value={settings.upnextModeForKey(c.ctx)}
+				onpick={(v) => setUpnext(c.ctx, v)}
+				iconOnly
+			/>
+		</div>
+	{/each}
+</section>
+
+<!-- quick-261108-swp (Hector): what a sideways swipe does, per direction. Defaults live in
+     config/defaults.ts PLAYBACK_DEFAULTS (swipePlayer / swipeRow); the shared executor is
+     components/swipe-act.ts. Player surfaces offer only acts that make sense for the song already
+     playing (no play-next / queue of itself). -->
+{#each swipeGroups as g (g.key)}
+	<section>
+		<h2><ArrowLeftRight size={15} /> {t(g.title)}</h2>
+		{#each (['left', 'right'] as const) as dir (dir)}
+			<div class="upnext-row">
+				<span class="ctx-label">{t(dir === 'left' ? 'settings.swipeLeft' : 'settings.swipeRight')}</span>
+				<SettingPicker
+					label={`${t(g.title)} — ${t(dir === 'left' ? 'settings.swipeLeft' : 'settings.swipeRight')}`}
+					options={g.options}
+					value={settings[g.key][dir]}
+					onpick={(v) => setSwipe(g.key, dir, v)}
+					iconOnly
+				/>
+			</div>
+		{/each}
+		{#if g.key === 'swipeRow'}<p class="upnext-desc">{t('settings.swipeDesc')}</p>{/if}
+	</section>
+{/each}
+
+<section>
+	<h2><Clapperboard size={15} /> {t('settings.musicVideos')}<SettingHint label={t('settings.musicVideos')} text={t('settings.musicVideosDesc')} /></h2>
+	<SettingPicker label={t('settings.musicVideos')} options={offOn} value={boolValue(settings.videoEnabled)} onpick={toggleVideos} />
+</section>
+
+<!-- quick-261103-stg: video quality only matters while music videos are on. -->
+{#if settings.videoEnabled}
+<section>
+	<h2><MonitorPlay size={15} /> {t('settings.videoQuality')}</h2>
+	<SettingPicker label={t('settings.videoQuality')} options={videoQualityOptions} value={String(settings.videoQuality)} onpick={setVideoQuality} />
+</section>
+{/if}
+
+<style>
+	/* quick-261006-ico: icon-only reset — 40px ghost circle. */
+	.reset { background: none; border: 1px solid var(--color-border); color: var(--color-text-muted); width: 40px; height: 40px; padding: 0; border-radius: 50%; cursor: pointer; display: inline-grid; place-items: center; flex: none; }
+	.reset:hover { color: var(--color-text); }
+	section { margin: 18px 0; }
+	/* quick-260919-ebi: `position: relative` on every title that carries an inline (i) — it anchors
+	   SettingHint's description panel, which is scoped and cannot set this on its host. */
+	section h2 { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 0 0 10px; position: relative; }
+	.muted { color: var(--color-text-muted); font-size: 0.75rem; margin: 8px 0 0; display: flex; align-items: center; gap: 4px;}
+	/* quick-261007-hscroll: chip strips scroll horizontally (never wrap, never clip) —
+	   same pattern as the realufo.org chip rows: overflow-x + hidden scrollbar. */
+	.chips {
+		display: flex;
+		gap: 8px;
+		overflow-x: auto;
+		scrollbar-width: none;
+		-ms-overflow-style: none;
+		padding-bottom: 4px;
+	}
+	.chips::-webkit-scrollbar {
+		display: none;
+		width: 0;
+	}
+	.chips > .chip {
+		flex: none;
+		white-space: nowrap;
+	}
+	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; }
+	.chip.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
+	/* quick-260919-ebi: the .seg CSS moved into SettingPicker.svelte; .row-toggle/.sw went with the
+	   three toggle rows the previews replaced. */
+	.upnext-desc { color: var(--color-text-muted); font-size: 0.8125rem; line-height: 1.5; margin: 8px 0 4px; }
+	.upnext-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; }
+	.upnext-row .ctx-label { font-size: 0.875rem; color: var(--color-text); }
+	.advanced { margin: 22px 0; padding: 10px 12px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 12px; }
+	.advanced summary { position: relative; display: flex; align-items: center; gap: 6px; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); cursor: pointer; padding: 4px 0; }
+	.advanced .chips { margin-top: 12px; }
+</style>

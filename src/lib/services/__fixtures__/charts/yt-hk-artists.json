@@ -1,0 +1,123 @@
+{
+	"contents": {
+		"sectionListRenderer": {
+			"contents": [
+				{
+					"musicAnalyticsSectionRenderer": {
+						"content": {
+							"perspectiveMetadata": {
+								"requestParams": {
+									"perspective": "CHART_DETAILS",
+									"chartParams": {
+										"countryCode": "hk",
+										"chartType": "CHART_TYPE_ARTISTS",
+										"chartPeriodType": "CHART_PERIOD_TYPE_WEEKLY"
+									}
+								}
+							},
+							"artists": [
+								{
+									"listType": "TOP_VIEWS_CHART",
+									"chartPeriodType": "CHART_PERIOD_TYPE_WEEKLY",
+									"endDate": "2026-09-17",
+									"artistViews": [
+										{
+											"id": "/m/01pww7v",
+											"name": "陳奕迅",
+											"thumbnail": {
+												"thumbnails": [
+													{
+														"url": "https://lh3.googleusercontent.com/MBjMu3EHBwUFMuf80d9OfCLVG2VywWGcD6OV6XUb4mBmLPWputvMOgEG7T2frxBlZdYkCho4NXGdzTQ"
+													}
+												]
+											},
+											"externalChannelId": "UCnafe6M9Itwt08RFI51L6mw",
+											"chartEntryMetadata": {
+												"currentPosition": 1,
+												"previousPosition": 1,
+												"percentViewsChange": -0.002989729,
+												"periodsOnChart": 22
+											}
+										},
+										{
+											"id": "/g/11j4b0r92_",
+											"name": "MC Cheung Tinfu",
+											"thumbnail": {
+												"thumbnails": [
+													{
+														"url": "https://yt3.googleusercontent.com/mmHymzpdyXJBooTdzuVNLpaoSH_rMbbFHhybsQCYbdWqXuTktKE9Yed4-rk2vQnn7YC2XzlN6dGSupU"
+													}
+												]
+											},
+											"externalChannelId": "UC4LyPYXnF07KF97Nb8vE_Pg",
+											"chartEntryMetadata": {
+												"currentPosition": 2,
+												"previousPosition": 2,
+												"percentViewsChange": -0.047626123,
+												"periodsOnChart": 22
+											}
+										},
+										{
+											"id": "/m/02nfjp",
+											"name": "周杰倫",
+											"thumbnail": {
+												"thumbnails": [
+													{
+														"url": "https://yt3.googleusercontent.com/5vqNE8l4iYKmNCHd_YIgknhMF-W4ROcG5H7ZbdfOudxTcNSIIJrf9WpctLh43GlzFLmmcpMUxRQ918Kv"
+													}
+												]
+											},
+											"externalChannelId": "UC8CU5nVhCQIdAGrFFp4loOQ",
+											"chartEntryMetadata": {
+												"currentPosition": 3,
+												"previousPosition": 3,
+												"percentViewsChange": 0.0775482,
+												"periodsOnChart": 22
+											}
+										},
+										{
+											"id": "/m/01d1yr",
+											"name": "張國榮",
+											"thumbnail": {
+												"thumbnails": [
+													{
+														"url": "https://yt3.googleusercontent.com/9ksURo7MWduQ_NiWQa-_fjkVdZIEy5fJyRsJ81MaXuj_kDQinPa-vsb8bDUEK1UPqDbfCqHNKQ"
+													}
+												]
+											},
+											"externalChannelId": "UCQGZi8QbyAfv4hMOqccvBbA",
+											"chartEntryMetadata": {
+												"currentPosition": 4,
+												"previousPosition": 8,
+												"percentViewsChange": 0.54127616,
+												"periodsOnChart": 22
+											}
+										},
+										{
+											"id": "/m/02z3_dk",
+											"name": "張敬軒",
+											"thumbnail": {
+												"thumbnails": [
+													{
+														"url": "https://lh3.googleusercontent.com/wyWbOZFdp8jsWSsMwMlfJ5P89EopqrmwRQ1pq1d03V6Tc29aGtsc6Th-pH8js8_XlZkF_HlWkyyc32U"
+													}
+												]
+											},
+											"externalChannelId": "UCgQqWQM2Dx7SZG5_i40-7lQ",
+											"chartEntryMetadata": {
+												"currentPosition": 5,
+												"previousPosition": 4,
+												"percentViewsChange": -0.02437098,
+												"periodsOnChart": 22
+											}
+										}
+									]
+								}
+							]
+						}
+					}
+				}
+			]
+		}
+	}
+}

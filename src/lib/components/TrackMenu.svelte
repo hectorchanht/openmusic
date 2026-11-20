@@ -1,0 +1,2634 @@
+<script lang="ts">
+	import { tick, untrack, onDestroy } from 'svelte';
+	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
+	import { goto } from '$app/navigation';
+	import { ListStart, ListEnd, Download, Check, Heart, ListPlus, User, Share2, Info, X, Plus, Shuffle, Repeat, Repeat1, Trash2, Moon, Sparkles, Layers, Image as ImageIcon, ChevronDown, Tags, Mic2, EyeOff, Pencil, Disc3, Radio, MessageCircle, ListMusic, ArrowDownToLine, RotateCcw } from '@lucide/svelte';
+	import { player } from '$lib/stores/player.svelte';
+	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
+	import { library } from '$lib/stores/library.svelte';
+	import { names } from '$lib/stores/names.svelte';
+	import { overlays } from '$lib/stores/overlays.svelte';
+	import { dragClose } from '$lib/actions/dragClose';
+	// quick-260916-0d9: the Download row's SECOND gesture. Q4 — longpress and the parent sheet's
+	// dragClose are mutually exclusive by the SAME 8px threshold: any move >8px cancels the longpress
+	// timer (longpress.ts `move`) and is the only thing that starts a drag (dragClose.ts, `rawDy >
+	// DRAG_START`), so a stationary hold never drags and a drag never opens the picker.
+	import { longpress } from '$lib/actions/longpress';
+	import { focusTrap } from '$lib/actions/focusTrap';
+	import { tapBounce } from '$lib/actions/tapBounce';
+	// quick-261102-menudrag: the shared spring pump drives the edit-grid drop settle.
+	import { createSpringSnap } from '$lib/gestures/springSnap';
+	import { marquee } from '$lib/actions/marquee';
+	import { toast } from '$lib/stores/toast.svelte';
+	import { tick as hapticTick } from '$lib/util/haptics';
+	import { isGatedReady, shouldStartResolve } from './track-menu-gate';
+	import { t } from '$lib/i18n';
+	import type { TranslationKey } from '$lib/i18n';
+	import type { Component } from 'svelte';
+	import { settings } from '$lib/stores/settings.svelte';
+	// quick-261006-mnu: the customizable menu's action catalog + order normalizer. PURE —
+	// settings.svelte.ts (a LEAF store) is its other consumer; this component never imports
+	// the store THROUGH here. quick-261102-menudrag: the edit grid's drop geometry
+	// (menuDropIndex / menuSlotForIndex) lives there too, node-tested beside the normalizer.
+	import { MENU_ACTIONS, MENU_GRID_SLOTS, menuDropIndex, menuSlotForIndex, type MenuActionId } from '$lib/services/track-menu-order';
+	import { buildSimilarQueue } from '$lib/services/similar';
+	import { requestNpTab } from '$lib/stores/np-tab.svelte';
+	import { ensureTrackDetails, collectLyricCandidates, type LyricCandidate } from '$lib/services/catalog';
+	import { prewarmTrack } from '$lib/services/prewarm';
+	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the Play-from-source
+	// picker — fired ONLY on the row tap, never on menu open (T-26-10-02).
+	// quick-260916-0d9: the SAME fan-out feeds the Download-from picker (Q1 — no second copy of
+	// song-identity matching), with `versionsIncludingOwn` assembling its rows.
+	import { fetchVariants, versionsIncludingOwn } from '$lib/services/variants';
+	import { mapWithConcurrency } from '$lib/services/discovery';
+	import { SOURCES } from '$lib/sources/registry';
+	import VersionPicker from '$lib/components/VersionPicker.svelte';
+	import DownloadRing from '$lib/components/DownloadRing.svelte';
+	import LyricsTimingToggle from '$lib/components/LyricsTimingToggle.svelte';
+	import MenuActionButton from '$lib/components/MenuActionButton.svelte';
+	// quick-260919-1eh: the tag-edit sheet. Same co-mount arrangement as VersionPicker above — it
+	// owns its own overlay lifecycle under a DISTINCT overlayId.
+	import MetadataEditor from '$lib/components/MetadataEditor.svelte';
+	// quick-260919-vrq: the app's ONLY boolean-control idiom (a real <button role="switch"
+	// aria-checked>). No `type="checkbox"` exists anywhere in src, so the Remove-download confirm
+	// borrows this rather than hand-rolling one.
+	import SettingToggle from '$lib/components/SettingToggle.svelte';
+	import { downloadTrack, downloadTrackWithDonor, pickedFileAlreadyOnDisk } from '$lib/services/download-track';
+	import { downloadLabel } from '$lib/services/download-label';
+	// quick-261102-qtruth: the Detail sheet's quality merge + label read through the ONE
+	// shared derivation (services/display-quality) — the same one the Now-Playing pill uses.
+	import { trackQualityLabel, trackSourceLabel, withDownloadQuality } from '$lib/services/display-quality';
+	// quick-260915-26g: the shared probe + the shared label formatter. TrackMenu cannot mount
+	// DownloadControl (its Check state is blob-backed and its rows are full-width text buttons, not
+	// 40x40 icons), so it consumes the same SERVICE instead — one implementation, two surfaces.
+	// quick-260919-3j1 (F2): `localFileMeta` is the SIBLING of probeDownload — same module, same
+	// formatter, opposite question. probeDownload asks the CDN "what WOULD I get"; localFileMeta
+	// reads the bytes on the device and answers "what DO I have", with no network at all.
+	import { probeDownload, localFileMeta, formatDownloadMeta, isLosslessContainer, type DownloadProbe } from '$lib/services/download-probe';
+	// quick-260913-jq4: the Check state is backed by the offline copy, not the downloads list.
+	import { blobStore } from '$lib/services/blob-store';
+	// quick-260919-3j1: the app-wide SERIALIZER in front of retagOne — the ONE tag-write path
+	// (verify-before-write, and a `device:` uid refused as its first statement). Never retagOne
+	// directly: two concurrent wasm passes over a 27 MB FLAC on a phone is an OOM.
+	import { syncFileTags } from '$lib/services/file-tag-sync';
+	import type { RetagEntry } from '$lib/services/retag';
+	import { browser } from '$app/environment';
+	import { songShareUrl, coverToken, encodePathSegment } from '$lib/services/share';
+	// quick-260809-3uo: the share card now carries the cover the user is looking at — read from the
+	// SAME shared reactive cache every other surface reads, plus the retained iTunes id.
+	import { readCoverByUidOrName, readChosenCover, pinCover } from '$lib/stores/cover-version.svelte';
+	// Phase 40 D-15: the crowd-shared cover vote — sent ONLY from the picker tap below.
+	import { coverPickKeys, submitCoverPick } from '$lib/services/cover-pick-shared';
+	// quick-260915-w4f: the ENUMERATE-ALL cover collector. Imported for the picker only — it runs
+	// alongside resolveTrackChain, never inside it, and fires ONLY on the Change-cover tap (Q1).
+	// quick-260920-l82: the share-card carrier chain now lives beside the display chain in
+	// cover-backfill.ts — this component no longer calls a cover tier directly (CLAUDE.md "Shared
+	// Primitives — import these, never re-inline them"). `resolveShareCover` also owns the session memo.
+	import { collectCoverCandidates, resolveShareCover, type CoverCandidate } from '$lib/services/cover-backfill';
+	// quick-261006-o9u: picker tiles are ~120px — render the 200px variant of each candidate.
+	// The PIN keeps the full candidate URL (c.url); only the <img> src is downsized.
+	import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
+	// quick-260919-1we: the lyrics picker's ENUMERATE-ALL collector + the pin read/write pair. Same
+	// posture as the cover picker one line up — the parallel walk fires ONLY on the Fix-lyrics tap
+	// (T-1we-03), never on menu open. `readLyrics` is D-4's single read (pin → track.lrc → null).
+	import { readLyrics, pinLyrics, unpinLyrics } from '$lib/stores/lyric-pins.svelte';
+	// quick-261021-menu7: lyric-offset imports moved to LyricsTimingToggle.svelte (shared component).
+	import { parseLyrics } from '$lib/stores/lyric-script.svelte';
+	import { combinedSignal } from '$lib/services/abort-signal';
+	import { recallItunesId } from '$lib/services/itunes-cover';
+	import { isDeviceUid } from '$lib/services/device-track';
+	import { excludeUid } from '$lib/services/import-exclusions';
+	import type { Track } from '$lib/sources/types';
+
+	// `loading` = the menu opened on a discovery STUB and is still resolving the real Track
+	// (home long-press). It pops INSTANTLY with a skeleton; the action buttons render once the
+	// track resolves — so the menu never waits on the network before appearing.
+	let { track, open, loading = false, onclose }: { track: Track | null; open: boolean; loading?: boolean; onclose: () => void } = $props();
+
+	let pickerOpen = $state(false);
+	// quick-260919-vrq — the Remove-download CONFIRM, and why it is a SHEET rather than window.confirm.
+	// The confirm carries a toggle whose position changes what the removal actually does (files die vs
+	// files stay), and confirm() cannot hold a control. So it mirrors the playlist picker above
+	// exactly: same scrim / .menu / fly / dragClose / focusTrap, its own overlay id, reset in close().
+	// `rmDeleteFile` defaults ON — that is today's removeDownload behaviour (999.1-D-11: both copies),
+	// so the row keeps meaning what its label says — and is re-armed on every open so an untick made
+	// for one song never silently carries over to the next.
+	let rmOpen = $state(false);
+	let rmDeleteFile = $state(true);
+	let detailTrack = $state<Track | null>(null);
+	// quick-260919-1eh: the metadata editor sheet's open flag. No lazy fan-out to guard — the sheet
+	// seeds itself from the track already in hand and saves offline, so there is no gen/abort pair.
+	let tagsOpen = $state(false);
+	// quick-261115-likeid: song-level identity — a twin liked under another resolver lights up.
+	const liked = $derived(track ? library.isLikedTrack(track) : false);
+	const isDevice = $derived(!!track && isDeviceUid(track.uid));
+	// quick-260919-dlring: is there an artist worth navigating TO? A name-stub and a `device:` import
+	// with no artist tag both arrive with an empty (or whitespace-only) `artist`, and `/artist/` with
+	// an empty param is not a page. Gates the header text control below; gotoArtist() re-checks it so
+	// the `menu.goToArtist` row cannot route there either.
+	const hasArtist = $derived(!!track && track.artist.trim() !== '');
+	const nonCurrent = $derived(track ? track.uid !== player.current?.uid : true);
+
+	// quick-261006-mnu — THE MENU'S VISIBILITY GATES, one place. Each predicate preserves
+	// TODAY's `{#if}` gate exactly; the download predicate folds the old
+	// `{#if !isDevice}` tri-state gate together with the non-current gate that wrapped the
+	// noImport/removeDownload pair. The live grid renders
+	// `settings.trackMenuOrder.filter(canShow)` row-major, 4 columns, capped at
+	// MENU_GRID_SLOTS (quick-261006-44g: the menu grid is 4 columns x 5 rows since
+	// user 2026-11-02 (was 4x4) — no blank placeholders; extras stay in the edit pool).
+	function canShow(id: MenuActionId): boolean {
+		switch (id) {
+			case 'download':
+				return !isDevice || (isDevice && nonCurrent);
+			// quick-261006-44w: the "Download from…" picker as its own item — same gate
+			// as the download button (the picker itself also bails for device tracks).
+			case 'downloadSource':
+				return !isDevice || (isDevice && nonCurrent);
+			case 'addQueue':
+				return nonCurrent;
+			// quick-261006-44s: playNext lives HERE now, not as an empty render inside its
+			// snippet — the old inner {#if} consumed a grid slot while rendering nothing for
+			// the current track (19 visible cells instead of 20). The gate is identical.
+			case 'playNext':
+				return nonCurrent;
+			// quick-261101-chk: the 'lyricsTiming' case is gone with its catalog entry
+			// (quick-261021-menu7 removed it from MenuActionId / EDIT_META) — the case was
+			// unreachable, since trackMenuOrder is normalized to catalog ids at load.
+			// quick-261006-44u: the Comments / Related panes are NowPlaying tabs bound to the
+			// CURRENT track (the comments store + NowPlaying's load trigger are current-track
+			// scoped), so these shortcuts only make sense — and only appear — for it.
+			case 'viewComments':
+			case 'viewRelated':
+				return !!track && player.current?.uid === track.uid;
+			case 'editTags':
+				return !!blobPresent;
+			case 'repeat':
+				return !!player.current;
+			case 'shuffleQueue':
+			case 'clearQueue':
+				return player.queue.length > 1;
+			default:
+				// remix, playNext, like, versions, changeCover, changeLyrics, addToPlaylist,
+				// startRadio, sleepTimer, goToArtist, goToAlbum, share, detail — unconditional.
+				// quick-261006-44g: goToAlbum lost its hasAlbum gate (user 2026-10-06 — some
+				// songs showed it, some didn't). It always renders now; gotoAlbum() resolves
+				// details first when the stub carries no album and toasts only when there is
+				// still nothing to navigate to.
+				return true;
+		}
+	}
+	// quick-261006-44r: the customize cell is PINNED visible — with the header pencil
+	// retired it is the only way into edit mode, so it can never be capped out or
+	// hidden. It keeps its ordered position inside the first MENU_GRID_SLOTS; if the user drags it
+	// beyond the cap it is pulled into the last visible slot instead (no edit-mode
+	// trap). canShow('customize') is unconditionally true.
+	const visibleIds = $derived.by(() => {
+		const vis = settings.trackMenuOrder.filter(canShow);
+		const ci = vis.indexOf('customize');
+		if (ci >= MENU_GRID_SLOTS) {
+			vis.splice(ci, 1);
+			vis.push('customize');
+		}
+		return vis.slice(0, MENU_GRID_SLOTS);
+	});
+
+	// quick-261006-mnu — the edit grid's static cells: icon + micro label per action. The
+	// label keys are the actions' OWN existing keys (no new i18n); the icons are the same
+	// components the live cells use, so the preview reads as the menu it configures
+	// (the RowActionsConfig precedent).
+	const EDIT_META: Record<MenuActionId, { icon: Component; label: TranslationKey }> = {
+		remix: { icon: Sparkles, label: 'menu.autoplay' },
+		playNext: { icon: ListStart, label: 'menu.playNext' },
+		download: { icon: Download, label: 'menu.download' },
+		like: { icon: Heart, label: 'menu.like' },
+		addQueue: { icon: ListEnd, label: 'menu.addToQueue' },
+		startRadio: { icon: Radio, label: 'menu.startRadio' },
+		versions: { icon: Layers, label: 'menu.versions' },
+		changeCover: { icon: ImageIcon, label: 'menu.changeCover' },
+		changeLyrics: { icon: Mic2, label: 'menu.fixLyrics' },
+		viewComments: { icon: MessageCircle, label: 'menu.viewComments' },
+		viewRelated: { icon: ListMusic, label: 'menu.viewRelated' },
+		// quick-261021-menu7: lyricsTiming removed from EDIT_META — no longer a menu item.
+		editTags: { icon: Tags, label: 'menu.editTags' },
+		addToPlaylist: { icon: ListPlus, label: 'menu.addToPlaylist' },
+		customize: { icon: Pencil, label: 'menu.customize' },
+		repeat: { icon: Repeat, label: 'nowplaying.repeat' },
+		shuffleQueue: { icon: Shuffle, label: 'menu.shuffleQueue' },
+		clearQueue: { icon: Trash2, label: 'menu.clearQueue' },
+		sleepTimer: { icon: Moon, label: 'menu.sleepTimer' },
+		goToArtist: { icon: User, label: 'menu.goToArtist' },
+		goToAlbum: { icon: Disc3, label: 'menu.goToAlbum' },
+		share: { icon: Share2, label: 'menu.share' },
+		detail: { icon: Info, label: 'menu.details' },
+		downloadSource: { icon: ArrowDownToLine, label: 'menu.downloadFromSource' }
+	};
+
+	// quick-261006-mnu — EDIT MODE. `editing` is per-open component state (reset in close()).
+	// `editOrder` is a LOCAL snapshot of settings.trackMenuOrder taken on entry: taps commit
+	// straight through to settings, drags live-reorder the snapshot and commit on drop — so
+	// cancelling mid-drag can never leave a half-applied order, and the live grid never
+	// repaints under the user's finger.
+	let editing = $state(false);
+	let editOrder = $state<MenuActionId[]>([]);
+	function enterEdit() {
+		editOrder = [...settings.trackMenuOrder];
+		editing = true;
+	}
+	function commitEdit() {
+		settings.trackMenuOrder = [...editOrder];
+		settings.save();
+	}
+	// quick-261021-menu4 (user): explicit Done — exits edit mode (commits via the live
+	// commit-on-tap/drop, so no separate save needed).
+	function exitEdit() {
+		commitEdit();
+		editing = false;
+	}
+	// quick-261021-menu4 (user): Reset — restores the shipping default order.
+	function resetMenuOrder() {
+		editOrder = [...MENU_ACTIONS];
+		commitEdit();
+	}
+	// Enabled (in the user's order) first, then the switched-off remainder dimmed — the
+	// RowActionsConfig shape: an off action keeps a stable, visible place to be switched
+	// back on from, without a second persisted order for things that do not render.
+	const editIds = $derived([...editOrder, ...MENU_ACTIONS.filter((a) => !editOrder.includes(a))]);
+
+	// ---- Edit-grid pointer drag-to-reorder (quick-261006-mnu) ---------------------------
+	// The RowActionsConfig idiom, turned 2D: custom pointer events, NOT native HTML5
+	// drag-and-drop (unusable on touch). The cell is both the drag handle and the toggle,
+	// disambiguated the swipeAction WR-01 way — a gesture that never passes SLOP is a TAP
+	// and the click stands; one that does is a DRAG and the trailing click is suppressed.
+	// Enabled cells are a CONTIGUOUS PREFIX of the grid (editIds), so the drop target is an
+	// insertion index into editOrder (menuDropIndex in track-menu-order.ts).
+	//
+	// quick-261102-menudrag — WHY THIS WAS REBUILT (Hector 2026-11-02: the reorder felt
+	// 唔貼手 — not glued to the pointer — and 唔會自然放低去適當位置 — no natural landing).
+	// The quick-261006-mnu original LIVE-REORDERED editOrder on every pointermove: the
+	// keyed {#each} re-laid the dragged cell at its new slot while its transform stayed
+	// the raw delta from the drag START, so each reorder displaced the cell a whole slot
+	// relative to the pointer and the target hunted against the already-shifted DOM; on
+	// release the transform simply vanished, teleporting the cell back by the full drag
+	// distance; and pointercancel ran the same mUp commit path, so a cancelled drag
+	// PERSISTED its half-finished order. The rebuild ports the proven quick-261102-chipflip
+	// architecture (chipReorder.ts), adapted to this 2D grid:
+	//  1. Geometry is measured ONCE at drag start (true layout slots); editOrder does NOT
+	//     change mid-drag, so no re-render can race the gesture.
+	//  2. The dragged cell's transform is ALWAYS the raw pointer delta, written straight
+	//     to the DOM node (no $state churn) with transition:none — glued 1:1.
+	//  3. Siblings GLIDE to their post-move slots (menuSlotForIndex transforms) so the
+	//     landing gap is visible while dragging.
+	//  4. Release SPRINGS the cell (shared springSnap, one pump per axis) from its live
+	//     offset into the target slot's offset, and only THEN commits the order — the
+	//     re-render lands exactly on the visual state, so there is no jump.
+	//  5. Cancel (pointercancel / lost capture / window blur / button-less move) springs
+	//     the cell back to its ORIGINAL slot and never commits — the quick-261102-settle
+	//     discipline: every gesture ends in exactly one of drop/commit or home.
+	// animate:flip is GONE from the edit cells: it existed to animate the old live
+	// reorder; with the drag owning every transform, a flip on the settle commit would
+	// measure the already-landed cell and replay the landing. Tap toggles (which also
+	// reorder editIds) now re-layout instantly, like the chip surface's taps.
+	const MNU_SLOP = 6;
+	const MNU_GLIDE = 'transform 180ms ease'; // sibling reflow glide while dragging
+	let editGridEl = $state<HTMLElement | null>(null);
+	let mDragFrom = $state(-1); // index within editOrder of the pressed/dragged cell (-1 = idle)
+	let mDragging = $state(false); // past SLOP and not yet settled — drives class:lifted
+	// Plain fields, NOT $state — nothing reads them reactively, and the click suppressor
+	// must be readable from the click handler that fires immediately after pointerup.
+	let mDragStartX = 0;
+	let mDragStartY = 0;
+	let mDragMoved = false;
+	let mSuppressClick = false;
+	let mPointerId = -1;
+	let mPointerActive = false; // the pointer phase (down → up/cancel) is live
+	let mLastMoveEvent: PointerEvent | null = null;
+	// Drag geometry, measured ONCE at drag start (before any transform is written, so
+	// the rects are true layout slots). Sorted by editOrder index; only ENABLED cells
+	// participate (the contiguous prefix), so mSlots[i] is editOrder index i's slot.
+	interface MnuSlot {
+		el: HTMLElement;
+		index: number;
+		left: number;
+		top: number;
+		width: number;
+		height: number;
+	}
+	let mSlots: MnuSlot[] = [];
+	let mDragEl: HTMLElement | null = null;
+	let mTarget = -1; // live insertion index (post-removal) the drop would commit
+	let mCurX = 0; // the dragged cell's live translate — also the settle's start point
+	let mCurY = 0;
+	// --- drop settle (springSnap per axis; BOTH axes settled → finish) ---
+	let mSettling = false;
+	let mSettleCell: HTMLElement | null = null;
+	let mAxesSettled = 0;
+	let mPendingOrder: MenuActionId[] | null = null;
+
+	function mWriteSettle() {
+		if (mSettleCell) mSettleCell.style.transform = `translate(${mCurX}px, ${mCurY}px)`;
+	}
+	function mAxisSettled() {
+		mAxesSettled += 1;
+		if (mAxesSettled >= 2) mFinishSettle();
+	}
+	const mSnapX = createSpringSnap(
+		(v) => {
+			mCurX = v;
+			mWriteSettle();
+		},
+		{ onSettled: mAxisSettled }
+	);
+	const mSnapY = createSpringSnap(
+		(v) => {
+			mCurY = v;
+			mWriteSettle();
+		},
+		{ onSettled: mAxisSettled }
+	);
+
+	function mClearDragVisuals() {
+		for (const s of mSlots) {
+			s.el.style.transform = '';
+			s.el.style.transition = '';
+		}
+		if (mSettleCell) {
+			mSettleCell.style.transform = '';
+			mSettleCell.style.transition = '';
+			mSettleCell = null;
+		}
+		if (mDragEl) {
+			mDragEl.style.transform = '';
+			mDragEl.style.transition = '';
+		}
+	}
+
+	function mFinishSettle() {
+		if (!mSettling) return;
+		mSettling = false;
+		mSnapX.cancel();
+		mSnapY.cancel();
+		mClearDragVisuals();
+		mDragEl = null;
+		mSlots = [];
+		mTarget = -1;
+		mDragFrom = -1;
+		mDragging = false;
+		// Fire the commit only NOW: the re-render puts the cell in the slot the spring
+		// just landed it on, so data and visuals change in the same frame — no teleport.
+		const p = mPendingOrder;
+		mPendingOrder = null;
+		if (p) {
+			editOrder = p;
+			commitEdit();
+		}
+	}
+
+	function mStartSettle(landX: number, landY: number, order: MenuActionId[] | null) {
+		mSettling = true;
+		mSettleCell = mDragEl;
+		mPendingOrder = order;
+		mAxesSettled = 0;
+		// mCurX/mCurY still hold the live drag offset; each spring seeds from there.
+		mSnapX.snap(mCurX, landX);
+		mSnapY.snap(mCurY, landY);
+	}
+
+	/** Hard-stop any drag/settle WITHOUT committing (sheet closing, component going away). */
+	function mAbortDrag() {
+		mDisarmWindow();
+		mSnapX.cancel();
+		mSnapY.cancel();
+		mSettling = false;
+		mPendingOrder = null; // dropped, not fired — the sheet is gone
+		mPointerActive = false;
+		mClearDragVisuals();
+		mDragEl = null;
+		mSlots = [];
+		mTarget = -1;
+		mDragFrom = -1;
+		mDragging = false;
+		mPointerId = -1;
+	}
+
+	// Window safety net (quick-261102-settle parity): capture is taken on the CELL at
+	// pointerdown, and if it is lost or refused the cell stops hearing the gesture —
+	// these listeners keep tracking/releasing it. pointerId-filtered; cell+window
+	// copies of one event are deduped in mMove.
+	const mWinMove = (e: PointerEvent) => {
+		if (e.pointerId === mPointerId) mMove(e);
+	};
+	const mWinUp = (e: PointerEvent) => {
+		if (e.pointerId === mPointerId) mUp();
+	};
+	const mWinCancel = (e: PointerEvent) => {
+		if (e.pointerId === mPointerId) mCancelDrag();
+	};
+	const mWinBlur = () => mCancelDrag();
+	function mArmWindow() {
+		if (!browser) return; // quick-261119-sharecard: SSR has no window (see mDisarmWindow)
+		window.addEventListener('pointermove', mWinMove);
+		window.addEventListener('pointerup', mWinUp);
+		window.addEventListener('pointercancel', mWinCancel);
+		window.addEventListener('blur', mWinBlur);
+	}
+	function mDisarmWindow() {
+		if (!browser) return; // quick-261119-sharecard: Svelte 5 runs onDestroy at the end of SSR too — this unguarded window touch 500'd every SSR entity route (song/artist/album) since quick-261102-menudrag
+		window.removeEventListener('pointermove', mWinMove);
+		window.removeEventListener('pointerup', mWinUp);
+		window.removeEventListener('pointercancel', mWinCancel);
+		window.removeEventListener('blur', mWinBlur);
+	}
+	onDestroy(mAbortDrag);
+
+	function mDown(e: PointerEvent, id: MenuActionId) {
+		// A press during a drop settle commits the landed order instantly, so the
+		// geometry measured for the new gesture is clean (no half-sprung transforms).
+		if (mSettling) mFinishSettle();
+		if (mPointerActive) return; // one pointer owns the gesture (multi-touch: first wins)
+		const i = editOrder.indexOf(id);
+		if (i < 0) return; // a dimmed cell is not draggable — its tap re-adds it instead
+		mDragFrom = i;
+		mDragStartX = e.clientX;
+		mDragStartY = e.clientY;
+		mDragMoved = false;
+		mPointerId = e.pointerId;
+		mPointerActive = true;
+		mLastMoveEvent = null;
+		mCurX = 0;
+		mCurY = 0;
+		// Capture on the CELL from pointerdown (the quick-261006-mnu idiom): move/up keep
+		// arriving on the cell however far the pointer strays, and the trailing click is
+		// retargeted to this same cell, where mClick consumes the drag suppressor. The
+		// call can throw for an inactive pointer — the window net (armed at drag start)
+		// and the lost-capture cancel cover that case.
+		try {
+			(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		} catch {
+			/* non-fatal — window listeners keep tracking */
+		}
+	}
+
+	/** First move past SLOP: freeze the gesture's geometry and switch visuals on. */
+	function mBeginDrag() {
+		mDragMoved = true;
+		mDragging = true;
+		// Measure slots BEFORE the first transform write (rects are layout truth here).
+		// The index comes from data-id (editOrder membership), NOT DOM position — the
+		// divider and the CSS `order` split make DOM order and editOrder order differ
+		// past slot 20; enabled cells are the contiguous editOrder prefix throughout.
+		mSlots = [...(editGridEl?.querySelectorAll<HTMLElement>('.edit-cell.on') ?? [])]
+			.map((el) => {
+				const r = el.getBoundingClientRect();
+				return {
+					el,
+					index: editOrder.indexOf(el.dataset.id as MenuActionId),
+					left: r.left,
+					top: r.top,
+					width: r.width,
+					height: r.height
+				};
+			})
+			.filter((s) => s.index >= 0)
+			.sort((a, b) => a.index - b.index);
+		mTarget = mDragFrom;
+		mDragEl = mSlots.find((s) => s.index === mDragFrom)?.el ?? null;
+		// The dragged cell tracks the pointer with NO transition (glued, 1:1); siblings
+		// get the glide so reflow slides instead of jumping (dropped under reduce-motion).
+		if (mDragEl) mDragEl.style.transition = 'none';
+		for (const s of mSlots) {
+			if (s.el !== mDragEl) s.el.style.transition = settings.reduceMotion ? 'none' : MNU_GLIDE;
+		}
+		mArmWindow();
+	}
+
+	/** Glide every sibling to the slot it will occupy if the drag drops at mTarget. */
+	function mApplyReflow() {
+		for (const s of mSlots) {
+			if (s.el === mDragEl) continue;
+			const dest = menuSlotForIndex(s.index, mDragFrom, mTarget);
+			const ox = mSlots[dest].left - s.left;
+			const oy = mSlots[dest].top - s.top;
+			s.el.style.transform = ox !== 0 || oy !== 0 ? `translate(${ox}px, ${oy}px)` : '';
+		}
+	}
+
+	function mMove(e: PointerEvent) {
+		if (!mPointerActive || e.pointerId !== mPointerId) return;
+		if (e === mLastMoveEvent) return; // cell + window copies of one event — process once
+		mLastMoveEvent = e;
+		// A button-less move means the press ended somewhere we never saw — cancel home.
+		if (mDragMoved && e.buttons === 0) {
+			mCancelDrag();
+			return;
+		}
+		const dx = e.clientX - mDragStartX;
+		const dy = e.clientY - mDragStartY;
+		if (!mDragMoved) {
+			if (Math.hypot(dx, dy) < MNU_SLOP) return; // still a tap
+			mBeginDrag();
+		}
+		e.preventDefault();
+		mCurX = dx;
+		mCurY = dy;
+		if (mDragEl) mDragEl.style.transform = `translate(${dx}px, ${dy}px)`;
+		const t = menuDropIndex(e.clientX, e.clientY, mSlots, mDragFrom);
+		if (t !== mTarget) {
+			mTarget = t;
+			mApplyReflow();
+		}
+	}
+
+	/** End the pointer phase: spring the cell into its landing slot (or home, when cancelled). */
+	function mEndDrag(commit: boolean) {
+		mDisarmWindow();
+		mPointerActive = false;
+		if (commit && mSlots.length > 0 && mTarget !== mDragFrom && mTarget >= 0) {
+			// Compute the committed order NOW (splice-move on the untouched snapshot) but
+			// only ASSIGN it when the spring lands (mFinishSettle) — data and visuals
+			// change in the same frame.
+			const next = [...editOrder];
+			const [moved] = next.splice(mDragFrom, 1);
+			next.splice(mTarget, 0, moved);
+			mStartSettle(
+				mSlots[mTarget].left - mSlots[mDragFrom].left,
+				mSlots[mTarget].top - mSlots[mDragFrom].top,
+				next
+			);
+		} else {
+			mStartSettle(0, 0, null);
+		}
+	}
+
+	function mUp() {
+		if (!mPointerActive) return;
+		if (!mDragMoved) {
+			// Plain tap — leave the click to mClick (tap-to-toggle).
+			mPointerActive = false;
+			mDragFrom = -1;
+			mPointerId = -1;
+			return;
+		}
+		mSuppressClick = true; // WR-01: the trailing click must not also toggle the cell
+		mEndDrag(true);
+	}
+
+	function mCancelDrag() {
+		if (!mPointerActive) return;
+		if (!mDragMoved) {
+			mPointerActive = false;
+			mDragFrom = -1;
+			mPointerId = -1;
+			return;
+		}
+		// Cancel NEVER reorders: the cell springs back to its original slot, and
+		// editOrder keeps the order the drag started with — it was never mutated
+		// mid-drag, so there is nothing to restore.
+		mEndDrag(false);
+	}
+
+	function mLostCapture(e: PointerEvent) {
+		// quick-261108-swp: a CHILD's implicit-touch-capture loss bubbles here — not ours.
+		if (e.target !== e.currentTarget) return;
+		// Fires after every normal pointerup too (the capture release) — mUp has
+		// already ended the pointer phase by then, so this only acts when capture
+		// was lost mid-gesture.
+		if (mPointerActive) mCancelDrag();
+	}
+	function mClick(id: MenuActionId) {
+		if (mSuppressClick) {
+			mSuppressClick = false;
+			return;
+		}
+		// quick-261006-44v (user 2026-10-06): the customize cell is INERT in edit mode —
+		// no Done button. It can never be hidden or toggled (it's the only way back
+		// into edit mode), and it's excluded from drag handling (fixed slot). The user
+		// finishes by closing the menu (X / scrim / back) — taps and drops commit live.
+		if (id === 'customize') return;
+		const i = editOrder.indexOf(id);
+		// quick-261006-44t (user 2026-10-06): NO cap on enabling — the user can enable and
+		// reorder more than 20 actions freely; the live grid simply renders the first 20
+		// (see visibleIds). The Done button never counts against anyone's 20.
+		editOrder = i >= 0 ? editOrder.filter((x) => x !== id) : [...editOrder, id];
+		commitEdit();
+	}
+	/** Keyboard parity (the RowActionsConfig rule): arrows move, Enter/Space toggles via
+	 *  the native click. Up/Down jump a full grid row (±4); Left/Right step one. */
+	function mKey(e: KeyboardEvent, id: MenuActionId) {
+		const step = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' ? -4 : e.key === 'ArrowDown' ? 4 : 0;
+		if (!step) return;
+		e.preventDefault(); // otherwise the arrow scrolls the sheet instead
+		// quick-261006-44v: the customize cell is inert in edit mode (no Done button) —
+		// arrows never move it and Enter/Space does nothing (no onclick).
+		if (id === 'customize') return;
+		const i = editOrder.indexOf(id);
+		if (i < 0) return;
+		const j = Math.min(Math.max(i + step, 0), editOrder.length - 1);
+		if (j === i) return;
+		const next = [...editOrder];
+		const [moved] = next.splice(i, 1);
+		next.splice(j, 0, moved);
+		editOrder = next;
+		commitEdit();
+		// The {#each} is keyed, so Svelte MOVES the button's node rather than recreating
+		// it — and re-inserting a focused element drops focus to <body> in Chrome. Re-focus
+		// by identity so a keyboard user can keep moving the same cell.
+		void tick().then(() => {
+			editGridEl?.querySelector<HTMLElement>(`[data-id="${id}"]`)?.focus();
+		});
+	}
+
+	// Gap 4 (26-10): a lazily-fed VersionPicker reachable from the long-press menu — "Play from
+	// source". A queued/played song carries only its own source, so the cross-source variants are
+	// discovered on demand — but ONLY when the user taps the Play-from-source row (openVersions),
+	// NEVER on menu open (no background fan-out; T-26-10-02). versionGen/versionAc are PLAIN
+	// (non-reactive) supersedence guards (house idiom): a re-open bumps the token + aborts the prior
+	// fetch so a stale result can't land. The sheet's overlay lifecycle is owned ENTIRELY by
+	// VersionPicker (WR-02: keyed with the DISTINCT id 'versionpicker-menu' so it never collides with
+	// the host page's own co-mounted VersionPicker) — so it converges on the SINGLE dismiss path; a
+	// SECOND trackmenu-scoped overlay entry would double-push one history state per open and over-pop
+	// the Back gesture (the invariant Task 3 verifies).
+	let versionsOpen = $state(false);
+	let versionsLoading = $state(false);
+	let versionsList = $state<Track[]>([]);
+	let versionGen = 0;
+	let versionAc: AbortController | null = null;
+
+	// quick-260915-w4f: the cover picker. Same shape as the Play-from-source picker above and for the
+	// same reason — the candidate fan-out is a real cost (Deezer + iTunes + a full CN searchAll), so it
+	// fires ONLY on the Change-cover row tap, never on menu open (T-26-10-02 posture). coverGen /
+	// coverAc are PLAIN fields: supersedence guards the UI never reads reactively (house convention).
+	let coverOpen = $state(false);
+	let coverLoading = $state(false);
+	let coverCandidates = $state<CoverCandidate[]>([]);
+	let coverGen = 0;
+	let coverAc: AbortController | null = null;
+
+	// quick-260919-1we: the LYRICS picker — the exact same shape as the cover picker above, for the
+	// exact same reason. The lyric chain is first-source-wins and sometimes wins wrong (wrong song,
+	// wrong language, an instrumental's LRC), so this lets the user override it once, per song,
+	// permanently. The candidate walk is a parallel per-source fan-out (a real cost), so it fires ONLY
+	// on the Fix-lyrics row tap, never on menu open (T-1we-03 / T-26-10-02 posture). lyricGen /
+	// lyricAc are PLAIN fields: supersedence guards the UI never reads reactively (house convention).
+	let lyricsOpen = $state(false);
+	let lyricsLoading = $state(false);
+	let lyricCandidates = $state<LyricCandidate[]>([]);
+	let lyricGen = 0;
+	let lyricAc: AbortController | null = null;
+
+	// quick-260916-0d9 — the "Download from…" picker. Same shape as the two pickers above and opened
+	// the same opt-in way (T-26-10-02 posture), except the trigger is a LONG-PRESS on the Download row
+	// rather than a row of its own: one tap must keep doing exactly what it does today.
+	// `dlPickProbes` is uid → probe; ABSENT means still probing (skeleton), a probe whose `track` is
+	// null means that source refused (disabled "Unavailable" row). `dlPickExtra` is the sibling map
+	// for the quick-261020-dl320 second row: uid → the 320k-tier probe of a source whose main probe
+	// landed lossless, rendered as its own row under the source's row. dlPickGen / dlPickAc are PLAIN
+	// fields — supersedence guards the UI never reads reactively (house convention).
+	let dlPickOpen = $state(false);
+	let dlPickLoading = $state(false);
+	let dlPickList = $state<Track[]>([]);
+	let dlPickProbes = $state<Record<string, DownloadProbe | undefined>>({});
+	let dlPickExtra = $state<Record<string, DownloadProbe | undefined>>({});
+	let dlPickGen = 0;
+	let dlPickAc: AbortController | null = null;
+
+	// The cover the user is CURRENTLY looking at for this track. Hoisted out of doShare (it needed the
+	// identical expression) so the picker can tick the active tile and the share card can carry it —
+	// one precedence chain, two consumers. Widest authority first: the user's pin (or, Phase 40 D-14, the
+	// crowd-shared pick — readChosenCover is pin ?? crowd, so the picker pre-selects it), then the hero's own
+	// cover when this IS the playing song, then the shared cache every list row reads, then the stub's art.
+	//
+	// 🔴 The cache lookup MUST use the RAW track.artist / track.title, NOT the display-language strings
+	// (see doShare's note below) — the name layer is matchKey'd on raw CATALOG metadata.
+	const activeCover = $derived(
+		track
+			? (readChosenCover(track.uid, track.artist, track.title) ??
+					// quick-260920-oj8 — closes the quick-260920-nyq deferred item. This rung was
+					// `player.resolvedCover`, the OLD precedence: nyq made the hero / Nowbar / OS card paint
+					// from the shared cache first, so for the playing song this ladder could tick a picker
+					// tile that is NOT the art on screen. The user's call is one resolver everywhere —
+					// "same song, same cover everywhere" — so it reads the ONE now-playing reader
+					// (`displayCover`: pin → uid → name → resolvedCover, embedded `data:` kept ahead of the
+					// https-only cache per 37-D-02). Not re-inlined: the getter is the single seam.
+					(player.current?.uid === track.uid ? player.displayCover : null) ??
+					readCoverByUidOrName(track.uid, track.artist, track.title) ??
+					track.cover ??
+					null)
+			: null
+	);
+
+	// quick-260920-kn4 — THE SHARE-CARD COVER FALLBACK (share card only; displayed art untouched).
+	//
+	// ROOT CAUSE. quick-260919-0mw put YouTube Music at the FRONT of resolveTrackChain, so
+	// `activeCover` above is now usually a lh3.googleusercontent.com / i.ytimg.com URL. `coverToken`
+	// is a CLOSED grammar (d: Deezer · l: Last.fm · k: kuwo · i: iTunes-by-id) and returns null for
+	// those hosts, so `songShareUrl` emits no `?ci=` at all, /api/og re-resolves from artist+title
+	// TEXT, and on a miss serves the branded OpenMusic fallback. The carrier grammar was simply never
+	// revisited when the tier order changed.
+	//
+	// REJECTED: adding googleusercontent/ytimg to the grammar. Their artwork URLs are opaque
+	// irregular paths with `=w120-h120-s-l90-rj` suffixes — nothing structural to close a grammar
+	// over (the same reason iTunes is carried by ID, not by path). It would also WIDEN the set of
+	// hosts /api/og fetches, which T-3uo-02 forbids.
+	//
+	// SO: while the menu is open, PREWARM a carriable cover for the same song via `resolveShareCover`
+	// (cover-backfill.ts — iTunes, then Deezer on a miss). Its iTunes tier runs `fetchTopArtwork →
+	// rememberItunesId`, which retains the numeric id against that URL, so `recallItunesId` in doShare
+	// yields it and `coverToken` emits `i:<id>`. quick-260920-l82: the DEEZER tier is new and closes
+	// kn4's residual gap — a song iTunes does not carry now yields `d:<32hex>` rather than the branded
+	// card. It is a PREWARM and not an await in
+	// doShare because navigator.share() must run synchronously inside the user gesture on iOS Safari.
+	let shareCoverFallback = $state<string | null>(null);
+	$effect(() => {
+		// Tracked deps, read up-front and kept to exactly {open, track, activeCover}.
+		const target = track;
+		const cover = activeCover;
+		if (!open || !target) {
+			shareCoverFallback = null;
+			return;
+		}
+		// NEVER override a working carrier: if the cover the user is looking at already tokenizes
+		// (Deezer / Last.fm / kuwo / iTunes-with-id), the link is byte-identical to before and no
+		// request is made at all. recallItunesId is a sync localStorage read, not reactive.
+		if (coverToken(cover, recallItunesId(cover)) !== null) {
+			shareCoverFallback = null;
+			return;
+		}
+		// quick-260920-l82: no memo branch here any more — memoisation lives inside resolveShareCover.
+		// A memo hit therefore lands one microtask later instead of synchronously; doShare reads
+		// `shareCoverFallback` on a later user tap, so the ordering is unaffected.
+		const ac = new AbortController();
+		// The whole `target` Track is passed, so the RAW target.artist / target.title travel inside it,
+		// NOT the display-language names.dn* strings — same rule as activeCover's cache lookup above:
+		// the iTunes/Deezer search term must be the catalog metadata.
+		// combinedSignal is the shared primitive (never hand-roll a second timeout); 8 s is the
+		// ceiling because this is a background nicety behind a menu the user may close at any moment —
+		// long enough for a slow mobile round-trip, short enough that a hung request cannot outlive
+		// the session's interest in it.
+		// untrack for the same reason the sibling effects give: resolveShareCover's iTunes tier reads
+		// and writes the `itunes:` id family of the cover cache and Deezer's ttl-cache reads
+		// localStorage — those reads would otherwise re-invalidate this effect (the restore-effect
+		// self-invalidation loop).
+		untrack(() => resolveShareCover(target, combinedSignal(8_000, ac.signal))).then((url) => {
+			// Drop a late result for a song the user has already navigated past — exactly like the
+			// localProbe effect below. No stale cover is ever carried for the wrong song.
+			if (ac.signal.aborted || track?.uid !== target.uid) return;
+			if (url) shareCoverFallback = url;
+		});
+		// 🔴 The no-cache-write prohibition now lives with the chain: resolveShareCover writes NEITHER
+		// cover-cache layer, pinned by its "NO cover-cache write on a hit" test in cover-backfill.test.ts.
+		// This component must still never call writeCoverBoth here — `activeCover` reads
+		// readCoverByUidOrName, so a write would flip the art the app DISPLAYS on every list row and
+		// on the hero. The fallback lives in this $state and the service-level memo, nowhere else.
+		return () => ac.abort();
+	});
+
+	// MENU-01 (D-02/D-03): per-action in-flight set drives the inline row spinners. A gated
+	// action (Download / Detail / Remix) is tappable on a STUB — tapping kicks off the resolve,
+	// shows the spinner on that row, and the action fires automatically once data arrives. Exactly
+	// one resolve per action key (second tap while spinning = no-op); cleared in `finally` on
+	// success OR failure (never a stuck spinner). `new Set(...)` reassign keeps it reactive.
+	let inFlight = $state(new Set<string>());
+	async function gated(key: string, run: (resolved: Track) => void | Promise<void>) {
+		if (!track) return;
+		if (!shouldStartResolve(inFlight, key)) return; // D-03: a second tap while spinning is a no-op
+		if (isGatedReady(track)) return void run(track); // fast path: already resolved, run on the stub now
+		inFlight = new Set(inFlight).add(key);
+		try {
+			const resolved = await ensureTrackDetails(track);
+			if (!resolved.audioUrl) { toast.show(t('toast.noAudio')); return; } // graceful fail, no stuck spinner
+			await run(resolved);
+		} catch {
+			toast.show(t('toast.noAudio')); // never a stuck spinner on throw
+		} finally {
+			const next = new Set(inFlight); next.delete(key); inFlight = next;
+		}
+	}
+
+	// 31-D-03 PRE-WARM (trigger 2 of the phase's two; trigger 1 is the top search result). Opening
+	// this menu is a strong intent signal, so speculatively resolve THIS ONE track now — the tap that
+	// follows then short-circuits on ensureTrackDetails' readiness guard instead of paying a cold
+	// resolve. TrackMenu is mounted from seven route pages, so this single effect also covers every
+	// page's long-press for free (a long-press only sets `open`). This is `gated()` minus the spinner
+	// and minus the toast: pre-warm is speculative, so it must stay completely invisible on failure.
+	//
+	// NOT a T-26-10-02 VIOLATION — read this together with the header comment at :42-51. T-26-10-02
+	// bans a cross-source FAN-OUT on menu open: `openVersions` → `fetchVariants` searches EVERY
+	// enabled source, which is why it stays opt-in behind the Play-from-source row tap. 31-D-03
+	// authorises exactly ONE single-track `ensureTrackDetails` — one resolve on the track's own
+	// source, not a search across sources. Different traffic shape, different rule; both stand.
+	// Dedupe (per uid, and against an in-flight resolve) lives in prewarmTrack, so re-opening the
+	// same menu issues nothing.
+	$effect(() => {
+		if (open && track) prewarmTrack(track);
+	});
+
+	function close() {
+		// quick-261006-mnu: edit mode is per-open — the grid unmounts with the menu, so a
+		// half-finished customize never leaks into the next open. (Taps and drops commit to
+		// settings immediately; only a mid-drag reorder is dropped here.)
+		// quick-261102-menudrag: a live drag is aborted in place (editOrder was never
+		// mutated mid-drag, so the origin order simply stands); a drop already released
+		// is finished instantly so its commit lands before the sheet goes away — no
+		// spring or pending commit may outlive the menu.
+		if (mSettling) mFinishSettle();
+		else if (mPointerActive || mDragging) mAbortDrag();
+		editing = false;
+		mDragFrom = -1;
+		mDragging = false;
+		pickerOpen = false;
+		tagsOpen = false; // quick-260919-1eh: reset alongside the other sheet flags
+		rmOpen = false; // quick-260919-vrq: same — a confirm must never outlive the menu that raised it
+		coverAc?.abort(); // quick-260915-w4f: never leave a candidate fan-out running behind a closed menu
+		dlPickAc?.abort(); // quick-260916-0d9: same rule for the download-picker probe pool
+		lyricAc?.abort(); // quick-260919-1we: same rule for the lyric-candidate walk
+		onclose();
+	}
+	// Gap 4 (26-10): open the Play-from-source picker + fire the SINGLE lazy variant fan-out. Called
+	// ONLY from the Play-from-source row tap — NEVER from a menu-open $effect (opt-in; T-26-10-02).
+	async function openVersions() {
+		if (!track) return;
+		const gen = ++versionGen;
+		versionAc?.abort();
+		const ac = new AbortController();
+		versionAc = ac;
+		// Open immediately with the spinner; the single fetchVariants fan-out runs behind the sheet.
+		versionsList = [];
+		versionsLoading = true;
+		versionsOpen = true;
+		const list = await fetchVariants(track, ac.signal);
+		if (gen !== versionGen || ac.signal.aborted) return; // superseded / cancelled
+		versionsList = list;
+		versionsLoading = false;
+	}
+	function closeVersions() {
+		versionsOpen = false;
+		versionAc?.abort(); // cancel any in-flight fetch when the sheet is dismissed.
+	}
+	// quick-260915-w4f: open the cover picker + fire the SINGLE candidate fan-out (Q1). Mirrors
+	// openVersions exactly — gen bump + abort the prior fetch, open the sheet IMMEDIATELY with a
+	// spinner so the sheet never waits on the network, then fill it.
+	async function openCoverPicker() {
+		// like-state-wrong-track-menu / 8a848d9: a uid-less name stub has no identity to pin against,
+		// so there is nothing to key a pin by. The row is disabled for the same reason as Like.
+		if (!track?.uid) return;
+		const gen = ++coverGen;
+		coverAc?.abort();
+		const ac = new AbortController();
+		coverAc = ac;
+		coverCandidates = [];
+		coverLoading = true;
+		coverOpen = true;
+		const list = await collectCoverCandidates(track, ac.signal);
+		if (gen !== coverGen || ac.signal.aborted) return; // superseded / cancelled
+		coverCandidates = list;
+		coverLoading = false;
+	}
+	function closeCoverPicker() {
+		coverOpen = false;
+		coverAc?.abort();
+	}
+	// Pin the tapped candidate. pinCover persists it (own key, no TTL/LRU — Q3) and bumps the shared
+	// reactive signal, so every list row repaints. player.adoptCover is a no-op unless this song is
+	// CURRENT; when it is, it is what repaints the NowPlaying hero, the Nowbar and the OS media card
+	// instantly — it is already the ONE promotion seam, and Task 2 taught it to accept a pin (Q5).
+	function pickCover(url: string) {
+		if (!track?.uid) return;
+		pinCover(track.uid, url);
+		player.adoptCover(track.uid, url);
+		// Phase 40 D-15: this explicit tap is the ONLY place a cover vote leaves the device — auto-resolved
+		// covers never vote. Fire-and-forget (never awaited, never toasted: submitCoverPick swallows every
+		// failure), with the RAW artist/title (the server keys on catalog metadata, not names.dn*).
+		void coverPickKeys(track.uid, track.artist, track.title).then((k) => k && submitCoverPick(k, url));
+		toast.show(t('toast.coverPinned'));
+		// quick-260919-3j1 (F1 / D-1): and, when this app holds an offline copy, put the art in the
+		// FILE. The pin above is what makes the choice permanent IN THE APP; a pin lives in
+		// localStorage keyed by uid, so it is invisible to the phone's own music app, to any other
+		// player, and to the file itself.
+		writeTagsForGesture({ cover: url });
+		closeCoverPicker();
+		close();
+	}
+
+	// quick-260919-3j1 — THE ONE ENTRY BUILDER the two pin gestures share, so they cannot drift apart.
+	// A component-local function over `track` / `names` / `player`, deliberately NOT a new module:
+	// the one thing it must never become is a second copy of the Settings sweep's construction.
+	//
+	// D-7: `names.dnTitle` / `dnArtist` / `zhLock` is a VERBATIM copy of that sweep's entry
+	// (settings/downloads/+page.svelte). `library.applyMetadata` persists an editor edit into
+	// library.downloads, so `dnTitle(track.title, track.artist)` reproduces the user's OWN edit, not the catalog
+	// string — a cover pin cannot clobber a manual metadata edit.
+	//
+	// NO `filename`: the sticky base recorded by quick-260919-3j1's blob-store index is what keeps a
+	// user-typed file name from being reverted by a rewrite that knows nothing about it.
+	//
+	// `lyrics` is the SAME expression the <MetadataEditor> mount at the bottom of this file uses, so
+	// a cover pin can never blank the lyrics the app is currently showing.
+	//
+	// quick-261114-fsync: `targetUid` is the DOWNLOAD's uid, which may be a TWIN — the song was
+	// downloaded under another source's uid than the one this menu was opened on. When it is a
+	// twin, the entry's uid AND its name fields come from the DOWNLOAD record (the file being
+	// rewritten is that record's file, and its own strings are the ones an editor edit would have
+	// persisted there), and the default `lyrics` reads the record first so the rewrite preserves
+	// the file's own lyrics before falling back to the menu track's read.
+	function fileSyncEntry(overrides: Partial<RetagEntry>, targetUid: string): RetagEntry | null {
+		if (!track?.uid) return null;
+		const rec = targetUid !== track.uid ? library.downloads.find((d) => d.uid === targetUid) : undefined;
+		const meta = rec ?? track;
+		return {
+			uid: targetUid,
+			title: names.dnTitle(meta.title, meta.artist),
+			artist: names.dnArtist(meta.artist),
+			album: names.zhLock(meta.album),
+			cover: activeCover,
+			lyrics:
+				(rec ? readLyrics(rec) : undefined) ??
+				readLyrics(track && player.current?.uid === track.uid ? player.current : track) ??
+				undefined,
+			...overrides
+		};
+	}
+
+	// quick-260919-3j1 (D-1) — THE REWRITE TRIGGER, AND THE LINE NOTHING AUTOMATIC MAY CROSS.
+	//
+	// This fires on an EXPLICIT TAP only: a cover pin or a lyric pin, one song, one wasm pass —
+	// identical in cost and shape to the metadata editor's Save that already ships. An automatic
+	// cover resolve, `cover-backfill`, `adoptCover` or `healCover` must NEVER reach this line.
+	// `healCover` alone can fire PER RENDER on a flaky image; rewriting a 27 MB FLAC's tags there
+	// would be catastrophic. The pin already makes the user's choice permanent in the app without
+	// touching the file, which is why no automatic path needs this at all.
+	//
+	// Gate on `blobPresent === true`, never `!== false`: it starts `null` and is filled by the menu's
+	// own open-effect, so `!== false` would fire a rewrite for a song this app has no copy of.
+	//
+	// quick-261114-fsync: the gate above decides the EXACT-uid case only. The write TARGET is
+	// `library.downloadUidFor(track)` — a song downloaded under another source's uid has its file
+	// under the TWIN uid, where `blobPresent` (probed for THIS menu's uid) says nothing. A twin
+	// target is therefore verified directly (`blobStore.has(target)`) inside the async body below;
+	// no target at all (not downloaded under any uid) means no write, exactly as before.
+	//
+	// quick-260919-ejm (D-6) — `isDevice` STAYS, and it is now a DELIBERATE BOUNDARY, not an echo of
+	// a `retagOne` guard that has been lifted. Do not "fix" this by symmetry with the Edit-metadata
+	// row above. A user-file rewrite happens from exactly TWO explicit gestures — Edit metadata ->
+	// Save, and the confirmed Settings -> Downloads sweep — and a one-tap cover or lyric pin is
+	// neither: silently rewriting 27 MB of someone's own FLAC as a side effect of tapping a
+	// thumbnail is not what was authorised. The pin already makes the choice permanent IN THE APP
+	// for an imported file, which is the whole user-visible benefit, with none of the risk.
+	//
+	// FIRE-AND-FORGET: the pin has already repainted every surface, so the file write must never
+	// block the sheet closing. Success needs no toast (`toast.coverPinned` / `toast.lyricsPinned`
+	// already said it); only a real failure speaks, through the existing `toast.tagsFailed`.
+	//
+	// THE HONEST CEILING: pinning while OFFLINE still writes the text tags, but the ART cannot be
+	// fetched — `resolveArtworkDataUrl` fails, `tagAudioBlob` then simply runs no picture setter, so
+	// the file's existing art survives untouched. The Settings -> Downloads sweep repairs it later,
+	// because that sweep now reads the pin (the other half of this task).
+	function writeTagsForGesture(overrides: Partial<RetagEntry>) {
+		// quick-260919-ejm (D-6): the menu's own track being a device import still ends this here —
+		// and so does a DEVICE target (downloadUidFor never resolves a catalog track to a device
+		// file, but the boundary is stated, not inherited).
+		if (isDevice || !track?.uid) return;
+		const target = library.downloadUidFor(track);
+		if (!target || isDeviceUid(target)) return;
+		const trackUid = track.uid;
+		// Fire-and-forget, as before — the twin branch just needs one awaited probe first, so the
+		// body is an async IIFE rather than a straight-line call.
+		void (async () => {
+			if (target === trackUid) {
+				if (blobPresent !== true) return; // the exact-uid gate, unchanged
+			} else if (!(await blobStore.has(target).catch(() => false))) {
+				return; // the twin record exists but its blob is gone — nothing to write into
+			}
+			const entry = fileSyncEntry(overrides, target);
+			if (!entry) return;
+			const r = await syncFileTags(entry);
+			if (r !== 'tagged' && r !== 'device-skipped') toast.show(t('toast.tagsFailed'));
+		})();
+	}
+
+	// quick-260919-1we (D-6): opening the sheet IS the reloader. Nothing caches a resolved LRC
+	// client-side (apiFetch's GET dedupe is in-flight only), so every open re-walks the sources live —
+	// which is why there is no always-visible "Reload" button: it would re-run the walk that just ran.
+	// Mirrors openCoverPicker exactly: gen bump + abort the prior walk, open the sheet IMMEDIATELY
+	// with a spinner so it never waits on the network, then fill it.
+	async function openLyricsPicker() {
+		// Same reason the Like and Change-cover rows are disabled: a uid-less name stub has no
+		// identity to pin against (D-1 — the pin record is keyed per uid).
+		if (!track?.uid) return;
+		const gen = ++lyricGen;
+		lyricAc?.abort();
+		const ac = new AbortController();
+		lyricAc = ac;
+		lyricCandidates = [];
+		lyricsLoading = true;
+		lyricsOpen = true;
+		// combinedSignal is the shared caller-signal + timeout primitive (never hand-roll a second
+		// controller). The 15s ceiling is T-1we-03: a hung upstream must not pin the sheet on a spinner.
+		const list = await collectLyricCandidates(track.artist, track.title, combinedSignal(15_000, ac.signal));
+		if (gen !== lyricGen || ac.signal.aborted) return; // superseded by a re-tap / cancelled
+		lyricCandidates = list;
+		lyricsLoading = false;
+	}
+	function closeLyricsPicker() {
+		lyricsOpen = false;
+		lyricAc?.abort();
+	}
+	// Pin the tapped LRC. D-4: NO player call is needed — pinLyrics bumps the shared reactive signal
+	// and every lyrics surface reads through readLyrics(), so the NowPlaying pane and the Nowbar line
+	// repaint on the spot with no replay and no `player.current` surgery.
+	function pickLyrics(lrc: string) {
+		if (!track?.uid) return;
+		pinLyrics(track.uid, lrc);
+		toast.show(t('toast.lyricsPinned'));
+		// quick-260919-3j1 (F3): and into the FILE, when this app holds an offline copy. The pin above
+		// stays the in-app mechanism (it bumps the shared signal and every lyrics surface repaints
+		// through readLyrics, 1we's D-4) — but a pin lives in localStorage keyed by uid, so it is
+		// invisible to the phone's music app, to any other player, and to the file itself. The whole
+		// point of F3 is that the downloaded file is SELF-SUFFICIENT. Same explicit-tap-only gate as
+		// pickCover; see writeTagsForGesture.
+		writeTagsForGesture({ lyrics: lrc });
+		closeLyricsPicker();
+		close();
+	}
+	// D-6: drop the pin and fall the read back to the app's own lyrics. Reuses menu.lyricsAuto as the
+	// toast text rather than minting a sixth key for one sentence.
+	function resetLyrics() {
+		if (!track?.uid) return;
+		unpinLyrics(track.uid);
+		// quick-261114-fsync: the unpin used to leave the FILE still carrying the pinned LRC — the
+		// app fell back, the file did not. Re-sync the fallback lyrics (the post-unpin read: the
+		// track's own lrc) through the same gesture writer. When the fallback is EMPTY there is no
+		// write at all: the codec has no clear verb (an absent/empty `lyrics` field means "leave the
+		// file's lyrics alone", retag.ts D-4), so an unpin with no fallback lyrics cannot scrub the
+		// file — the Settings -> Downloads sweep cannot either; the file keeps its embedded LRC
+		// until a non-empty lyric set is written over it.
+		const fallback = readLyrics(player.current?.uid === track.uid ? player.current : track);
+		if (fallback) writeTagsForGesture({ lyrics: fallback });
+		toast.show(t('menu.lyricsAuto'));
+		closeLyricsPicker();
+		close();
+	}
+	function playNext() { if (track) { player.playNext(track); toast.show(t('toast.playingNext')); } close(); }
+	function addQueue() { if (track) { hapticTick(); player.addToQueue(track); toast.show(t('toast.addedToQueue')); } close(); }
+	// quick-261006-44u: song radio — buildSimilarQueue seeds a similar-songs station from this
+	// track (Last.fm getSimilar primary, Deezer radio / similar-artists fallbacks, never
+	// throws). Mirrors the home's playRadioTrack: resolve-and-play the seed first, then
+	// anchor the similar list behind it as the queue. Empty station → toast, no-op.
+	async function startRadio() {
+		if (!track) { close(); return; }
+		hapticTick();
+		const tr = track;
+		let similar: Track[] = [];
+		try { similar = await buildSimilarQueue(tr); } catch { similar = []; }
+		if (!similar.length) { toast.show(t('toast.radioEmpty')); close(); return; }
+		// quick-261019-mau: a DOWNLOADED seed plays from its local blob — playStub() would
+		// re-resolve it from the network (slow, and a null miss when offline kills the whole
+		// radio even though the song is on the device). Play the seed as-is through the normal
+		// play path instead (the remix download fast-path, quick-261019-rmx), then build the
+		// station around it exactly like the network path below.
+		let played: Track | null;
+		// quick-261102-trh (DECISIONS.md §11): the library's answer for THE SONG — a twin downloaded
+		// under another uid plays offline too, so it skips the network gate like an exact-uid download.
+		if (library.downloadUidFor(tr) !== null) {
+			player.setQueue([tr], 'radio');
+			void player.play(tr, { fresh: true });
+			played = tr;
+		} else {
+			played = await player.playStub(tr.artist, tr.title, tr.cover, 'radio');
+		}
+		if (!played) { if (player.pendingTrack == null) toast.show(t('home.unplayable')); close(); return; }
+		player.setListQueue([tr, ...similar], 'radio');
+		toast.show(t('toast.radioStarted'));
+		close();
+	}
+	// quick-261006-44u: NowPlaying-tab shortcuts (current track only — see canShow).
+	// The menu closes first; requestNpTab flips NowPlaying to the tab (selectTab also
+	// half-opens the sheet when closed on narrow layouts).
+	function viewComments() { hapticTick(); requestNpTab('comments'); close(); }
+	function viewRelated() { hapticTick(); requestNpTab('related'); close(); }
+	// ii6: Shuffle moved off the NowPlaying transport row into the menu. Shown only when
+	// there's a queue to shuffle (otherwise the action would be a no-op).
+	// quick-261105-01q (user: "睇唔到有冇開"): the toggle worked, but the menu closed with no
+	// readout and no other surface shows shuffle/repeat state — so a tap read as "nothing
+	// happened". Toast the NEW state after the toggle (the like() shape); the toast host
+	// outlives the menu.
+	function shuffleQueue() {
+		hapticTick();
+		player.toggleShuffle();
+		toast.show(t(player.shuffle ? 'toast.shuffleOn' : 'toast.shuffleOff'));
+		close();
+	}
+	// quick-260919-0mw (correction): Repeat follows Shuffle off the NowPlaying transport row into this
+	// menu, so the transport row can hand its slot to Download. Same shape as shuffleQueue — cycle,
+	// then close — because a menu row that stays open after acting reads as "nothing happened".
+	// Closing costs the in-place cycle the old button had, so the row must show WHICH mode it is in
+	// before the tap, not after: the label itself swaps between the two existing nowplaying.* keys
+	// (see the template), which is the only state readout that survives the menu closing.
+	// quick-261105-01q: same as shuffleQueue — the label swap above only shows on the NEXT open.
+	function cycleRepeatMode() {
+		hapticTick();
+		player.cycleRepeat();
+		toast.show(t(player.repeatMode === 'one' ? 'toast.repeatOneOn' : 'toast.repeatOff'));
+		close();
+	}
+	// GLN-5: clear-queue relocated here from the NowPlaying subnav. Clearing a queue that is just
+	// [current] is a no-op, so the item is gated to queue.length > 1 in the template.
+	function clearQueue() { player.clearQueue(); close(); }
+	// quick-260926-qat: show / hide the lyrics pane's timing row, then close (Repeat-row shape).
+	// quick-261021-menu7: toggleLyricsTiming REMOVED — the standalone menu item is gone.
+	// Use the shared LyricsTimingToggle component instead.
+	function like() {
+		if (!track) return;
+		hapticTick();
+		library.toggleLike(track);
+		// Post-toggle: isLikedTrack == true means we just LIKED it; false means we just UNLIKED.
+		// Use past-tense toast keys (ii6 — previously read 'menu.like' which is the action verb).
+		toast.show(library.isLikedTrack(track) ? t('toast.liked') : t('toast.unliked'));
+	}
+	// goto* navigate away (TrackMenu unmounts) so a local toast can't render — the page change
+	// IS the feedback. like()/detail keep their on-page feedback (toast / heart toggle / sheet).
+	//
+	// overlays.navigateAway() runs the goto() while this menu (and any now-playing sheet) is
+	// still open, then closes them with history.back() suppressed. Doing onclose()/collapse()
+	// FIRST and then goto() — the obvious version — is exactly what was broken: closing the
+	// overlay makes goto() resolve as a silent NO-OP, and the dismiss's history.back() races
+	// the goto() (single overlay → back cancels goto, the menu nav "does nothing"; stacked
+	// overlays → goto lands then back over-pops, snapping the URL home). See the overlays store.
+	function gotoArtist() {
+		// quick-260919-dlring: `hasArtist` is re-checked HERE, not only at the two call sites, so no
+		// caller can route to `/artist/` with an empty name. The route sees the RAW track.artist
+		// passed through the script lock ONLY (names.artistHref → zhLock), never names.dnArtist — a
+		// translation would change what the artist page resolves; the lock is safe because
+		// searchAll / Last.fm are script-blind (quick-260926-hl9).
+		if (!track || !hasArtist) return;
+		const dest = names.artistHref(track.artist);
+		overlays.navigateAway(() => goto(dest));
+	}
+	// quick-261006-44g — Go to album is UNCONDITIONAL in the grid now (user 2026-10-06:
+	// some songs showed the cell, some didn't — the grid must not come and go).
+	// Mirrors gotoArtist: same navigateAway single dismiss path, same script-lock rule —
+	// `names.zhLock` (re-script only), NEVER the display-language dn* strings
+	// (quick-260926-hl9). The album route is the 2-segment /album/{artist}/{name} shape
+	// (quick-261023-albumurl — same as the discography albumHref). The album name usually
+	// track; for a stub without one, gated() resolves details first (the Detail/Remix
+	// resolve-then-act idiom) and only toasts when there is still nothing to go to.
+	function gotoAlbum() {
+		// quick-261019-mau: the album NAME is all this action needs — a track that already
+		// carries one (downloads always do) navigates directly instead of demanding a network
+		// resolve first, which would toast "no audio" on failure for an action that needs no
+		// audio at all. Only a stub without an album name still goes through the gate.
+		if (track && track.album.trim()) {
+			const dest =
+				'/album/' +
+				encodeURIComponent(names.zhLock(track.album.trim())) +
+				'?artist=' +
+				encodeURIComponent(names.zhLock(track.artist));
+			overlays.navigateAway(() => goto(dest));
+			return;
+		}
+		gated('goToAlbum', (rt) => {
+			const album = rt.album.trim();
+			if (!album) {
+				toast.show(t('toast.noAlbum'));
+				return;
+			}
+			// quick-261023-albumurl: 2-segment album URL (same shape as albumHref).
+			const dest =
+				'/album/' +
+				encodePathSegment(names.zhLock(rt.artist)) +
+				'/' +
+				encodePathSegment(names.zhLock(album));
+			overlays.navigateAway(() => goto(dest));
+		});
+	}
+
+	// startDownload's save path (was a gated('download', …) run callback pre-jq4; quick-260913-jq4
+	// de-gated it — downloadTrack does its own resolve at settings.downloadQuality). Thin delegate
+	// to the SHARED downloadTrack (29-03) — the ONE isolation-safe, never-throws, never-navigates save
+	// path. The bespoke fetch → offline-blob → save-picker → anchor → new-tab-stream fallback that used
+	// to live here is DELETED (DL-BUG-01: a failed save can no longer open a media page); its logic
+	// (filename build, quality-reuse, offline blob, anchor save) now lives in download-track.ts +
+	// download-save.ts + download-filename.ts.
+	//
+	// DOWNLOAD ISOLATION CONTRACT (D-18, quick-260625-pzs-04): download work must NOT touch the player —
+	// no assign to player.current, no clearing its lrc, no player.playGen bump, no reuse of the shared
+	// <audio>. downloadTrack upholds this (reads player.current READ-ONLY to reuse an already-resolved
+	// URL) so the guarantee is preserved by delegation.
+	//
+	// D-12: we deliberately do NOT onclose() first — the Download row reflects its per-uid state
+	// (library.downloading / isDownloaded) inline whether or not the menu stays open. The result
+	// sentinel is localized to a toast here (the service is i18n-free by contract).
+	// quick-260913-jq4: Download DOES NOT go through gated() any more (D-02 still stands for
+	// Detail and Go-to-album — they genuinely need resolved metadata in hand before they can
+	// run; quick-261019-rmx/mau: Autoplay skips the gate for downloaded tracks, and Detail/Go-to-album
+	// take a download fast-path that opens with the track's known metadata instead of demanding
+	// a network audioUrl first).
+	//
+	// gated() pre-resolved the stub and then vetoed on `!resolved.audioUrl` with toast.noAudio
+	// BEFORE doDownload ever ran. That veto was both redundant and wrong here:
+	//   - it resolves at the STREAMING default, while downloadTrack forces its own fresh resolve at
+	//     settings.downloadQuality — so it could reject a download that would have succeeded, and
+	//     the user saw an instant "no audio available" on the first tap instead of a spinner;
+	//   - downloadTrack already brackets library.beginDownload/endDownload SYNCHRONOUSLY before its
+	//     first await, so the per-uid spinner appears on the same tick and spans the REAL operation;
+	//   - downloadTrack never throws and returns 'no-audio' itself when there truly is none.
+	// One resolve, one authority, and the toast now reports what actually happened.
+	async function startDownload() {
+		if (!track) return;
+		if (library.downloading.has(track.uid)) return; // D-03 equivalent: a second tap while busy is a no-op
+		// quick-261001-grb: label by the ORIGINAL track (the identity, quick-260916-0d9), display-language.
+		const label = downloadLabel(names.dnArtist(track.artist), names.dnTitle(track.title, track.artist));
+		toast.show(t('toast.downloading', { label }));
+		// quick-260915-26g: the label and the file must agree. The probe already resolved this song AT
+		// settings.downloadQuality, so pass that Track back in — downloadTrack's reuseInput branch then
+		// saves the exact file the row just measured instead of re-resolving a third time.
+		const picked = dlProbe?.track && dlProbe.track.uid === track.uid ? dlProbe.track : track;
+		// quick-261105-heal: a user tap gets the donor fallback — if this song's own provider
+		// refuses (blocked/throttled), the same recording is fetched from another source at the
+		// same quality tier instead of failing outright.
+		const res = await downloadTrackWithDonor(picked);
+		// quick-261020-hqswitch: if THIS song is the one playing and the saved file is a
+		// higher tier than the stream, the player hot-swaps to the local file in place.
+		if (res === 'saved') void player.adoptDownloadedCurrent(track.uid);
+		toast.show(
+			res === 'saved'
+				? t('toast.downloaded', { label })
+				: res === 'no-audio'
+					? t('toast.noAudioFor', { label })
+					: t('toast.downloadFailedKeptInLibrary', { label })
+		);
+		// The Check state is blob-backed (see `blobPresent`), so re-probe rather than assume: 'saved'
+		// only means the anchor click fired, which is true even when the user cancels the save dialog.
+		await probeBlob();
+	}
+
+	// quick-260919-30x — "Don't import again" for an IMPORTED (device:) song.
+	//
+	// THIS IS NOT A DELETE, and the distinction is the whole feature. `library.removeDownload` drops
+	// the library row and then calls `blobStore.del`, whose native branch REFUSES a `device:` uid as
+	// its FIRST statement (34 Pitfall 1) — so `deleteFromMusic` (a MediaStore contentResolver.delete,
+	// which really does destroy the file) is never reached. The user's own audio file is not read,
+	// renamed, moved or deleted: it stays in their Music/ or Download/ folder under its own name and
+	// their phone's music app still lists it. The only things that change are the in-memory +
+	// localStorage library row and the new exclusion mark.
+	//
+	// The mark is what makes the removal STICK: without it the next device scan finds the same file
+	// and imports it straight back. `toast.noImportDone` says "stays on your phone" for the same
+	// reason — a row that reads like a delete has to promise, in the moment, that it is not one.
+	function noImport() {
+		if (!track?.uid) return;
+		// excludeUid BEFORE removeDownload: the label is read off the track, and the removal is what
+		// makes the row disappear. `names.dn*` so the recovery list reads in the user's display script.
+		excludeUid(track.uid, `${names.dnArtist(track.artist)} - ${names.dnTitle(track.title, track.artist)}`.trim());
+		library.removeDownload(track.uid);
+		toast.show(t('toast.noImportDone'));
+		close();
+	}
+
+	// quick-260919-vrq — "Remove download" for an APP-DOWNLOADED song, behind a confirm sheet.
+	//
+	// (a) TOGGLE ON (the default) = delete + exclude, which is what the user asked for verbatim
+	//     ("checkbox on remove file on disk and auto added to exclude list"). The exclusion mark is
+	//     belt-and-braces rather than dead state: `deleteFromMusic` never throws, so a MediaStore
+	//     delete that fails SILENTLY leaves a Music/OpenMusic copy behind that a later scan could
+	//     find — the mark records the user's intent against exactly that case.
+	// (b) TOGGLE OFF = the library row only. `blobStore.del` is never reached, so the app-private
+	//     file and the Music/OpenMusic entry (native) or the IndexedDB copy (web) all survive. NO
+	//     exclusion mark is written: the user chose to KEEP the file, and a mark keyed on the APP uid
+	//     would not block a rescan anyway — a rescan imports that surviving file under a NEW
+	//     `device:` uid. So neither the toast nor the body copy promises it cannot come back.
+	// (c) APP DOWNLOADS ONLY. `blobStore.del` REFUSES a `device:` uid as its first statement (34
+	//     Pitfall 1), so "delete the offline copy" is something the app literally cannot do for an
+	//     import — offering the toggle there would be a UI lie. `device:` keeps noImport.
+	// (d) ON THE WEB the toggle is SHOWN, not hidden or disabled: the browser build's `blobStore.del`
+	//     deletes the IndexedDB offline copy, which is real reachable bytes. Only a file saved through
+	//     the browser's own download folder is out of reach, and `menu.removeDownloadBody` says so —
+	//     the same truth `settings.retagDownloadsDesc` already tells.
+	function openRemoveDownload() {
+		if (!track?.uid) return;
+		rmDeleteFile = true;
+		rmOpen = true;
+	}
+	function confirmRemoveDownload() {
+		if (!track?.uid) return;
+		// Same label expression as noImport — `names.dn*` so the recovery list reads in the user's
+		// display script.
+		if (rmDeleteFile)
+			excludeUid(track.uid, `${names.dnArtist(track.artist)} - ${names.dnTitle(track.title, track.artist)}`.trim());
+		library.removeDownload(track.uid, { deleteFile: rmDeleteFile });
+		toast.show(t('toast.downloadRemoved'));
+		rmOpen = false;
+		close();
+	}
+
+	// quick-260913-jq4 — WHAT "DOWNLOADED" MEANS. `library.isDownloaded(uid)` is membership in the
+	// downloads REFERENCE list, and `library.addDownload` deliberately runs BEFORE the fetch so a
+	// failed download still leaves the song re-streamable (DL-BUG-01). On top of that the web save is
+	// an `<a download>` click, which reports success even when the user cancels the browser's save
+	// dialog — the platform gives no cancel signal. So the list happily says "Downloaded" with
+	// nothing stored anywhere.
+	//
+	// The offline copy CAN be checked, and it is the thing that actually makes an offline play work,
+	// so the Check state reads that instead. `null` = not probed yet → render the normal Download
+	// affordance (the probe is a single indexed key lookup; it lands in ms).
+	//
+	// The downloads list keeps its own meaning ("the user asked for this offline") and is untouched;
+	// migrating the other surfaces that render download state to this probe is a separate change.
+	let blobPresent = $state<boolean | null>(null);
+	async function probeBlob() {
+		const uid = track?.uid;
+		if (!browser || !uid) return;
+		const present = await blobStore.has(uid);
+		if (track?.uid === uid) blobPresent = present; // ignore a probe the user has already navigated past
+	}
+	$effect(() => {
+		const uid = track?.uid;
+		if (!open || !uid) {
+			blobPresent = null;
+			return;
+		}
+		let alive = true;
+		untrack(() => blobStore.has(uid)).then((present) => {
+			if (alive) blobPresent = present;
+		});
+		return () => {
+			alive = false;
+		};
+	});
+
+	// quick-260915-26g — THE ONE OPT-IN PROBE SURFACE. `settings.downloadQuality` is a request, not a
+	// promise (kuwo answers "lossless" with a 320K mp3), so the Download row states what the tap will
+	// ACTUALLY produce: `FLAC · 38.2 MB`, measured. The user chose that truth over an instant guess and
+	// accepted its cost.
+	//
+	// THE COST, EXPLICITLY. This sits beside the 31-D-03 prewarm and does NOT replace it: prewarm
+	// resolves at the STREAMING tier, and a download-tier (lossless) url must never become the url the
+	// player streams — that is how a phone on cellular ends up pulling a 52 MB FLAC. So at
+	// downloadQuality='lossless' a menu open costs prewarm + the probe's resolve + one HEAD; at
+	// auto/320/128 the probe reuses the freshly-resolved track and issues only the HEAD. Re-opening the
+	// same menu costs nothing (the service memoises per uid|quality).
+	//
+	// quick-261004-o9t: a ytmusic song is probed like any other source — download-tier resolve + a
+	// HEAD/Range of its OWN url (the direct googlevideo url on native, the stream proxy url on web). A
+	// CORS-blocked HEAD just yields a label without a size, which `formatDownloadMeta` already handles.
+	// The donor-label special case (quick-260930-x3q) left with the never-ytmusic rule (lifted
+	// 2026-10-04). List rows never pass `probe` (SongRow's own comment), so nothing fires per visible
+	// row (api-fetch-flood freeze).
+	let dlProbe = $state<DownloadProbe | null>(null);
+	let dlProbing = $state(false);
+	$effect(() => {
+		// GATE ON `=== false`, NOT `!== true`. `blobPresent` starts null and is filled by the async
+		// effect above, so `!== true` would fire a resolve + HEAD on EVERY open — including for an
+		// already-downloaded song, whose Download row is not even rendered — and then abort it a tick
+		// later. Waiting for a definite "not downloaded" costs one tick and saves a guaranteed wasted
+		// round-trip; this app is specifically sensitive to menu-open request volume. Do not simplify.
+		const target = track;
+		if (!open || !target || isDevice || blobPresent !== false) {
+			dlProbe = null;
+			dlProbing = false;
+			return;
+		}
+		const ac = new AbortController();
+		dlProbing = true;
+		// untrack: probeDownload reads settings/player internally and those reads would otherwise
+		// re-invalidate this effect (the restore-effect self-invalidation loop). Same discipline as the
+		// blobPresent effect above; the cleanup aborts on close so no stale label lands on the next song.
+		untrack(() => probeDownload(target, ac.signal)).then((p) => {
+			if (!ac.signal.aborted) {
+				dlProbe = p;
+				dlProbing = false;
+			}
+		});
+		return () => ac.abort();
+	});
+	const dlMeta = $derived(dlProbe ? formatDownloadMeta(dlProbe) : null);
+
+	// quick-260919-3j1 (F2) — the MIRROR of the dlProbe effect above, and deliberately so.
+	//
+	// The two are MUTUALLY EXCLUSIVE by their gates: the download probe fires only on
+	// `blobPresent === false`, this one only on `blobPresent === true`, so neither can ever run for
+	// the same song. Same `===` discipline for the same reason stated above — `blobPresent` starts
+	// null, so `!== false` would fire on EVERY open and abort a tick later.
+	//
+	// UNLIKE dlProbe: no `isDevice` exclusion, on purpose. An imported file is exactly the case where
+	// the app's catalog metadata is thinnest and the file's own numbers are the only truth.
+	// `blobStore.stat` reads a device uid in place through the same content-URI path `nativeGet`
+	// uses, and READING is always permitted — it is writing, moving and deleting that are refused.
+	//
+	// `localFileMeta` reads nothing reactive, but the untrack keeps this effect's dependency set to
+	// exactly {open, track, blobPresent} — the same discipline the two effects beside it follow
+	// (restore-effect self-invalidation loop).
+	let localProbe = $state<DownloadProbe | null>(null);
+	$effect(() => {
+		const target = track;
+		if (!open || !target || blobPresent !== true) {
+			localProbe = null;
+			return;
+		}
+		let alive = true;
+		untrack(() => localFileMeta(target)).then((p) => {
+			// drop a late result the user has already navigated past
+			if (alive && track?.uid === target.uid) localProbe = p;
+		});
+		return () => {
+			alive = false;
+		};
+	});
+	const localMeta = $derived(localProbe ? formatDownloadMeta(localProbe) : null);
+	const dlLabel = $derived(dlMeta ? `${t('menu.download')} \u00b7 ${dlMeta}` : t('menu.download'));
+
+	// quick-260916-0d9 \u2014 OPEN THE "Download from\u2026" SHEET (long-press only; one tap is unchanged).
+	//
+	// Q2 PROBE COST. The sheet opens on the SAME tick with the own-source row already labelled: the
+	// main Download row's `dlProbe` was measured under the exact `uid|downloadQuality` memo key
+	// `probeDownload` would use, so seeding it costs zero network AND guarantees that row is never a
+	// skeleton (the service would answer instantly anyway \u2014 seeding skips even the microtask).
+	// `fetchVariants` then runs behind a spinner line (its searchAll is D-04 TTL-memoised, so a
+	// re-open is free), and every OTHER candidate is probed through `mapWithConcurrency(\u2026, 2, \u2026)`.
+	//
+	// WHY 2, AND DO NOT RAISE IT. Each probe is one governed `ensureTrackDetails` + one raw HEAD/Range,
+	// so 2 in flight can hold at most 2 of `apiFetch`'s MAX_CONCURRENT_REQUESTS=8 slots, leaving >=6
+	// for playback. An uncapped `/api/*` fan-out is precisely what froze this app (api-fetch-flood-freeze).
+	async function openDownloadPicker() {
+		if (!track?.uid || isDevice) return;
+		const gen = ++dlPickGen;
+		dlPickAc?.abort();
+		const ac = new AbortController();
+		dlPickAc = ac;
+		const target = track;
+		// quick-261004-o9t: `dlProbe` is the song's OWN probe for every source now (ytmusic included), so
+		// this seeds the song's own row by its uid.
+		dlPickProbes = dlProbe?.track ? { [dlProbe.track.uid]: dlProbe } : {};
+		dlPickExtra = {};
+		// quick-261004-o9t: the YouTube Music row is offered again (own track or donor) — the
+		// quick-260930-uia filter left with the rule it enforced.
+		dlPickList = versionsIncludingOwn(target, []);
+		dlPickLoading = true;
+		dlPickOpen = true;
+		const found = await fetchVariants(target, ac.signal);
+		if (gen !== dlPickGen || ac.signal.aborted) return; // superseded / cancelled
+		dlPickList = versionsIncludingOwn(target, found);
+		dlPickLoading = false;
+		// Per-item write INSIDE fn so each row fills the instant its own probe lands, rather than the
+		// whole sheet unblanking at the end. untrack: probeDownload reads settings/player internally
+		// and this runs inside a user handler, not an effect \u2014 the guard matches the dlProbe effect's.
+		await mapWithConcurrency(
+			dlPickList,
+			2,
+			async (v) => {
+				// The own-source row arrives pre-seeded (the zero-network seed above); every other row
+				// probes at the download tier first. Sequential per item, so the 2-in-flight cap the
+				// api-fetch-flood-freeze rule demands still holds.
+				let p = dlPickProbes[v.uid];
+				if (!p) {
+					p = await untrack(() => probeDownload(v, ac.signal));
+					if (gen !== dlPickGen || ac.signal.aborted) return;
+					dlPickProbes = { ...dlPickProbes, [v.uid]: p };
+				}
+				// quick-261020-dl320: a lossless probe proves this source HAS a full quality ladder —
+				// FLAC sits at its top, so the 320k rung below is near-certainly present too. Probe it
+				// as a second, cheaper row for the same source. Only stored when the probe lands a REAL
+				// 320k file: a ladder that falls through to its own FLAC at the 320 tier must not
+				// produce a duplicate row.
+				if (p?.track?.audioUrl && isLosslessContainer(p.container) && !(v.uid in dlPickExtra)) {
+					const p320 = await untrack(() => probeDownload(v, ac.signal, '320'));
+					if (gen !== dlPickGen || ac.signal.aborted) return;
+					if (p320?.track?.audioUrl && !isLosslessContainer(p320.container)) {
+						dlPickExtra = { ...dlPickExtra, [v.uid]: p320 };
+					}
+				}
+			}
+		);
+	}
+	function closeDownloadPicker() {
+		dlPickOpen = false;
+		dlPickAc?.abort(); // closing the sheet cancels every probe still in flight (T-0d9-01)
+	}
+	// quick-260916-0d9 \u2014 Q5 IDENTITY. `track` (the ORIGINAL the menu opened on) carries the identity;
+	// `audioFrom` carries the row's MEASURED audio. downloadTrack spreads the original, so
+	// library.addDownload and blobStore.put both key by the original uid \u2014 which is what makes
+	// `library.isDownloaded(track.uid)` true and `player.play(track)` take the offline-blob branch and
+	// play the source the user actually chose. It also skips the re-resolve, so the bytes saved are the
+	// bytes the row promised (never a larger re-resolved file \u2014 the 52 MB-FLAC-on-cellular incident).
+	// quick-261020-dl320: the sheet's second (320k) row passes its own probe — the tapped row's
+	// MEASURED audio is what downloadTrack saves, so the label and the bytes always agree.
+	async function pickDownload(v: Track, probe?: DownloadProbe) {
+		if (!track) return;
+		const p = probe ?? dlPickProbes[v.uid];
+		if (!p?.track?.audioUrl) return; // the row is disabled in that state anyway
+		if (library.downloading.has(track.uid)) return; // D-03 equivalent: a second tap while busy is a no-op
+		// quick-261001-grb: label by the ORIGINAL track (the identity, quick-260916-0d9), display-language.
+		const label = downloadLabel(names.dnArtist(track.artist), names.dnTitle(track.title, track.artist));
+		// quick-261007-abq2: the picked source's file may ALREADY be the on-disk file — a replace done
+		// before the auto quality-refresh (quick-261007-abq) left the bytes right but the record's
+		// quality label stale ("std" with the 320k file size). Same byte count = same file: skip the
+		// re-download and just repair the record's quality metadata from the probe. A null byte count
+		// (CDN with no content-length) falls through to the normal replace path — never a wrong skip.
+		if (library.isDownloaded(track.uid)) {
+			const st = await blobStore.stat(track.uid).catch(() => null);
+			if (pickedFileAlreadyOnDisk(p.bytes, st?.bytes ?? null)) {
+				library.updateDownloadQuality(track.uid, {
+					quality: p.track.quality,
+					qualityLabel: p.track.qualityLabel
+				});
+				closeDownloadPicker();
+				toast.show(t('toast.downloadAlreadyThisQuality', { label }));
+				// D-12: the menu itself stays open — the Download row reflects the repaired label inline.
+				await probeBlob();
+				return;
+			}
+		}
+		closeDownloadPicker();
+		toast.show(t('toast.downloading', { label }));
+		const res = await downloadTrack(track, { audioFrom: p.track });
+		// quick-261020-hqswitch: a picked higher-tier version of the PLAYING song swaps
+		// the live stream to the downloaded file (the picker's raison d'être).
+		if (res === 'saved') void player.adoptDownloadedCurrent(track.uid);
+		toast.show(
+			res === 'saved'
+				? t('toast.downloaded', { label })
+				: res === 'no-audio'
+					? t('toast.noAudioFor', { label })
+					: t('toast.downloadFailedKeptInLibrary', { label })
+		);
+		// D-12: the menu itself stays open \u2014 the Download row reflects downloading/downloaded inline.
+		await probeBlob();
+	}
+
+	async function doShare() {
+		if (!track) return;
+		// quick-260920-kn4 — read the carried cover BEFORE onclose(). `onclose()` flips `open` to
+		// false in the parent, which makes the prewarm effect above reset `shareCoverFallback` to
+		// null. Effects flush after this synchronous handler in Svelte 5, so today the order is
+		// already safe — reading first makes it correct regardless of flush timing.
+		//
+		// The fallback is the resolveShareCover prewarm result (iTunes, else Deezer), used ONLY when the displayed cover could not be
+		// tokenized (see the effect above for why YTM hosts cannot be). It never overrides a working
+		// carrier, so links for Deezer/Last.fm/kuwo/iTunes covers are unchanged.
+		const shareCover = shareCoverFallback ?? activeCover;
+		onclose();
+		// SHARE-02 / DQ-1 / DQ-4 / OG-PATH-02 (quick-260614-1w3, supersedes D-04/D-06 for the SONG
+		// surface): build the SHORT readable link `/song/{artist}/{title}` — CARRIER-FREE (no `?` at
+		// all: no base64 `?play=` queue token, no `{source}{id}` suffix, no `n`/`a`/`c` params). The
+		// two path segments ARE the authoritative title+artist; the song page resolves a playable
+		// track from them at open time and unfurls its OG card from them server-side.
+		//
+		// quick-260723-r4p (YouTube-Music-style card) — both former carriers are now retired:
+		//  (a) OG-ZH-01 / RESEARCH §E.17: no `dn`/`da` QUERY carriers. The title/artist go in the PATH.
+		//  (b) OG-EP-01: no cover read here — the card image is the own-origin /api/og endpoint, which
+		//      re-resolves the album art server-side (so a shared card no longer depends on whatever
+		//      happened to be in this device's cover cache).
+		//
+		// quick-260808-urx: the path now carries the DISPLAY-language names — the exact text this
+		// user sees on screen — not the raw catalog metadata. A zh-Hant user looking at 夢伴 / 李悅君
+		// shares `/song/李悅君/夢伴`, never the Simplified 梦伴 / 李悦君 ("if the user is zht … it
+		// should not show in zhs while sharing"). Simplified is an internal RESOLUTION concern.
+		//
+		// This is NOT a reversal of OG-ZH-01: the `dn`/`da` QUERY CARRIERS stay dead. Display text
+		// rides the PATH, which is the SINGLE value used for both display and resolution — the
+		// failure mode OG-ZH-01 killed was a converted display carrier diverging from the
+		// resolution key, not Traditional text per se.
+		//
+		// Reliability (verified — do not re-check): names.resolve() returns the cached display
+		// string and falls back to the RAW text on a miss, so share time returns exactly what the
+		// UI rendered; for zh-Hant the s2t dict is boot-warmed (quick-260712-et3), so it is
+		// synchronous. Both strings are computed ONCE here so the URL and the OS share-sheet title
+		// (also user-visible text) cannot disagree.
+		//
+		// The recipient-side resolution risk this reintroduces — a Traditional query against the
+		// mostly-Simplified CN index — is closed by resolveStub's t2s rescue-on-miss (quick-260808-urx).
+		// quick-260925-x8o: the title passes its artist too. dnArtist aliases a rescued artist alone,
+		// so a bare title would build a HYBRID /song/周杰倫/Coral Sea the recipient cannot rescue (a
+		// non-Latin artist skips the wa7 rescue); the pair gives /song/周杰倫/珊瑚海.
+		const dTitle = names.dnTitle(track.title, track.artist);
+		const dArtist = names.dnArtist(track.artist);
+		// quick-260809-3uo — CARRY THE COVER THE USER IS ACTUALLY LOOKING AT.
+		//
+		// WHY at all: /api/og re-resolves the card cover server-side from artist+title TEXT, through a
+		// chain that is independent of the client's. So a song the app is visibly showing art for could
+		// still unfurl a BLANK card — reported for 你瞞我瞞 / 陳柏宇, whose in-app cover comes from the
+		// client's iTunes tier (Quinquennium). Adding more server tiers is whack-a-mole; the client
+		// already knows the answer right here. What travels is a SHORT COVER ID, never a URL (see
+		// coverToken), so no sharer-supplied host or path can reach /api/og's fetcher.
+		//
+		// Precedence, widest-authority first: the hero's own cover when this IS the playing song, then
+		// the SAME shared cache every list row reads (so sharing from a row matches the row), then the
+		// stub's art.
+		//
+		// 🔴 The cache lookup MUST use the RAW track.artist / track.title, NOT dArtist / dTitle. The
+		// name layer is matchKey'd on the raw CATALOG metadata; passing the display-language strings
+		// (quick-260808-urx converts them — zh-Hant 夢伴 for catalog 梦伴) would miss the cache for
+		// exactly the users the display conversion exists for.
+		// An uncovered-tier cover (netease / qq / joox) simply yields no token and no regression — the
+		// carrier is advisory, and the card falls back to the server tier chain exactly as today. The
+		// iTunes id is recalled HERE because coverToken is pure: a store/storage never flows into a
+		// pure service (CLAUDE.md), so the component does the lookup and passes the value in.
+		// 38-D-08: the 4th arg is the song IDENTITY (uid/source/songid) — a direct detail resolve, not a
+		// name search. Args 1-2 stay display names (OG-ZH-01); share.ts skips device:/non-decodable ids.
+		const url = songShareUrl({ title: dTitle, artist: dArtist }, shareCover, recallItunesId(shareCover), track);
+		// User call 2026-10-06: the menu's Share button copies the link straight to the device
+		// clipboard, ready to paste — the native share sheet is gone from this path. (Side
+		// benefit, and why this is strictly better for CJK links: clipboard.writeText takes the
+		// raw string verbatim, so the quick-260808-vkd `text`-not-`url` percent-encoding trap in
+		// the Web Share API never applies here. The shareIncludeTitle setting stays alive for the
+		// album page's share sheet.)
+		try {
+			await navigator.clipboard.writeText(url);
+			toast.show(t('toast.shareCopied'));
+		} catch {
+			/* clipboard unavailable (permissions / insecure context) — nothing was copied */
+		}
+	}
+	// Gated run callback (D-02): the gate already resolved the track, so just open the detail sheet
+	// with the resolved object (audioUrl/quality rows populated). The menu stays open behind the
+	// detail sub-sheet (its own overlay entry), matching the prior behavior.
+	// quick-261007-abq3: for a downloaded song the record describes the FILE on disk — a fresh
+	// re-resolve reports the source's current streaming tier (e.g. QQ STD) instead of the file the
+	// user actually holds, so the record's quality wins here too.
+	// quick-261008-dl1: resolve through downloadUidFor — a track opened under another source's
+	// uid still reports its downloaded copy's quality.
+	function doDetail(resolved: Track) {
+		const dlUid = library.downloadUidFor(resolved);
+		const q = dlUid ? library.qualityForDownload(dlUid) : null;
+		// quick-261102-qtruth: the merge itself is services/display-quality's
+		// withDownloadQuality now — shared with every other quality surface, not a
+		// menu-local spread, so the precedence can never drift between surfaces again.
+		detailTrack = withDownloadQuality(resolved, q);
+	}
+	// quick-261019-mau: a DOWNLOADED track's metadata is already known (the library row, plus
+	// the download quality doDetail merges in) — gated()'s network resolve is unnecessary, and
+	// when it fails the menu toasts "no audio" and the sheet never opens, for a sheet that
+	// already renders a graceful "not resolved" for a missing audioUrl. Open it with the
+	// track as-is.
+	function onDetailTap() {
+		if (track && library.downloadUidFor(track) !== null) { // quick-261102-trh: song-level
+			doDetail(track);
+			return;
+		}
+		gated('detail', doDetail);
+	}
+	// Remix (QUEUE-04 / D-04..D-07): play the seed first, then seed a force-generated up-next from
+	// it via the existing fresh-play regenerate path — NO new queue mechanism. setQueue([seed],
+	// 'remix') records the 'remix' QueueContext (effectiveUpnextMode('remix') === 'generated', from
+	// 19-01); play(seed,{fresh:true}) → regenerate → dedupeBest([seed, ...manualEntries, ...auto])
+	// preserves manual pins (D-05) and discards the prior generated tail. The seed arrives via
+	// gated() (network tracks — guarantees an audioUrl) or via onRemixTap's download fast-path
+	// (downloaded tracks — played as-is from the local blob by play()'s offline-first branch).
+	function doRemix(seed: Track) {
+		toast.show(t('toast.autoplaying'));
+		player.setQueue([seed], 'remix');
+		void player.play(seed, { fresh: true });
+		close();
+	}
+	// quick-261019-rmx: a DOWNLOADED song plays from its local blob — play() is offline-first
+	// (library.isDownloaded → blobStore, no network resolve needed). Routing it through gated()
+	// would first demand a fresh network audioUrl: when that resolve fails the menu toasts
+	// "no audio" and doRemix never runs, even though the song is sitting on the device. So
+	// downloads skip the gate and play the seed as-is through the normal play path; the fresh
+	// play then regenerates the up-next list exactly like the network path. That's it.
+	function onRemixTap() {
+		if (track && library.downloadUidFor(track) !== null) { // quick-261102-trh: song-level
+			doRemix(track);
+			return;
+		}
+		gated('remix', doRemix);
+	}
+	function addToPlaylist(id: string) { if (track) library.addToPlaylist(id, track); pickerOpen = false; toast.show(t('toast.addedToPlaylist')); }
+	function newPlaylist() {
+		const name = prompt(t('menu.newPlaylistPrompt'));
+		if (name && track) { const pl = library.createPlaylist(name); library.addToPlaylist(pl.id, track); toast.show(t('toast.playlistCreated')); }
+		pickerOpen = false;
+	}
+
+	// ---- back-gesture wiring (SINGLE dismiss path) ----
+	// Each sheet registers with the overlays stack while open. The back gesture invokes
+	// the registered close handler (which only flips state false); UI close handlers
+	// (scrim/X/drag) likewise only flip state false. The $effect CLEANUP is the ONE site
+	// that calls overlays.dismiss(id) — so scrim, X, drag and back-gesture all converge on
+	// a single dismiss site and history depth stays balanced (open pushed 1 state; either
+	// the cleanup's dismiss() pops it, or closeTop() already popped it → dismiss is a no-op).
+	$effect(() => {
+		// untrack the overlays calls: open/dismiss read the $state overlay stack internally,
+		// so without untrack this effect would re-run (cleanup+reopen, churning history) whenever
+		// ANOTHER overlay (picker/detail/nowplaying) pushes or pops.
+		//
+		// DEP IS `open` ONLY — deliberately NOT `track`. The home long-press opens the menu on a
+		// discovery STUB then reassigns `track` (stub → resolved) after resolveStub. If `track`
+		// were a dep, that reassignment would re-run the effect: cleanup fires overlays.dismiss
+		// (→ history.back()) and the body re-runs overlays.open (→ pushState) in the same flush —
+		// a back()+push churn that desyncs history depth and over-pops Back into the PREVIOUS
+		// route (long-press a home tile → bounced to /library or /search). The render guard
+		// `{#if open && track}` still gates visibility; overlays.open is idempotent.
+		if (open) {
+			untrack(() => overlays.open("trackmenu-menu", () => onclose()));
+			return () => untrack(() => overlays.dismiss("trackmenu-menu"));
+		}
+	});
+	$effect(() => {
+		if (pickerOpen && track) {
+			untrack(() => overlays.open("trackmenu-picker", () => (pickerOpen = false)));
+			return () => untrack(() => overlays.dismiss("trackmenu-picker"));
+		}
+	});
+	// quick-260919-vrq: the remove-download confirm's own balanced entry — same shape + untrack guard,
+	// distinct id so Back pops exactly this sheet, and Back is a DISMISS, so it removes nothing.
+	$effect(() => {
+		if (rmOpen && track) {
+			untrack(() => overlays.open("trackmenu-rmdl", () => (rmOpen = false)));
+			return () => untrack(() => overlays.dismiss("trackmenu-rmdl"));
+		}
+	});
+	$effect(() => {
+		if (detailTrack) {
+			untrack(() => overlays.open("trackmenu-detail", () => (detailTrack = null)));
+			return () => untrack(() => overlays.dismiss("trackmenu-detail"));
+		}
+	});
+	// quick-260915-w4f: the cover picker's own balanced overlay entry (same shape + `untrack` guard
+	// as the two above, distinct id so Back pops exactly this sheet).
+	$effect(() => {
+		if (coverOpen && track) {
+			untrack(() => overlays.open("trackmenu-cover", () => closeCoverPicker()));
+			return () => untrack(() => overlays.dismiss("trackmenu-cover"));
+		}
+	});
+	// quick-260916-0d9: the download picker's own balanced overlay entry — distinct id so Back pops
+	// exactly this sheet, and its close handler aborts the probe pool on every dismiss route.
+	$effect(() => {
+		if (dlPickOpen && track) {
+			untrack(() => overlays.open("trackmenu-dlpick", () => closeDownloadPicker()));
+			return () => untrack(() => overlays.dismiss("trackmenu-dlpick"));
+		}
+	});
+</script>
+
+{#if open && track}
+	<button class="scrim" aria-label={t('menu.closeMenu')} onclick={close}></button>
+	<!-- quick-261006-mnu: dragClose is disabled while editing — a reorder drag starts with a
+	     downward-ish finger move on a cell, which the sheet would otherwise read as a close
+	     drag (DRAG_START is 8px, same as the reorder SLOP scale). The action's update() swaps
+	     `enabled` reactively, so no remount is needed. -->
+	<div class="menu" role="dialog" aria-modal="true" aria-label={track?.title ?? t('menu.options')} transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: close, enabled: !editing }} use:focusTrap>
+		<!-- D-08/D-09/D-10: two-row marquee header (song/artist, display-only) + a compact
+		     top-right icon cluster (Like / Download / Close, left to right). Replaces the old
+		     single ellipsised `{title} · {artist}` line, and (user call 2026-10-06) the
+		     full-width icon row that sat under the text.
+		     {#key track.uid} remounts the clips on a stub→resolved reassignment so use:marquee
+		     re-measures the wider resolved text (NowPlaying analog; Pitfall 2). The keyframe is
+		     GLOBAL in app.css (Pitfall 4) — the component styles only the clip wrappers. -->
+		<div class="sheet-head">
+			<!-- quick-260919-dlring: the header text block IS the Go-to-artist control. It routes
+			     through the SAME gotoArtist() as the `menu.goToArtist` cell below — one route-building
+			     path, one overlays.navigateAway() dismissal, so the two can never disagree (the same
+			     one-path principle as the D-09/je8 header-icon + grid-cell duplication). Note gotoArtist()
+			     navigates with the RAW track.artist through the script lock only (names.artistHref,
+			     quick-260926-hl9); names.dnArtist is display-only and must never reach the route.
+			     A <button> that is a SIBLING of .head-actions, never a wrapper around it — the Like /
+			     Download / Close buttons must not end up nested inside a button. The two clip elements
+			     are <span>s (not <div>s) so the button's phrasing-only content model holds; `use:marquee`
+			     is untouched and the CSS gives them back `display: block`, so the two-row shape and the
+			     header height are byte-identical to the div version.
+			     NO usable artist (a name-stub, or a `device:` import with no artist tag) → `disabled`.
+			     A disabled button is not focusable and not clickable, so the header degrades to inert
+			     text rather than becoming a control that navigates nowhere; `.head-text` carries no
+			     `:disabled` dimming, so it still LOOKS exactly like the plain block it used to be. -->
+			<button
+				class="head-text"
+				onclick={gotoArtist}
+				disabled={!hasArtist}
+				aria-label={hasArtist ? `${t('menu.goToArtist')}: ${names.dnArtist(track.artist)}` : undefined}
+			>
+				{#key track.uid}
+					<span class="hd-title" use:marquee><span class="marquee-inner">{names.dnTitle(track.title, track.artist)}</span></span>
+					<span class="hd-artist" use:marquee><span class="marquee-inner">{names.dnArtist(track.artist)}</span></span>
+				{/key}
+			</button>
+			<!-- User call 2026-10-06: the header is a row — text on the left, a COMPACT icon
+			     User 2026-10-06: header keeps ONLY Close (X) at the top-right corner — the
+			     Like/Download header icons are removed (they now live in the grid's first
+			     row; the header icons were shortening the song title/artist).
+			     Order in the DOM is visual order (left to right).
+			     User arrange-like-this 2026-10-06: Like and Download are grid items R1C3/R1C4
+			     (ungated) — the header duplication is retired. -->
+			<div class="head-actions">
+				<!-- quick-261006-44r: the header pencil/check is RETIRED (user 2026-10-06) — the
+				     customize affordance is a grid cell now (repeat's old slot), and in edit mode
+				     that same slot becomes the Done button. Header keeps ONLY Close (X). -->
+				<!-- User 2026-10-06: header keeps ONLY the Close (X) at top-right. Like and
+				     Download icons REMOVED from the header — they now live in the grid's
+				     first row (R1C3/R1C4) and the header icons were shortening the song
+				     title/artist. The D-09/je8/et3 duplication is retired. -->
+				<!-- Explicit Close affordance at the top-right corner (scrim/drag also close).
+				     It ONLY flips state via close() → the $effect cleanup is the SOLE
+				     overlays.dismiss caller, so scrim/X/drag/back all converge on one dismiss
+				     path (overlay invariant; D-09). Last in the row = the corner slot. -->
+				<button class="hd-btn" aria-label={t('menu.closeMenu')} onclick={close} use:tapBounce><X size={20} /></button>
+			</div>
+		</div>
+		{#if loading && !track.title}
+			<!-- HEADER-ONLY skeleton (D-11): two stacked .sk bars matching the 2-row header shape,
+			     using the GLOBAL .sk class. Home stubs usually carry title/artist so this only
+			     fills the rare pre-data instant; the action list ALWAYS renders below (D-01). -->
+			<div class="sheet-head" aria-hidden="true">
+				<div class="head-text">
+					<div class="sk" style="height:15px;width:65%"></div>
+					<div class="sk" style="height:12px;width:45%;margin-top:6px"></div>
+				</div>
+			</div>
+		{/if}
+		<!-- D-01: the action list ALWAYS renders (no `loading` gate around the buttons — `loading`
+		     now only drives the header-only skeleton above). Gated rows (Download / Detail / Remix)
+		     are tappable on a stub and resolve-then-act with an inline spinner (D-02/D-03).
+		     quick-261006-grd: the list is now an ICON GRID — 4 columns, icon + 2-line micro label per
+		     cell (the iOS-share-sheet idiom). Only the presentation class moves from `.mi`
+		     (full-width row) to `.gi` (grid cell). The picker sub-sheets below (playlist /
+		     lyrics / download / remove-download) keep `.mi` — they are separate sheets, not
+		     this grid.
+		     quick-261006-mnu: every cell is a {#snippet} over the track. The live grid renders
+		     `visibleIds` — settings.trackMenuOrder filtered by canShow() — row-major through the
+		     snippet record below, so the user's own drag-to-reorder / tap-to-hide arrangement IS
+		     the menu. The old fixed R1C1-style placement comments are retired with it; each
+		     snippet keeps its original markup, handlers and inner conditions verbatim. -->
+		<!-- Remix: GATED (needs audioUrl to play the seed) — Sparkles + the inline spinner. -->
+		{#snippet cellRemix(tr: Track)}
+			<button class="gi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : undefined} onclick={onRemixTap} use:tapBounce>
+				{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}<span class="gi-label">{t('menu.autoplay')}</span>
+			</button>
+		{/snippet}
+		<!-- Play next — non-current tracks only. quick-261006-44s: the gate lives in
+	     canShow now (the old inner {#if} consumed a grid slot while rendering nothing
+	     for the current track — 19 visible cells instead of 20). -->
+		<!-- quick-261115-uex: Play next / Add to queue / Add to playlist disable on a uid-less stub
+		     (still resolving, or a resolve miss that now keeps the menu open) — like Like / Cover /
+		     Lyrics already did — so an unresolved `uid:''` stub never enters the queue or a playlist. -->
+		{#snippet cellPlayNext(tr: Track)}
+			<button class="gi" disabled={!tr.uid} onclick={playNext} use:tapBounce><ListStart size={22} /><span class="gi-label">{t('menu.playNext')}</span></button>
+		{/snippet}
+		<!-- quick-261006-mnu — the download slot is ONE adaptive cell: the Download tri-state,
+		     Remove-download and Don't-import are inverse states of one thing (mutually exclusive
+		     by structure: if / else-if, never both), so they share a single grid slot instead of
+		     answering "can I download this?" in two places. Every face keeps its original markup,
+		     handler and gate; only the nesting changed. One deliberate preservation: a CURRENT
+		     track with a stale downloads-list row but no blob still shows the idle face (as
+		     today) — the disabled Check is reserved for blobPresent === true. -->
+		{#snippet cellDownload(tr: Track)}
+			{#if isDevice}
+				{#if nonCurrent}
+					<!-- quick-260919-30x: Don't import again — the mirror image of remove-download,
+					     for a file the USER owns (`device:`). Unchanged markup/handler. -->
+					<button class="gi" onclick={noImport} use:tapBounce><EyeOff size={22} /><span class="gi-label">{t('menu.noImport')}</span></button>
+				{/if}
+			{:else if library.downloading.has(tr.uid)}
+				<!-- quick-260913-omi: real byte progress, not a decorative animation. `downloadProgress`
+				     is absent until the first bytes land (and stays absent for a response with no
+				     Content-Length), and THAT is the indeterminate state. The glyph is STATIC in
+				     both states (no ring, no spinner) — the bottom-edge bar is the row's ONLY
+				     progress channel. -->
+				{@const frac = library.downloadProgress[tr.uid]}
+				<button
+					class="gi dl-busy dl-progress"
+					class:dl-indeterminate={frac === undefined}
+					class:motion-always={frac === undefined}
+					style:--dl={frac ?? 0}
+					aria-busy="true"
+					disabled
+					aria-label={frac === undefined
+						? t('menu.preparing')
+						: `${t('menu.download')} ${Math.round(frac * 100)}%`}
+				>
+					<Download size={22} />
+					<span class="gi-label">{t('menu.download')}</span>
+					{#if frac !== undefined}<span class="gi-sub">{Math.round(frac * 100)}%</span>{/if}
+				</button>
+			{:else if nonCurrent && (blobPresent === true || library.isDownloaded(tr.uid)) && !library.isUnavailable(tr.uid)}
+				<!-- quick-261006-mnu: the remove-download face now carries the localMeta sub-label
+				     (F2 parity — a song that IS downloaded says what it is, in the same slot the
+				     probed `FLAC · 38.2 MB` label occupies). localMeta is null for a list-only row.
+				     quick-261007-rpl (user): a downloaded song CAN switch source — long-press opens
+				     the same "Download from…" sheet as the idle face; picking a source replaces the
+				     file (downloadTrack → blobStore.put overwrites, native deletes the old public
+				     copy first per 36-D-19). Tap still opens the remove sheet. -->
+				<button class="gi" aria-label={`${t('menu.removeDownload')} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onclick={openRemoveDownload} onlongpress={openDownloadPicker} use:longpress use:tapBounce><Trash2 size={22} /><span class="gi-label">{t('menu.removeDownload')}</span>{#if localMeta}<span class="gi-sub">{localMeta}</span>{/if}</button>
+			{:else if blobPresent === true}
+				<!-- quick-260919-3j1 (F2): a song that IS downloaded says what it is — the SAME
+				     `.gi-sub` slot the probed label and the download percentage occupy.
+				     quick-261007-rpl (user): long-press switches source here too (same sheet as the
+				     idle face). The button is no longer `disabled` so the hold gesture can fire;
+				     tap stays a no-op — the file is already there. -->
+				<button class="gi" aria-label={`${t('menu.downloaded')} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onlongpress={openDownloadPicker} use:longpress use:tapBounce>
+					<Check size={22} /><span class="gi-label">{t('menu.downloaded')}</span>
+					{#if localMeta}<span class="gi-sub">{localMeta}</span>{/if}
+				</button>
+			{:else}
+				<!-- quick-261006-grd: same two-sibling shape as the list row's `.mi-split` — the
+				     caret is a real control that cannot nest inside the cell <button>, so it rides as a
+				     corner sibling. Long-press on the cell still opens the same sheet.
+				     quick-260915-26g: the probed format/size reuses the SAME `.gi-sub` slot the download
+				     percentage already occupies, so it needs no new layout rule. The skeleton is aria-hidden
+				     and the button keeps its `menu.download` name — no new i18n key for either.
+				     quick-260916-0d9: ONE tap is byte-for-byte the old behaviour; a ~450ms HOLD opens the
+				     "Download from…" sheet instead. The trailing native click a hold produces is eaten by
+				     longpress's DOCUMENT-capture suppressor, so `onclick={startDownload}` does NOT also
+				     fire. The parent sheet's dragClose cannot fire either: it needs rawDy > 8px, the same
+				     distance that cancels the longpress timer. -->
+				<div class="gi-split">
+					<button class="gi" aria-label={`${dlLabel} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onclick={startDownload} onlongpress={openDownloadPicker} use:longpress use:tapBounce>
+						<Download size={22} /><span class="gi-label">{t('menu.download')}</span>
+						<!-- quick-261006-44w (user 2026-10-06): the visible long-press hint is retired —
+						     "Download from…" is now its own menu item at the end. The hold gesture
+						     itself stays (onlongpress → openDownloadPicker). Idle shows no sub-label;
+						     the probed `FLAC · 17.9 MB` still replaces it once known. -->
+						{#if dlProbing}<span class="gi-sub skel" aria-hidden="true"></span>{:else if dlMeta}<span class="gi-sub">{dlMeta}</span>{/if}
+					</button>
+					<button type="button" class="gi-caret" aria-label={t('menu.downloadFrom')} title={t('menu.downloadFrom')} onclick={openDownloadPicker} use:tapBounce><ChevronDown size={14} /></button>
+				</div>
+			{/if}
+		{/snippet}
+		<!-- like-state-wrong-track-menu: a name-stub (uid:'') has no identity to like yet; the row waits for
+		     the host page's resolve to swap in the real Track rather than firing a no-op + wrong toast. -->
+		{#snippet cellLike(tr: Track)}
+			<button class="gi" class:on={liked} aria-pressed={liked} disabled={!tr.uid} onclick={like} use:tapBounce>
+				<Heart size={22} fill={liked ? 'currentColor' : 'none'} /><span class="gi-label">{liked ? t('menu.liked') : t('menu.like')}</span>
+			</button>
+		{/snippet}
+		{#snippet cellAddQueue(tr: Track)}
+			<button class="gi" disabled={!tr.uid} onclick={addQueue} use:tapBounce><ListEnd size={22} /><span class="gi-label">{t('menu.addToQueue')}</span></button>
+		{/snippet}
+		{#snippet cellStartRadio(tr: Track)}
+			<button class="gi" onclick={startRadio} use:tapBounce><Radio size={22} /><span class="gi-label">{t('menu.startRadio')}</span></button>
+		{/snippet}
+		<!-- Gap 4 (26-10): Play from source — opens a lazily-fed VersionPicker. The variant fetch fires
+		     ONLY on THIS tap (openVersions), never on menu open (opt-in; T-26-10-02). Shown for every
+		     track (variants discovered on demand; the picker's loading/empty states cover a single-source
+		     song). Available for the current track too (switch the playing source). -->
+		{#snippet cellVersions(tr: Track)}
+			<button class="gi" onclick={openVersions} use:tapBounce><Layers size={22} /><span class="gi-label">{t('menu.versions')}</span></button>
+		{/snippet}
+		<!-- quick-260915-w4f: Change cover. The cover chain is first-solid-wins and sometimes wins wrong
+		     (wrong album, live-version art, a low-res CN thumbnail); this lets the user override it once,
+		     per song, permanently. The candidate fan-out fires on THIS tap only (Q1). `disabled` mirrors
+		     the Like row: a uid-less stub has no identity to pin against. -->
+		{#snippet cellChangeCover(tr: Track)}
+			<button class="gi" disabled={!tr.uid} onclick={openCoverPicker} use:tapBounce><ImageIcon size={22} /><span class="gi-label">{t('menu.changeCover')}</span></button>
+		{/snippet}
+		<!-- quick-260919-1we: Fix lyrics. Same story as Change cover one line up, for the lyric chain:
+		     it is first-source-wins and sometimes wins wrong (wrong song, wrong language, an
+		     instrumental's LRC), and until now the user had no way to correct it. The per-source walk
+		     fires on THIS tap only (T-1we-03). `disabled` mirrors the Like / Change-cover rows: a
+		     uid-less stub has no identity to pin against (D-1). -->
+		{#snippet cellChangeLyrics(tr: Track)}
+			<button class="gi" disabled={!tr.uid} onclick={openLyricsPicker} use:tapBounce><Mic2 size={22} /><span class="gi-label">{t('menu.fixLyrics')}</span></button>
+		{/snippet}
+		{#snippet cellViewComments(tr: Track)}
+			<button class="gi" onclick={viewComments} use:tapBounce><MessageCircle size={22} /><span class="gi-label">{t('menu.viewComments')}</span></button>
+		{/snippet}
+		{#snippet cellViewRelated(tr: Track)}
+			<button class="gi" onclick={viewRelated} use:tapBounce><ListMusic size={22} /><span class="gi-label">{t('menu.viewRelated')}</span></button>
+		{/snippet}
+		<!-- quick-260926-qat: lyrics timing toggle. Shown ONLY for the currently playing track that
+		     actually has lyrics — the row it reveals lives in the Now Playing lyrics pane of
+		     player.current, so for any other track it would toggle something the user cannot see.
+		     readLyrics(player.current) is D-4's single read (pin → track.lrc → null) and takes the
+		<!-- quick-261021-menu7: cellLyricsTiming REMOVED — the standalone menu item is gone.
+		     The shared LyricsTimingToggle component (in the Fix lyrics picker) is the only
+		     UI for this now. -->
+		<!-- quick-260919-1eh: Edit metadata. Shown ONLY for a file the app actually holds bytes for.
+		     `blobPresent` is the blob-backed probe, NOT library.isDownloaded — quick-260913-jq4
+		     explains why the reference list lies (it is populated BEFORE the fetch, and the web save
+		     is an <a download> click that reports success even when the user cancels the dialog), so
+		     the list happily says "Downloaded" with nothing stored anywhere. -->
+		{#snippet cellEditTags(tr: Track)}
+			<button class="gi" onclick={() => (tagsOpen = true)} use:tapBounce><Tags size={22} /><span class="gi-label">{t('menu.editTags')}</span></button>
+		{/snippet}
+		{#snippet cellAddToPlaylist(tr: Track)}
+			<button class="gi" disabled={!tr.uid} onclick={() => { pickerOpen = true; }} use:tapBounce><ListPlus size={22} /><span class="gi-label">{t('menu.addToPlaylist')}</span></button>
+		{/snippet}
+		<!-- quick-261006-44r: the edit affordance is a GRID CELL now (user 2026-10-06 — it
+		     takes repeat's old slot; repeat moves to the back). The header pencil is retired,
+		     so this cell is the ONLY way into edit mode — it is pinned visible (see
+		     visibleIds) and can never be hidden. Tapping enters edit mode; in edit mode the
+		     same slot becomes the Done button (rendered in the edit grid below). -->
+		{#snippet cellCustomize(tr: Track)}
+			<button class="gi" aria-label={t('menu.customize')} onclick={enterEdit} use:tapBounce><Pencil size={22} /><span class="gi-label">{t('menu.customize')}</span></button>
+		{/snippet}
+		<!-- quick-260919-0mw (correction): Repeat, relocated from the NowPlaying transport row.
+		     Deliberately OUTSIDE the queue.length > 1 gate that wraps Shuffle: shuffling a
+		     one-track queue is a no-op, but repeat-ONE on a one-track queue is the single most
+		     obvious reason to reach for repeat at all. Gated on player.current instead — there has
+		     to be something playing for a repeat mode to mean anything.
+		     PLAY-10 / D-10: repeat is BINARY here (off ↔ one), not the three-state off/one/all
+		     cycle it is in most players — player.cycleRepeat() has no 'all' branch. State
+		     legibility, three ways: class:on + icon swap (Repeat1 when repeat-one is armed) +
+		     the LABEL swapping to "Repeat one" — the menu CLOSES on tap, so the label must show
+		     the state before the tap. -->
+		{#snippet cellRepeat(tr: Track)}
+			<button class="gi" class:on={player.repeatMode !== 'off'} aria-pressed={player.repeatMode !== 'off'} onclick={cycleRepeatMode} use:tapBounce>
+				{#if player.repeatMode === 'one'}<Repeat1 size={22} />{:else}<Repeat size={22} />{/if}<span class="gi-label">{player.repeatMode === 'one' ? t('nowplaying.repeatModeOne') : t('nowplaying.repeat')}</span>
+			</button>
+		{/snippet}
+		<!-- ii6: Shuffle moved off the NowPlaying transport row into the menu. Shown only when
+		     there's a queue to shuffle (otherwise the action would be a no-op). -->
+		{#snippet cellShuffleQueue(tr: Track)}
+			<button class="gi" class:on={player.shuffle} aria-pressed={player.shuffle} onclick={shuffleQueue} use:tapBounce><Shuffle size={22} /><span class="gi-label">{t('menu.shuffleQueue')}</span></button>
+		{/snippet}
+		<!-- GLN-5: clear-queue relocated here from the NowPlaying subnav. Clearing a queue that is just
+		     [current] is a no-op, so the item is gated to queue.length > 1 in canShow. -->
+		{#snippet cellClearQueue(tr: Track)}
+			<button class="gi" onclick={clearQueue} use:tapBounce><Trash2 size={22} /><span class="gi-label">{t('menu.clearQueue')}</span></button>
+		{/snippet}
+		<!-- Opens the GLOBAL SleepTimerSheet (mounted in the app layout) — not a local sub-sheet
+		     here, so the timer indicator is reachable from the nowbar + now-playing too (D-08).
+		     quick-261119-sleepfix: the handoff goes through overlays.replace(), NOT a bare
+		     close()-then-open — close()'s cleanup dismiss issues history.back(), the sheet's
+		     pushState wins the race against that queued traversal, and the back() then lands
+		     on THIS menu's history entry, so the popstate reconcile instantly closes the
+		     just-opened sheet (the timer was unreachable from here). replace() hands this
+		     menu's stack slot + history entry to the sheet in place; the cleanup dismiss
+		     below finds no 'trackmenu-menu' entry and no-ops. -->
+		{#snippet cellSleepTimer(tr: Track)}
+			<button class="gi" onclick={() => { overlays.replace('trackmenu-menu', 'trackmenu-timer', () => (sleepTimer.sheetOpen = false)); close(); tick().then(() => (sleepTimer.sheetOpen = true)); }} use:tapBounce><Moon size={22} /><span class="gi-label">{t('menu.sleepTimer')}</span></button>
+		{/snippet}
+		{#snippet cellGoToArtist(tr: Track)}
+			<button class="gi" onclick={gotoArtist} use:tapBounce><User size={22} /><span class="gi-label">{t('menu.goToArtist')}</span></button>
+		{/snippet}
+		<!-- quick-261006-mnu: Go to album — the menu finally answers "which album is this from",
+		     grouped after Go to artist. quick-261006-44g: always rendered now (the grid
+		     must not come and go); gotoAlbum() resolves details first when the stub carries
+		     no album and toasts only when there is still nothing to navigate to. The route
+		     takes the script-locked names like gotoArtist. -->
+		{#snippet cellGoToAlbum(tr: Track)}
+			<button class="gi" aria-busy={inFlight.has('goToAlbum')} aria-label={inFlight.has('goToAlbum') ? t('menu.preparing') : undefined} onclick={gotoAlbum} use:tapBounce>
+				{#if inFlight.has('goToAlbum')}<span class="row-spinner motion-always"></span>{:else}<Disc3 size={22} />{/if}<span class="gi-label">{t('menu.goToAlbum')}</span>
+			</button>
+		{/snippet}
+		<!-- quick-260920-kia: Share is UNCONDITIONAL — UI-SPEC Contract 8's `!isDevice` guard on
+		     Share is SUPERSEDED. songShareUrl() emits a NAME-based /song/{artist}/{title} catalog
+		     link, and share.ts uidCarrier() returns null for isDeviceUid() (38-D-08), so an imported
+		     local track shares a valid catalog link and no device: uid ever reaches the URL.
+		     Do not reintroduce a device guard here. -->
+		{#snippet cellShare(tr: Track)}
+			<button class="gi" onclick={doShare} use:tapBounce><Share2 size={22} /><span class="gi-label">{t('menu.share')}</span></button>
+		{/snippet}
+		<!-- Detail: GATED — resolves details to populate the detail sheet's audioUrl/quality rows. -->
+		{#snippet cellDetail(tr: Track)}
+			<button class="gi" aria-busy={inFlight.has('detail')} aria-label={inFlight.has('detail') ? t('menu.preparing') : undefined} onclick={onDetailTap} use:tapBounce>
+				{#if inFlight.has('detail')}<span class="row-spinner motion-always"></span>{:else}<Info size={22} />{/if}<span class="gi-label">{t('menu.details')}</span>
+			</button>
+		{/snippet}
+		<!-- quick-261006-44w (user 2026-10-06): "Download from…" as a first-class menu item
+		     at the end — opens the same all-sources picker as the download button's
+		     long-press (openDownloadPicker). -->
+		{#snippet cellDownloadSource(tr: Track)}
+			<button class="gi" onclick={openDownloadPicker} use:tapBounce><ArrowDownToLine size={22} /><span class="gi-label">{t('menu.downloadFromSource')}</span></button>
+		{/snippet}
+		{#if editing}
+			<!-- quick-261006-mnu — EDIT MODE replaces the live grid: every catalog action as a
+			     static cell (enabled first in the user's order, then the hidden remainder dimmed).
+			     Drag an enabled cell to reorder (pointer events, touch-friendly); tap to hide /
+			     re-add; arrow keys move, Enter/Space toggles. The customize cell is inert here
+			     (quick-261006-44v: no Done button — closing the menu via X / scrim / back
+			     auto-applies, since taps and drops commit live). dragClose is disabled while
+			     editing (see the menu node above) so a reorder gesture can never dismiss
+			     the sheet.
+			     quick-261021-menu4 (user): explicit Reset + Done buttons in a fixed header —
+			     users need to SEE where to exit and reset, not guess X/scrim. -->
+			<div class="menu-head row edit-head">
+				<button class="hd-btn" onclick={resetMenuOrder} use:tapBounce><RotateCcw size={18} /><span>{t('menu.resetMenu')}</span></button>
+				<button class="hd-btn done" onclick={exitEdit} use:tapBounce><Check size={18} /><span>{t('menu.done')}</span></button>
+			</div>
+			<div class="acts edit" bind:this={editGridEl}>
+				{#each editIds as id, i (id)}
+					{@const on = editOrder.includes(id)}
+					{@const Icon = EDIT_META[id].icon}
+					{@const draggingThis = mDragging && i === mDragFrom}
+					<!-- quick-261021-menu6 (user): the customize cell is now draggable like the
+					     others — no longer inert. Single button element: the keyed each's only
+					     child. quick-261102-menudrag: no style:transform binding and no
+					     animate:flip here any more — the drag writes transforms imperatively
+					     (see the drag block above) and Svelte must never fight them. -->
+					<button
+						class="gi edit-cell"
+						class:on
+						class:off={!on}
+						class:lifted={draggingThis}
+						data-id={id}
+						aria-pressed={on}
+						aria-label={t(EDIT_META[id].label)}
+						title={t(EDIT_META[id].label)}
+						style:order={i < MENU_GRID_SLOTS ? 0 : 2}
+						onpointerdown={(e) => mDown(e, id)}
+						onpointermove={mMove}
+						onpointerup={mUp}
+						onpointercancel={mCancelDrag}
+						onlostpointercapture={mLostCapture}
+						onclick={() => mClick(id)}
+						onkeydown={(e) => mKey(e, id)}
+					><Icon size={22} /><span class="gi-label">{t(EDIT_META[id].label)}</span></button>
+				{/each}
+				<!-- quick-261021-menu5 (user): divider after the 20 visible slots — rows 6+
+				     are the hidden pool, still reorderable via drag. Moved OUT of the keyed
+				     each (originally for animate:flip's only-child rule, which broke the
+				     Pages build 6x; flip is retired since quick-261102-menudrag but the
+				     placement still serves the drag: slot measurement reads only
+				     .edit-cell.on, never this divider). Placed back into position via
+				     order:1; cells use order 0 (first 20) / 2 (rest). -->
+				{#if editIds.length >= MENU_GRID_SLOTS}
+					<div class="edit-divider" style="order: 1"><span>{t('menu.hiddenItems')}</span></div>
+				{/if}
+			</div>
+		{:else}
+			<div class="acts">
+				{#each visibleIds as id (id)}
+					{@const cellSnippets = { remix: cellRemix, playNext: cellPlayNext, download: cellDownload, like: cellLike, addQueue: cellAddQueue, startRadio: cellStartRadio, versions: cellVersions, changeCover: cellChangeCover, changeLyrics: cellChangeLyrics, viewComments: cellViewComments, viewRelated: cellViewRelated, editTags: cellEditTags, addToPlaylist: cellAddToPlaylist, customize: cellCustomize, repeat: cellRepeat, shuffleQueue: cellShuffleQueue, clearQueue: cellClearQueue, sleepTimer: cellSleepTimer, goToArtist: cellGoToArtist, goToAlbum: cellGoToAlbum, share: cellShare, detail: cellDetail, downloadSource: cellDownloadSource }}
+					{@render cellSnippets[id](track)}
+				{/each}
+			</div><!-- /quick-261006-grd .acts grid -->
+		{/if}
+	</div>
+{/if}
+
+{#if pickerOpen && track}
+	<button class="scrim" aria-label={t('menu.close')} onclick={() => (pickerOpen = false)}></button>
+	<div class="menu" role="dialog" aria-modal="true" aria-label={t('menu.addToPlaylist')} transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (pickerOpen = false) }} use:focusTrap>
+		<div class="menu-head">{t('menu.addToPlaylist')}</div>
+		{#each library.playlists as pl (pl.id)}
+			<MenuActionButton icon={ListPlus} onclick={() => addToPlaylist(pl.id)}>{pl.name} <span class="count">{pl.tracks.length}</span></MenuActionButton>
+		{/each}
+		<button class="mi accent" onclick={newPlaylist} use:tapBounce><Plus size={18} /> {t('menu.newPlaylist')}</button>
+	</div>
+{/if}
+
+<!-- quick-260919-vrq: the Remove-download CONFIRM. Mounted OUTSIDE the {#if open && track} block for
+     the same reason as the playlist picker above — it has to survive the parent menu closing. The
+     boolean is a SettingToggle because that is the app's only boolean-control idiom (a real
+     <button role="switch" aria-checked>, so the state is exposed to assistive tech) and no
+     `type="checkbox"` exists anywhere in src. Cancel, the scrim, a drag-down and the Back gesture all
+     converge on `rmOpen = false` through the overlay's close handler: NOTHING is removed on any
+     dismiss route, only the explicit Remove button acts. -->
+{#if rmOpen && track}
+	<button class="scrim" aria-label={t('menu.close')} onclick={() => (rmOpen = false)}></button>
+	<div class="menu" role="dialog" aria-modal="true" aria-label={t('menu.removeDownload')} transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (rmOpen = false) }} use:focusTrap>
+		<div class="menu-head">{t('menu.removeDownload')}</div>
+		<p class="hint">{t('menu.removeDownloadBody')}</p>
+		<SettingToggle label={t('menu.removeDownloadDeleteFile')} checked={rmDeleteFile} onchange={() => (rmDeleteFile = !rmDeleteFile)} />
+		<div class="actions">
+			<MenuActionButton onclick={() => (rmOpen = false)}>{t('tags.cancel')}</MenuActionButton>
+			<button class="mi danger" onclick={confirmRemoveDownload} use:tapBounce><Trash2 size={18} /> {t('menu.removeDownloadAction')}</button>
+		</div>
+	</div>
+{/if}
+
+{#if detailTrack}
+	<button class="scrim" aria-label={t('menu.close')} onclick={() => (detailTrack = null)}></button>
+	<div class="modal" role="dialog" aria-modal="true" aria-label={t('menu.trackDetail')} transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (detailTrack = null) }} use:focusTrap>
+		<div class="menu-head row"><span>{t('menu.trackDetail')}</span><button class="x" aria-label={t('menu.close')} onclick={() => (detailTrack = null)} use:tapBounce><X size={18} /></button></div>
+		<dl class="detail">
+			<dt>{t('menu.detailTitle')}</dt><dd>{names.dnTitle(detailTrack.title, detailTrack.artist)}</dd>
+			<dt>{t('menu.detailArtist')}</dt><dd>{names.dnArtist(detailTrack.artist)}</dd>
+			<dt>{t('menu.detailAlbum')}</dt><dd>{detailTrack.album ? names.dnTitle(detailTrack.album) : '—'}</dd>
+			<dt>{t('menu.detailQuality')}</dt><dd>{trackQualityLabel(detailTrack) ?? t('menu.detailUnknown')}</dd>
+			<!-- quick-260919-3j1 (F2): the file this app actually holds — container + real size, read
+			     from the local bytes. ASYMMETRY WORTH RECORDING: this lane also works for an imported
+			     `device:` song, which the Downloaded row above does NOT render for (it sits inside
+			     `{#if !isDevice}`). Left as-is rather than restructuring the device branch — for an
+			     imported file the Detail sheet is the right home for its numbers anyway. -->
+			<dt>{t('menu.detailFile')}</dt><dd>{localMeta ?? t('menu.detailUnknown')}</dd>
+			<!-- quick-261102-to0: the adapter label every other surface shows (was the raw source id) -->
+			<dt>{t('menu.detailSource')}</dt><dd>{names.zhLock(trackSourceLabel(detailTrack) ?? detailTrack.source)}</dd>
+			<dt>{t('menu.detailUid')}</dt><dd class="mono">{detailTrack.uid}</dd>
+			<dt>{t('menu.detailSongId')}</dt><dd class="mono">{detailTrack.songid || '—'}</dd>
+			{#if detailTrack.songMid || detailTrack.jooxSongMid || detailTrack.qqId || detailTrack.jooxSongId}
+				<dt>{t('menu.detailSourceId')}</dt><dd class="mono break">{detailTrack.songMid || detailTrack.jooxSongMid || detailTrack.qqId || detailTrack.jooxSongId}</dd>
+			{/if}
+			{#if detailTrack.duration}
+				<dt>{t('menu.detailDuration')}</dt><dd class="mono">{Math.floor(detailTrack.duration / 60)}:{String(Math.floor(detailTrack.duration % 60)).padStart(2, '0')}</dd>
+			{/if}
+			<!-- quick-261102-tvb (DECISIONS.md §9): THE lyric pick — a pinned song has lyrics here too -->
+			<dt>{t('menu.detailLyrics')}</dt><dd>{readLyrics(detailTrack) ? t('menu.detailHasLyrics') : t('menu.detailNoLyrics')}</dd>
+			{#if detailTrack.lrcUrl}
+				<dt>{t('menu.detailLyricsUrl')}</dt><dd class="mono break">{detailTrack.lrcUrl}</dd>
+			{/if}
+			{#if detailTrack.pay}
+				<dt>{t('menu.detailPaywall')}</dt><dd class="mono">{detailTrack.pay}</dd>
+			{/if}
+			{#if detailTrack.tags?.length}
+				<dt>{t('menu.detailTags')}</dt><dd>{detailTrack.tags.join(', ')}</dd>
+			{/if}
+			{#if detailTrack.keyword}
+				<dt>{t('menu.detailKeyword')}</dt><dd class="mono break">{detailTrack.keyword}</dd>
+			{/if}
+			{#if detailTrack.resolvedAt}
+				<dt>{t('menu.detailResolvedAt')}</dt><dd class="mono">{new Date(detailTrack.resolvedAt).toLocaleString()}</dd>
+			{/if}
+			<dt>{t('menu.detailAudioUrl')}</dt><dd class="mono break">{detailTrack.audioUrl || t('menu.detailNotResolved')}</dd>
+			{#if detailTrack.proxyUrl}
+				<dt>{t('menu.detailProxyUrl')}</dt><dd class="mono break">{detailTrack.proxyUrl}</dd>
+			{/if}
+			<dt>{t('menu.detailCoverUrl')}</dt><dd class="mono break">{detailTrack.cover || t('menu.detailNotResolved')}</dd>
+		</dl>
+	</div>
+{/if}
+
+<!-- quick-260915-w4f: the cover picker. Mounted OUTSIDE the {#if open && track} block (like the
+     playlist-picker / detail sub-sheets) so it survives the menu closing on a pick. Thumbnails are
+     `<img src>` ATTRIBUTES, never CSS url() (T-rvy-01); every candidate already passed the https
+     gate in collectCoverCandidates (T-w4f-01). -->
+{#if coverOpen && track}
+	<button class="scrim" aria-label={t('menu.close')} onclick={closeCoverPicker}></button>
+	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: closeCoverPicker }} use:focusTrap>
+		<div class="menu-head row"><span>{t('menu.changeCover')}</span><button class="x" aria-label={t('menu.close')} onclick={closeCoverPicker} use:tapBounce><X size={18} /></button></div>
+		{#if coverLoading && !coverCandidates.length}
+			<div class="cover-wait"><span class="row-spinner motion-always"></span></div>
+		{:else if !coverCandidates.length}
+			<p class="cover-none">{t('menu.coverPickerNone')}</p>
+		{:else}
+			<div class="cover-grid">
+				{#each coverCandidates as c (c.url)}
+					<button class="cand" class:on={c.url === activeCover} aria-pressed={c.url === activeCover} onclick={() => pickCover(c.url)} use:tapBounce>
+						<img src={sizedCover(c.url, ROW_COVER_PX) ?? ''} alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
+						<span class="src">{c.source === 'deezer' ? 'Deezer' : c.source === 'itunes' ? 'iTunes' : c.source}</span>
+						{#if c.url === activeCover}<span class="tick"><Check size={14} /></span>{/if}
+					</button>
+				{/each}
+			</div>
+		{/if}
+	</div>
+{/if}
+
+<!-- quick-260919-1we: the lyrics picker. Mounted OUTSIDE the {#if open && track} block (like the cover
+     picker above) so it survives the menu closing on a pick. One row per SOURCE that actually returned
+     an LRC (D-5), labelled from the registry exactly like the Download-from rows. quick-260926-vdp:
+     each source is a CARD showing the candidate's FULL script-locked text (timestamps and empty lines
+     dropped) in its own ~9-line scroll box, so the user can compare whole lyrics, not one line; only
+     the card's footer "Use these lyrics" button picks — a scroll gesture over the text never does.
+     The LRC text is rendered as Svelte text interpolation, which escapes — no {@html} anywhere in this
+     feature (T-1we-02). -->
+{#if lyricsOpen && track}
+	{@const pinnedNow = readLyrics(track)}
+	<button class="scrim" aria-label={t('menu.close')} onclick={closeLyricsPicker}></button>
+	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: closeLyricsPicker }} use:focusTrap>
+		<div class="menu-head row"><span>{t('menu.fixLyrics')}</span><button class="x" aria-label={t('menu.close')} onclick={closeLyricsPicker} use:tapBounce><X size={18} /></button></div>
+		{#if lyricsLoading && !lyricCandidates.length}
+			<div class="cover-wait"><span class="row-spinner motion-always"></span></div>
+		{:else if !lyricCandidates.length}
+			<p class="cover-none">{t('menu.lyricsPickerNone')}</p>
+			<!-- D-6: Retry is shown ONLY on a dry walk — the one affordance that is not redundant with
+			     re-opening the sheet, because the sheet is already open. -->
+			<MenuActionButton icon={Mic2} onclick={openLyricsPicker}>{t('menu.lyricsRetry')}</MenuActionButton>
+		{:else}
+			{#each lyricCandidates as c (c.source)}
+				<!-- quick-260919-2jo: the preview is script-locked, the CANDIDATE is not. `pickLyrics(c.lrc)`
+				     still pins the RAW upstream text, so the pin stays source data and re-renders through
+				     the lock like anything else. Locking the preview is what makes it honest: with the lock
+				     on, two candidates that differ only in script WILL render identically once picked. -->
+				{@const current = c.lrc === pinnedNow}
+				{@const text = parseLyrics(c.lrc).map((l) => l.text.trim()).filter(Boolean).join('\n')}
+				<div class="lyr-card" class:on={current}>
+					<div class="lyr-head">
+						<!-- quick-261006-zh: source labels ride the tongwentang script lock like all
+						     page content (names.zhLock — re-script only, no /api/translate). -->
+						<span class="dl-src">{names.zhLock(SOURCES[c.source]?.label ?? c.source)}</span>
+						{#if current}<span class="lyr-cur"><Check size={14} /> {t('menu.currentLyrics')}</span>{/if}
+					</div>
+					<!-- quick-260926-vdp: dragClose arms in its own `pointerdown` on the `.menu` node and only
+					     checks the `.menu`'s scrollTop, so a scroll gesture inside this inner box would start a
+					     sheet drag whenever the sheet itself is at the top. `data-no-drag` makes dragClose skip
+					     a pointerdown that starts inside the box, so a finger there only ever scrolls it; the
+					     header, footer and the rest of the sheet still drag-close as before. (A child
+					     `onpointerdown` stopPropagation does NOT work: Svelte 5 delegates it to the app root,
+					     after dragClose's native listener has already armed — measured in E2E.)
+					     role+aria-label = the NpLyrics precedent. -->
+					<div class="lyr-body" role="group" aria-label={t('nowplaying.lyrics')} data-no-drag>{text}</div>
+					<MenuActionButton icon={Mic2} onclick={() => pickLyrics(c.lrc)}>{t('menu.useTheseLyrics')}</MenuActionButton>
+				</div>
+			{/each}
+		{/if}
+		<!-- D-6: Use-automatic is shown ONLY when a pin exists. `readLyrics` leads with the pin and falls
+		     back to track.lrc, so "the read differs from the track's own lrc" IS "a pin exists". -->
+		{#if pinnedNow !== (track.lrc ?? null)}
+			<MenuActionButton icon={Sparkles} onclick={resetLyrics}>{t('menu.lyricsAuto')}</MenuActionButton>
+		{/if}
+		<!-- quick-261021-menu7 (user): shared LyricsTimingToggle — same component reused
+		     everywhere the toggle appears, not a duplicate button. -->
+		<LyricsTimingToggle />
+	</div>
+{/if}
+
+<!-- quick-260916-0d9 — the "Download from…" sheet. Mounted OUTSIDE the {#if open && track} block (like
+     the other sub-sheets) so it survives the menu closing on a pick. One row per SOURCE: the own
+     source first (already labelled from the main row's probe), then whatever the single fan-out
+     found, each filling in as its own capped probe lands. A source whose probe came back empty is a
+     DISABLED "Unavailable" row — a blocked upstream degrades one row, never the sheet. -->
+{#if dlPickOpen && track}
+	<button class="scrim" aria-label={t('menu.close')} onclick={closeDownloadPicker}></button>
+	<div class="menu" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: closeDownloadPicker }} use:focusTrap>
+		<div class="menu-head row"><span>{t('menu.downloadFrom')}</span><button class="x" aria-label={t('menu.close')} onclick={closeDownloadPicker} use:tapBounce><X size={18} /></button></div>
+		{#each dlPickList as v (v.uid)}
+			{@const p = dlPickProbes[v.uid]}
+			{@const meta = p ? formatDownloadMeta(p) : null}
+			{@const unavailable = p !== undefined && !p.track?.audioUrl}
+			<MenuActionButton icon={Download} disabled={unavailable} onclick={() => pickDownload(v)}>
+				<!-- quick-261006-zh: source labels ride the tongwentang script lock like all page content. -->
+				<span class="dl-src">{names.zhLock(SOURCES[v.source]?.label ?? v.source)}</span>
+				{#if p === undefined}<span class="count skel" aria-hidden="true"></span>
+				{:else if unavailable}<span class="count">{t('menu.downloadUnavailable')}</span>
+				{:else if meta}<span class="count">{meta}</span>{/if}
+			</MenuActionButton>
+			<!-- quick-261020-dl320: the cheaper second row — this source's real 320k file, probed only
+			     because the main row proved the ladder exists. Tapping it downloads the 320k file. -->
+			{@const p320 = dlPickExtra[v.uid]}
+			{#if p320?.track?.audioUrl}
+				{@const meta320 = formatDownloadMeta(p320)}
+				<MenuActionButton icon={Download} onclick={() => pickDownload(v, p320)}>
+					<span class="dl-src">{names.zhLock(SOURCES[v.source]?.label ?? v.source)}</span>
+					{#if meta320}<span class="count">{meta320}</span>{/if}
+				</MenuActionButton>
+			{/if}
+		{/each}
+		{#if dlPickLoading}
+			<p class="dl-wait" aria-busy="true"><span class="row-spinner motion-always"></span>{t('versions.loading')}</p>
+		{/if}
+	</div>
+{/if}
+
+<!-- Gap 4 (26-10): the Play-from-source VersionPicker. Mounted OUTSIDE the {#if open && track} menu
+     block (like the playlist-picker/detail sub-sheets) so it survives the menu closing on a pick.
+     WR-02: this TrackMenu-hosted picker uses the DISTINCT overlay id 'versionpicker-menu' so it never
+     collides with the host page's own VersionPicker (which is co-mounted on the same route); each
+     pushes/pops its own balanced history entry via the single dismiss path (Back gesture stays sane).
+     loading is bound to the in-flight fetchVariants state; onpick plays the chosen source's EXACT
+     variant fresh, then closes the menu. -->
+<VersionPicker
+	versions={versionsList}
+	open={versionsOpen}
+	loading={versionsLoading}
+	overlayId="versionpicker-menu"
+	onclose={closeVersions}
+	onpick={(v) => { player.tapPlay(v); close(); }} // quick-261103-tapsplice (Hector 2026-11-03): a version pick is a song tap — queue + history survive
+/>
+
+<!-- quick-260919-1eh: the metadata editor. Mounted OUTSIDE the {#if open && track} menu block, like
+     the VersionPicker above, so it survives the menu closing on save. `cover` is the SAME activeCover
+     ladder the share card and the cover picker already read — one precedence chain, now three
+     consumers. `lyrics` is what the app HAS: the playing song's resolved lrc, else the row's own
+     (the editor never fires a network resolve to go hunting — it must work offline).
+
+     quick-260919-1we (D-4): that read now goes through `readLyrics`, so a retag writes the lyrics the
+     user CHOSE in the Fix-lyrics picker into the file, not the superseded ones the chain happened to
+     pick first. The current-track preference is kept — player.current carries the resolved lrc a list
+     row may still be a stub for.
+
+     onsaved fires BOTH repaint seams, always: applyMetadata repaints the library list rows (in-place
+     proxy mutation, so already-rendered home shelves update too), adoptMetadata repaints the
+     NowPlaying hero, the Nowbar and the OS media card — those read player.current directly, so the
+     library write alone would leave them showing the old title until the next track change. -->
+<MetadataEditor
+	{track}
+	open={tagsOpen}
+	cover={activeCover}
+	lyrics={readLyrics(track && player.current?.uid === track.uid ? player.current : track)}
+	onclose={() => (tagsOpen = false)}
+	onsaved={(patch) => {
+		if (!track) return;
+		library.applyMetadata(track.uid, patch);
+		player.adoptMetadata(track.uid, patch);
+		close();
+	}}
+/>
+
+<style>
+	.scrim { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,0.45); border: none; }
+	.menu, .modal { position: fixed; left: 12px; right: 12px; bottom: 16px; z-index: 81; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 16px; padding: 8px; max-width: 680px; margin: 0 auto; box-shadow: 0 -10px 40px rgba(0,0,0,0.5); max-height: 90vh; overflow-y: auto; }
+	/* Legacy single-line head — STILL used by the playlist-picker + detail sub-sheets. */
+	.menu-head { font-size: calc(0.8125rem * var(--fs-title, 1)); color: var(--color-text-muted); padding: 8px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.menu-head.row { display: flex; align-items: center; justify-content: space-between; }
+	.x { background: none; border: none; color: var(--color-text); cursor: pointer; display: grid; place-items: center; }
+	/* quick-261021-menu4: edit-mode header buttons — Reset (left) and Done (right),
+	   always visible so users know where to exit and reset.
+	   quick-261021-menu5: Done is subtle (not sharp green) — matches the dark theme. */
+	.edit-head { justify-content: space-between; padding: 12px 16px; }
+	.hd-btn { display: inline-flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--color-border, #444); border-radius: 8px; color: var(--color-text); padding: 8px 16px; font-size: 0.875rem; cursor: pointer; }
+	.hd-btn.done { border-color: var(--color-text-muted, #888); color: var(--color-text); }
+	.hd-btn.done:active { background: rgba(255,255,255,0.08); }
+	/* quick-261021-menu5: divider between the 20 visible slots and the hidden pool. */
+	.edit-divider { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding: 12px 4px 4px; color: var(--color-text-muted); font-size: 0.75rem; }
+	.edit-divider::before, .edit-divider::after { content: ''; flex: 1; height: 1px; background: var(--color-border, #333); }
+	/* D-08/D-09/D-10: two-row marquee header + top-right action/Close cluster (quick-260913-je8:
+	   the action slot is Download, was Like). Left text column flexes (min-width:0 so the clips can
+	   shrink-and-ellipsis); right cluster is fixed-width.
+	   quick-261006-hdrtxt: the cluster moves BELOW the text. The title and the artist each get a
+	   full-width line now (no more side-by-side squeeze against the icons) — the header is a
+	   column: text block on top, icon row beneath, both stretched. */
+	/* User call 2026-10-06: header is a ROW — the text block (title + artist, marquee)
+	   takes the left, a compact icon cluster (Like / Download / Close) pins at the
+	   top-right. The old full-width icon row under the text is gone. */
+	.sheet-head { display: flex; flex-direction: row; align-items: flex-start; gap: 8px; padding: 8px 10px; }
+	/* quick-260919-dlring: `.head-text` is a <button> now (Go to artist). Every declaration past the
+	   original `flex`/`min-width` pair is a UA reset — the box must stay pixel-identical to the div it
+	   replaced, so no padding, no border, no UA font, and text-align: start instead of the button
+	   default centre. `display: block` keeps the two rows stacked (a button is inline-block and
+	   would shrink-wrap). Deliberately NO `:disabled` opacity: with no artist to visit this button is
+	   inert, and inert must look like the plain text block it used to be, not like a greyed control. */
+	.head-text {
+		/* quick-261006-hdrtxt: full-width text block — the title and artist each own their
+		   line, so the marquee clips only scroll on genuinely long names.
+		   User call 2026-10-06: in the row header this is the flexible box (flex:1 +
+		   min-width:0) so the marquee spans measure a REAL overflow against the space left
+		   by the icon strip. */
+		flex: 1;
+		min-width: 0;
+		display: block;
+		appearance: none;
+		background: none;
+		border: 0;
+		padding: 0;
+		margin: 0;
+		font: inherit;
+		color: inherit;
+		text-align: start;
+		-webkit-tap-highlight-color: transparent;
+	}
+	.head-text:not(:disabled) { cursor: pointer; }
+	/* `display: block` because these are <span>s now (phrasing content, so they are legal inside the
+	   button above) — everything else is unchanged from when they were <div>s. */
+	.hd-title { display: block; font-size: calc(0.9375rem * var(--fs-title, 1)); font-weight: 600; color: var(--color-text); line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
+	.hd-artist { display: block; font-size: calc(0.8125rem * var(--fs-artist, 1)); font-weight: 400; color: var(--color-text-muted); line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; max-width: 100%; }
+	/* User call 2026-10-06: compact icon cluster at the top-right (Like, Download,
+	   Close left to right — Close owns the corner slot). One 44px row, never a vertical
+	   strip (a 3×44px stack pushed the menu to full-screen). flex:none so it never
+	   squeezes the marquee text. */
+	.head-actions { display: flex; flex-direction: row; align-items: center; gap: 2px; flex: none; }
+	.hd-btn { min-width: 44px; min-height: 44px; display: grid; place-items: center; background: none; border: none; border-radius: 10px; color: var(--color-text); cursor: pointer; }
+	.hd-btn:hover { background: var(--color-surface); }
+	.hd-btn:disabled { opacity: 0.4; cursor: default; }
+	/* quick-260919-et3: the header Heart is back (before Download), so the liked tint needs a rule
+	   here again. je8 had removed `.hd-btn.liked` when the header slot became Download. Named
+	   `.accent` to match `.mi.accent` on the list row rather than reviving a second name for the
+	   same idea — and declared, not merely applied: `class:accent` with no matching rule is the
+	   exact defect quick-260919-0mw found on the Shuffle row, where an active state had rendered
+	   pixel-identical to inactive since ii6. */
+	.mi { width: 100%; display: flex; align-items: center; gap: 12px; background: none; border: none; color: var(--color-text); font-size: 0.9375rem; padding: 12px; border-radius: 10px; cursor: pointer; text-align: start; }
+	.mi:hover { background: var(--color-surface); }
+	.mi:disabled { opacity: 0.4; cursor: default; }
+	.mi.accent { color: var(--color-primary); }
+	/* quick-260919-0mw (correction): the ACTIVE-state rule for a toggle. `class:on` was already
+	   in the markup on the Shuffle row (ii6) but NO rule ever matched it, so shuffle-on and
+	   shuffle-off rendered pixel-identical. quick-261006-grd moved the rule to `.gi.on` (the grid
+	   cell) — same declaration, same idea: this cell is not neutral right now. */
+	/* quick-261006-grd: the icon grid. 4 columns — the sheet caps at 680px, so cells grow on
+	   desktop and sit at ~72px on a 360px phone. `.mi` above is untouched: the picker sub-sheets
+	   (playlist / lyrics / download / remove-download) are still list rows. */
+	.acts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 4px 2px 8px; }
+	/* Grid cell: icon over a 2-line micro label. min-height keeps rows even when some labels wrap
+	   and others don't; the icon box is a fixed 24px so the spinner swap (Remix/Detail) never
+	   shifts the label. */
+	.gi {
+		position: relative; display: flex; flex-direction: column; align-items: center;
+		justify-content: flex-start; gap: 6px; min-height: 78px; padding: 12px 4px 8px;
+		background: none; border: none; border-radius: 12px; color: var(--color-text);
+		cursor: pointer; text-align: center; -webkit-tap-highlight-color: transparent;
+	}
+	@media (hover: hover) { .gi:hover { background: var(--color-surface); } }
+	.gi:disabled { opacity: 0.4; cursor: default; }
+	.gi.on { color: var(--color-primary); }
+	/* User arrange-like-this 2026-10-06: the (Blank) R1C2 cell for the current track.
+	   Same footprint as a .gi cell, no hover, no content — aria-hidden. */
+	/* (quick-261006-44g: .gi-blank deleted — no blank placeholder cells any more.) */
+	/* The icon slot is a fixed 22px box: the 16px Remix/Detail spinner swap must never shift the
+	   label, so the spinner is centred in the same 22px by its margin. (A `.gi > svg` rule would
+	   do the same for the icons, but svelte-check cannot see through the lucide components to
+	   their rendered <svg> and would flag it unused — the size={22} prop already fixes them.) */
+	.gi > .row-spinner { flex: none; margin: 3px; }
+	.gi-label {
+		font-size: 0.625rem; line-height: 1.3; color: var(--color-text-muted);
+		display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+		max-width: 100%; overflow-wrap: break-word;
+	}
+	.gi.on .gi-label { color: var(--color-primary); }
+	/* Meta under the label (download quality/size, progress %) — tabular-nums so the climbing
+	   percentage doesn't jitter the cell. Never animated: the bar below owns the motion. */
+	.gi-sub {
+		font-size: 0.5625rem; line-height: 1.2; color: var(--color-text-muted);
+		font-variant-numeric: tabular-nums; max-width: 100%;
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+	}
+	.gi-sub.skel { display: inline-block; width: 44px; height: 9px; border-radius: var(--radius-full); background: var(--color-surface); }
+	/* Download split: the caret is a corner sibling — a <button> cannot nest inside the cell
+	   <button>, so it rides absolute at the cell's top-right (the list row's `.mi-split` idiom,
+	   shrunk to a corner target). Long-press on the cell still opens the same sheet. */
+	.gi-split {
+		position: relative;
+		/* User 2026-10-06: the download cell's text widens the whole column it's in — the wrapper
+		   demands max-content width so the grid track grows to fit e.g. `FLAC · 17.9 MB` instead of
+		   ellipsizing it (matters at large app text sizes / narrow phones). */
+		min-width: max-content;
+	}
+	.gi-split .gi { width: 100%; }
+	.gi-caret {
+		position: absolute; top: 0; inset-inline-end: 0; display: grid; place-items: center;
+		width: 30px; height: 30px; background: none; border: none; border-radius: 8px;
+		color: var(--color-text-muted); cursor: pointer;
+	}
+	@media (hover: hover) { .gi-caret:hover { background: var(--color-surface); color: var(--color-text); } }
+	/* quick-261006-mnu — EDIT MODE. Cells are 2D drag targets: `touch-action: none` so the
+	   finger owns the gesture (the sheet's dragClose is disabled while editing, and the grid
+	   is short enough to need no scroll). quick-261102-menudrag: the dragged cell follows
+	   the pointer 1:1 (inline transform, transition:none — direct manipulation, not
+	   decoration); siblings glide aside via inline transforms toward the landing gap
+	   (180ms, dropped under reduceMotion) and the release springs the cell into its slot
+	   via the shared springSnap. Dimmed cells are tappable to re-add — they keep a
+	   stable, visible place to come back from (the RowActionsConfig shape). */
+	.edit-cell { touch-action: none; cursor: grab; }
+	.edit-cell.off { opacity: 0.45; }
+	.edit-cell.off .gi-label { color: var(--color-text-muted); }
+	.edit-cell.lifted { opacity: 0.9; z-index: 2; cursor: grabbing; }
+	.edit-cell:focus-visible { /* quick-261102-s0k: focus token, >=3:1 on every theme */ outline: 2px solid var(--color-focus); outline-offset: 2px; }
+	/* Grid progress: a thin determinate bar along the cell's bottom edge. The list row's
+	   full-bleed ::after tint would swallow a 72px cell, so the bar lives at the bottom instead.
+	   The indeterminate slide reuses the same dl-slide keyframes (translateX %, layout-free). */
+	.gi.dl-progress { overflow: hidden; }
+	.gi.dl-progress::after {
+		content: ''; position: absolute; left: 0; bottom: 0; height: 3px;
+		width: calc(var(--dl, 0) * 100%); background: var(--color-primary);
+		transition: width 120ms linear; pointer-events: none;
+	}
+	.gi.dl-indeterminate::after {
+		width: 32%; transition: none; animation: dl-slide 1.4s ease-in-out infinite;
+	}
+	/* The busy cell is disabled-but-working: keep it undimmed like the list row's `.dl-busy`
+	   (at 0.4 the bar and percentage are hard to read). */
+	.gi.dl-busy:disabled { opacity: 1; }
+	/* quick-260919-vrq — the remove-download confirm's body copy + button pair. `.hint` and `.actions`
+	   are taken VERBATIM from MetadataEditor.svelte (its footer is the same shape: a paragraph of
+	   explanation over a Cancel/commit pair), so the two sheets read identically; noted here because
+	   that makes two files carrying the declaration. The danger tint is var(--color-danger-text) (was the #ff7a90 literal), the value already
+	   in system use by SettingRow's `.danger` and RowBadges' `.unavailable` — app.css defines no
+	   --color-danger token and this task does not invent one. */
+	.hint { color: var(--color-text-muted); font-size: 0.75rem; line-height: 1.4; padding: 10px 12px 4px; margin: 0; }
+	.actions { display: flex; gap: 8px; padding: 4px; }
+	.mi.danger { color: var(--color-danger-text); }
+	/* tabular-nums: the download percentage climbs digit by digit and would otherwise jitter the
+	   row's right edge on every repaint (quick-260913-omi). Harmless for the playlist counts. */
+	.mi .count { margin-inline-start: auto; font-size: 0.75rem; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+	/* quick-260915-26g: placeholder for the in-flight download probe. Static, not animated — the row
+	   spinner two states over already owns the "working" signal and two of them would compete. */
+	.mi .count.skel { display: inline-block; width: 64px; height: 11px; border-radius: var(--radius-full); background: var(--color-surface); }
+	/* quick-260916-0d9 — download picker. The source label takes the row's free space and ellipsises
+	   (CJK source labels plus a `FLAC · 38.2 MB` count still fit one line at 375px; a long count
+	   ellipsises the label, which is the right thing to lose). */
+	.dl-src { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	/* quick-260926-vdp: one card per lyrics candidate. The body is capped at 12rem (≈9 lines at 1.5)
+	   with its own scroll so a 10k-line LRC cannot push the sheet off-screen; the `.menu` keeps its
+	   90vh scroll so several cards stay reachable. `pre-line` turns the `\n` joins into lines. */
+	.lyr-card { border: 1px solid var(--color-border); border-radius: 12px; margin: 6px 4px; overflow: hidden; }
+	.lyr-card.on { border-color: var(--color-primary); }
+	.lyr-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px 2px; font-size: 0.8125rem; color: var(--color-text-muted); }
+	.lyr-cur { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--color-primary); font-size: 0.75rem; white-space: nowrap; }
+	.lyr-body { max-height: 12rem; overflow-y: auto; overscroll-behavior: contain; padding: 4px 12px 8px; font-size: 0.875rem; line-height: 1.5; white-space: pre-line; color: var(--color-text); }
+	.dl-wait { display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); font-size: 0.8125rem; padding: 10px 12px; margin: 0; }
+	/* quick-260919-vrq: the Download row's TWO-sibling-buttons shape — DELETED by
+	   quick-261006-grd, which moved it to the grid cell's `.gi-split` corner caret (declared with
+	   the grid styles above). */
+	/* quick-260913-omi: download progress fill, RESTORED by quick-260919-dlring's row revert. `--dl`
+	   is the 0..1 fraction, set inline per render. quick-261006-grd: the list-row variant is deleted
+	   with `.mi-split` above; the grid cell's bottom-edge bar (`.gi.dl-progress`) is declared with
+	   the grid styles. */
+	/* Indeterminate (no Content-Length, or no bytes yet): omi parked a SPINNER here, but the row's
+	   glyph is no longer allowed to indicate anything, so the bar covers this state instead — a
+	   fixed-width tint sliding across the row, the standard indeterminate idiom. `transform` is used
+	   (not `left`) so it never triggers layout, and `--dl` is ignored while this class is on.
+	   The markup pairs this class with `.motion-always`, app.css's escape hatch, for the same reason
+	   the spinner carried it: a frozen indeterminate bar reads as 32% progress, i.e. a lie. The
+	   DETERMINATE row stays un-tagged, so its width transition is still killed by reduce-motion.
+	   quick-261006-grd: the list-row ::after is deleted with `.mi-split` above; the grid cell
+	   (`.gi.dl-indeterminate::after`) reuses these same `dl-slide` keyframes for its bottom bar. */
+	@keyframes dl-slide {
+		0% { transform: translateX(-100%); }
+		100% { transform: translateX(313%); }
+	}
+	/* omi's other call, kept by quick-260919-dlring: a disabled control is dimmed to 0.4, but the
+	   busy download is disabled only because it is BUSY, and at 0.4 the bar/percentage/ring are hard
+	   to read. The header button keeps the rule (it is the SAME state); the grid cell carries its
+	   own `.gi.dl-busy:disabled` with the grid styles. quick-261006-grd deleted the `.mi` half.
+	   User 2026-10-06: header Download icon removed — this rule is retired. */
+	/* MENU-01 inline resolve spinner — neutral (NOT accent), sits in the leading 18px icon box so
+	   the row width does not shift. quick-260809-mvz: keeps rotating under BOTH reduce-motion gates
+	   (markup carries `.motion-always`, app.css's escape hatch) — a frozen spinner reads as a hung
+	   app. aria-busy + the menu.preparing label still carry the state for non-visual users. */
+	.row-spinner { width: 16px; height: 16px; flex: none; border: 2px solid var(--color-text-muted); border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; }
+	@keyframes spin { to { transform: rotate(360deg); } }
+	/* quick-260915-w4f — cover picker grid. 3 columns fits a 375px viewport with the sheet's insets
+	   (~105px tiles), four rows deep for the 12-candidate cap. */
+	.cover-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 4px 8px 12px; }
+	.cand { position: relative; padding: 0; border: 2px solid transparent; border-radius: 10px; overflow: hidden; background: var(--color-surface); cursor: pointer; aspect-ratio: 1; }
+	.cand img { width: 100%; height: 100%; object-fit: cover; display: block; }
+	.cand.on { border-color: var(--color-primary); }
+	.cand .src { position: absolute; left: 0; right: 0; bottom: 0; font-size: 0.6875rem; padding: 2px 4px; background: rgba(0, 0, 0, 0.55); color: #fff; text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.cand .tick { position: absolute; top: 4px; inset-inline-end: 4px; display: grid; place-items: center; color: #fff; filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.8)); }
+	.cover-wait { display: grid; place-items: center; padding: 28px 12px; }
+	.cover-none { text-align: center; color: var(--color-text-muted); font-size: 0.8125rem; padding: 20px 12px; }
+	.detail { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; padding: 6px 12px 14px; margin: 0; }
+	.detail dt { color: var(--color-text-muted); font-size: 0.75rem; }
+	.detail dd { margin: 0; font-size: 0.8125rem; }
+	.mono { font-family: ui-monospace, monospace; font-size: 0.6875rem; }
+	.break { word-break: break-all; }
+</style>

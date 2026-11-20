@@ -1,0 +1,285 @@
+{
+	"feed": {
+		"title": {
+			"label": "iTunes Store：熱門Cantopop歌曲"
+		},
+		"updated": {
+			"label": "2026-09-25T19:35:23-07:00"
+		},
+		"id": {
+			"label": "https://itunes.apple.com/hk/rss/topsongs/limit=100/genre=1251/json"
+		},
+		"entry": [
+			{
+				"im:name": {
+					"label": "四"
+				},
+				"im:image": [
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/73/b2/d8/73b2d885-c9d6-84cd-84d8-1c8086777594/301627920840.jpg/55x55bb.png",
+						"attributes": {
+							"height": "55"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/73/b2/d8/73b2d885-c9d6-84cd-84d8-1c8086777594/301627920840.jpg/60x60bb.png",
+						"attributes": {
+							"height": "60"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/73/b2/d8/73b2d885-c9d6-84cd-84d8-1c8086777594/301627920840.jpg/170x170bb.png",
+						"attributes": {
+							"height": "170"
+						}
+					}
+				],
+				"im:artist": {
+					"label": "Ian 陳卓賢",
+					"attributes": {
+						"href": "https://music.apple.com/hk/artist/ian-%E9%99%B3%E5%8D%93%E8%B3%A2/1666288520?uo=2"
+					}
+				},
+				"title": {
+					"label": "四 - Ian 陳卓賢"
+				},
+				"id": {
+					"label": "https://music.apple.com/hk/album/%E5%9B%9B/6814391571?i=6814391574&uo=2",
+					"attributes": {
+						"im:id": "6814391574"
+					}
+				},
+				"category": {
+					"attributes": {
+						"im:id": "1251",
+						"term": "Cantopop",
+						"scheme": "https://music.apple.com/hk/genre/%E9%9F%B3%E6%A8%82-%E6%B5%81%E8%A1%8C%E6%A8%82-%E5%BB%A3%E6%9D%B1%E6%AD%8C-%E9%A6%99%E6%B8%AF%E6%B5%81%E8%A1%8C%E6%A8%82/id1251?uo=2",
+						"label": "廣東歌/香港流行樂"
+					}
+				},
+				"im:releaseDate": {
+					"label": "2026-09-23T05:00:00-07:00",
+					"attributes": {
+						"label": "2026年09月23日"
+					}
+				}
+			},
+			{
+				"im:name": {
+					"label": "旋轉木馬"
+				},
+				"im:image": [
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/df/fa/de/dffadeeb-b441-d6e9-7a1a-545e75b3bb42/754213536251.jpg/55x55bb.png",
+						"attributes": {
+							"height": "55"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/df/fa/de/dffadeeb-b441-d6e9-7a1a-545e75b3bb42/754213536251.jpg/60x60bb.png",
+						"attributes": {
+							"height": "60"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/df/fa/de/dffadeeb-b441-d6e9-7a1a-545e75b3bb42/754213536251.jpg/170x170bb.png",
+						"attributes": {
+							"height": "170"
+						}
+					}
+				],
+				"im:artist": {
+					"label": "米爺 & 黃淑蔓",
+					"attributes": {
+						"href": "https://music.apple.com/hk/artist/%E7%B1%B3%E7%88%BA/1734764950?uo=2"
+					}
+				},
+				"title": {
+					"label": "旋轉木馬 - 米爺 & 黃淑蔓"
+				},
+				"id": {
+					"label": "https://music.apple.com/hk/album/%E6%97%8B%E8%BD%89%E6%9C%A8%E9%A6%AC/6789835835?i=6789835836&uo=2",
+					"attributes": {
+						"im:id": "6789835836"
+					}
+				},
+				"category": {
+					"attributes": {
+						"im:id": "1251",
+						"term": "Cantopop",
+						"scheme": "https://music.apple.com/hk/genre/%E9%9F%B3%E6%A8%82-%E6%B5%81%E8%A1%8C%E6%A8%82-%E5%BB%A3%E6%9D%B1%E6%AD%8C-%E9%A6%99%E6%B8%AF%E6%B5%81%E8%A1%8C%E6%A8%82/id1251?uo=2",
+						"label": "廣東歌/香港流行樂"
+					}
+				},
+				"im:releaseDate": {
+					"label": "2026-07-13T05:00:00-07:00",
+					"attributes": {
+						"label": "2026年07月13日"
+					}
+				}
+			},
+			{
+				"im:name": {
+					"label": "淺粉紅 pale pink"
+				},
+				"im:image": [
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/10/4f/5c/104f5c02-abe1-1072-43ef-17250e5602ed/1200220171101.jpg/55x55bb.png",
+						"attributes": {
+							"height": "55"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/10/4f/5c/104f5c02-abe1-1072-43ef-17250e5602ed/1200220171101.jpg/60x60bb.png",
+						"attributes": {
+							"height": "60"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/10/4f/5c/104f5c02-abe1-1072-43ef-17250e5602ed/1200220171101.jpg/170x170bb.png",
+						"attributes": {
+							"height": "170"
+						}
+					}
+				],
+				"im:artist": {
+					"label": "Gareth.T",
+					"attributes": {
+						"href": "https://music.apple.com/hk/artist/gareth-t/1330022393?uo=2"
+					}
+				},
+				"title": {
+					"label": "淺粉紅 pale pink - Gareth.T"
+				},
+				"id": {
+					"label": "https://music.apple.com/hk/album/%E6%B7%BA%E7%B2%89%E7%B4%85-pale-pink/6814412776?i=6814412779&uo=2",
+					"attributes": {
+						"im:id": "6814412779"
+					}
+				},
+				"category": {
+					"attributes": {
+						"im:id": "1251",
+						"term": "Cantopop",
+						"scheme": "https://music.apple.com/hk/genre/%E9%9F%B3%E6%A8%82-%E6%B5%81%E8%A1%8C%E6%A8%82-%E5%BB%A3%E6%9D%B1%E6%AD%8C-%E9%A6%99%E6%B8%AF%E6%B5%81%E8%A1%8C%E6%A8%82/id1251?uo=2",
+						"label": "廣東歌/香港流行樂"
+					}
+				},
+				"im:releaseDate": {
+					"label": "2026-09-24T05:00:00-07:00",
+					"attributes": {
+						"label": "2026年09月24日"
+					}
+				}
+			},
+			{
+				"im:name": {
+					"label": "I Played Me Like A Fool"
+				},
+				"im:image": [
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/32/42/bc/3242bce4-1350-9d67-fcee-9a0bbd8b1170/301627920826.jpg/55x55bb.png",
+						"attributes": {
+							"height": "55"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/32/42/bc/3242bce4-1350-9d67-fcee-9a0bbd8b1170/301627920826.jpg/60x60bb.png",
+						"attributes": {
+							"height": "60"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/32/42/bc/3242bce4-1350-9d67-fcee-9a0bbd8b1170/301627920826.jpg/170x170bb.png",
+						"attributes": {
+							"height": "170"
+						}
+					}
+				],
+				"im:artist": {
+					"label": "Jeremy 李駿傑",
+					"attributes": {
+						"href": "https://music.apple.com/hk/artist/jeremy-%E6%9D%8E%E9%A7%BF%E5%82%91/1751673421?uo=2"
+					}
+				},
+				"title": {
+					"label": "I Played Me Like A Fool - Jeremy 李駿傑"
+				},
+				"id": {
+					"label": "https://music.apple.com/hk/album/i-played-me-like-a-fool/6814391543?i=6814391544&uo=2",
+					"attributes": {
+						"im:id": "6814391544"
+					}
+				},
+				"category": {
+					"attributes": {
+						"im:id": "1251",
+						"term": "Cantopop",
+						"scheme": "https://music.apple.com/hk/genre/%E9%9F%B3%E6%A8%82-%E6%B5%81%E8%A1%8C%E6%A8%82-%E5%BB%A3%E6%9D%B1%E6%AD%8C-%E9%A6%99%E6%B8%AF%E6%B5%81%E8%A1%8C%E6%A8%82/id1251?uo=2",
+						"label": "廣東歌/香港流行樂"
+					}
+				},
+				"im:releaseDate": {
+					"label": "2026-09-22T05:00:00-07:00",
+					"attributes": {
+						"label": "2026年09月22日"
+					}
+				}
+			},
+			{
+				"im:name": {
+					"label": "陽光普照"
+				},
+				"im:image": [
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/83/c4/63/83c463d5-0f4e-a925-92bc-7e757bf83ff0/4895261204368.jpg/55x55bb.png",
+						"attributes": {
+							"height": "55"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/83/c4/63/83c463d5-0f4e-a925-92bc-7e757bf83ff0/4895261204368.jpg/60x60bb.png",
+						"attributes": {
+							"height": "60"
+						}
+					},
+					{
+						"label": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/83/c4/63/83c463d5-0f4e-a925-92bc-7e757bf83ff0/4895261204368.jpg/170x170bb.png",
+						"attributes": {
+							"height": "170"
+						}
+					}
+				],
+				"im:artist": {
+					"label": "容祖兒",
+					"attributes": {
+						"href": "https://music.apple.com/hk/artist/%E5%AE%B9%E7%A5%96%E5%85%92/370528896?uo=2"
+					}
+				},
+				"title": {
+					"label": "陽光普照 - 容祖兒"
+				},
+				"id": {
+					"label": "https://music.apple.com/hk/album/%E9%99%BD%E5%85%89%E6%99%AE%E7%85%A7/6813529287?i=6813529292&uo=2",
+					"attributes": {
+						"im:id": "6813529292"
+					}
+				},
+				"category": {
+					"attributes": {
+						"im:id": "1251",
+						"term": "Cantopop",
+						"scheme": "https://music.apple.com/hk/genre/%E9%9F%B3%E6%A8%82-%E6%B5%81%E8%A1%8C%E6%A8%82-%E5%BB%A3%E6%9D%B1%E6%AD%8C-%E9%A6%99%E6%B8%AF%E6%B5%81%E8%A1%8C%E6%A8%82/id1251?uo=2",
+						"label": "廣東歌/香港流行樂"
+					}
+				},
+				"im:releaseDate": {
+					"label": "2026-09-21T05:00:00-07:00",
+					"attributes": {
+						"label": "2026年09月21日"
+					}
+				}
+			}
+		]
+	}
+}

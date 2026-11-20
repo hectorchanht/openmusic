@@ -1,0 +1,810 @@
+// Presentation-layer cross-source dedupe + best-quality pick.
+// NOT part of the Phase-1 data layer (catalog.ts is left untouched + its tests
+// intact). Applied by the UI/picks layer to any list shown to the user so the
+// same song surfaced by multiple sources collapses to one — the highest quality.
+import type { SourceId, Track } from '$lib/sources/types';
+import { foldScript } from '$lib/services/zh-convert';
+import { playbackRank, COVER_ORDER } from '$lib/sources/source-order';
+import { qualityRank } from '$lib/sources/quality';
+// quick-261102-t7i: dedupe ↔ song-variant is a deliberate import cycle — both sides use the other
+// only inside function bodies (never at module evaluation), so either load order is safe.
+import { candidateTier } from '$lib/services/song-variant';
+import { isDeviceUid } from '$lib/services/device-track';
+import { splitArtists } from '$lib/util/artist-split';
+
+// Tie-break when quality is equal/unknown. Tune freely.
+// 5sing is UGC (covers / 伴奏 / 原创) — it should NEVER win a tie against a mainstream CN
+// source, otherwise a Netease "Stargazing" would lose to a 5sing "Stargazing (Cover)" with
+// equal quality. Rank lowest (hvu).
+//
+// Jamendo (ixw) is also non-mainstream — Creative-Commons indie. A Jamendo "Stargazing" is
+// a DIFFERENT recording (some indie artist) than a Netease "Stargazing" (the Myles Smith
+// track) — by design dedupe should NOT collapse them, but if normalization were to merge
+// them, the mainstream version should win. Rank -1 so it sits below even fivesing.
+//
+// Audius (0zn) is likewise non-mainstream — Western/indie/UGC. Same reasoning as Jamendo:
+// a DIFFERENT recording from the mainstream CN sources, so rank it at the bottom (-1) so a
+// mainstream version always wins a tie if normalization ever merges them.
+//
+// YTMusic (Plan 27) is off the resolve floor (autoResolveEligible:false) and non-mainstream for
+// tie-break purposes — rank it at the bottom (-1) alongside jamendo/audius so a mainstream CN
+// version always wins a tie if normalization ever merges them. Required for this total
+// Record<SourceId,number> to stay exhaustive once 'ytmusic' joined the SourceId union (27-01).
+//
+// 32-D-08: qq and netease SWAPPED (was `netease: 4, qq: 3`). A swap rather than a bump to 5, so the
+// range and every other rank's relative meaning above stay exactly as justified. netease winning
+// this tie is WHY a mid-less stub was the COMMON case rather than the rare one: at search time every
+// stub is `quality: null` → qualityRank 0, so this rank is the SOLE tie-break and it decided every
+// cross-source search row. A qq survivor already carries `song_mid` in the search body, so most
+// FIRST plays resolve lossless with no extra lookup at all — per 32-D-10b that, not the edge mid
+// cache, is the latency lever (a cached mid still costs a full upstream round trip; a mid already in
+// hand costs nothing). Accepted side effect, weighed and taken: where the two sources disagree, qq's
+// title/album metadata is what the user sees. Identity is unaffected — it stays uid-based
+// (`makeUid`), and this rank never decides identity, only which of two same-song rows survives.
+// Cross-ref: the roadmap's pending "netease upstream health-gate" item already suspected this rank-4.
+
+/** Higher = better. quick-261102-to0: THE ranker (sources/quality qualityRank) over the row's
+ *  label + tier strings (often null pre-resolve). */
+export function trackQualityRank(t: Track): number {
+	return qualityRank(`${t.qualityLabel ?? ''} ${t.quality ?? ''}`);
+}
+
+const HAN = /\p{Script=Han}/u;
+const PRINTABLE_ASCII = /^[\x20-\x7e]+$/;
+// A leading Han run (inner spaces only BETWEEN Han chars), whitespace, then a Latin run starting
+// with a letter/digit. The Han and \s classes are disjoint, so this is linear on untrusted titles.
+// quick-261103-cjk5: the Latin run may start with a CAPITAL — YTM bilingual titles are Title
+// Case ("車匙 Car Key"), and the share route's decodePathSegment turns "車匙---Car-Key" into
+// exactly that space-joined shape. The lowercase-only class made cjkTitleOf return null for
+// every real share-link arrival, silently skipping the whole bilingual resolve (three Node-
+// proven fixes never fired in the browser because the probes used the dashed spelling).
+const HAN_THEN_LATIN = /^\p{Script=Han}+(?:\s+\p{Script=Han}+)*\s+([a-zA-Z0-9][\x20-\x7e]*)$/u;
+// quick-260927-2wt: split an artist key into maximal Han / non-Han runs. The two classes are
+// disjoint, so the scan is linear (no backtracking) on untrusted upstream artist strings.
+const SCRIPT_RUNS = /\p{Script=Han}+|[^\p{Script=Han}]+/gu;
+// Tail words that name a DIFFERENT RENDITION, not a translation — a tail made only of these (or
+// numbers) is never stripped, else "玻璃 - remix" / "玻璃 - part 2" would merge into "玻璃"
+// (song-variant.ts exists precisely to keep renditions apart).
+const QUALIFIER_WORDS = new Set([
+	'live', 'demo', 'remix', 'mix', 'acoustic', 'inst', 'instrumental', 'karaoke', 'cover', 'remaster',
+	'remastered', 'explicit', 'version', 'ver', 'edit', 'radio', 'extended', 'original', 'feat', 'ft',
+	'part', 'pt'
+]);
+
+function isQualifierTail(tail: string): boolean {
+	return tail
+		.trim()
+		.split(/\s+/)
+		.every((w) => {
+			// quick-261103-cjk: case-insensitive — identity callers pass preNorm-lowercased
+			// titles, but cjkTitleOf reads the RAW title ("玻璃 - Live" must not split).
+			const x = w.replace(/\.$/, '').toLowerCase();
+			return /^\d+$/.test(x) || QUALIFIER_WORDS.has(x);
+		});
+}
+
+/** Title-only: drop a translated English tail so the CJK title keys alone (see key()). */
+function stripTranslation(title: string): string {
+	const s = title.trim();
+	// ytmusic "<CJK> - <english>": key on the head.
+	const cut = s.lastIndexOf(' - ');
+	if (cut > 0) {
+		const head = s.slice(0, cut);
+		const tail = s.slice(cut + 3);
+		if (HAN.test(head) && PRINTABLE_ASCII.test(tail) && !isQualifierTail(tail)) return head;
+	}
+	// bilingual "<Han> <Latin>": key on the Latin run (≥2 words), which is what ytmusic keeps.
+	const latin = HAN_THEN_LATIN.exec(s)?.[1];
+	if (latin && latin.trim().split(/\s+/).length >= 2 && !isQualifierTail(latin)) return latin;
+	return s;
+}
+
+/**
+ * quick-261103-cjk (user report 2026-11-03 — 陳柏宇《車匙 - Car Key》 played only via
+ * YouTube Music): the CJK half of a bilingual title, for SEARCHING the CN catalogs.
+ * Identity already keys a bilingual title on one half (stripTranslation above), but
+ * the strict CN search engines do not: probed live 2026-11-03, the full bilingual
+ * string "Jason Chan 車匙 - Car Key" returns junk or nothing on kuwo / migu /
+ * netease, while "車匙" alone hits 陳柏宇's original at #1 on kuwo and migu (and
+ * "陳柏宇 車匙" likewise). qq / joox search is fuzzy enough to find the song under
+ * any spelling — but qq's copy is paid-locked (its resolve returns an empty URL),
+ * and every CN row is credited 陳柏宇, never "Jason Chan", so the artist gate
+ * rejects them for a Latin-credit stub anyway; between the strict engines and the
+ * gate, only ytmusic ever played it. Returns the Han side of "<Han> - <Latin>",
+ * "<Latin> - <Han>" or "<Han> <Latin ≥2 words>", or null when the title is not
+ * bilingual in that shape.
+ * The qualifier guard is stripTranslation's: a Latin tail that names a RENDITION
+ * (live / remix / part 2 …) is not a translation, so "玻璃 - Live" yields null and
+ * keeps searching as-is.
+ *
+ * quick-261103-cjk5 (Hector: the splitter should be more versatile): the shape matrix is
+ * deliberately wide, because a false split costs one extra search while a missed split
+ * costs the whole bilingual resolve (the cjk5 root cause: the share route decodes
+ * "車匙---Car-Key" to the space-joined "車匙 Car Key", and the old ≥2-words / lowercase-only
+ * rules returned null for it). Covered, in order: dash-family separators with OPTIONAL
+ * surrounding spaces (script-pure sides only, so the hyphen inside "Car-Key" never
+ * splits), space-joined Han→Latin and Latin→Han down to a ONE-word Latin side, and
+ * concatenated script boundaries ("車匙Car Key", "CarKey車匙") where the Latin side is
+ * ≥2 words or one Capitalized word ≥3 letters. Every shape keeps the same guards: the
+ * non-Han side is printable ASCII with a letter and is NOT a qualifier tail.
+ */
+export function cjkTitleOf(titleIn: string): string | null {
+	const s = (titleIn ?? '').trim();
+	if (!HAN.test(s)) return null;
+	const latinSideOk = (x: string): boolean =>
+		PRINTABLE_ASCII.test(x) && /[a-zA-Z]/.test(x) && !isQualifierTail(x);
+	// A space-joined Latin run reads as a translation at ≥2 words, or as ONE Capitalized
+	// (Title-Case) word; a lone lowercase word is the title's own styling, not a pair.
+	const latinRunOk = (x: string): boolean =>
+		latinSideOk(x) && (x.trim().split(/\s+/).length >= 2 || /^[A-Z]/.test(x.trim()));
+	// 1) Dash-family separator, spaces optional. Split on the LAST separator whose sides
+	// are script-pure (head all-Han / tail all-ASCII, or the mirror) — purity is what keeps
+	// "車匙 Car-Key" from splitting inside "Car-Key" (its head would contain Latin).
+	const seps = [...s.matchAll(/\s*[-–—]\s*/g)];
+	for (let i = seps.length - 1; i >= 0; i--) {
+		const m = seps[i];
+		const head = s.slice(0, m.index).trim();
+		const tail = s.slice(m.index + m[0].length).trim();
+		if (!head || !tail) continue;
+		if (!/[^\p{Script=Han}\s]/u.test(head) && HAN.test(head) && latinSideOk(tail)) return head;
+		if (!/[^\p{Script=Han}\s]/u.test(tail) && HAN.test(tail) && latinSideOk(head)) return tail;
+	}
+	// 2) Space-joined "<Han> <Latin>": the Han run is the search title (the mirror of
+	// stripTranslation's rule 3, which keys identity on the Latin run). The Latin side
+	// needs ≥2 words, or ONE Capitalized word — the share decode of "車匙 - Car" is
+	// "車匙 Car" (a Title-Case translation), while a lone lowercase word is the title's
+	// own styling ("我的 baby" is one title, not a translation pair).
+	const latin = HAN_THEN_LATIN.exec(s)?.[1];
+	if (latin && latinRunOk(latin)) {
+		const han = s.slice(0, s.length - latin.length).trim();
+		if (han && han !== s) return han;
+	}
+	// 3) Space-joined mirror "<Latin ≥1 word> <Han>": the Han tail is the search title.
+	const mirror = /^([a-zA-Z0-9][\x20-\x7e]*?)\s+(\p{Script=Han}[\p{Script=Han}\s]*)$/u.exec(s);
+	if (mirror && latinRunOk(mirror[1])) return mirror[2].trim();
+	// 4) Concatenated script boundary, no separator at all: "車匙Car Key" / "CarKey車匙".
+	// The Latin side needs ≥2 words, or one Capitalized word of ≥3 letters ("CarKey") —
+	// a lowercase single glued word is part of the title's own styling, not a translation.
+	const gluedOk = (x: string): boolean =>
+		latinSideOk(x) && (x.trim().split(/\s+/).length >= 2 || /^[A-Z][a-zA-Z]{2,}$/.test(x.trim()));
+	const hanFirst = /^(\p{Script=Han}+)([a-zA-Z][\x20-\x7e]*)$/u.exec(s);
+	if (hanFirst && gluedOk(hanFirst[2])) return hanFirst[1];
+	// Mirror glue: the Latin head must END in a letter/digit (a space before the Han run is
+	// branch 3's shape, already handled above).
+	const latinFirst = /^([a-zA-Z0-9][\x20-\x7e]*[a-zA-Z0-9])(\p{Script=Han}[\p{Script=Han}\s]*)$/u.exec(s);
+	if (latinFirst && gluedOk(latinFirst[1])) return latinFirst[2].trim();
+	return null;
+}
+
+/**
+ * quick-261103-cjk: the SEARCH STRING a resolver should use for a bilingual-titled
+ * song on the CN catalogs, or null when the title has no CJK half to split off.
+ * A CJK artist stays in the query ("陳柏宇 車匙" was the probe's exact #1 hit on
+ * kuwo / migu); a Latin artist is dropped — "Jason Chan 車匙" still missed on the
+ * strict engines (kuwo returned other Jason Chan songs, migu junk), while the CJK
+ * title alone hit. The
+ * callers' identity gates still compare candidates against the ORIGINAL
+ * {artist, title}, so a title-only pool can only ever adopt a row the gates accept
+ * for the original stub (same title key + same artist credit) — never a stranger's
+ * same-title song.
+ */
+export function cjkSearchQuery(artistIn: string, titleIn: string): string | null {
+	const cjk = cjkTitleOf(titleIn);
+	if (!cjk) return null;
+	const artist = (artistIn ?? '').trim();
+	return HAN.test(artist) ? `${artist} ${cjk}` : cjk;
+}
+
+/**
+ * Normalized identity key: title+artist, case/space/punct-insensitive, suffixes dropped.
+ *
+ * quick-260926-n0r: the same song kept showing twice in the NowPlaying Related tab and Up Next,
+ * because these live-data classes (Gareth.T) keyed differently here:
+ *   1. Simplified vs Traditional twins (qq 颜色 vs joox 顏色) — every string with a Han char is
+ *      folded to Simplified first, char by char (zh-convert foldScript — the one identity fold,
+ *      quick-261102-sdm; mixed "淺粉紅 pale pink" still detects as Chinese, only kana/hangul lines
+ *      skip). Cold t2s dict → the string is keyed unfolded (never a throw) and a warm fires so a
+ *      later call folds.
+ *   2. ytmusic "<CJK> - <english>" (玻璃 - glass) — keyed on the CJK head.
+ *   3. bilingual "<Han> <Latin>" whose ytmusic copy drops the Han (淺粉紅 pale pink vs pale pink) —
+ *      keyed on the Latin run, which must be ≥2 words ("我的 baby" vs "你的 baby" stay apart).
+ *   4. ytmusic video uploads titled "<own artist> - <title> (official video)" — the prefix is
+ *      dropped only when it normalizes to THIS row's artist (found by the live Gareth.T probe).
+ * 2 and 3 never strip a pure qualifier tail (remix / live / part 2 …) — that is a rendition.
+ *
+ * This deliberately loosens every key() consumer, all of which mean "same song": the WR-06
+ * fallback/catalog verification (whose second gate, isAcceptableSubstitute, is unchanged and still
+ * keeps renditions apart) and the version picker's groupVariants.
+ *
+ * ponytail: two DIFFERENT same-artist songs sharing an identical ≥2-word Latin tail would merge;
+ * add an album/duration tiebreak if that ever shows up. A key computed cold differs from one
+ * computed warm — safe only because keys are never persisted, only compared within one call.
+ */
+function key(t: Track): string {
+	return songKey(t.artist, t.title);
+}
+
+/**
+ * quick-260926-nsz: key()'s body over raw strings, exported so the comment thread key
+ * (services/comments.ts) hashes the SAME script-folded identity dedupe already uses instead of a
+ * second normalizer that would drift. Zero behaviour change for key(). NOTE the cold-dict caveat
+ * above: a persisted caller must ensure the t2s dict is warm first (comments.ts does).
+ */
+export function songKey(artistIn: string, titleIn: string): string {
+	const artist = normField(artistIn);
+	let title = preNorm(titleIn);
+	// "<own artist> - <title>" (ytmusic video uploads): drop the prefix only when it IS this row's artist.
+	const dash = title.indexOf(' - ');
+	if (artist && dash > 0 && stripPunct(title.slice(0, dash)) === artist && title.slice(dash + 3).trim()) {
+		title = title.slice(dash + 3);
+	}
+	return `${stripPunct(stripTranslation(title))}|${artist}`;
+}
+
+// quick-261102-sjg (DECISIONS.md §1): the field pre-normalizer every identity key shares —
+// script fold (zh-convert foldScript), lowercase, bracket groups, the dash tail
+// (remaster/live/acoustic/explicit/feat/ft) AND a bare feat. tail ("Song feat. X",
+// "A ft. B"), which only the bracket/dash forms caught before.
+function preNorm(s: string): string {
+	return foldScript(s || '')
+		.toLowerCase()
+		.replace(/[（(【\[].*?[)）\]】]/g, ' ') // drop (Live) / [Remaster] / 【...】
+		.replace(/\s*-\s*(remaster|live|acoustic|explicit|feat\.?|ft\.?).*$/i, ' ')
+		.replace(/\s+(?:feat\.?|ft\.)\s.*$/i, ' ');
+}
+
+/** strip all punctuation/space (keeps CJK + latin + digits) */
+function stripPunct(s: string): string {
+	return s.replace(/[^\p{L}\p{N}]+/gu, '').trim();
+}
+
+/**
+ * quick-261102-sjg: ONE field of the identity — what songKey's artist half is. Replaces
+ * dedupe.ts matchKey `norm` (which never folded script and missed the bare feat. tail) for every
+ * single-field comparison (names alias maps, name-rescue).
+ */
+export function normField(s: string): string {
+	return stripPunct(preNorm(s));
+}
+
+/**
+ * quick-261102-sjg (DECISIONS.md §1): the ARTIST-FIRST spelling of songKey — the same identity
+ * (fold, brackets, tails, own-artist prefix, translation strip), only the halves swapped. Kept as
+ * a separate export because its `artist|title` STRING is the persisted format of the cover cache,
+ * name-rescue cache, edge resolve cache and og resolve key. Was dedupe.ts matchKey (unfolded, no
+ * translation strip) — the divergence that lost cover art across a 繁/简 fallback swap.
+ * Empty inputs yield '|'.
+ */
+export function matchKey(artist: string, title: string): string {
+	const k = songKey(artist ?? '', title ?? '');
+	const i = k.indexOf('|');
+	return `${k.slice(i + 1)}|${k.slice(0, i)}`;
+}
+
+/**
+ * Phase 40 (user decision at the 40-08 checkpoint): like matchKey but KEEPS version markers —
+ * "晴天 (Live)", "Song - Remix", "[Acoustic]" each stay distinct from the studio title. Only case,
+ * whitespace and punctuation fold. Used ONLY by the crowd-shared cover pick (its `n` hash and the
+ * local `crowd:name:` entry), because a listener's cover choice for a live cut must not repaint the
+ * studio recording. quick-261102-sjg: moved here from dedupe.ts matchKey UNCHANGED — its output is a
+ * server-persisted vote key, so it deliberately does not take the identity fold.
+ */
+export function versionedMatchKey(artist: string, title: string): string {
+	const fold = (s: string) => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+	return `${fold(artist)}|${fold(title)}`;
+}
+
+/**
+ * quick-261006-lyr: the TITLE-ONLY half of songKey — same script-folding, bracket-dropping and
+ * translation-stripping, but WITHOUT the artist (the "<own artist> - <title>" prefix rule needs an
+ * artist, so it is skipped: a title-only key never drops a leading "<x> - "). Exported so the
+ * lyric-query ranking (score-context's consensus + score-match's mislabel check) counts "the same
+ * song title" across DIFFERENT artists — songKey would keep every cover on its own key. Splits on
+ * the single '|' exactly like sameSongStrings does (strip() removes every non-letter/number char,
+ * so neither half can contain one). Same cold-dict caveat as songKey: only compare keys computed
+ * within one call.
+ */
+export function titleKey(titleIn: string): string {
+	const k = songKey('', titleIn || '');
+	const i = k.indexOf('|');
+	return i < 0 ? k : k.slice(0, i);
+}
+
+/**
+ * quick-260927-2wt: two already-stripped, lowercased artist key halves name the same act when one
+ * side's script runs are ALL present in the other's (`[gem]` ⊂ `[gem, 邓紫棋]`, `[邓紫棋]` ⊂ `[gem, 邓紫棋]`).
+ * Runs compare WHOLE (array includes, never substring), so `a` vs `alin` and `jay` vs `jaychou`
+ * stay apart, and `gem某` vs `gem另` fail on the Han run. A blank side never matches.
+ */
+function aliasArtist(x: string, y: string): boolean {
+	if (!x || !y) return false;
+	const rx: string[] = x.match(SCRIPT_RUNS) ?? [];
+	const ry: string[] = y.match(SCRIPT_RUNS) ?? [];
+	const [small, big] = rx.length <= ry.length ? [rx, ry] : [ry, rx];
+	return small.length > 0 && small.every((r) => big.includes(r));
+}
+
+/**
+ * Two tracks are "the same song" iff their normalized title+artist keys match (WR-06) — script-,
+ * ytmusic-suffix- and bilingual-insensitive since quick-260926-n0r (see key()). Reuses the
+ * exact `key()` normalization dedupe applies so a cross-source fallback can verify a fuzzy upstream
+ * search returned the SAME song before adopting it (a fuzzy search can return an unrelated track,
+ * which would otherwise silently auto-play under the original track's identity). A blank/untitled
+ * key is never considered a match (returns false) so we don't adopt garbage on a no-title stub.
+ *
+ * quick-260927-2wt: a Deezer/Last.fm radio stub resolved by a CN source never anchored into its own
+ * slot in queueWithAnchor — it was spliced to the front while the stub lingered as a duplicate. The
+ * root cause is the ARTIST alias, not script: key() already folds Traditional → Simplified per char
+ * since n0r (the 2cy deferred-items note blaming a missing fold was stale). Observed keys:
+ * `多远都要在一起|gem` (Deezer `G.E.M.`) vs `多远都要在一起|gem邓紫棋` (CN `G.E.M.邓紫棋`), and Last.fm
+ * `…|邓紫棋` vs `…|gem邓紫棋`. Rule: exact key match as before, OR title halves equal (non-empty) AND
+ * the artist halves are script-run subsets of each other (aliasArtist) — the artist-side mirror of
+ * key()'s bilingual title rule #3. ONLY this pairwise predicate is loosened: key() / songKey /
+ * dedupeBest / groupVariants are deliberately untouched, so search dedupe, similar, picks and the
+ * persisted comment-thread hash (comments.ts) keep their exact identity.
+ *
+ * Caller audit (every non-test call site):
+ *   - player.svelte.ts captureHistory (locate current in the old queue), queueWithAnchor (THE fix
+ *     site: uid, then sameSongKey, else splice to front), the weaveFreshHistory prefix filter
+ *     `!sameSongKey(t, seed)`; NpRelated.svelte self-filter; album page in-queue skip — looser is
+ *     the intended behaviour at all five.
+ *   - fallback.ts + catalog.ts WR-06 adoption — still double-gated by isAcceptableSubstitute.
+ *     Adopting `G.E.M.邓紫棋 | X` for a failed `G.E.M. | X` stub is correct and accepted on purpose
+ *     (candidate order is dedupeBest's, so an alias candidate may win over an exact-artist one —
+ *     same song, fine).
+ *   - variants.ts fetchVariants — made exact-key-first so an alias group cannot shadow the exact one.
+ *
+ * ponytail: an English-only alias like 'Eason Chan' vs '陈奕迅' shares no run and needs an alias
+ * table — not handled.
+ */
+export function sameSongKey(a: Track, b: Track): boolean {
+	return sameSongStrings(a.artist, a.title, b.artist, b.title);
+}
+
+/**
+ * debug album-rows-miss-liked-downloaded-on-load: sameSongKey over RAW strings, so a caller holding
+ * only an {artist,title} stub (an album / shelf / chart row) can test it against a persisted Track
+ * without minting a fake Track. sameSongKey delegates here — ONE predicate, zero behaviour change.
+ */
+export function sameSongStrings(aArtist: string, aTitle: string, bArtist: string, bTitle: string): boolean {
+	const ka = songKey(aArtist, aTitle);
+	if (!ka || ka === '|') return false;
+	const kb = songKey(bArtist, bTitle);
+	if (ka === kb) return true;
+	// Safe split: strip() removes every non-letter/number char, so neither half can contain '|' and
+	// every key has exactly one. Splitting the finished key keeps songKey literally untouched.
+	const ia = ka.indexOf('|');
+	const ib = kb.indexOf('|');
+	const ta = ka.slice(0, ia);
+	const tb = kb.slice(0, ib);
+	const aa = ka.slice(ia + 1);
+	const ab = kb.slice(ib + 1);
+	if (!ta) return false;
+	// quick-261102-sy0: a bilingual title is the same song under EITHER of its halves —
+	// "再愛你 - Zai Ai Ni" keys on its head (再爱你) but must still match a romanized
+	// "Zai Ai Ni" stub. altTitleKey is the half songKey dropped.
+	const titleMatch = ta === tb || altTitleKey(aTitle) === tb || ta === altTitleKey(bTitle);
+	return titleMatch && (aa === ab || aliasArtist(aa, ab));
+}
+
+/** quick-261102-tdc: every title key a title answers to — songKey's title half plus, for a
+ *  bilingual title, the half it dropped (see altTitleKey). Empty for an untitled input. */
+export function titleKeys(titleIn: string): string[] {
+	const k = titleKey(titleIn || '');
+	const alt = altTitleKey(titleIn || '');
+	return [k, alt].filter((x): x is string => !!x);
+}
+
+/** quick-261102-sy0: the half of a bilingual title that stripTranslation DROPPED (the ASCII tail
+ *  of "<Han> - <ascii>", the Han run of "<Han> <Latin ≥2 words>"), keyed like songKey's title
+ *  half — or null when the title is not bilingual. */
+function altTitleKey(titleIn: string): string | null {
+	const s = preNorm(titleIn).trim();
+	const kept = stripTranslation(s);
+	if (kept === s) return null;
+	const dropped = s.startsWith(kept) ? s.slice(kept.length) : s.slice(0, s.length - kept.length);
+	const k = stripPunct(dropped);
+	return k || null;
+}
+
+/**
+ * quick-261102-cov1: the ARTIST half of the identity machinery, exported for the
+ * auto-substitution gate (song-variant's isAutoAcceptableArtist). Two artist strings name
+ * the SAME credited act when any of the codebase's canonical comparisons says so:
+ *   1. their songKey artist halves are equal (script-folded per char, bracketed segments
+ *      and feat./ft. dash-tails dropped, punctuation stripped — 周杰倫 vs 周杰伦，
+ *      "周杰倫 (Jay Chou)" vs 周杰倫）;
+ *   2. the alias rule (aliasArtist — whole script-run subsets: `G.E.M.` vs `G.E.M.鄧紫棋`);
+ *   3. they SHARE a credited segment under splitArtists — duet / featuring containment in
+ *      either direction （周杰倫 vs `周杰倫/蔡依林`; a duet-credited stub vs its primary
+ *      artist's solo credit). A segment only counts whole (splitArtists output keyed
+ *      through the same songKey normalization), never as a substring, so 阿傑 vs 阿傑正傳
+ *      stay apart.
+ * A blank side NEVER matches (returns false): the blank policy — a candidate with no
+ * credited artist carries no identity to check — belongs to the gate, not to identity.
+ * Deliberately NOT routed through sameSongKey: that predicate also demands title equality
+ * and its key() feeds persisted comment-thread hashes (comments.ts) that must not move.
+ */
+export function sameArtistCredit(aArtist: string, bArtist: string): boolean {
+	const artistHalf = (s: string): string => {
+		const k = songKey(s ?? '', '');
+		return k.slice(k.indexOf('|') + 1);
+	};
+	const ha = artistHalf(aArtist);
+	const hb = artistHalf(bArtist);
+	if (!ha || !hb) return false;
+	if (ha === hb) return true;
+	if (aliasArtist(ha, hb)) return true;
+	const segKeys = (s: string) =>
+		splitArtists(s ?? '')
+			.map(artistHalf)
+			.filter((x) => x.length > 0);
+	const aSegs = segKeys(aArtist);
+	if (aSegs.length === 0) return false;
+	const bSegs = new Set(segKeys(bArtist));
+	return aSegs.some((s) => bSegs.has(s));
+}
+
+// quick-261102-cov1: the CREDIT-based identity the automatic adoption seams OR in
+// beside sameSongKey. sameSongKey's artist half demands equal-SHAPE credits (same
+// segment count after splitting), which excludes a duet credit outright — a
+// 周杰倫/蔡依林 row is "not the same song" as the 周杰倫 track it must substitute
+// for, even though it IS the original recording. This helper asks the two questions
+// the seams actually mean: same TITLE (dedupe key equality, brackets/feat stripped
+// as everywhere) AND same ARTIST by credit (sameArtistCredit — equality, alias, or
+// segment containment). It never widens past a different act: containment requires
+// a whole credited segment, and the title must key-match exactly.
+export function sameSongByCredit(
+	a: { artist: string; title: string },
+	b: { artist: string; title: string }
+): boolean {
+	if (titleKey(a.title ?? '') !== titleKey(b.title ?? '')) return false;
+	return sameArtistCredit(a.artist ?? '', b.artist ?? '');
+}
+
+/**
+ * quick-261102-sy0: the source/quality preference as a comparator (negative = a first):
+ * quality → user-preferred source → PLAYBACK_ORDER. better() is its pairwise winner, so dedupe's
+ * collapse and preferenceOrder's NON-collapsing sort share one rule.
+ */
+function comparePreference(a: Track, b: Track, preferred?: SourceId): number {
+	const qa = trackQualityRank(a);
+	const qb = trackQualityRank(b);
+	if (qa !== qb) return qb - qa;
+	// quality tie → a user-preferred source wins, else the static source ranking
+	if (preferred) {
+		if (a.source === preferred && b.source !== preferred) return -1;
+		if (b.source === preferred && a.source !== preferred) return 1;
+	}
+	// quick-261102-sqn (DECISIONS.md §5): the source tie-break is PLAYBACK_ORDER — the old local
+	// SOURCE_RANK (qq > joox > kuwo > kugou) contradicted the fallback ladder.
+	return playbackRank(b.source) - playbackRank(a.source);
+}
+
+function better(a: Track, b: Track, preferred?: SourceId): Track {
+	return comparePreference(a, b, preferred) <= 0 ? a : b;
+}
+
+/**
+ * quick-261102-sy0 (DECISIONS.md §3/§4): the pool in preference order WITHOUT collapsing — a
+ * stable sort by the same rule dedupeBest picks group winners with. For rankers that must see a
+ * clean cut and its variants side by side (dedupeBest's bracket-dropping key would merge
+ * 偏偏喜歡你 into its 320K ringtone before any official/variant partition ran).
+ */
+export function preferenceOrder(tracks: Track[], preferred?: SourceId): Track[] {
+	return [...tracks].sort((a, b) => comparePreference(a, b, preferred));
+}
+
+/**
+ * Group same-song-different-source variants WITHOUT collapsing them — the inverse view of
+ * `dedupeBest`, used by the version picker (Phase 26-04, VERSIONS-01) to retain the pre-dedupe
+ * cross-source variants the UI otherwise discards. Reuses the EXACT `key()` normalization
+ * dedupeBest applies (one source of truth for identity), preserves first-appearance order within
+ * each group, and mirrors the blank-key guard: an untitled stub keys by its own `uid` so two
+ * blank stubs never merge into one group. Pure / never-throw / node-testable.
+ *
+ * For any deduped winner, `groupVariants(tracks).get(<winner key>)` contains that winner PLUS its
+ * same-song cross-source siblings, so the picker can list every source variant of one displayed row.
+ */
+export function groupVariants(tracks: Track[]): Map<string, Track[]> {
+	const groups = new Map<string, Track[]>();
+	for (const t of tracks) {
+		const k = key(t);
+		// untitled — key by uid so distinct blank stubs stay in their own group (mirrors dedupeBest).
+		const gk = !k || k === '|' ? t.uid : k;
+		const existing = groups.get(gk);
+		if (existing) existing.push(t);
+		else groups.set(gk, [t]);
+	}
+	return groups;
+}
+
+/**
+ * A normalized version-tag enum (Phase 26-08, Gap 5). Parsed from a title's parenthetical
+ * marker so the version picker can show a DISTINGUISHING label instead of N identical rows.
+ */
+export type VersionTag = 'live' | 'acoustic' | 'demo' | 'cover' | 'remix' | 'instrumental' | 'remaster';
+
+// EN + CN marker → enum. Ordered array (first match wins); every pattern is case-insensitive.
+// Reuses the same intent as key()'s bracket-marker stripping, but here we KEEP the marker as a
+// label rather than dropping it. `inst` is a common shorthand for instrumental in CN releases.
+const TAG_PATTERNS: ReadonlyArray<readonly [VersionTag, RegExp]> = [
+	['live', /live|现场|現場|演唱会|演唱會/i],
+	['acoustic', /acoustic|不插电|不插電/i],
+	['demo', /demo/i],
+	['cover', /cover|翻唱/i],
+	['remix', /remix|混音/i],
+	['instrumental', /instrumental|\binst\b|纯音乐|純音樂|伴奏|karaoke/i],
+	['remaster', /remaster(ed)?|重制|重製|重录|重錄/i]
+];
+
+/**
+ * Parse the FIRST bracketed/parenthetical marker from a title and normalize it to a VersionTag.
+ * Returns `{ key, text }` when a non-empty marker is present (`text` = the raw matched marker,
+ * a faithful fallback when `key` is null), or `null` when the title has no marker. A marker that
+ * matches no known pattern (e.g. "(Radio Edit)") yields `{ key: null, text: "Radio Edit" }`.
+ * Uses the SAME bracket family key() strips (`（(【[ … )）]】`). Pure / never-throw.
+ */
+export function variantTag(title: string): { key: VersionTag | null; text: string } | null {
+	const m = (title || '').match(/[（(【\[](.*?)[)）\]】]/);
+	const text = (m?.[1] ?? '').trim();
+	if (!text) return null; // no marker (or an empty "()") → no distinguishing tag
+	for (const [tag, re] of TAG_PATTERNS) {
+		if (re.test(text)) return { key: tag, text };
+	}
+	return { key: null, text }; // an unrecognized marker — surface its raw text verbatim
+}
+
+/** Normalize an album for bucketing: lowercase, strip all punctuation/space (blank → ''). */
+function normAlbum(album: string | null | undefined): string {
+	return (album || '')
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, '')
+		.trim();
+}
+
+/**
+ * Collapse truly-indistinguishable variants WITHIN a source (Phase 26-08, Gap 5). Buckets by
+ * `source | normalized-album | version-tag` and keeps the BEST-quality member per bucket (reuses
+ * the private better()), in first-appearance order. Because the bucket key includes `source`,
+ * cross-source variants ALWAYS land in different buckets — they are a real choice and are NEVER
+ * collapsed. This is applied at RENDER time inside VersionPicker so every picker mount is fixed
+ * with NO edit to the search page and NO change to groupVariants' uid→group contract.
+ * Pure / never-throw / order-preserving.
+ */
+export function collapseVariants(tracks: Track[]): Track[] {
+	const order: string[] = [];
+	const winner = new Map<string, Track>();
+	for (const t of tracks) {
+		const tag = variantTag(t.title);
+		// tag component: the normalized enum key, else the raw marker text, else '' (no marker).
+		const tagPart = (tag?.key ?? tag?.text ?? '').toLowerCase();
+		const bucket = `${t.source}|${normAlbum(t.album)}|${tagPart}`;
+		if (!winner.has(bucket)) {
+			order.push(bucket);
+			winner.set(bucket, t);
+		} else {
+			winner.set(bucket, better(winner.get(bucket)!, t));
+		}
+	}
+	return order.map((k) => winner.get(k)!).filter(Boolean);
+}
+
+/**
+ * quick-261031-dedup (Hector 2026-10-31: "every shelf should be dedup"): the RENDITION key of a
+ * title — the part that makes two same-song rows DIFFERENT recordings rather than duplicates.
+ * `variantTag` covers bracketed markers ("(Live)", "【Remix】"); this adds the common
+ * " - Live / - Remix" tail form variantTag cannot see. '' = the plain (studio) rendition.
+ * Deliberately narrow: only a trailing qualifier word counts, so "Live While We're Young"
+ * (a title that merely STARTS with the word) stays the plain rendition of itself.
+ */
+function versionKey(title: string): string {
+	const tag = variantTag(title);
+	if (tag) return (tag.key ?? tag.text).toLowerCase();
+	const m = (title || '').match(
+		/[-–—]\s*(live|remix|acoustic|demo|instrumental|inst|remaster(?:ed)?|cover|karaoke)\b/i
+	);
+	return m ? m[1].toLowerCase() : '';
+}
+
+/** The minimal shape shelf dedupe reads — satisfied by both Track and HistoryEntry. */
+export interface ShelfItem {
+	uid: string;
+	artist: string;
+	title: string;
+	source: SourceId;
+	quality?: string | null;
+	qualityLabel?: string | null;
+}
+
+/**
+ * quick-261031-dedup: "the same song on a shelf" — sameSongKey (script-folded, artist-alias
+ * aware) AND the same rendition (versionKey). dedupeBest's key() alone strips "(Live)" /
+ * "- Remix" markers, which is right for search/queue collapse but WRONG for a user's own
+ * lists: a downloaded Live cut and the studio cut are two recordings the user chose on
+ * purpose (the downloadUidFor / versionedMatchKey distinction, quick-261008-dl1), and a
+ * shelf dedupe must never merge them. Two DEVICE entries are the same only by uid — a
+ * device file is the user's own file and no catalog row may stand in for it (34-D-01).
+ */
+export function isSameShelfSong(a: ShelfItem, b: ShelfItem): boolean {
+	if (a.uid === b.uid) return true;
+	if (isDeviceUid(a.uid) || isDeviceUid(b.uid)) return false;
+	return (
+		sameSongKey(a as unknown as Track, b as unknown as Track) &&
+		versionKey(a.title) === versionKey(b.title)
+	);
+}
+
+/**
+ * quick-261031-dedup: collapse a user-owned shelf list (library liked / downloads /
+ * playlists, history, home shelves) to one row per song+rendition, keeping the
+ * best-quality copy (the private better() — same pick dedupeBest makes) at the FIRST
+ * occurrence's position, so a most-recent-first list stays most-recent-first. Pairs are
+ * only compared inside a titleKey bucket, so a whole shelf costs one key per row plus
+ * tiny in-bucket scans. Device entries pass through untouched except exact-uid repeats.
+ * Pure / never-throw / order-preserving.
+ */
+export function dedupeShelfList<T extends ShelfItem>(tracks: T[], preferred?: SourceId): T[] {
+	const out: T[] = [];
+	const buckets: string[] = []; // titleKey per out row ('' for device rows — never bucket-matched)
+	for (const t of tracks) {
+		if (isDeviceUid(t.uid)) {
+			if (!out.some((k) => k.uid === t.uid)) {
+				out.push(t);
+				buckets.push('');
+			}
+			continue;
+		}
+		const tk = titleKey(t.title);
+		let hit = -1;
+		for (let i = 0; i < out.length; i++) {
+			if (buckets[i] !== tk || isDeviceUid(out[i].uid)) continue;
+			if (isSameShelfSong(out[i], t)) {
+				hit = i;
+				break;
+			}
+		}
+		if (hit < 0) {
+			out.push(t);
+			buckets.push(tk);
+		} else if (better(out[hit] as unknown as Track, t as unknown as Track, preferred) === (t as unknown as Track)) {
+			out[hit] = t;
+		}
+	}
+	return out;
+}
+
+/**
+ * quick-261006-aex — rank an artist page's hit songs by ARTIST-NAME EXACTNESS against the
+ * page's artist. searchAll(artistName) returns relevance-ranked cross-source hits, so a fuzzy
+ * upstream can outrank the artist's own songs ("Hara Kiri" on Kiri T's page, or a same-title
+ * song by a stranger entirely). Tiers, STABLE (original relevance order kept within a tier):
+ *   0 — the track's artist IS the page artist: SCRIPT-EXACT (case/punct-insensitive, feat.
+ *       tails dropped, NO Traditional→Simplified folding), or it carries a DISTINCTIVE alias
+ *       whole-run — a known name variant whose folded form differs from the page name's.
+ *   1 — collaboration / folded alias: the old tier 0+1 (script-folded equality, or the page
+ *       artist's script runs all present in the track's — "MC 張天賦/Kiri T", "G.E.M. 邓紫棋"
+ *       for page "G.E.M."). Runs compare WHOLE (the aliasArtist idiom), so "Hara Kiri" does
+ *       NOT tier-1 for "Kiri T".
+ *   2 — everything else. Kept, not removed — the page is still a search approximation, and a
+ *       demoted row beats a missing one when the catalog is thin.
+ * A blank page artist (or blank track artist) can prove nothing → tier 2.
+ *
+ * quick-261010-exact — WHY tier 0 is script-exact and alias-aware: script-folding made 姜濤
+ * (Keung To) and 姜涛 (a mainland folk singer of the same folded name) the SAME string, so the
+ * mainland singer's ytmusic/fivesing songs sat in tier 0, interleaved with — and outranking —
+ * Keung To's own "Keung To 姜涛" credits (folded-equal but longer, so tier 1). `aliases` is the
+ * page's MusicBrainz name variants; only DISTINCTIVE ones (folded form ≠ the page name's folded
+ * form — "Keung To", not the script twin 姜涛) can promote a track on their own, because the
+ * script twin names a different person here and no string test can tell them apart.
+ */
+export function rankByArtistExactness(tracks: Track[], artist: string, aliases: string[] = []): Track[] {
+	// Per-run normalization: script-fold (Traditional → Simplified per char) + lowercase, then
+	// strip punctuation/space WITHIN each run. Runs are split first so "kiri t" stays two tokens
+	// for the subset test instead of collapsing to one ("kirit" would never subset-match).
+	const runsOf = (s: string): string[] =>
+		(foldScript(s || '').toLowerCase().match(SCRIPT_RUNS) ?? [])
+			.map((r) => r.replace(/[^\p{L}\p{N}]+/gu, ''))
+			.filter(Boolean);
+	// Script-EXACT runs: identical normalization WITHOUT the Traditional→Simplified fold, so
+	// 姜濤 and 姜涛 stay different people for tier 0. No t2s dependency either.
+	const exactRunsOf = (s: string): string[] =>
+		((s || '').toLowerCase().match(SCRIPT_RUNS) ?? [])
+			.map((r) => r.replace(/[^\p{L}\p{N}]+/gu, ''))
+			.filter(Boolean);
+	// "X feat. Y" / "X (feat. Y)" names the same act as X for ranking purposes.
+	const dropFeat = (s: string): string =>
+		s.replace(/\s*\(?\b(?:feat|ft)\.?\b[^)]*\)?\s*$/i, '').trim();
+	const want = runsOf(dropFeat(artist));
+	const wantExact = exactRunsOf(dropFeat(artist));
+	const wantFoldedKey = want.join(' ');
+	// Distinctive aliases: known variants that are NOT just the page name in another script.
+	// The folded-equality test excludes the script twin (姜涛 for page 姜濤) — it cannot
+	// distinguish the two people, so it must not promote on its own.
+	const distinctive = (aliases ?? [])
+		.map((a) => ({ exact: exactRunsOf(dropFeat(a)), foldedKey: runsOf(dropFeat(a)).join(' ') }))
+		.filter((a) => a.exact.length > 0 && a.foldedKey !== wantFoldedKey)
+		.map((a) => a.exact);
+	const tier = (t: Track): number => {
+		const runs = runsOf(dropFeat(t.artist));
+		if (!want.length || !runs.length) return 2;
+		const runsExact = exactRunsOf(dropFeat(t.artist));
+		// Tier 0 — script-exact, or carries a distinctive alias whole-run ("Keung To 姜涛",
+		// the "李幸倪/Keung To 姜涛" duet). Whole runs, so "Hara Kiri" still can't tier-0.
+		if (
+			(wantExact.length > 0 &&
+				runsExact.length === wantExact.length &&
+				runsExact.every((r, i) => r === wantExact[i])) ||
+			distinctive.some((d) => d.every((r) => runsExact.includes(r)))
+		)
+			return 0;
+		// Tier 1 — folded equality or whole-run subset (collabs / folded aliases), as before.
+		if (runs.length === want.length && runs.every((r, i) => r === want[i])) return 1;
+		const [small, big] = want.length <= runs.length ? [want, runs] : [runs, want];
+		if (small.every((r) => big.includes(r))) return 1;
+		return 2;
+	};
+	return tracks
+		.map((t, i) => ({ t, i, tier: tier(t) }))
+		.sort((a, b) => a.tier - b.tier || a.i - b.i)
+		.map((x) => x.t);
+}
+
+/**
+ * Collapse same-song-different-source duplicates, keeping the best-quality variant.
+ * Order is preserved by first appearance. A blank key (no title) is never merged.
+ * `preferred` (optional) wins quality ties — used for the "default source" setting.
+ */
+export function dedupeBest(tracks: Track[], preferred?: SourceId): Track[] {
+	const order: string[] = [];
+	// quick-261021-cov2 (user): track all variants per key for best-cover picking.
+	// JOOX/Migu have the most accurate covers; prefer theirs during search so the
+	// list shows the right cover on first load (not just after Now Playing self-heal).
+	const variants = new Map<string, Track[]>();
+	const untitled = new Map<string, Track>();
+	for (const t of tracks) {
+		const k = key(t);
+		if (!k || k === '|') {
+			// untitled — keep as-is, unique by uid
+			order.push(t.uid);
+			untitled.set(t.uid, t);
+			continue;
+		}
+		if (!variants.has(k)) {
+			order.push(k);
+			variants.set(k, [t]);
+		} else variants.get(k)!.push(t);
+	}
+	const winner = new Map<string, Track>(untitled);
+	for (const [k, vars] of variants) {
+		// quick-261102-t7i (DECISIONS.md §4): the group head is the RANKED head — a clean,
+		// plausible-length cut before any variant or clip (candidateTier against the plain title,
+		// the group's own median as the expected length), THEN quality/preference. The key drops
+		// brackets, so 偏偏喜歡你 and its 320K 偏偏喜歡你（鈴聲） share a group; picking by quality
+		// first is how the 48-second ringtone once represented the song.
+		const best = Math.min(...vars.map((t) => candidateTier(t, '', vars)));
+		winner.set(
+			k,
+			vars.filter((t) => candidateTier(t, '', vars) === best).reduce((w, t) => better(w, t, preferred))
+		);
+	}
+	// Pick best cover from variants (JOOX > Migu > others).
+	// quick-261021-cov2: even if winner HAS a cover, prefer JOOX/Migu's — they are
+	// the most accurate. This fixes wrong covers on first load.
+	for (const k of order) {
+		const w = winner.get(k);
+		if (!w) continue;
+		const vars = variants.get(k) || [];
+		// If winner is already from a preferred source, keep its cover.
+		const wRank = COVER_ORDER.indexOf(w.source);
+		for (const src of COVER_ORDER) {
+			if (wRank !== -1 && COVER_ORDER.indexOf(src) >= wRank) break;
+			const v = vars.find((t) => t.source === src && t.cover);
+			if (v && v.cover !== w.cover) {
+				winner.set(k, { ...w, cover: v.cover });
+				break;
+			}
+		}
+	}
+	return order.map((k) => winner.get(k)!).filter(Boolean);
+}

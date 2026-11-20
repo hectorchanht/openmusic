@@ -1,0 +1,229 @@
+<script lang="ts">
+	import "../app.css";
+	import { onMount, untrack } from "svelte";
+	import { browser } from "$app/environment";
+	import { goto } from "$app/navigation";
+	import { page } from "$app/state";
+	import { Capacitor } from "@capacitor/core";
+	import { player } from "$lib/stores/player.svelte";
+	import { names } from "$lib/stores/names.svelte";
+	import { deepLinkPath } from "$lib/services/share-arrival";
+	import { isResumeUrl } from "$lib/services/native-resume";
+	import { flushLyricOffsetVote } from "$lib/stores/lyric-offset.svelte";
+	// quick-261023-syncmerge-review: the first-sync review modal — mounted ONCE here (root,
+	// ungated) so it opens wherever sign-in completes (/auth/magic, settings, APK handoff).
+	import SyncReviewModal from "$lib/components/SyncReviewModal.svelte";
+
+	let { children } = $props();
+	let audioEl: HTMLAudioElement;
+	// debug apk-cold-media-play: the boot restore() promise, so a cold "play" from outside the app
+	// (openmusic://play/resume) can wait for the last track to be seated before resuming it.
+	let restoring: Promise<void> = Promise.resolve();
+
+	const SITE = "https://openmusic.lol";
+	const TITLE = "openmusic — music streaming for earth";
+	const DESC =
+		"Search and stream music for world. Synced lyrics, translation, playlists, library — a fast mobile-first web player.";
+	const canonical = $derived(`${SITE}${page.url.pathname}`);
+
+	// The single app-wide <audio> lives at the ROOT layout so it is mounted ONCE
+	// and never torn down by client-side navigation between routes/route-groups —
+	// playback persists across page changes. The visible now-playing bar + overlay
+	// live in (app)/+layout and read the same singleton.
+	$effect(() => {
+		if (audioEl) {
+			// ROOT CAUSE FIX (debug-song-click-lrc-flood-noplay): attach()/restore() WRITE player $state
+			// (queue, current, resolvedCover, loading — resolvedCover + syncMetadata were added to
+			// restore() in 26e413a). Running them tracked meant this effect READ that state and then
+			// MUTATED it → the effect SELF-INVALIDATED and re-ran restore() over and over → repeated
+			// audio.src re-set (the (canceled) media flood) + repeated lrc re-fetch + loading pinned true
+			// (nowbar stuck on the loading line, never expands). Those "updated at … set queue/current …
+			// restore … $effect" Svelte warnings were exactly this loop. untrack() runs the ONE-TIME
+			// setup WITHOUT tracking, so the effect fires once per <audio> mount (its only real dep,
+			// audioEl, is read OUTSIDE untrack) and never re-runs when player state changes.
+			untrack(() => {
+				player.attach(audioEl);
+				// Restore the last played track + queue + progress + shuffle/repeat from localStorage so a
+				// reload resumes mid-session. Doesn't autoplay (browser policy); user taps play. Fire-and-forget.
+				restoring = player.restore();
+				// quick-260926-wdv: a song that ENDS is the end of its listen even when the uid does not
+				// change (repeat-one, the last track of the queue) — send its lyric-offset vote now.
+				audioEl.addEventListener("ended", () => void flushLyricOffsetVote());
+			});
+		}
+	});
+
+	// quick-260926-wdv: ONE lyric-offset vote per listen. Nudging / sliding only MARKS the listen
+	// (scheduleLyricOffsetVote); the vote is sent here when the current track changes, so it fires
+	// whether or not Now Playing is open. Reads ONLY player.current?.uid; the flush (a fetch, no
+	// $state writes) and the plain `voteUid` field run untracked, so this cannot self-invalidate
+	// (cf. the attach()/restore() effect above). Same-uid replacements (lrc enrichment) are no-ops.
+	let voteUid: string | undefined;
+	$effect(() => {
+		const uid = player.current?.uid;
+		untrack(() => {
+			if (voteUid !== undefined && uid !== voteUid) void flushLyricOffsetVote();
+			voteUid = uid;
+		});
+	});
+
+	// quick-260723-spk: Spotify / YouTube-Music-style browser-tab title. While a track is current, the
+	// tab reads "Song • Artist" using the TRANSLATED display names (names.dnTitle/dnArtist) so it
+	// matches the on-screen text + honors the zhs→zht setting (• matches the share-card style). It
+	// takes priority over each route's own <svelte:head><title>: reading page.url.pathname re-asserts
+	// the title after a client navigation overwrites document.title, and dnTitle/dnArtist read
+	// names.rev so it also re-runs when a lazy translation resolves. When nothing is current, the
+	// route/app <title> stands. This effect WRITES a DOM property (document.title), never $state, so —
+	// unlike the attach()/restore() effect above — it cannot self-invalidate (no untrack needed).
+	// $effect never runs under SSR, so crawlers still get each route's SSR <title>; browser-guarded too.
+	//
+	// quick-260926-hze: when nothing is current, the route <title> (PageOg's og.title) is built from
+	// the route name AS NAVIGATED, so a typed / received link in the other script (/artist/周杰伦
+	// under zh-Hant) left the tab reading 周杰伦 while the address bar and the page said 周杰倫. The
+	// lock is applied HERE rather than in PageOg because PageOg also renders on the SSR share-landing
+	// routes that must never import a store (album/[artist]/[name] Pitfall 4). zhLock reads names.rev,
+	// so a cold dict repaints the tab once it lands; 'off' / non-Chinese titles are left untouched.
+	$effect(() => {
+		const cur = player.current;
+		void page.url.pathname; // re-apply after a route <title> overwrites document.title on nav
+		if (!browser) return;
+		if (!cur) {
+			const ogTitle = page.data?.og?.title;
+			if (typeof ogTitle === 'string' && ogTitle) {
+				const locked = names.zhLock(ogTitle);
+				if (locked !== ogTitle) document.title = locked;
+			}
+			return;
+		}
+		const title = names.dnTitle(cur.title, cur.artist);
+		const artist = names.dnArtist(cur.artist);
+		document.title = artist ? `${title} • ${artist}` : title;
+	});
+
+	// 38-D-25: an intercepted Android App Link becomes a NORMAL in-app navigation, so the web and
+	// the APK share ONE arrival path — goto() lands on the same /song route with the same carrier,
+	// and the landing page's arrival logic is the only thing that decides arm-vs-play.
+	//
+	// TWO SEAMS, NOT ONE. `appUrlOpen` is emitted ONLY from AppPlugin.handleOnNewIntent — i.e. the
+	// activity was ALREADY RUNNING (launchMode=singleTask routes a re-tap there). On a COLD start
+	// Capacitor's Bridge captures intent.getData() into a private `intentUri` and then loads
+	// index.html; it NEVER navigates to it, so the event does not fire and the deep link is
+	// silently lost unless getLaunchUrl() is read. Wiring only the listener would ship a link that
+	// works with the app open and lands on the home screen when it is not — the commoner case.
+	// (Verified against @capacitor/app@8.1.0 AppPlugin.java + @capacitor/android@8.4.0 Bridge.java:228.)
+	//
+	// onMount, NOT $effect: goto() → the /song route → arrival WRITES player $state, which inside a
+	// tracked effect is the restore-effect self-invalidation loop the untrack() block above exists
+	// to fix. onMount also runs after the client router has hydrated, so goto() is safe by then.
+	//
+	// IDEMPOTENCY: getLaunchUrl() returns the same intentUri for the whole activity lifetime — it is
+	// never cleared — so a re-mount (HMR in dev) re-fires the deep link. D-03's no-op guard in the
+	// arrival path (already current uid → return) absorbs that.
+	onMount(() => {
+		if (!Capacitor.isNativePlatform()) return; // web build: no-op, behaviour byte-identical
+		let off: (() => void) | undefined;
+		void (async () => {
+			const { App } = await import("@capacitor/app"); // dynamic — keeps it out of the web chunk
+			const { auth } = await import("$lib/stores/auth.svelte"); // same — the auth store
+			const { parseAuthCallbackUrl } = await import("$lib/auth/auth-core");
+			// quick-261020-deeplink: the AUTH CALLBACK goes FIRST. openmusic://auth/callback
+			// carries a session bearer (a credential, not a navigation), so it must never fall
+			// through to deepLinkPath (which would ignore it — wrong scheme) or to goto.
+			// parseAuthCallbackUrl re-validates the payload (T-38-02 twin: the manifest's
+			// filter is the OS's gate, not ours); adoptNativeToken is idempotent, so a
+			// duplicate delivery just re-probes. On success the user lands signed-in on
+			// Settings → Account, mirroring the web verify page's goto.
+			// debug apk-cold-media-play: Samsung routine / headset play key with the app closed opens
+			// it on openmusic://play/resume (ColdMediaLaunch.kt) — resume the restored last track.
+			// toggle() routes a seated-but-unarmed track through play() (resolve + fallback).
+			// COLD launch only: once sound actually starts, minimize back to where the user was
+			// (YouTube Music never shows its UI for a routine). If it never plays, the app stays up
+			// so the failure is visible. A warm resume leaves the window alone — the user may be on it.
+			async function handleResume(raw: string | null | undefined, cold: boolean): Promise<boolean> {
+				if (!isResumeUrl(raw)) return false;
+				await restoring.catch(() => {});
+				if (cold) audioEl.addEventListener("playing", () => void App.minimizeApp(), { once: true });
+				if (!player.playing) player.toggle();
+				return true;
+			}
+			async function handleAuthCallback(raw: string | null | undefined): Promise<boolean> {
+				const token = parseAuthCallbackUrl(raw);
+				if (!token) return false;
+				if (await auth.adoptNativeToken(token)) await goto("/settings/account");
+				return true;
+			}
+			// COLD: the launch intent's URL, the only place a cold deep link is visible.
+			const launch = await App.getLaunchUrl();
+			if (await handleResume(launch?.url, true)) {
+				/* play command, not a navigation */
+			} else if (!(await handleAuthCallback(launch?.url))) {
+				const p = deepLinkPath(launch?.url);
+				if (p) void goto(p);
+			}
+			// WARM: singleTask routes a re-tap while the activity is alive to onNewIntent, which is
+			// what emits this event. Same deepLinkPath gate as the cold path — T-38-02: a hostile app
+			// can send ANY VIEW URL, and the manifest's host filter is the OS's gate, not ours.
+			const h = await App.addListener("appUrlOpen", (e) => {
+				void (async () => {
+					if (await handleResume(e.url, false)) return;
+					if (await handleAuthCallback(e.url)) return;
+					const p = deepLinkPath(e.url);
+					if (p) void goto(p);
+				})();
+			});
+			// The disposer only matters for a real teardown (HMR in dev), but a leaked duplicate
+			// listener would double-fire goto on every warm link. D-03's no-op guard would absorb it;
+			// do not lean on that when releasing the handle costs one line.
+			off = () => void h.remove();
+		})();
+		return () => off?.();
+	});
+
+	// quick-261010-posthog: PostHog product analytics init — browser-only
+	// (dynamic import; the SSR/prerender bundle never executes the SDK), then
+	// the once-per-browser app_first_open. Separate onMount from the deep-link
+	// one above so analytics never interferes with arrival routing.
+	onMount(() => {
+		void (async () => {
+			const { initPosthog, trackFirstOpen } = await import('$lib/posthog');
+			await initPosthog();
+			trackFirstOpen();
+		})();
+	});
+</script>
+
+<svelte:head>
+	<link rel="canonical" href={canonical} />
+	<!-- Open Graph -->
+	<meta property="og:site_name" content="openmusic" />
+	<!-- GLN-4: when the active page supplies its OWN og (page.data.og from a +page.ts load — shared
+	     song / artist / album), render only the page's og:*/twitter:* so crawlers see exactly one of
+	     each property with the page-specific value (PageOg.svelte sets og:type=music.song). The static
+	     site-default block below is the FALLBACK for routes without per-page OG. og:site_name stays
+	     site-wide; og:type is gated below so OG pages don't emit a duplicate. -->
+	{#if !page.data?.og}
+		<title>{TITLE}</title>
+		<meta name="description" content={DESC} />
+		<meta property="og:type" content="website" />
+		<meta property="og:title" content={TITLE} />
+		<meta property="og:description" content={DESC} />
+		<meta property="og:url" content={canonical} />
+		<!-- quick-260807-vl1: the RASTER, not og.svg — no major platform renders an SVG og:image
+		     (30-RESEARCH §C.11/§D.15). static/og.svg is kept as the raster's source artwork. -->
+		<meta property="og:image" content="{SITE}/og.jpg" />
+		<meta property="og:image:width" content="1200" />
+		<meta property="og:image:height" content="630" />
+		<!-- Twitter -->
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content={TITLE} />
+		<meta name="twitter:description" content={DESC} />
+		<meta name="twitter:image" content="{SITE}/og.jpg" />
+	{/if}
+</svelte:head>
+
+{@render children()}
+
+<audio bind:this={audioEl} style="display:none"></audio>
+
+<!-- quick-261023-syncmerge-review: first-sync review modal, mounted once, ungated. -->
+<SyncReviewModal />

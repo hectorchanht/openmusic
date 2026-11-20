@@ -1,0 +1,125 @@
+// Audius client adapter (quick-260616-0zn — net-new Western/indie/electronic + UGC catalog).
+//
+// Zero overlap with the CN sources or Jamendo. Fully public — `app_name` (appended by the
+// proxy) is a free-text identifier, NOT a key. Search returns a flat best-match list with no
+// reliable pagination, so page>1 is treated as "no more" (research note A3).
+//
+// Audius does NOT return the file URL in search JSON; the stream URL is DETERMINISTIC from the
+// track id, so resolve() has NO JSON hop — it just stamps the own-origin
+// /api/audius/stream/{id} path (the proxy follows the 302 to the signed GCS mp3 and streams
+// the body). Using the apiUrl seam keeps <audio>.src own-origin (Capacitor/CORS-safe), exactly
+// like the Netease <audio>.src note in api-base.ts.
+
+import type { SourceAdapter, Track } from './types';
+import { makeUid } from './types';
+import { inferQualityFromUrl } from '../services/lrc';
+import { apiFetch, apiUrl } from '../services/api-base';
+import { audiusHealth } from '../services/audius-health';
+import { fetchDirectStreamUrl } from '../services/stream-url';
+
+// Upstream `data[]` row shape — only the fields we read; all optional (untrusted JSON).
+interface AudiusRow {
+	id?: string;
+	title?: string;
+	user?: { name?: string };
+	artwork?: Record<string, string> | null;
+	duration?: number;
+	is_streamable?: boolean;
+}
+interface AudiusResponse {
+	data?: AudiusRow[];
+}
+
+export const audius: SourceAdapter = {
+	id: 'audius',
+	health: audiusHealth,
+	label: 'Audius',
+	// Verified-working, zero-overlap net-new supply — enabled in the default resolver
+	// (parallel Promise.allSettled fan-out means an extra source can't break existing ones).
+	// quick-261116-srchrank: OFF by default — UGC/indie noise flooded mainstream search
+	// (Hector 2026-11-16); opt back in via Settings → Playback → Sources.
+	enabledByDefault: false,
+
+	async search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]> {
+		// Endpoint does not paginate (research A3) — page>1 is a no-op (no upstream call,
+		// and NO health record: nothing was asked of the upstream).
+		if ((page || 1) > 1) return [];
+
+		// HEALTH-GATE short-circuit (audius-health, universal-gate rollout 2026-11-01):
+		// after a run of HARD failures, skip the wasted call for a bounded window; the
+		// gate then auto-opens for one probe whose outcome re-decides. Never-throw here.
+		// Empty results are NEVER counted (see audius-health.ts — empty is the normal
+		// answer for this catalogue on CN queries, not an outage shape).
+		if (audiusHealth.isGated()) return [];
+
+		const path = '/api/audius/search?query=' + encodeURIComponent(keyword);
+		// Fetch + parse in ONE try (the kuwoJson lesson) so every failure shape counts;
+		// a caller abort is a supersede, not an outage — rethrown uncounted.
+		let json: AudiusResponse | null;
+		try {
+			const res = await apiFetch(path, { signal });
+			json = (await res.json()) as AudiusResponse | null;
+		} catch (err) {
+			if (!signal.aborted) audiusHealth.recordFail();
+			throw err;
+		}
+
+		// Contract-drift guard: success envelope is `{ data: [] }`. Anything else → throw so
+		// the fan-out records a typed per-source error (mirrors jamendo's headers.code guard).
+		if (!json || !Array.isArray(json.data)) {
+			audiusHealth.recordFail();
+			throw new Error('audius: contract-drift (expected {data:[]})');
+		}
+		// A well-formed body is a live upstream — instant recovery (empty included).
+		audiusHealth.recordOk();
+
+		const tracks: Track[] = [];
+		json.data.forEach((it, idx) => {
+			if (!it.id || it.is_streamable === false) return; // unplayable / missing id — skip
+			const songid = String(it.id);
+			const track: Track = {
+				uid: makeUid('audius', songid),
+				source: 'audius',
+				songid,
+				title: it.title || '',
+				artist: it.user?.name || '',
+				album: '', // no album in the track row
+				cover: it.artwork?.['480x480'] ?? it.artwork?.['150x150'] ?? null,
+				audioUrl: null, // resolved deterministically in resolve()
+				lrc: null,
+				lrcUrl: null,
+				detailsLoaded: false,
+				quality: null,
+				qualityLabel: null,
+				keyword,
+				displayIndex: idx + 1
+			};
+			if (typeof it.duration === 'number') track.duration = it.duration;
+			tracks.push(track);
+		});
+		return tracks;
+	},
+
+	async resolve(track: Track, signal: AbortSignal): Promise<Track> {
+		if (!track.songid) throw new Error('audius: missing songid on resolve');
+		// The proxy path is deterministic — (re)build it whenever missing. It doubles as
+		// the direct-first FALLBACK the player's proxy step drives when the CDN URL fails.
+		// Own-origin proxy path; apiUrl prefixes VITE_API_BASE on native, returns it unchanged on web.
+		const proxy = track.proxyUrl ?? apiUrl('/api/audius/stream/' + encodeURIComponent(track.songid));
+		track.proxyUrl = proxy;
+		// Direct-first UPGRADE: the stream URL is deterministic from the id, but the FINAL
+		// CDN URL needs the edge to follow the 302 (one JSON hop via /api/stream-url — the
+		// edge returns the signed GCS URL, never pipes bytes). Upgrade whenever audioUrl is
+		// missing or still on the proxy path; reuse a direct URL already in hand. Any failure
+		// keeps the proxy path: the listener never sees the difference.
+		if (!track.audioUrl || track.audioUrl === proxy) {
+			track.audioUrl = (await fetchDirectStreamUrl('audius', track.songid, signal)) ?? proxy;
+		}
+		// No file extension → inferQualityFromUrl falls back to its default tag (acceptable).
+		const q = inferQualityFromUrl(track.audioUrl);
+		track.quality = q.tag;
+		track.qualityLabel = q.label;
+		track.detailsLoaded = true;
+		return track;
+	}
+};

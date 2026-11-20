@@ -1,0 +1,7272 @@
+// App-scoped playback store (Svelte 5 runes singleton). Basic playback for the
+// demo — the full audio engine (real queue model) is Phase 2/6/7; the W3C Media
+// Session slice was pulled forward here so the OS/browser media UI (Chrome media
+// hub, macOS Now Playing, lock screens) shows the current track + working
+// transport. Audio is browser-direct (a single <audio> whose .src is the resolved
+// CDN URL); metadata was already proxied via the data layer. referrerpolicy=
+// no-referrer reproduces the legacy <meta no-referrer> so referer-gated CDNs don't
+// 403. All Media Session access goes through the single `ms` accessor, which
+// enforces the SSR guard + feature detection (MS-05) — every call early-returns
+// when unsupported. The throw-prone artwork/position/state logic lives in the pure,
+// node-tested media-session.ts; this store is a thin caller of those helpers.
+import { browser } from '$app/environment';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+import { Capacitor } from '@capacitor/core';
+// 37-D-03: lyricByName is the NAME-ONLY lyric walk. ensureTrackDetails returns a `device:` uid
+// untouched (34-D-01), so it is the one lyric path a local file can actually use — and it returns a
+// bare string, so this branch structurally cannot adopt an audioUrl for a device track.
+// quick-260926-l69: evictSearch lets an explicit ✗-row retry drop the song's cached searches.
+import { withDownloadQuality } from '$lib/services/display-quality';
+import { ensureTrackDetails, lyricByName, evictSearch } from '$lib/services/catalog';
+// 37-02: the memoised, never-throws read of an offline blob's OWN embedded LRC + front cover.
+import { localEnrichment } from '$lib/services/local-tags';
+// quick-261008-cov1: downscale an embedded `data:` front cover to a quota-safe copy for the
+// shared cover cache, so a fetched-and-shown cover shows everywhere the song appears.
+import { downscaleCoverImage } from '$lib/services/embed-cover';
+import { combinedSignal } from '$lib/services/abort-signal';
+import { hasFreshAudioUrl, isTrackReady } from '$lib/services/track-ready';
+import { watchAudioRouteLoss } from '$lib/services/audio-route';
+import type { AudioRouteWatcher } from '$lib/services/audio-route';
+import { preconnectForSource, noteAudioOrigin } from '$lib/services/preconnect';
+// NEVER-STOP buffer gate (Hector 2026-11-19): a fresh China-CDN play waits for a
+// real head start before starting — see $lib/services/buffer-gate for the doctrine.
+import {
+	shouldBufferGate,
+	waitForBufferGate,
+	bufferedAheadSec,
+	SLOW_RESUME_TARGET_SEC,
+	SLOW_RESUME_TIMEOUT_MS
+} from '$lib/services/buffer-gate';
+import { tryFallback } from '$lib/services/fallback';
+import { onApiPipelineIdle } from '$lib/services/api-base';
+import { reportDeadUrl } from '$lib/services/resolve-cache-client';
+import { reportDeadDirectUrl } from '$lib/services/direct-url-cache';
+import { reportDeadAudioUrl } from '$lib/services/audio-url-cache';
+import { buildDiversePicks } from '$lib/services/picks';
+import { buildSimilarQueue } from '$lib/services/similar';
+import { buildOfflineQueue } from '$lib/services/downloads-queue';
+// quick-261116-nstop: the Never-Stop Engine's pure decision core (pool ordering, probe
+// budget, source cooldowns) — this store thin-calls it and owns all the I/O.
+import {
+	orderFallbackPool,
+	SourceCooldowns,
+	ProbeBudget,
+	NS_RETRY_PROBE_MS,
+	measureLocalPool,
+	planBufferTopUp,
+	planBufferEvictions,
+	bufferTierFor,
+	estimateTrackSec,
+	NS_POOL_TARGET_SEC,
+	type PoolMeasure
+} from '$lib/services/never-stop';
+import { shouldAdoptDownloaded } from '$lib/services/download-upgrade';
+import { dedupeBest, sameSongKey, matchKey, songKey } from '$lib/services/dedupe';
+import { overPrebufferCeiling } from '$lib/services/prebuffer-ceiling';
+import {
+	buildArtwork,
+	makeMetadata,
+	safePositionState,
+	playbackStateFor
+} from '$lib/services/media-session';
+import {
+	createNativeMediaSession,
+	type PlayerMediaSession
+} from '$lib/services/native-media-session';
+// quick-260915-w4f: getPinnedCover is the USER'S explicit cover choice. It leads every cover seed
+// in this store, and (uniquely) it is removed only by healCover's failed probe — never by a resolver.
+import { getCachedCoverByUid, getCachedCover, getPinnedCover, getCrowdCover } from '$lib/services/cover-cache';
+// Phase 40 D-14 / D-16: the crowd-shared cover pick — keys + the one GET per played song. The player
+// only READS the crowd (D-15: the TrackMenu picker tap is the only voter).
+import { coverPickKeys, fetchCoverPick } from '$lib/services/cover-pick-shared';
+import { resolveCoverForTrack, collectCoverCandidates } from '$lib/services/cover-backfill';
+import { markCoverUrlDead, unmarkCoverUrlDead, isCoverUrlDead } from '$lib/services/dead-cover-urls';
+import { itunesSongCover, DISPLAY_ARTWORK_SIZE } from '$lib/services/itunes-cover';
+
+// quick-261020-itn1: Netease covers via the meting pic proxy (see lazyCover.ts). Shared predicate
+// so the player and lazyCover agree on what "a Netease cover" means.
+const NETEASE_PIC_RE = /api\.qijieya\.cn\/meting\/\?server=netease&type=pic/;
+function isNeteaseCover(url: string | null | undefined): boolean {
+	return !!url && NETEASE_PIC_RE.test(url);
+}
+// quick-260615-hep: feed every displayed now-playing cover into the shared cache (both layers) +
+// bump the global reactive signal so other surfaces (homepage tiles) reuse the art and repaint live.
+// quick-260704-20e: removeCoverBoth evicts a DEAD current cover before healCover re-resolves it.
+// cover-hero-mediacard-missing (Issue 2, media-card fix): readCoverByUidOrName lets syncMetadata build
+// the OS media-card artwork from the SHARED cover cache (uid-first → name), so a cover that landed via
+// another surface after resolveCoverAsync's null+gen-guarded window still reaches the lock screen. No
+// new module edge / no cycle: this store already imports from cover-version.svelte, which imports only
+// the pure cover-cache (never the player).
+import {
+	writeCoverBoth,
+	bumpCoverVersion,
+	removeCoverBoth,
+	readCoverByUidOrName,
+	unpinCover,
+	writeCrowdCover,
+	removeCrowdCover
+} from '$lib/stores/cover-version.svelte';
+// quick-260704-3ov: the pure serialize/parse codec was extracted out of this god-object into
+// a colocated, node-tested module (the "runes store thinly wraps a pure helper" precedent).
+import { readLyrics } from '$lib/stores/lyric-pins.svelte';
+import { getPinnedLyrics } from '$lib/services/lyric-pins';
+import { STATE_KEY, serializePlayerState, parsePlayerState, stampUpdatedAt } from '$lib/stores/player-persist';
+// quick-260910-piz: the same "runes store thinly wraps a pure helper" precedent — the album-scoped
+// cover seeding + attachment build live in a pure, node-tested sibling module.
+import { seedCover, buildAttachment, type AttachedCover } from '$lib/stores/attached-cover';
+
+/** slow-cold-start-first-playing: container tag for the `src.set` log line — `blob` for object URLs,
+ *  else the pathname extension (flac / m4a / mp3 / ogg), `?` when unparseable. Never throws. */
+export function srcExt(url: string): string {
+	if (url.startsWith('blob:')) return 'blob';
+	try {
+		return new URL(url).pathname.split('.').pop()?.toLowerCase() || '?';
+	} catch {
+		return '?';
+	}
+}
+import { resolveStub } from '$lib/services/discovery';
+import { blobStore } from '$lib/services/blob-store';
+// quick-260919-3j1 (F3): the app-wide SERIALIZER in front of retagOne. NEVER retagOne directly —
+// one tag pass peaks at ~6x the file size, and this store's automatic embed can fire while the
+// metadata editor or a track-menu pin is already running one.
+import { syncFileTags } from '$lib/services/file-tag-sync';
+import { isDeviceUid } from '$lib/services/device-track';
+import { settings } from '$lib/stores/settings.svelte';
+import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
+import { isExpired, fadeVolumeAt, canFadeVolume, decideEndedAction } from '$lib/services/sleep-timer';
+import type { QueueContext } from '$lib/config/defaults';
+import { history } from '$lib/stores/history.svelte';
+import { library } from '$lib/stores/library.svelte';
+import { names } from '$lib/stores/names.svelte';
+// quick-260630-sgw: verbose action log. logAction is a tiny never-throw fn (the store imports the
+// player NOT vice-versa — no cycle). Calls below are ADDITIVE diagnostics: side-effect-free w.r.t.
+// playback, NEVER on the timeupdate firehose.
+import { logAction } from '$lib/stores/actionLog.svelte';
+import type { SourceId, Track } from '$lib/sources/types';
+import { loadRetriesFor } from '$lib/sources/registry';
+// ANALYTICS: anonymous play-count ping on first real audio output — fire-and-forget,
+// no PII, no IP stored server-side.
+import { trackPlayStart } from '$lib/analytics';
+// quick-261010-posthog: third-party product analytics (PostHog); complements
+// the D1 ping above. Aliased — `track` alone is too easy to misread.
+import { track as trackPosthog } from '$lib/posthog';
+// Type-only import (WR-03): lets `notice.msg` / `error` be a real TranslationKey so a host can
+// `t(n.msg)` and the token is guaranteed to exist in every dictionary. No runtime UI dependency —
+// the store still emits raw, host-rendered data (D-03); this just type-checks the token keys.
+import type { TranslationKey } from '$lib/i18n';
+import { hasHttpsScheme, isRenderableCover } from '$lib/services/url-safety';
+
+/**
+ * The minimal display shape the now-bar renders the INSTANT a discovery stub is tapped,
+ * before resolveStub finishes (~5-10s). It is NOT a Track (no uid/source/audioUrl) — just
+ * enough to lock the tapped song's identity into the now-bar with a loading indicator.
+ */
+export interface PendingTrack {
+	artist: string;
+	title: string;
+	cover: string | null;
+}
+
+
+/**
+ * Store→UI notice channel (PLAY-08 / D-02, D-04, D-05). The never-stop chain ORIGINATES inside
+ * the player store (runFallback total-failure, the stall watchdog, the offline gate) but stores
+ * never import UI — so it surfaces resilience messages on a reactive `player.notice` field that a
+ * layout-level toast host (16-03) reads one-way, mirroring the existing `player.error → Nowbar`
+ * read. The store carries RAW, i18n-free data (D-03: 16-03 owns the wording):
+ *
+ *  - `kind: 'skip'`    → an auto-skip after a track failed all sources. `count` is how many songs
+ *                        were skipped in the current burst (D-02 batching: N consecutive skips
+ *                        within ~1.5s collapse into one "{count} songs skipped" message). `title`
+ *                        is the last-skipped track's title (the host may show it). Auto-dismissing,
+ *                        no action.
+ *  - `kind: 'stopped'` → a STICKY notice with no auto-dismiss. Either the loop-guard tripped
+ *                        (~5 consecutive failures, `reason: 'loop-guard'`, carries a Retry `action`
+ *                        that skips ahead + re-arms per D-05) OR the player went offline with no
+ *                        downloads to fall back to (`reason: 'offline'`, no action — playback
+ *                        resumes when connectivity + a user gesture return).
+ *
+ * 16-03 maps (kind, reason, count, title) → a localized string via `t()`; the store stays
+ * i18n-free (it emits raw structured data, not localized text). `msg` carries a REAL
+ * TranslationKey (WR-03) so a host preferring a direct lookup can `t(notice.msg)` and the token is
+ * guaranteed to resolve in every dictionary (`toast.skipped`/`toast.skippedMany` for skips,
+ * `toast.playbackStopped` for the loop-guard, `toast.offlineNoDownloads` for the offline pause).
+ */
+export interface PlayerNotice {
+	/** 31-D-14 adds 'corrupt-download': the downloaded blob for the CURRENT track failed to decode,
+	 *  so it was evicted and playback continued over the network. Informational + auto-dismissing
+	 *  (never sticky, never a Retry) — nothing failed from the user's point of view, the song is
+	 *  still playing; it is surfaced only so a silently-vanished download is not a mystery.
+	 *  43-D-08 adds 'version': an auto-picked cross-source substitute whose title/duration notably
+	 *  differ from the request (`Track.versionMismatch`, stamped by walkSource). Informational,
+	 *  auto-dismissing, playback continues. `msg` is the may-not-be-original toast key; `title`/`artist` are
+	 *  the NOW-PLAYING track's, rendered by the host through names.dnTitle.
+	 *  quick-261116-nstop adds 'never-stop': the Never-Stop Engine's two quiet signals — the
+	 *  zero-asset RETRYING state (`msg` = toast.playbackRetrying, no count) and the one-time
+	 *  post-recovery SUMMARY (`msg` = toast.playbackRecovered, `count` = interlude tracks
+	 *  played). Both informational + auto-dismissing: playback never stopped, so never sticky
+	 *  and never a Retry action. */
+	kind: 'skip' | 'stopped' | 'corrupt-download' | 'version' | 'never-stop';
+	/** A REAL TranslationKey the UI may render directly via t() (WR-03) — the structured fields
+	 *  below remain the preferred mapping input for hosts that want richer wording. Previously a
+	 *  free `string` carrying phantom `player.notice.*` tokens that existed in no dictionary. */
+	msg: TranslationKey;
+	/** Why a 'stopped' notice fired — distinguishes the loop-guard from the offline pause and from
+	 *  an up-next that genuinely ran dry (every generator returned nothing, repeatedly). */
+	reason?: 'loop-guard' | 'offline' | 'up-next-dry';
+	/** 'skip' only: number of consecutive skips collapsed into this one message (D-02).
+	 *  'never-stop' summary only: how many local interlude tracks played before recovery. */
+	count?: number;
+	/** 'skip' only: the RAW catalog title + artist of the most recently skipped track. The host
+	 *  renders it through names.dnTitle — the store never converts display text (quick-261102-tlo). */
+	title?: string;
+	artist?: string;
+	/** quick-260926-l69: 'skip' only — why the most recent track was skipped. Deliberately NOT the
+	 *  `reason` field above (that is the 'stopped' discriminator). The host maps it via SKIP_REASON_KEY. */
+	skipReason?: SkipReason;
+	/** 'stopped'/loop-guard only: Retry — skips ahead to the next track, resets the counter,
+	 *  re-arms the never-stop chain (D-05). Absent on the offline-pause notice. */
+	action?: () => void;
+}
+
+/**
+ * quick-260926-l69: why a track was skipped — a closed union so no upstream free text ever crosses
+ * store → UI. Set per uid at every live skip / dead-promotion site; the Up Next row and the skip
+ * toast render it through SKIP_REASON_KEY + t() (the store stays i18n-free, same contract as `msg`).
+ */
+export type SkipReason = 'no-source' | 'timeout' | 'load-error';
+export const SKIP_REASON_KEY: Record<SkipReason, TranslationKey> = {
+	'no-source': 'skip.noSource',
+	timeout: 'skip.timeout',
+	'load-error': 'skip.loadError'
+};
+
+/**
+ * 31-D-12: where the bytes behind the current `audio.src` came from.
+ *  - 'url'            — a network/CDN stream (the pre-existing failure handling applies verbatim)
+ *  - 'download-blob'  — a LIBRARY download read back from blobStore (evictable + re-downloadable)
+ *  - 'prebuffer-blob' — a transient prebufferNext() blob (NOT a download — never touch library state)
+ */
+/**
+ * Provenance of the URL currently attached to <audio> (31-D-12: kind travels WITH the url).
+ * 'url' = own-origin/proxied network URL (the pre-direct-first meaning, kept); 'direct-url' =
+ * direct-first CDN URL (the primary path that never touches our bytes) — the audio.error
+ * handler routes a 'direct-url' failure to the track's proxyUrl BEFORE cross-source fallback.
+ */
+type SrcKind = 'url' | 'direct-url' | 'download-blob' | 'prebuffer-blob';
+
+/**
+ * quick-260910-omt: the receipt `removeFromQueue` hands back so a caller (the Up-Next swipe-left
+ * undo toast) can reverse the removal via `restoreToQueue`. `wasManual`/`wasExcluded` record the
+ * PRIOR side-state so the undo restores it exactly instead of guessing.
+ */
+export type QueueRemoval = {
+	track: Track;
+	index: number;
+	wasManual: boolean;
+	wasExcluded: boolean;
+};
+
+/** mm:ss, NaN/Infinity-safe (avoids the "NaN:NaN" bug before metadata loads). */
+export function fmtTime(s: number): string {
+	if (!Number.isFinite(s) || s < 0) return '0:00';
+	const m = Math.floor(s / 60);
+	const sec = Math.floor(s % 60);
+	return `${m}:${sec.toString().padStart(2, '0')}`;
+}
+
+class Player {
+	current = $state<Track | null>(null);
+	playing = $state(false);
+	loading = $state(false);
+	/**
+	 * quick-261019-lyrspin: true while a lyric backfill walk is in flight for the current
+	 * track (see backfillLyrics). The lyric pane shows a spinner instead of "no lyrics"
+	 * during this window. The play-path resolve (lyrics arriving with the track) is already
+	 * covered by `loading`; this covers the AFTER-play backfill for offline-blob / edge-cache
+	 * tracks that land lyric-less.
+	 */
+	lyricsFetching = $state(false);
+	error = $state<string | null>(null);
+
+	/**
+	 * Resilience notice channel (PLAY-08 / D-02, D-04, D-05). One-way reactive read by the
+	 * layout toast host (16-03). See PlayerNotice for the shape + token contract. null = nothing
+	 * to show. The store sets this from runFallback (skip / loop-guard) and handleOffline (offline
+	 * pause); a real `playing` event clears any 'stopped' notice (the success reset).
+	 */
+	notice = $state<PlayerNotice | null>(null);
+
+	/**
+	 * Consecutive-failure counter (PLAY-08 / D-04, Pitfall 1). Incremented on every auto-skip that
+	 * did NOT reach a real `playing` event; reset to 0 by the `playing` listener (D-06 success reset)
+	 * and by recoverFromStop. PLAIN field (not $state) — an internal loop-guard budget, never read
+	 * reactively by the UI (the UI reads `notice` instead). Offline does NOT burn it (D-08).
+	 */
+	private consecutiveFailures = 0;
+	/** Loop-guard cap: after this many consecutive failures with zero successful plays, STOP and
+	 *  surface a sticky Retry notice instead of auto-advancing again (D-04). Also reused as the
+	 *  ABSOLUTE raw-audio-error ceiling (debug-nowbar-freeze-reresolve-loop). */
+	private static FAILURE_CAP = 5;
+	/**
+	 * SYSTEMIC-FAILURE SKIP CEILING (debug-nowbar-frozen-audius-spam). Counts CONSECUTIVE
+	 * failure-driven auto-skips — the raw-audio-error ceiling AND handleTotalFailure — that reached NO
+	 * real `playing`. The existing per-track guards each bound ONE track (STRIKE_CAP → dead uid, the
+	 * errorBurst/rapid ceiling → skip THIS track, the per-episode fallback set → try each source once),
+	 * but NOTHING bounded the WHOLE-QUEUE case: under a systemic outage (region-lock, dead/rate-limited
+	 * source) every track 403s, so the never-stop chain skips → resolves (qq/detail) → auto-grows
+	 * (buildSimilarQueue = 8× searchAll) → prefetches, on and on. Each cycle fires a fresh burst of
+	 * /api/* requests; with no ceiling they pile up until the browser connection pool saturates and the
+	 * app freezes — the TRUE driver of this bug (the api-base governor only caps the blast radius). Once
+	 * this many DISTINCT tracks fail back-to-back with zero successful playback, the situation is
+	 * systemic and churning only spams, so the ceiling trips: it used to STOP via haltRunawayRecovery
+	 * (pause + sticky Retry); since quick-261116-nstop it enters the Fallback Interlude instead
+	 * (see below) — the churn cuts are identical, only the pause is gone.
+	 *
+	 * This is NOT the false-positive STOP that debug-nowbar-freeze-reresolve-loop disabled: THAT tripped
+	 * on a SYNCHRONOUS rapid-error storm on a SINGLE track (a transient CDN blip re-erroring in a tight
+	 * loop). THIS trips only after N SEPARATE tracks each fail with no audio in between — a genuine
+	 * systemic signal a transient blip cannot reach, because a single real `playing` resets the counter.
+	 * Recovery is the existing recoverFromStop (Retry): skip ahead, drop the dead sets, re-arm.
+	 * Plain field (not $state) — internal loop-guard budget, never read reactively by the UI.
+	 *
+	 * quick-261116-nstop (Never-Stop Engine, grill Q8–Q10): the cap no longer STOPS playback.
+	 * Tripping it now enters the Fallback Interlude (enterFallbackInterlude): every network-churn
+	 * cut haltRunawayRecovery made (abort prefetch, cancel re-resolves, stop queue auto-grow) is
+	 * KEPT — that churn is what this ceiling really guards — but instead of pausing, the player
+	 * plays the user's LOCAL tracks (Downloads/Cached, least-recently-played first) while a
+	 * budgeted revival probe (one per interlude track, source cooldowns doubling to ~15 min)
+	 * tests the saved queue. haltRunawayRecovery itself survives for the same-uid re-drive
+	 * storm guard, where the loop is synchronous and local playback cannot break it.
+	 */
+	private failoverSkips = 0;
+	private static SYSTEMIC_SKIP_CAP = 5;
+	/**
+	 * NEVER-STOP ENGINE state (quick-261116-nstop). All PLAIN fields — internal budgets and
+	 * bookkeeping, never read reactively by the UI (the UI reads `notice` only).
+	 *
+	 * `nsInterlude` is non-null while a Fallback Interlude is active: the streaming queue is
+	 * saved in `nsSavedQueue` and the queue holds the local pool (`nsPoolTracks`, ordered by
+	 * orderFallbackPool). `nsPlayedCycle` is the pool's played-this-cycle set (Q13: no repeat
+	 * until the pool is exhausted). Revival probing is budgeted by `nsProbeBudget` (one probe
+	 * per interlude track) and scheduled by `nsCooldowns` (per-source exponential cooldown);
+	 * `nsProbeUid` marks the one streaming track currently being probe-played — its real
+	 * `playing` exits the interlude (queue already restored), its total failure routes back
+	 * to the pool via handleProbeFailure instead of burning the skip counters.
+	 * `nsRetrying` is the zero-asset state (Q14): no local track exists to play, so a 60s
+	 * timer re-probes the saved queue with no user action needed.
+	 */
+	private nsCooldowns = new SourceCooldowns();
+	private nsProbeBudget = new ProbeBudget();
+	private nsInterlude: { startedAt: number; plays: number; markedSources: SourceId[] } | null = null;
+	private nsSavedQueue: {
+		queue: Track[];
+		anchorUid: string | null;
+		context: QueueContext;
+		resumeIndex: number;
+	} | null = null;
+	private nsPoolTracks: Track[] = [];
+	private nsPlayedCycle = new Set<string>();
+	private nsProbeUid: string | null = null;
+	private nsRetrying = false;
+	private nsRetryTimer: ReturnType<typeof setTimeout> | null = null;
+	/**
+	 * ADAPTIVE PRE-BUFFER state (quick-261116-prebuf, Car Mode plan Phase 2, Q7/Q15).
+	 * All PLAIN fields, same discipline as the never-stop state above.
+	 *
+	 * `cbEntries` is the car-buffer registry: upcoming queue tracks whose bytes were
+	 * fetched into blobStore as CACHE — deliberately NOT library Downloads (no Downloads
+	 * UI, no library record), so they are evictable and a real download of the same uid
+	 * simply takes ownership of the bytes. The registry persists (localStorage
+	 * openmusic:carbuffer:v1) so buffered bytes stay addressable across a reload;
+	 * blobStore remains the byte authority — a registry entry whose bytes vanished is
+	 * dropped on first failed read. `cbArmed` is set by armCarBuffer() (the Phase 4 Car
+	 * Mode entry will call it; the first Fallback Interlude entry already does) and
+	 * stays armed so the walk re-tops-up as playback advances (rolling). The walk is
+	 * generation-guarded by `cbGen` (bumped on disarm) — NOT by playGen: a rolling
+	 * walk must survive the track advances it exists to serve. `cbAbort` cancels the
+	 * one in-flight resolve/fetch on disarm.
+	 */
+	private cbEntries = new Map<string, { track: Track; at: number; sec: number }>();
+	private cbLoaded = false;
+	private cbArmed = false;
+	private cbRunning = false;
+	private cbGen = 0;
+	private cbAbort: AbortController | null = null;
+	private cbIdleUnsub: (() => void) | null = null;
+	private static CB_KEY = 'openmusic:carbuffer:v1';
+	/** RAPID-FIRE BRAKE window (debug-nowbar-freeze-reresolve-loop). Two consecutive audio `error`
+	 *  events closer together than this — with NO intervening real `playing` — cannot be two distinct
+	 *  network failures: a fresh detail re-resolve + a full `<audio>` load simply cannot complete this
+	 *  fast. Errors inside this window are therefore a SYNCHRONOUS re-attach storm (a revoked/instantly
+	 *  -403 blob: URL, a cache-instant re-resolve, or a same-tick re-drive), which is what pegs the
+	 *  main thread and freezes the whole app. 400ms is comfortably longer than any real resolve+load
+	 *  and far shorter than the gap between genuine transient failures. */
+	private static RAPID_ERROR_WINDOW_MS = 400;
+	/** How many CONSECUTIVE rapid (sub-RAPID_ERROR_WINDOW_MS) errors are tolerated before the handler
+	 *  stops re-driving recovery and force-skips. 3 lets a legitimate one-shot fast re-resolve recover
+	 *  (error → reresolve → playing) while cutting a true synchronous loop off after a couple of turns,
+	 *  long before it can burn measurable CPU. */
+	private static RAPID_ERROR_CAP = 3;
+	/** IDLE-PREFETCH (quick-261102-idle1, user requirement 2026-11-02 — supersedes the
+	 *  RELAX-PREFETCH ~5s elapsed-playback gate): the single-song lookahead prefetch arms at
+	 *  play()'s src-set and fires the moment the governed /api pipeline (api-base governor:
+	 *  searches, resolves, covers in flight) is IDLE — "buffer the next song ASAP when no
+	 *  other fetching is stalling". If user-initiated fetching is in flight when the arm
+	 *  lands, the walk waits for the pipeline to DRAIN (onApiPipelineIdle) instead of piling
+	 *  on; if the pipeline is already idle it fires on the next microtask, so a Next tap
+	 *  lands on a resolved + byte-prebuffered track. One-shot per loaded src
+	 *  (prefetchArmedForSrc), re-validated on queue mutations (see revalidatePrefetchArm). */
+	/** PLAY-RESILIENCE: how many queue entries the forward-resolve-and-probe walk in prefetchNext may
+	 *  advance through in a single invocation. The walk starts at the immediate-next and steps past
+	 *  any candidate that rejects, resolves without an audioUrl, or fails the silent probe, until it
+	 *  lands a probe-verified playable track. Bounded so endless playback never fires an unbounded
+	 *  resolve burst that reads as bot traffic. */
+	private static PREFETCH_MAX_CANDIDATES = 4;
+	/** PLAY-RESILIENCE: cap on the silent ~1s muted test-play probe. A candidate URL that has not
+	 *  signalled canplay within this window is treated as "not playable right now" (skipped this
+	 *  walk, but NOT marked permanently dead — a timeout can be a transient buffer stall). A hard
+	 *  `error` event marks it dead immediately regardless of the timer. */
+	private static PROBE_TIMEOUT_MS = 1500;
+	/** One-shot guard for the idle prefetch trigger: set false the instant a NEW src is loaded
+	 *  (in play(), via resetPrefetchArm), flipped true when the idle arm fires prefetchNext for
+	 *  that src, so the prefetch walks AT MOST ONCE per loaded src. Plain field — internal,
+	 *  never reactive. */
+	private prefetchArmedForSrc = false;
+	/** IDLE-PREFETCH arm generation (quick-261102-idle1): bumped by every reset/re-arm, so an
+	 *  idle callback queued for an older src (or an older "next" after a queue mutation)
+	 *  discards itself instead of firing a stale walk. Plain field. */
+	private prefetchArmGen = 0;
+	/** True while an idle arm is subscribed and waiting for the pipeline to drain. Guards the
+	 *  timeupdate backstop from re-subscribing on every tick. Plain field. */
+	private prefetchArmPending = false;
+	/** Unsubscribe for the pending onApiPipelineIdle arm (null when none is waiting). */
+	private prefetchIdleUnsub: (() => void) | null = null;
+	/**
+	 * SINGLE AUDIO.SRC AUTHORITY + RE-DRIVE BRAKE (debug-song-click-lrc-flood-noplay). All roads that
+	 * attach a new stream go through driveSrc(), which is the ONE place `audio.src` is set for playback
+	 * (the offline-blob / restore paths aside). The observed "api loop hell" was the SAME track's src
+	 * re-driven in a tight loop — `<audio>` requests `(canceled)` before firing `error`, so the
+	 * error-based ceiling (errorBurst / failoverSkips) NEVER engaged and the flood was unbounded. This
+	 * brake counts rapid re-sets of the SAME uid with NO real `playing` between: distinct uids (normal
+	 * fast-skipping) never trip it; a same-uid re-drive storm (a reactive re-entry or a recovery
+	 * ping-pong) trips it → STOP (haltRunawayRecovery) with a logged trigger, so a stream that cannot
+	 * start is surfaced as a Retry instead of pinning the app. Reset by a real `playing` (output = not
+	 * looping) and recoverFromStop. Plain fields — internal, never read reactively. */
+	private lastDriveUid: string | null = null;
+	private lastDriveAt = 0;
+	private driveBurst = 0;
+	private static SRC_REDRIVE_WINDOW_MS = 1500;
+	private static SRC_REDRIVE_CAP = 4;
+	/**
+	 * 31-D-12 BLOB PROVENANCE. What the CURRENT `audio.src` was attached from. The audio.error
+	 * handler needs to tell "these local bytes are bad" (evict + re-stream + re-download) apart from
+	 * "this URL is bad" (the pre-existing cross-source path) — nothing did before, so a corrupt
+	 * download re-read the SAME corrupt bytes on every recovery attempt and the track stayed dead
+	 * forever. Recorded at the attach sites rather than sniffed from a `blob:` prefix at error time,
+	 * because a sniff CANNOT distinguish a library download from a prebufferNext() blob — and
+	 * evicting a download record for a prebuffer blob would silently delete a song the user never
+	 * downloaded. Plain field — internal, never read reactively (mirrors driveBurst above). */
+	private lastSrcKind: SrcKind = 'url';
+	/** quick-261116-carmode: the REACTIVE mirror of lastSrcKind for the UI — true while the
+	 *  attached src's bytes are LOCAL (a library download or a prebuffer/car-buffer blob),
+	 *  false for any streamed URL. lastSrcKind itself stays a plain field (the error handler
+	 *  reads it imperatively); this $state twin exists so the Car Mode reliability dot can
+	 *  read provenance reactively without widening lastSrcKind's contract. Written ONLY by
+	 *  setSrcKind(), which every lastSrcKind assignment site now routes through. */
+	currentLocal = $state<boolean>(false);
+	private setSrcKind(kind: SrcKind): void {
+		this.lastSrcKind = kind;
+		this.currentLocal = kind === 'download-blob' || kind === 'prebuffer-blob';
+	}
+	/** debug-share-card-play-dead-replay: the uid the element is ARMED for — written at every
+	 *  `audio.src` assignment (restore / armTrack / driveSrc / the offline-blob play branch), next to
+	 *  lastSrcKind. `current` being seated says nothing about whether a src was ever attached for it:
+	 *  a boot restore() whose re-resolve failed (or has not landed) leaves `current` set and the
+	 *  element EMPTY (or still holding the previous track). toggle() reads this to tell a resume from
+	 *  "never armed → play()". Plain field — internal, never read reactively (mirrors lastSrcKind). */
+	private armedUid: string | null = null;
+	/** 31-D-12 one-shot dedupes, keyed by uid: at most ONE toast and ONE background re-download per
+	 *  corrupt track. Deliberately NOT playGen-guarded (the repair outlives the play that triggered
+	 *  it — by the time the bytes land the user has moved on, and that is fine); these Sets are the
+	 *  bound instead. Cleared wherever the other per-session guards reset. Plain fields. */
+	private corruptNotified = new Set<string>();
+	/** 43-D-08: one 'version' toast per uid. Re-armed only by a manual full recovery — NOT on the
+	 *  `playing` event (unlike corruptNotified), or every successful play would re-toast. Plain field. */
+	private versionNotified = new Set<string>();
+	private redownloadQueued = new Set<string>();
+	/**
+	 * Audio-element error burst counter (CR-03). The dominant region-lock failure mode is "detail
+	 * fetch resolves a URL fine, the <audio> byte fetch 403s" — i.e. the `error` event fires while
+	 * tryFallback keeps 'succeeding' (it resolves SOME url every time), so handleTotalFailure (and
+	 * therefore consecutiveFailures) never runs and the A↔B ping-pong is unbounded. This counts
+	 * raw audio `error` events since the last real `playing` and trips the loop-guard once it hits
+	 * FAILURE_CAP even when tryFallback keeps finding resolvable-but-unplayable sources. Reset to 0
+	 * by the `playing` listener (D-06 success reset) and by recoverFromStop. Plain field — internal.
+	 */
+	private errorBurst = 0;
+	/** RAPID-FIRE BRAKE state (debug-nowbar-freeze-reresolve-loop). `lastAudioErrorAt` is the wall-clock
+	 *  time of the previous audio `error`; `rapidErrorBurst` counts CONSECUTIVE errors that fired inside
+	 *  RAPID_ERROR_WINDOW_MS of the one before (a synchronous re-attach storm). A normally-spaced error
+	 *  resets `rapidErrorBurst` to 0; a real `playing` and a fresh play() reset both. Plain fields —
+	 *  internal loop-guard budget, never read reactively by the UI. */
+	private lastAudioErrorAt = 0;
+	private rapidErrorBurst = 0;
+	/**
+	 * SINGLE-RETRY GUARD (debug-reresolve-loop-stops-playback → simplified in debug-midplay-stall-background):
+	 * count of consecutive post-playback in-place `reresolveCurrent()` attempts for the current src
+	 * WITHOUT an intervening real `playing`. A track that produced audio then errored gets exactly ONE
+	 * same-src re-resolve (recovers a genuinely transient mid-track buffer/CDN blip without restarting the
+	 * song); a second error before any `playing` means the URL is persistently dead (e.g. a netease
+	 * region-lock byte-stream 403), so the error path STOPS re-resolving and falls through to the
+	 * cross-source fallback + advance (SKIP), per the never-stop spec. Reset to 0 on a real `playing`, a
+	 * new src (play()), and recoverFromStop. */
+	private reresolveBurst = 0;
+	/** fast 2026-10-04: initial-load re-attaches spent on the current src (the `loadRetries` registry
+	 *  budget). Plain field like reresolveBurst; reset by a real `playing`, a new play() and the ceilings. */
+	private loadRetryBurst = 0;
+	/** Skip-burst batch counter (D-02): how many skips have collapsed into the current notice. Reset
+	 *  by the debounce window below. Plain field — not reactive. */
+	private skipBurst = 0;
+	/** Debounce timer for the skip-burst collapse window. While it is live, further skips
+	 *  increment skipBurst into ONE notice rather than stacking N notices (D-02); when it elapses
+	 *  the burst counter resets AND the skip notice is cleared (WR-04). */
+	private skipBurstTimer: ReturnType<typeof setTimeout> | null = null;
+	/** Skip-burst collapse window in ms (D-02 / CONTEXT D-49). Aligned with the layout host's
+	 *  SKIP_DISMISS_MS (WR-04) so the store clears the 'skip' notice at the same moment the host
+	 *  auto-dismisses it — the channel reaches "nothing to show" exactly when the toast leaves,
+	 *  so a later language switch / remount can't resurrect a stale skip toast. */
+	private static SKIP_BURST_WINDOW_MS = 2500;
+
+	/**
+	 * Optimistic now-bar overlay (FIX-A). Set SYNCHRONOUSLY the instant a discovery stub
+	 * is tapped so the now-bar can render the tapped {artist,title,cover} with a loading
+	 * indicator before resolveStub settles. Cleared once `current` is set (success) or on a
+	 * miss. A NON-null pendingTrack with a null `current` means "resolving — show loading".
+	 */
+	pendingTrack = $state<PendingTrack | null>(null);
+	/** Key (`${artist}␟${title}` lowercased/trimmed) of the in-flight stub resolve — dedupe guard. */
+	private pendingKey = '';
+	/** Monotonic generation: a newer playStub bumps it so a stale resolve's result is discarded. */
+	private pendingGen = 0;
+	/** Monotonic generation for armTrack (38-D-05) supersedence — a newer arm, or any user play(),
+	 *  discards an in-flight arm's result. Deliberately NOT pendingGen: playStub owns that counter, and
+	 *  a shared one would make an arrival cancel an in-flight tap's overlay bookkeeping. Plain field —
+	 *  no $state, it is an internal supersedence guard the UI never reads (house convention). */
+	private armGen = 0;
+
+	/**
+	 * The ONE cover field every now-playing surface reads (COVER-01 / D-09). Set SYNCHRONOUSLY on
+	 * play() entry from `track.cover ?? name-cache ?? uid-cache ?? null` so the OS + UI get the
+	 * best-known art immediately. On a sync miss the Plan-02 single-item resolve helper runs and,
+	 * generation-guarded, sets this + re-fires a FRESH MediaMetadata so the lock screen repaints
+	 * (Pitfall 4). NowPlaying, Nowbar, and buildArtwork(MediaSession) all read this — one field,
+	 * three surfaces. Null = total miss; surfaces fall back to their seeded gradient and MediaSession
+	 * keeps /favicon.svg via buildArtwork (D-12). It IS `$state` so the two component surfaces
+	 * reactively repaint when the async land assigns it. */
+	resolvedCover = $state<string | null>(null);
+
+	/**
+	 * quick-260920-nyq — THE reader for every now-playing cover surface (hero, Nowbar, OS media card).
+	 *
+	 * PRECEDENCE INVERTED. `resolvedCover` used to LEAD on all three, while every list row read the
+	 * shared reactive cache. That is the "same song, different cover in different places" asymmetry:
+	 * `resolvedCover` is only refreshed inside play()'s narrow gen-guarded windows, so a cover written
+	 * by a SIBLING surface (up-next lazyCover, a home backfill, another tile, a user PIN) reached the
+	 * rows and never reached the hero. The cache now leads and `resolvedCover` is the last resort.
+	 *
+	 * `resolvedCover` keeps its two jobs: the SYNCHRONOUS seed on play() entry (the optimistic stub
+	 * paints before anything is in the cache) and the final fallback (`pendingTrack` with
+	 * `current === null` has no uid to read by). It stays the WRITE seam — adoptCover /
+	 * resolveCoverAsync / healCover are untouched; this inverts the READ only. (The HQ upgrade that
+	 * also wrote it was removed in Phase 40 D-11a.)
+	 *
+	 * Pin precedence is INHERITED from readCoverByUidOrName (PIN → uid → name, quick-260915-w4f), not
+	 * re-implemented here. That read calls coverVersion(), so anything binding this getter repaints on
+	 * every cover write, pin and eviction.
+	 *
+	 * 37-D-02 EXCEPTION: an embedded local-file `data:` cover outranks the cache. It is the file's own
+	 * truth and is never written to the https-only cover cache, so cache-first would let a streaming
+	 * version's NAME-layer art displace it ("embedded first" is a locked decision).
+	 */
+	get displayCover(): string | null {
+		const rc = this.resolvedCover;
+		const cur = this.current;
+		if (!cur) return rc;
+		if (rc && !hasHttpsScheme(rc) && isRenderableCover(rc)) return rc; // embedded data: cover
+		return readCoverByUidOrName(cur.uid, cur.artist, cur.title) ?? rc;
+	}
+
+	/** quick-261116-dtap: read-only Never-Stop state for the double-tap discovery service
+	 *  (services/random-discovery.ts). While an interlude is active the streaming sources
+	 *  are marked down, so a discovery dive must draw from the local pool instead of
+	 *  resolving — the service reads these two getters and never touches the private
+	 *  nsInterlude / nsRetrying fields behind them. */
+	get inInterlude(): boolean {
+		return this.nsInterlude !== null;
+	}
+
+	/** quick-261116-dtap: the zero-asset retrying state (Q14) — no local track exists to
+	 *  dive into; the service's only move is an immediate revival probe via next(). */
+	get inRetrying(): boolean {
+		return this.nsRetrying;
+	}
+
+	/** quick-260831-t2g: a cover the CALLER supplied (an album's art, a discovery tile's image),
+	 *  keyed by SONG identity — `matchKey(artist, title)` — not by uid.
+	 *
+	 *  Song-keyed on purpose: a tap resolves to one source, and cross-source fallback then replays
+	 *  the SAME song under a DIFFERENT uid. A uid-keyed marker was lost at that hop, which is
+	 *  exactly how an album row still ended up showing qq's own thumbnail instead of the album
+	 *  cover. The art belongs to the song, so the key must too.
+	 *
+	 *  Such a cover is authoritative — the caller knows the right art — so the post-paint Deezer HQ
+	 *  upgrade is skipped for it. Without that, every album track would still spend one Deezer call
+	 *  AND could upgrade to a different image than its siblings.
+	 *
+	 *  quick-260910-piz — LIST-SCOPED. This was a single `{ key, url }`, written only by playStub for
+	 *  the ONE tapped song, so the very next advance had no match: `attachedCoverFor` returned null,
+	 *  `this.current = resolved` committed the SOURCE's own thumbnail and the hero FLIPPED off the
+	 *  album art on track 2+. Meanwhile nothing seeded `track.cover`, so the Up Next tiles (Gap 3 /
+	 *  26-10: `resolvedCovers[uid] ?? track.cover`, no per-tile resolve) stayed on the gradient. It is
+	 *  now `{ url, keys }` — one url for every song of the INSTALLED LIST.
+	 *
+	 *  LIFECYCLE:
+	 *   - INSTALLED by setQueue/setListQueue when the caller passes an https `cover` (the album page
+	 *     passes `heroImg`; playStub passes its own `cover` for the optimistic one-track queue).
+	 *   - CLEARED by (a) any setQueue/setListQueue WITHOUT a cover — every other surface (search /
+	 *     artist / library / home-discovery / remix) installs a list, so starting anything else drops
+	 *     it for free; (b) clearQueue(); (c) a FRESH play() of a track whose song key is not in the
+	 *     set — the home shelves call play({fresh}) with no queue install (quick-260831-sp9), so that
+	 *     seam is needed too.
+	 *   - NOT persisted (same as t2g). After a reload the seeded `track.cover` still paints the tiles,
+	 *     but the hero re-apply is gone until the next install — accepted residual; upgrade path is
+	 *     one `attachedCover` envelope field in player-persist.ts.
+	 */
+	private attachedCover: AttachedCover | null = null;
+
+	/** Full-screen now-playing overlay open? */
+	expanded = $state(false);
+	/** Lightweight "Up-Next" — the result set the current track came from (Phase 7 = real queue). */
+	queue = $state<Track[]>([]);
+	/** Which surface started the current queue (Phase 17, QUEUE-03). Set by every play-entry
+	 *  call site via setQueue/playStub; read in the fresh-play path to resolve the effective
+	 *  sourcing mode (same-list vs generated). User-visible state, so it IS `$state` — but it is
+	 *  intentionally NOT persisted (reload → null → resolves to the global 'generated' default,
+	 *  the safe behavior). Mirrors the manualUids side-state discipline: one player field, never
+	 *  a per-Track field. */
+	queueContext = $state<QueueContext>(null);
+
+	/** quick-260618-lsw: the uid the Up-Next LIST is anchored to. NowPlaying slices the queue from
+	 *  THIS uid's live index (resolved by findIndex each render), NOT from the live current index —
+	 *  so an auto-advance (which advances `current` but leaves this put) keeps the just-played song
+	 *  in the list; only the now-playing highlight moves down a row. Set ONLY on a fresh user play
+	 *  (`play({fresh})`) and on a new-list install (setQueue/setListQueue/clearQueue); deliberately
+	 *  NOT touched by next()/prev()/auto-advance/failover/manual inserts so the slice start stays put
+	 *  as the highlight moves. PUBLIC because NowPlaying reads it reactively. VIEW anchor.
+	 *  quick-260712-hm9: now PERSISTED (via serializePlayerState's `upNextAnchorUid` envelope field)
+	 *  and re-seeded on restore() — a null anchor made NowPlaying's clamp fall back to the live current
+	 *  index (LSW-03 ci-fallback), which silently discarded played songs on a resumed/restored session.
+	 *  NowPlaying's clamp still falls back to the live current index if this is EVER null/absent.
+	 *  quick-261019-qkh: on a fresh play the anchor is now the WOVEN queue's HEAD (the oldest kept
+	 *  history entry — or the clicked song itself when there is no history), NOT the clicked song.
+	 *  The visible list is [...history, current, ...tail]: played songs stay in view above (dimmed),
+	 *  the highlight marks current, and the pane scrolls to it. Set AFTER weaveFreshHistory so the
+	 *  head uid is definitely present in this.queue. */
+	upNextAnchorUid = $state<string | null>(null);
+
+	/** quick-261108-h3w (Hector): a Generate-mode tap is rebuilding the Up Next tail. Set the
+	 *  instant the song is tapped so the pane hides the STALE upcoming rows and shows row
+	 *  skeletons instead; cleared when the newest regenerate settles (installed, failed or
+	 *  superseded), or when any other play takes over (see play() / postPlayQueue). The queue
+	 *  itself is NOT truncated — next() during the gap still has somewhere to go. */
+	upNextPending = $state(false);
+
+	/** Shuffle on: toggling true randomizes queue tail (current pinned). Off = no auto-shuffle on
+	 * next play, but the already-shuffled queue stays as is (gte: user-specified, no unshuffle). */
+	shuffle = $state(false);
+	/** 2-state repeat (PLAY-10 / D-10): 'off' = today; 'one' = loop the current track on ended.
+	 * Cycle: off → one → off. Repeat-all was removed in favor of auto-generated up-next
+	 * (ensureAhead/regenerate) — that grow-and-advance IS the semantic successor of repeat-all,
+	 * so next() no longer wraps the queue. */
+	repeatMode = $state<'off' | 'one'>('off');
+
+	/** Monotonic play generation (gte): bumped at the top of every play() so the cross-source
+	 * fallback can detect a newer play() and abort its in-flight retries. Plain field — no $state
+	 * reactivity (it's an internal supersedence guard, like pendingGen). */
+	private playGen = 0;
+
+	/** quick-260704-20e: one-shot guard for healCover — keyed on `${uid}|${resolvedCover}`. An
+	 *  errored current-cell background paint re-fires the NowPlaying $effect, so without this a dead
+	 *  URL would re-probe forever (T-20e-02 DoS). Mirrors lazyCover's per-row `done` flag: the key is
+	 *  added BEFORE probing so the second call short-circuits. Cleared at play() entry — a genuine
+	 *  track change invalidates prior heals and keeps the set from growing unbounded. Plain field. */
+	private healProbed = new Set<string>();
+
+	/** quick-260809-38i: the uid whose cover a SURFACE verified and handed to adoptCover. Read only by
+	 *  resolveCoverAsync, so a slow full-chain resolve fired at play() time cannot land AFTER an adopted
+	 *  (onload-verified) cover and silently replace it. It used to guard the HQ upgrade, which was
+	 *  removed in Phase 40 D-11a. Cleared at play() entry — a
+	 *  genuine track change invalidates the prior adoption. Plain field: an internal supersedence flag
+	 *  the UI never reads reactively (same posture as healProbed/playGen). */
+	private adoptedCoverUid: string | null = null;
+	/** Phase 40 D-16: uids whose crowd cover pick was already requested this session — one GET per
+	 *  played song. Plain field (nothing renders it). ponytail: grows by one uid per distinct song
+	 *  played and lives for the app session; cap it if sessions ever play many thousands of songs. */
+	private crowdRequested = new Set<string>();
+
+	/** Monotonic queue generation (WR-06): bumped by every explicit setQueue() so an in-flight
+	 * regenerate() (network-bound, seconds) can detect that the caller has since installed an
+	 * EXPLICIT queue (e.g. playAlbum: playStub's [first] → regenerate races resolveAllCached →
+	 * setQueue(all album tracks)) and discard its stale result instead of replacing the user's
+	 * chosen list with generated picks. Plain field — internal supersedence guard. */
+	private queueGen = 0;
+
+	/** quick-261103-upnext: the fresh generated play's INTENT — "this queue's tail must end
+	 * up generated" — recorded when the fresh branch takes the generated path, and cleared
+	 * when a regenerate installs or a new list/fresh play supersedes it. Before this,
+	 * regenerate ran ONLY inside the fresh tap, so a skip/advance that superseded the
+	 * in-flight build (WR-06) left the raw list tail in place forever — the
+	 * search-results-as-Up-Next bug Hector screenshotted 2026-11-03. A non-fresh landing
+	 * reads this flag to REPAIR the tail for the landed track; an unarmed queue (a splice
+	 * into an ongoing queue, an advance inside an installed generated tail) never repairs,
+	 * so queue shapes are otherwise untouched. Plain fields — internal tail bookkeeping. */
+	private pendingGeneratedTail = false;
+	/** The uid a regenerate() is currently building for (dedupe concurrent builds). */
+	private regenSeedUid: string | null = null;
+	/** Monotonic regenerate generation: a newer build supersedes an older in-flight one, so
+	 * a slow ladder for a skipped seed can never install over the current seed's tail. */
+	private regenGen = 0;
+
+	/**
+	 * Per-episode "already-attempted sources" set (CR-03). A fallback EPISODE is one logical song's
+	 * failover run, keyed by its normalized title+artist (`fallbackEpisodeKey`). Within an episode
+	 * each source is tried at most once: runFallback hands this set to tryFallback, which excludes
+	 * every member from fallbackOrder and adds each source it touches. Once the order empties,
+	 * tryFallback returns null and runFallback routes to handleTotalFailure — the counter engages
+	 * and the unbounded A↔B ping-pong (where a resolve-but-unplayable source kept being re-offered)
+	 * is closed. The set + key reset when a NEW logical song starts failing over. Plain fields. */
+	private fallbackAttempted = new Set<SourceId>();
+	private fallbackEpisodeKey: string | null = null;
+	/** In-flight guard for runFallback, keyed to playGen (WR-01): only ONE failover may run per
+	 *  generation, so a stall-watchdog fire and a late `error` event can't run two concurrent
+	 *  fallbacks (double swap onto audio.src / double counter increment). -1 = idle. */
+	private fallbackGen = -1;
+
+	/** kyf: when audio.src is set to a `blob:` Object URL (from the offline cache), track the
+	 * URL here so we can revoke it when a new track starts. Revoking the previous URL on every
+	 * play prevents Object-URL leaks across long sessions. */
+	private cachedBlobUrl: string | null = null;
+
+	/** Throttle timer for currentTime persistence (timeupdate fires ~4×/sec). */
+	private persistTimer: ReturnType<typeof setTimeout> | null = null;
+	/** Seek-position that should be applied as soon as audio.duration becomes finite (i.e. on
+	 *  the next `loadedmetadata`). Set by restore() with the saved currentTime, and also
+	 *  written by seekFraction() when the user seeks while metadata is still loading. Cleared
+	 *  once applied, or when a successful in-range seek lands. */
+	private pendingSeek: number | null = null;
+	/**
+	 * quick-261008-audit: the uid pendingSeek was armed for. The loadedmetadata listener applies a
+	 * pending seek ONLY when the current track still matches — otherwise a restored position (or a
+	 * reresolve's preserved position) would land on a NEWLY TAPPED song whose metadata arrives
+	 * later, starting it mid-track. Set alongside pendingSeek; cleared with it.
+	 */
+	private pendingSeekUid: string | null = null;
+	/** Same idea as pendingSeek but holds a FRACTION [0,1] when the user seeks before metadata
+	 *  loads (we don't know the absolute seconds yet). Wins over pendingSeek if both are set
+	 *  (user intent supersedes restored progress). */
+	private pendingSeekFrac: number | null = null;
+
+	/** Write the persistable slice of player state to localStorage. Called immediately on
+	 *  imperative state changes (play/setQueue/toggleShuffle/cycleRepeat) and throttled to
+	 *  ~2s on the audio `timeupdate` firehose. SSR-safe + try/catch-guarded.
+	 *  quick-260704-3ov: the pure string build (whitelist strip + `v:1` envelope) now lives in
+	 *  serializePlayerState — this method keeps only the Player-owned shell (browser guard,
+	 *  no-current removeItem branch, try/catch). Persisted bytes are unchanged. */
+	private persist() {
+		if (!browser) return;
+		if (!this.current) {
+			try { localStorage.removeItem(STATE_KEY); } catch { /* ignore */ }
+			return;
+		}
+		try {
+			const snapshot = {
+				current: this.current,
+				queue: this.queue,
+				currentTime: this.currentTime,
+				shuffle: this.shuffle,
+				repeatMode: this.repeatMode,
+				// quick-260712-hm9: persist the Up-Next VIEW anchor so a reload restores the exact
+				// played-history view (see restore() for why a null anchor discarded played songs).
+				anchorUid: this.upNextAnchorUid
+			};
+			localStorage.setItem(
+				STATE_KEY,
+				serializePlayerState({
+					...snapshot,
+					// quick-261118-xdresume: the cross-device resume LWW clock — Date.now() only when
+					// something meaningful changed (stampUpdatedAt explains the reload ping-pong a
+					// blind stamp on every flush would cause).
+					updatedAt: stampUpdatedAt(localStorage.getItem(STATE_KEY), snapshot, Date.now())
+				})
+			);
+		} catch {
+			/* quota — non-fatal */
+		}
+	}
+	/** Coalesce currentTime writes so the timeupdate firehose doesn't spam localStorage. */
+	private persistThrottled() {
+		if (this.persistTimer) return;
+		this.persistTimer = setTimeout(() => {
+			this.persistTimer = null;
+			this.persist();
+		}, 2000);
+	}
+
+	/**
+	 * GLN-6: flush the EXACT current playback position to localStorage IMMEDIATELY, bypassing the 2s
+	 * persistThrottled() window. Called from the visibilitychange(hidden)/pagehide/freeze lifecycle
+	 * listeners so an Android process eviction / tab freeze never persists a stale (pre-roll)
+	 * currentTime — the likely root cause of "restores to 0". Syncs currentTime from the live element
+	 * FIRST (the throttled write may be up to ~2s behind), cancels any pending throttled write so it
+	 * can't later clobber, then writes synchronously. Idempotent + never-throws (persist is guarded). */
+	private flushPersist() {
+		if (this.audio) this.currentTime = this.audio.currentTime || 0;
+		if (this.persistTimer) {
+			clearTimeout(this.persistTimer);
+			this.persistTimer = null;
+		}
+		this.persist();
+	}
+
+	/** Restore the last played track + queue + progress + shuffle/repeat from localStorage.
+	 *  Called once from the layout on mount. Doesn't autoplay — restored audio is paused
+	 *  with audio.currentTime seeded; the user must tap play (browser autoplay policy).
+	 *  Audio URLs aren't persisted (they expire), so the resolved track is re-fetched via
+	 *  ensureTrackDetails — same path play() takes. */
+	async restore() {
+		if (!browser) return;
+		// quick-260704-3ov: the pure parse (JSON.parse-in-try/catch, the `!raw` and `!current.uid`
+		// null gates, reshape defaults, seek clamp, and the D-11 repeatMode migration) now lives in
+		// parsePlayerState — which returns null for EVERY one of the old early-return cases, so the
+		// single `if (!parsed) return;` below is behavior-identical to the old three early-returns.
+		const parsed = parsePlayerState(localStorage.getItem(STATE_KEY));
+		if (!parsed) return;
+		const target = parsed.current;
+		const seek = parsed.seek;
+		this.queue = parsed.queue;
+		this.shuffle = parsed.shuffle;
+		this.repeatMode = parsed.repeatMode;
+		// quick-261007-abq3: the persisted snapshot can carry a STALE quality (saved before a
+		// replace, or before abq existed). The download record is the truth about the file on
+		// disk — refresh from it. library.load() is idempotent; restore() runs before the app
+		// layout's load() call, so ensure it here.
+		library.load();
+		this.current = this.applyDownloadQuality(target);
+		// quick-260712-hm9: guarantee a NON-NULL Up-Next anchor for the restored run. restore() never
+		// calls play(), so before this the anchor stayed null on every reload/PWA reopen — and a null
+		// anchor makes NowPlaying's clamp fall back to the CURRENT index (ci-fallback), so each just-
+		// played song dropped out of the list the instant `current` auto-advanced. A persisted anchor
+		// (fresh-click session that reloaded) restores verbatim to keep its exact pre-current history;
+		// absent (a resumed run, or a legacy blob) anchors at the restored current so played songs
+		// accumulate from the resume point. (Genuinely-absent-anchor ci-fallback in NowPlaying — LSW-03
+		// — is untouched: it only fires when upNextAnchorUid is still null, which no longer happens here.)
+		this.upNextAnchorUid = parsed.anchorUid ?? target.uid;
+		// cover-hero-mediacard-missing (Issue 2 + Issue 1): the restore path never calls play(), so
+		// without this the OS media card had no metadata on a PWA reopen → it fell back to the bare
+		// app name once the user resumed. Seed the ONE cover field (mirrors play()'s sync seed: track
+		// cover → name cache → uid cache, quick-261020-latest) so the hero/nowbar paint any known cover, THEN write the
+		// media metadata from the restored track so title/artist are present the moment playback resumes.
+		// quick-260915-w4f: the pin leads here too — a reload/PWA reopen must come back showing the
+		// cover the user chose, not the source thumbnail on target.cover.
+		// Phase 40 D-14 / Open Q5: a crowd pick ALREADY in the local cache is read here too (no fetch —
+		// the lookup runs on play only, D-16).
+		this.resolvedCover =
+			getPinnedCover(target.uid) ??
+			getCrowdCover(target.uid, target.artist, target.title) ??
+			target.cover ??
+			getCachedCover(target.artist, target.title) ??
+			(target.uid ? getCachedCoverByUid(target.uid) : null) ??
+			null;
+		this.syncMetadata();
+		// quick-261021-cov4 (user): proactive cover self-heal BEFORE first render.
+		// The fallback's winning source (e.g. Migu) may carry a wrong cover; the parallel
+		// cover chain (iTunes/JOOX/Migu priority) finds the right one. Run in background
+		// right at play() time — not waiting for Now Playing to open. Updates resolvedCover
+		// reactively when a better cover lands; superseded if the track changes.
+		if (target.uid) {
+			const healUid = target.uid;
+			const healGen = this.playGen;
+			void (async () => {
+				try {
+					const better = await resolveCoverForTrack(target);
+					// Still the same track and generation? Then adopt the better cover.
+					if (this.playGen !== healGen || !this.current || this.current.uid !== healUid) return;
+					if (better && hasHttpsScheme(better) && better !== this.resolvedCover) {
+						this.resolvedCover = better;
+						// quick-261114-fsync: a committed auto-layer cover change syncs into the
+						// downloaded file's tags too (bounded — see syncCoverToDownloadedFile).
+						this.syncCoverToDownloadedFile(healUid, better);
+					}
+				} catch {
+					// Never-throw: a failed heal leaves the existing cover in place.
+				}
+			})();
+		}
+		this.loading = true;
+		// debug-share-card-play-dead-replay: the supersedence guard armTrack already carries. A user
+		// play() landing mid-restore (a share CTA tap, or a cold-start deep link's warm arrival —
+		// `loading` is true here, so D-27 classifies the arrival warm) bumps playGen; without this the
+		// late resolve wrote `current` and `audio.src` back to the RESTORED track over the one the user
+		// just chose. The newer play() owns `current`/`loading` from that moment, so `finally` must not
+		// clear them either.
+		const gen = this.playGen;
+		let superseded = false;
+		try {
+			// Offline-first restore: if the track is in library.downloads AND its blob is in
+			// IDB, skip the network ensureTrackDetails entirely. Lets the user resume a
+			// downloaded track with no network at all (the resolve would otherwise throw +
+			// the user would see the player stuck).
+			let resolved: Track = target;
+			let offlineBlob: Blob | null = null;
+			// quick-261008-dl1: resolve the download via downloadUidFor (exact uid, or the same
+			// song under another source's uid) — a downloaded copy always wins over streaming.
+			const dlUid = library.downloadUidFor(target);
+			if (dlUid) {
+				offlineBlob = await blobStore.get(dlUid).catch(() => null);
+				if (gen !== this.playGen) {
+					superseded = true;
+					return;
+				}
+			}
+			if (!offlineBlob) {
+				resolved = await ensureTrackDetails(target);
+				if (gen !== this.playGen) {
+					superseded = true;
+					return;
+				}
+				this.current = resolved;
+				const i = this.indexOf(target);
+				if (i >= 0) this.queue[i] = resolved;
+				// 31-D-08: an edge-cache hit resolved a url with no lyrics — fill the pane out of band
+				// so a warm restore is never worse than a cold one.
+				if (resolved.lrcUnresolved && !resolved.lrc) this.backfillLyrics(resolved);
+			} else {
+				const localTrack: Track = { ...target, detailsLoaded: true };
+				// quick-261007-abq3: the download record is the truth about the FILE on disk
+				// (abq/abq2 keep its quality fields accurate across replaces). `target` can carry
+				// a STALE quality — a queue/search object resolved before a replace, or a pre-abq
+				// record — so the record wins for quality display. Audio still comes from the blob.
+				this.current = this.applyDownloadQuality(localTrack);
+				// Restored a downloaded track from its blob (no network resolve) — enrich off the
+				// critical path so the now-playing lyrics view isn't empty (the persisted shape strips
+				// lrc/lrcUrl) and the hero/media card get the file's own cover. A PWA reopen gets the
+				// same embedded-first treatment as a fresh play; the uid + playGen guards inside make a
+				// late landing harmless if the user taps another song while it runs.
+				void this.enrichFromLocalFile(localTrack, offlineBlob, this.playGen);
+			}
+			if (!this.audio) return;
+			if (this.cachedBlobUrl) {
+				URL.revokeObjectURL(this.cachedBlobUrl);
+				this.cachedBlobUrl = null;
+			}
+			let src: string;
+			if (offlineBlob) {
+				this.cachedBlobUrl = URL.createObjectURL(offlineBlob);
+				src = this.cachedBlobUrl;
+			} else if (resolved.audioUrl) {
+				src = resolved.audioUrl;
+			} else {
+				return;
+			}
+			const audio = this.audio;
+			// Mark the saved seek-time as PENDING so the single loadedmetadata listener (added
+			// in attach()) applies it once metadata loads. seekFraction() owns the same pending
+			// slot — if the user manually seeks before metadata lands, their target wins.
+			// Bound to this track's uid: a tap on a DIFFERENT song before metadata lands must NOT
+			// inherit the restored position (quick-261008-audit).
+			this.pendingSeek = seek > 0 ? seek : null;
+			this.pendingSeekUid = this.pendingSeek != null ? (this.current?.uid ?? null) : null;
+			// 31-D-12: record provenance for the audio.error handler. restore() deliberately keeps its
+			// DIRECT assign (it is not routed through driveSrc) — routing it would newly subject a boot
+			// restore to the re-drive brake, a behaviour change in the freeze-sensitive core.
+			this.setSrcKind(offlineBlob ? 'download-blob' : this.srcKindFor(resolved));
+			// debug-share-card-play-dead-replay: the RESOLVED uid, not target's — a name stub (share
+			// carrier, Radio/Up-Next tile) resolves to a different uid, and recording the stub's would make
+			// the first resume re-drive the src through play() instead of simply resuming.
+			this.armedUid = this.current?.uid ?? null;
+			audio.src = src;
+			// If duration is already finite (cached load, identical src reset), apply
+			// immediately and clear so the listener doesn't double-fire.
+			if (Number.isFinite(audio.duration) && audio.duration > 0 && this.pendingSeek != null) {
+				audio.currentTime = Math.min(this.pendingSeek, audio.duration);
+				this.pendingSeek = null;
+				this.pendingSeekUid = null;
+			}
+		} catch {
+			// re-resolve failed — track stays in `current`; toggle() sees it is not armed and routes the
+			// user's tap through play() (debug-share-card-play-dead-replay), which IS the retry.
+		} finally {
+			if (!superseded) this.loading = false;
+		}
+	}
+
+	/**
+	 * 38-D-05 — seat a track RESOLVED + ARMED + PAUSED: one tap from sound. This is the same shape
+	 * `restore()` builds for a PWA reopen (splice → cover seed chain → syncMetadata → offline-first
+	 * resolve → direct `audio.src`), MINUS everything persistence-specific: no localStorage read, no
+	 * queue/shuffle/repeat install, no `upNextAnchorUid` re-anchor, no `pendingSeek` (a shared song
+	 * always starts at 0). `restore()` is deliberately left at a ZERO diff — four of its eighteen
+	 * steps are persistence-only and two are actively WRONG here, and it is the freeze-sensitive boot
+	 * path pinned by its own tests. A new method beats a boolean threaded through it.
+	 *
+	 * 🔴 It NEVER calls play(). 38-D-06: a share-link navigation is not an in-page gesture, so mobile
+	 * autoplay policy would reject the play anyway, and `quick-260809-38i` removed arrival autoplay
+	 * deliberately. 38-D-29 is why this exists as its own method rather than riding `spliceAndPlay`:
+	 * `playNext` AUTOPLAYS when the queue is empty, and a first-time visitor (nothing persisted →
+	 * `restore()` returns early → `current` is null) is exactly that case.
+	 *
+	 * 38-D-02: the shared song lands right after the OLD current via the shared `spliceAfterCurrent`,
+	 * so whatever the recipient had queued survives in order. It is NOT added to `manualUids` — same
+	 * pin:false reasoning as `spliceAndPlay`: an arrival carries no intent to keep the song across a
+	 * later queue reset.
+	 *
+	 * 38-D-04: the armed seat is persisted, so a reload / PWA reopen brings the SHARED song back
+	 * armed rather than the previous one. No new storage key — it rides the existing blob.
+	 *
+	 * Returns the resolved Track when `audio.src` was armed; null when the resolve produced no
+	 * playable src (a dead or wrong carrier — the caller falls back to the name resolve, 38-D-10) or
+	 * when a newer arm / a user `play()` superseded the call.
+	 */
+	async armTrack(track: Track): Promise<Track | null> {
+		if (!browser) return null;
+		const gen = ++this.armGen;
+		const playGenAtStart = this.playGen;
+		logAction('armTrack', { uid: track.uid, source: track.source });
+		// 38-D-29: the splice primitive DIRECTLY, never via playNext/spliceAndPlay — playNext plays
+		// the track itself when the queue is empty, which is the autoplay this method exists to avoid.
+		this.spliceAfterCurrent(track);
+		this.current = track;
+		// Seed the ONE cover field before any await (mirrors restore()/play(): pinned → track cover →
+		// name cache → uid cache, quick-261020-latest) so the hero/nowbar paint a known cover immediately, THEN write the
+		// media metadata so the OS card has title/artist the moment the user taps play —
+		// cover-hero-mediacard-missing, and quick-260915-w4f for why the pin leads the chain.
+		// Phase 40 D-14: a locally cached crowd pick ranks right behind the pin (read only, no fetch).
+		this.resolvedCover =
+			getPinnedCover(track.uid) ??
+			getCrowdCover(track.uid, track.artist, track.title) ??
+			track.cover ??
+			getCachedCover(track.artist, track.title) ??
+			(track.uid ? getCachedCoverByUid(track.uid) : null) ??
+			null;
+		this.syncMetadata();
+		this.loading = true;
+		this.persist();
+		// Set when a newer arm or a user play() lands mid-resolve. playStub's discipline: the newer
+		// call owns `current`/`loading` from that moment, so the `finally` must not clear them.
+		let superseded = false;
+		try {
+			// Offline-first, exactly as restore(): a recipient who already downloaded this song gets
+			// the blob and never touches the network.
+			// quick-261008-dl1: resolve via downloadUidFor (exact uid, or the same song under
+			// another source's uid) — a downloaded copy always wins over streaming.
+			let resolved: Track = track;
+			let offlineBlob: Blob | null = null;
+			const adlUid = library.downloadUidFor(track);
+			if (adlUid) {
+				offlineBlob = await blobStore.get(adlUid).catch(() => null);
+				if (gen !== this.armGen || playGenAtStart !== this.playGen) {
+					superseded = true;
+					return null;
+				}
+			}
+			if (!offlineBlob) {
+				resolved = await ensureTrackDetails(track);
+				if (gen !== this.armGen || playGenAtStart !== this.playGen) {
+					superseded = true;
+					return null;
+				}
+				this.current = resolved;
+				const i = this.indexOf(track);
+				if (i >= 0) this.queue[i] = resolved;
+				// 31-D-08: an edge-cache hit resolved a url with no lyrics — fill the pane out of band
+				// so an armed arrival is never worse than a cold play.
+				if (resolved.lrcUnresolved && !resolved.lrc) this.backfillLyrics(resolved);
+			} else {
+				const localTrack: Track = { ...track, detailsLoaded: true };
+				this.current = localTrack;
+				resolved = localTrack;
+				void this.enrichFromLocalFile(localTrack, offlineBlob, this.playGen);
+			}
+			if (!this.audio) return resolved;
+			if (this.cachedBlobUrl) {
+				URL.revokeObjectURL(this.cachedBlobUrl);
+				this.cachedBlobUrl = null;
+			}
+			let src: string;
+			if (offlineBlob) {
+				this.cachedBlobUrl = URL.createObjectURL(offlineBlob);
+				src = this.cachedBlobUrl;
+			} else if (resolved.audioUrl) {
+				src = resolved.audioUrl;
+			} else {
+				// 38-D-10: a dead / wrong / unresolvable carrier must not leave a dead row in the
+				// RECIPIENT's queue — the arrival module immediately re-arms by name over this seat.
+				// `current` stays seated on restore()'s precedent ("user can tap play to retry").
+				this.queue = this.queue.filter((x) => x.uid !== track.uid);
+				this.persist();
+				return null;
+			}
+			const audio = this.audio;
+			// 31-D-12: record provenance for the audio.error handler. Like restore(), this is a DIRECT
+			// assign, deliberately NOT routed through driveSrc — it is a one-shot INITIAL arm, not a
+			// recovery re-attach, and routing it would newly subject a share arrival to the re-drive
+			// brake (nowbar-freeze-reresolve-loop) in the freeze-sensitive core.
+			this.setSrcKind(offlineBlob ? 'download-blob' : this.srcKindFor(resolved));
+			this.armedUid = resolved.uid; // debug-share-card-play-dead-replay: resolved, not the stub (see restore())
+			audio.src = src;
+			// 38-D-14: warm-up stops HERE, at the src assign. No forced element reload, no preload
+			// bump, no blob pre-buffer (that shape caused api-fetch-flood-freeze) and no deferred seek
+			// slot — a shared song always starts at 0, unlike a restored one. The browser's own default
+			// metadata peek is all the head start this needs.
+			this.persist();
+			return resolved;
+		} catch {
+			// Resolve failed — same 38-D-10 outcome as an empty url: drop the dead row, keep the seat,
+			// hand the fallback back to the caller. Never throws.
+			this.queue = this.queue.filter((x) => x.uid !== track.uid);
+			this.persist();
+			return null;
+		} finally {
+			if (!superseded) this.loading = false;
+		}
+	}
+
+	/** Re-resolve audio URL for the CURRENT track (fresh upstream call) and re-attach to the
+	 *  audio element while preserving the user's intended seek position via pendingSeek.
+	 *  Used by the audio.error path when a seek triggers a stale-URL failure — we keep the
+	 *  same track, just refresh the URL. Generation-guarded by the pre-call playGen snapshot
+	 *  so a newer play() supersedes a stale retry. Never throws. */
+	private async reresolveCurrent() {
+		const current = this.current;
+		if (!current || !this.audio) return;
+		const audio = this.audio;
+		const desiredSeek = this.currentTime > 0 ? this.currentTime : null;
+		const myGen = this.playGen;
+		// Force a re-resolve by clearing detailsLoaded + audioUrl on a SHALLOW COPY (don't
+		// mutate the queue entry). PRESERVE lrc/lrcUrl: this is a stale-URL audio refresh of the
+		// SAME song, and lyrics are a stable per-song attribute — nulling them made the now-playing
+		// lyrics view (derived from player.current.lrc) wipe whenever a URL refresh fired (e.g. the
+		// download fetch saturating the shared CDN), and the best-effort re-fetch could fail.
+		const stub: Track = { ...current, detailsLoaded: false, audioUrl: null, proxyUrl: null };
+		try {
+			const resolved = await ensureTrackDetails(stub);
+			if (myGen !== this.playGen) return; // newer play() superseded
+			if (!resolved.audioUrl) return;
+			this.current = resolved;
+			const i = this.indexOf(stub);
+			if (i >= 0) this.queue[i] = resolved;
+			if (this.cachedBlobUrl) {
+				URL.revokeObjectURL(this.cachedBlobUrl);
+				this.cachedBlobUrl = null;
+			}
+			let src: string = resolved.audioUrl;
+			// Direct-first provenance: a re-resolved direct CDN URL records 'direct-url' so a
+			// later audio.error can fall back to the proxy; a proxy URL keeps 'url'.
+			let kind: SrcKind = this.srcKindFor(resolved); // 31-D-12 provenance, threaded into driveSrc below
+			// quick-261008-dl1: a downloaded copy (exact uid or same song, other source) always
+			// wins over the re-resolved stream URL. The WR-02 gen re-check stays AFTER the blob
+			// await even on a null blob — a newer play() in that window must not get its src
+			// clobbered by this stale re-resolve.
+			const rdlUid = library.downloadUidFor(resolved);
+			if (rdlUid) {
+				const rblob = await blobStore.get(rdlUid).catch(() => null);
+				if (myGen !== this.playGen) return; // WR-02: a newer play() landed mid-IDB-read
+				if (rblob) {
+					this.cachedBlobUrl = URL.createObjectURL(rblob);
+					src = this.cachedBlobUrl;
+					kind = 'download-blob';
+				}
+			}
+			this.pendingSeek = desiredSeek;
+			this.pendingSeekUid = desiredSeek != null ? current.uid : null;
+			// NOT an initial-load arming point (D-14): reresolveCurrent is a seek-recovery re-attach
+			// of the SAME track after a stale-URL error, not a fresh play. Arming the stall watchdog
+			// here would double-count a seek recovery as a load failure, so we deliberately do not.
+			// SINGLE AUTHORITY (debug-song-click-lrc-flood-noplay): re-attach through the braked setter
+			// so a reresolve that keeps re-driving the same dead src is bounded → STOP, not a flood.
+			if (!this.driveSrc(resolved.uid, src, kind)) return;
+			// Attempt synchronous seek if duration already loaded; else loadedmetadata listener
+			// will pick up pendingSeek when it lands.
+			if (Number.isFinite(audio.duration) && audio.duration > 0 && desiredSeek != null) {
+				audio.currentTime = Math.min(desiredSeek, audio.duration);
+				this.pendingSeek = null;
+				this.pendingSeekUid = null;
+			}
+			void audio.play().catch(() => {
+				/* autoplay restriction — user can tap play (seek-recovery, not a load stall) */
+			});
+		} catch {
+			/* re-resolve failed — leave audio in current state */
+		}
+	}
+
+	/** quick-261020-hqswitch — ADOPT A FRESHLY-DOWNLOADED UPGRADE for the loaded track.
+	 *  The user is streaming this song at a lower tier and just downloaded it at a
+	 *  higher one (TrackMenu's Download row / "Download from…" pick / DownloadControl);
+	 *  the caller invokes this AFTER downloadTrack returns 'saved', and when the pure
+	 *  gate (shouldAdoptDownloaded) agrees, the loaded src hot-swaps to the downloaded
+	 *  local file — same position, same play/pause state, queue untouched — instead of
+	 *  waiting for the next play() to take the offline-blob branch.
+	 *
+	 *  Shape-twin of reresolveCurrent above (same-track re-attach): playGen snapshot +
+	 *  re-check after the await, position preserved via pendingSeek, re-attach through
+	 *  the braked driveSrc with provenance 'download-blob'. Deliberate differences:
+	 *   - NO re-resolve and NO playGen bump — nothing about the user's intent changed;
+	 *     a newer play() superseding us is not an error, it is the bail condition, and
+	 *     it is SAFE: any fresh play() of this uid takes the offline-blob branch and
+	 *     lands on the new file by itself.
+	 *   - play() is re-issued ONLY if the element was playing — a paused track swaps
+	 *     silently so the eventual resume uses the better file at the same position.
+	 *   - NOT a stall-arming point either (D-14, same as reresolveCurrent): a local
+	 *     blob loads or errors, and the error path already owns corrupt-blob recovery
+	 *     (evict + re-stream) via the 'download-blob' provenance.
+	 *  D-18 stays intact: download-track never calls this — the UI callers orchestrate,
+	 *  so the download path still never touches player state. Never throws; returns
+	 *  whether the swap happened. A failed/no-op adopt leaves the current stream
+	 *  playing exactly as it was (the src is only assigned at driveSrc, after every
+	 *  fallible step has succeeded). */
+	async adoptDownloadedCurrent(uid: string): Promise<boolean> {
+		if (!browser) return false;
+		const audio = this.audio;
+		const cur = this.current;
+		if (!audio || !cur) return false;
+		// The download record is the authority on the saved file's tier (abq3); the
+		// loaded track's own tag is what is ACTUALLY streaming (for a previously
+		// downloaded track it is the OLD record's tier, snapshotted at play time —
+		// exactly the "before" this upgrade compares against).
+		const rec = library.qualityForDownload(uid);
+		const pos = audio.currentTime || 0;
+		const remaining =
+			Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration - pos : null;
+		if (
+			!shouldAdoptDownloaded({
+				currentUid: cur.uid,
+				downloadedUid: uid,
+				currentQuality: cur.quality ?? cur.qualityLabel ?? null,
+				downloadedQuality: rec?.quality ?? rec?.qualityLabel ?? null,
+				remainingSec: remaining
+			})
+		)
+			return false;
+		const myGen = this.playGen;
+		const wasPlaying = !audio.paused;
+		const blob = await blobStore.get(uid).catch(() => null);
+		if (!blob) return false; // record without bytes — nothing to swap to
+		// WR-02 posture: re-check supersedence AFTER the await, and that the element +
+		// track we snapshotted are still the live ones (a detach/remount or a track
+		// change mid-read makes this adopt stale, not wrong — just drop it).
+		if (myGen !== this.playGen) return false;
+		if (this.audio !== audio || this.current?.uid !== uid) return false;
+		// Create the new object URL BEFORE touching the old one: if driveSrc's brake
+		// trips, the still-attached src must keep a live URL (the halt owns recovery
+		// from there, and it pauses rather than re-driving).
+		const newUrl = URL.createObjectURL(blob);
+		const oldUrl = this.cachedBlobUrl;
+		this.pendingSeek = pos > 0 ? pos : null;
+		this.pendingSeekUid = this.pendingSeek != null ? uid : null;
+		if (!this.driveSrc(uid, newUrl, 'download-blob')) {
+			URL.revokeObjectURL(newUrl);
+			this.pendingSeek = null;
+			this.pendingSeekUid = null;
+			return false;
+		}
+		this.cachedBlobUrl = newUrl;
+		if (oldUrl && oldUrl !== newUrl) URL.revokeObjectURL(oldUrl);
+		// Synchronous seek when the (old) duration is known; else the loadedmetadata
+		// listener applies pendingSeek when the blob's metadata lands. Clamp: a
+		// different encode of the same song can run ~1s shorter.
+		if (Number.isFinite(audio.duration) && audio.duration > 0 && pos > 0) {
+			audio.currentTime = Math.min(pos, audio.duration);
+			this.pendingSeek = null;
+			this.pendingSeekUid = null;
+		}
+		this.currentTime = pos;
+		// Refresh the loaded track (and its queue entry) from the record so the
+		// quality the UI shows is the file now playing, and persist the snapshot.
+		const upgraded = this.applyDownloadQuality(cur);
+		if (upgraded !== cur) {
+			this.current = upgraded;
+			const qi = this.indexOf(cur);
+			if (qi >= 0) this.queue[qi] = upgraded;
+			this.persist();
+		}
+		logAction('download.adopt', { uid, from: cur.quality, to: upgraded.quality });
+		// A src change leaves the element paused; resume ONLY if it was playing
+		// (reresolveCurrent plays unconditionally because it is a seek recovery —
+		// here a deliberate pause must survive the swap).
+		if (wasPlaying) {
+			void audio.play().catch(() => {
+				/* autoplay restriction — the stream stays loaded; the user can tap play */
+			});
+		}
+		return true;
+	}
+
+	/** Best-effort lyric backfill for every path that lands a PLAYABLE track with NO lyric resolve:
+	 *  the OFFLINE-BLOB paths (a downloaded track plays from its IndexedDB blob with no network
+	 *  resolve, and the persisted/queued shape strips the volatile `lrc`/`lrcUrl`) and, since 31-D-08,
+	 *  an EDGE-CACHE HIT (the cached entry stores a url only, so the resolve short-circuits the source
+	 *  walk that produces `lrc` — see the `lrcUnresolved` marker). In both cases `current` lands
+	 *  without lyrics and the now-playing lyrics view (derived from player.current.lrc) shows empty,
+	 *  which would make a warm play visibly worse than a cold one.
+	 *
+	 *  This re-resolves lyrics OFF the playback critical path (never awaited, never blocks audio,
+	 *  never throws, never bumps a generation): on success it patches `lrc`/`lrcUrl` onto the SAME
+	 *  current track, guarded by uid + playGen so a track change mid-fetch discards the result. Skips
+	 *  entirely when lyrics are already present. The re-resolve shape carries `lrcUnresolved` so
+	 *  ensureTrackDetails BYPASSES the edge cache — a second cache read would just return the same
+	 *  lyric-less url and the backfill would be a no-op. */
+	private backfillLyrics(track: Track) {
+		// quick-261102-tvb: readLyrics — a pinned song already has its lyrics; never walk the network
+		// (and never embed the chain copy) for it.
+		if (readLyrics(track)) return; // already have lyrics — nothing to do
+		// quick-260919-3j1 (F3 / D-5) — OFFLINE, THIS WALK CANNOT SUCCEED, SO IT DOES NOT RUN.
+		// Both branches below are network walks (up to ~5 source rungs). With no network they are a
+		// guaranteed 0-for-N, and the lyrics pane shows nothing either way — so skipping them makes
+		// the pane fall straight to the existing `nowplaying.noLyrics` ("No lyrics for this track.")
+		// instead of showing nothing behind a doomed fetch. The honest degrade; no new string.
+		//
+		// `navigator.onLine === false` is the SAME idiom runFallback's offline gate uses (see the
+		// D-08 gate below), not the `online` store: this store already listens to the platform
+		// `online` event, so the truth source is identical and no new store edge is created. The
+		// `=== false` shape is load-bearing — an environment without the property must read as
+		// ONLINE, never as offline.
+		if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+		const uid = track.uid;
+		const myGen = this.playGen;
+		// quick-261019-lyrspin: signal the fetch window AFTER the offline bail above, so an
+		// offline track never shows the spinner (the honest degrade stands).
+		this.lyricsFetching = true;
+		// 37-D-03: a `device:` uid cannot use the ensureTrackDetails path at all — catalog.ts returns a
+		// device track untouched (34-D-01, deliberately ABOVE the isTrackReady staleness check, because
+		// a local file has no TTL and must never be judged stale). So the call this branch replaces was
+		// a guaranteed no-op: the input carries no lrc, the resolve hands it straight back, the `.then`
+		// bails. lyricByName is the same walk minus the Track — it is driven by artist/title only and
+		// returns a bare `string | null`, so there is no shape here that could hand a device track an
+		// audioUrl. Same two guards, same best-effort catch, same lrc-only patch.
+		if (isDeviceUid(uid)) {
+			void lyricByName(track.artist, track.title, combinedSignal(Player.LYRIC_WALK_TIMEOUT_MS))
+				.then((lrc) => {
+					if (myGen !== this.playGen) return; // track changed mid-walk — discard
+					if (this.current?.uid !== uid) return; // current moved on — discard
+					// quick-261019-lyrspin: the walk settled FOR the live track — close the
+					// fetch window even when no source had lyrics (the pane then shows no-lyrics).
+					this.lyricsFetching = false;
+					if (!lrc) return; // no source had lyrics for this name — leave as-is
+					this.current = { ...this.current, lrc };
+					this.embedLyricsIntoFile(uid, lrc); // quick-260919-3j1 (F3)
+				})
+				.catch(() => {
+					// quick-261019-lyrspin: same guard as the .then — a discarded walk must not
+					// clear the new track's own fetch signal.
+					if (myGen === this.playGen && this.current?.uid === uid) this.lyricsFetching = false;
+					/* lyric backfill is best-effort — audio already plays from the local file */
+				});
+			return;
+		}
+		void ensureTrackDetails({ ...track, detailsLoaded: false, lrcUnresolved: true })
+			.then((resolved) => {
+				if (myGen !== this.playGen) return; // track changed mid-fetch — discard
+				if (this.current?.uid !== uid) return; // current moved on — discard
+				// quick-261019-lyrspin: see the device branch above — close the fetch window
+				// even when the resolve produced no lyrics.
+				this.lyricsFetching = false;
+				if (!resolved.lrc) return; // resolve produced no lyrics — leave as-is
+				this.current = { ...this.current, lrc: resolved.lrc, lrcUrl: resolved.lrcUrl };
+				this.embedLyricsIntoFile(uid, resolved.lrc); // quick-260919-3j1 (F3)
+			})
+			.catch(() => {
+				// quick-261019-lyrspin: same guard as the .then — see the device branch.
+				if (myGen === this.playGen && this.current?.uid === uid) this.lyricsFetching = false;
+				/* lyric backfill is best-effort — audio already plays from the blob */
+			});
+	}
+
+	/**
+	 * quick-260919-3j1 (F3) — THE AUTOMATIC LYRIC FILE WRITER.
+	 *
+	 * When the network DOES produce lyrics for a song this app holds an offline copy of, put them in
+	 * the FILE, so the NEXT play needs no network for lyrics at all. Without this, a downloaded song
+	 * re-walks up to ~5 sources for its words on every single play, and is silent offline.
+	 *
+	 * WHY THIS CANNOT THRASH, in full — it is an automatic writer, so the argument has to be
+	 * complete:
+	 *   1. It can ONLY fire for a file whose own tags carried no usable LRC. `enrichFromLocalFile`
+	 *      gates `backfillLyrics` on exactly that (`local-tags.ts`, 37-D-07).
+	 *   2. It is SELF-TERMINATING. Once the LRC is in the file, the next play's `localEnrichment`
+	 *      finds it, `backfillLyrics` is never called for that uid again, and neither is this.
+	 *   3. ONE attempt per uid per session even when it fails — the uid joins the Set BEFORE the
+	 *      await, so a failure cannot retry on every subsequent play.
+	 *   4. Serialized app-wide by `syncFileTags`, so it can never run beside an editor save or a pin.
+	 *   5. `tagAudioBlob` refuses anything over TAG_MAX_BYTES (40 MB) with 'skipped-size', leaving
+	 *      the file byte-identical.
+	 * The cover side has its OWN bounded automatic writer (quick-261114-fsync,
+	 * `syncCoverToDownloadedFile` below): it fires only on a COMMITTED cover change — never per
+	 * render — and is one-shot per (download uid, url) per session, so the per-render `healCover`
+	 * probe path still cannot rewrite a 27 MB FLAC repeatedly. A cover pin remains a gesture write
+	 * (TrackMenu), never this path.
+	 *
+	 * OFF THE CRITICAL PATH, like `backfillLyrics` itself ("the template for every off-critical-path
+	 * patch in this store"): never awaited, never bumps a generation, never touches `audio.src`.
+	 *
+	 * ponytail: it runs WHILE the song plays, so a large FLAC pays one wasm pass mid-playback. The
+	 * blob `<audio>` is reading from was already materialised before this starts, so the rewrite
+	 * cannot break the current play. If device UAT ever hears a hiccup, move the call to the `ended`
+	 * handler rather than adding a timer.
+	 */
+	private embedLyricsIntoFile(uid: string, chainLrc: string): void {
+		// quick-261114-fsync: TWIN-AWARE target. The song may be PLAYING under source B's uid while
+		// its downloaded file sits under source A's — the exact-uid checks below used to miss that
+		// copy entirely, so its file never learned the lyrics. `library.downloadUidFor` resolves the
+		// twin via isSameShelfSong; the exact-uid `isDownloaded` stays as the fallback for a caller
+		// whose uid is not the current track.
+		const cur = this.current;
+		const dlUid =
+			cur && cur.uid === uid
+				? (library.downloadUidFor(cur) ?? (library.isDownloaded(uid) ? uid : null))
+				: library.isDownloaded(uid)
+					? uid
+					: null;
+		if (!dlUid) return; // nothing to write into
+		// quick-261102-tvb (DECISIONS.md §9): THE lyric pick — a user pin outranks the chain result on
+		// the file too (this auto-embed used to write the chain LRC over a pinned song's file).
+		// quick-261114-fsync: the pin is looked up under the DOWNLOAD uid first (that is the record
+		// the file belongs to), then the playing uid.
+		const lrc = getPinnedLyrics(dlUid) ?? getPinnedLyrics(uid) ?? chainLrc;
+		if (!lrc) return;
+		// Belt-and-braces: `retagOne` refuses a `device:` uid as its FIRST statement. An imported file
+		// is the USER'S file — never written, renamed, moved or deleted. quick-261114-fsync: the
+		// exclusion is judged on the DOWNLOAD uid — the file that would actually be rewritten.
+		if (isDeviceUid(dlUid)) return;
+		if (this.lyricEmbedTried.has(dlUid)) return;
+		this.lyricEmbedTried.add(dlUid); // BEFORE the await — a failure must not retry on every play
+		// prewarm.ts's MAX_TRACKED_UIDS idiom: clear wholesale on overflow. Forgetting a key costs one
+		// redundant attempt, which is cheaper than an LRU nobody will maintain.
+		if (this.lyricEmbedTried.size > Player.MAX_LYRIC_EMBEDS) this.lyricEmbedTried.clear();
+		const own = library.downloads.find((d) => d.uid === dlUid);
+		if (!own) return;
+		// D-7: the SAME entry construction the Settings sweep and the track-menu pins use.
+		// `library.applyMetadata` persists an editor edit into library.downloads, so `dnTitle` here
+		// reproduces the user's own edit, not the catalog string. RAW artist/title for the cover cache
+		// lookup — the name layer is matchKey'd on catalog metadata. NO `filename`: the sticky base
+		// recorded in blob-store is what keeps a user-typed name from being reverted.
+		void syncFileTags({
+			uid: dlUid,
+			title: names.dnTitle(own.title, own.artist),
+			artist: names.dnArtist(own.artist),
+			album: names.zhLock(own.album),
+			cover: readCoverByUidOrName(dlUid, own.artist, own.title),
+			lyrics: lrc
+		})
+			.then((r) => logAction('lyrics.embed', { uid: dlUid, result: r }))
+			.catch(() => {
+				/* never-throws by contract; the catch is what guarantees it cannot escape into playback */
+			});
+	}
+
+	/** quick-260919-3j1: one automatic embed attempt per uid per session. PLAIN field, not `$state` —
+	 *  the house convention for an internal budget the UI never reads reactively
+	 *  (`consecutiveFailures` / `playGen` are the precedent). */
+	private lyricEmbedTried = new Set<string>();
+	private static MAX_LYRIC_EMBEDS = 200;
+
+	/** quick-261116-lyrux: one automatic translated-lyric sync attempt per `${dlUid}|${lang}`
+	 *  per session. PLAIN field, same house convention as `lyricEmbedTried` above. */
+	private translatedSyncTried = new Set<string>();
+	private static MAX_TRANSLATED_SYNCS = 200;
+
+	/**
+	 * quick-261116-lyrux (Fix 3) — THE AUTOMATIC TRANSLATED-LYRIC FILE WRITER.
+	 *
+	 * When a lyrics translation COMPLETES for the now-playing song (NpLyrics calls this at
+	 * the exact moment its trCache freezes — every chunk genuine, never a partial), a
+	 * downloaded copy's embedded lyrics should learn the translation, the way the chain
+	 * LRC does via `embedLyricsIntoFile` above. Hector's expectation, stated plainly: the
+	 * translated lyrics ARE the song's lyrics now, so the file carries them.
+	 *
+	 * WHY THIS CANNOT THRASH:
+	 *   1. ONE attempt per (download uid, target lang) per session — the key joins the Set
+	 *      BEFORE the write, so a pane remount / cache-hit replay cannot rewrite the file
+	 *      twice; a DIFFERENT target language is a new key and syncs once more.
+	 *   2. A lyric PIN outranks a translation on the file too (DECISIONS.md §9, the same
+	 *      precedence embedLyricsIntoFile applies): a pinned song's file keeps its pin.
+	 *   3. Twin-aware like the embed: the file may live under another source's uid
+	 *      (`library.downloadUidFor`); the entry is built from the DOWNLOAD record.
+	 *   4. Device files are never touched (judged on the DOWNLOAD uid).
+	 *   5. `retagOne`'s already-tagged comparison makes a write whose LRC already matches
+	 *      the file's a no-op, so even a fresh session's replay costs no codec pass.
+	 *   6. Serialized app-wide by `syncFileTags`; fire-and-forget, never throws — a tag
+	 *      failure leaves the file's existing lyrics standing and playback untouched.
+	 *
+	 * The LRC arrives REBUILT by the caller (original timestamps + translated texts, via
+	 * `serializeLRC`) — the RetagEntry.lyrics contract is raw LRC, and this writer does
+	 * no lyric arithmetic of its own. The texts are the pane's RAW translation column
+	 * (the target-language output), NOT the display script-locked render: the lock is a
+	 * display preference re-applied at parse time on every read.
+	 */
+	syncTranslatedLyricsToFile(uid: string, lang: string, lrc: string): void {
+		try {
+			if (!lrc) return;
+			const cur = this.current;
+			const dlUid =
+				cur && cur.uid === uid
+					? (library.downloadUidFor(cur) ?? (library.isDownloaded(uid) ? uid : null))
+					: library.isDownloaded(uid)
+						? uid
+						: null;
+			if (!dlUid) return; // nothing to write into
+			if (isDeviceUid(dlUid)) return; // an imported file is the USER'S file — never written
+			// A user pin is an explicit lyric choice; a translation never overwrites it.
+			if (getPinnedLyrics(dlUid) ?? getPinnedLyrics(uid)) return;
+			const key = `${dlUid}|${lang}`;
+			if (this.translatedSyncTried.has(key)) return;
+			this.translatedSyncTried.add(key); // BEFORE the write — see point 1 above
+			// prewarm.ts's MAX_TRACKED_UIDS idiom, same as lyricEmbedTried.
+			if (this.translatedSyncTried.size > Player.MAX_TRANSLATED_SYNCS) this.translatedSyncTried.clear();
+			const own = library.downloads.find((d) => d.uid === dlUid);
+			if (!own) return;
+			// D-7 entry construction, identical to embedLyricsIntoFile's (see its comment).
+			void syncFileTags({
+				uid: dlUid,
+				title: names.dnTitle(own.title, own.artist),
+				artist: names.dnArtist(own.artist),
+				album: names.zhLock(own.album),
+				cover: readCoverByUidOrName(dlUid, own.artist, own.title),
+				lyrics: lrc
+			})
+				.then((r) => logAction('lyrics.translatedSync', { uid: dlUid, lang, result: r }))
+				.catch(() => {
+					/* never-throws by contract; the catch keeps it out of playback */
+				});
+		} catch {
+			// Best-effort — a failure leaves the file's existing lyrics standing.
+		}
+	}
+
+	/** quick-261114-fsync: one automatic cover sync attempt per `${dlUid}|${url}` per session.
+	 *  PLAIN field, same house convention as `lyricEmbedTried` above. */
+	private coverFileSyncTried = new Set<string>();
+	private static MAX_COVER_FILE_SYNCS = 200;
+
+	/**
+	 * quick-261114-fsync — THE AUTOMATIC COVER FILE WRITER, the cover counterpart of
+	 * `embedLyricsIntoFile` above.
+	 *
+	 * When an AUTO-layer cover change COMMITS for the now-playing song (a chain resolve, an iTunes
+	 * preference, a verified heal, an adoptCover promotion, the restore-time proactive heal), the
+	 * downloaded file's embedded art should learn it too — otherwise the file keeps stale art in
+	 * every other player forever, and only an explicit pin gesture ever updated it.
+	 *
+	 * WHY THIS CANNOT THRASH — the per-render fear that kept the cover side writer-less:
+	 *   1. Callers fire ONLY at commit points (a new url has just landed in `resolvedCover`), never
+	 *      from a render or a probe.
+	 *   2. ONE attempt per (download uid, url) per session — the key joins the Set BEFORE the write,
+	 *      so a heal/adopt loop re-offering the same url cannot rewrite a 27 MB FLAC twice; a
+	 *      genuinely DIFFERENT new cover is a new key and syncs once more.
+	 *   3. A pin/crowd CHOSEN cover never syncs here: a pin is the user's own gesture and TrackMenu's
+	 *      writeTagsForGesture already writes the file for it; a crowd arrival is not the user's own
+	 *      change at all.
+	 *   4. Twin-aware like the lyric embed: the file may live under another source's uid
+	 *      (`library.downloadUidFor`), and the entry is built from the DOWNLOAD record, so the
+	 *      rewrite carries the record's own display names — never the playing twin's catalog echo.
+	 *   5. `lyrics` passes the record's current read (pin → record lrc) when there is one and is
+	 *      OMITTED otherwise — the retag contract: omission preserves the file's own lyrics.
+	 *   6. Serialized app-wide by `syncFileTags`; device files are never touched (the exclusion is
+	 *      judged on the DOWNLOAD uid, the file that would actually be rewritten).
+	 *
+	 * Fire-and-forget, never throws — it is called from commit sites that include an <img> onload
+	 * handler's call chain (adoptCover).
+	 */
+	private syncCoverToDownloadedFile(uid: string, url: string): void {
+		try {
+			if (!hasHttpsScheme(url)) return; // only a real remote cover is worth embedding
+			const cur = this.current;
+			if (!cur || cur.uid !== uid) return; // the commit was for a superseded track — discard
+			if (isDeviceUid(uid)) return; // an imported file is the USER'S file — never written
+			// A chosen cover (pin ?? crowd) is not an auto-layer change — see point 3 above.
+			if (getPinnedCover(uid) ?? getCrowdCover(uid, cur.artist, cur.title)) return;
+			const dlUid = library.downloadUidFor(cur);
+			if (!dlUid) return; // no downloaded copy — nothing to write into
+			if (isDeviceUid(dlUid)) return; // the DOWNLOAD twin is an import — never written
+			const key = `${dlUid}|${url}`;
+			if (this.coverFileSyncTried.has(key)) return;
+			this.coverFileSyncTried.add(key); // BEFORE the write — see point 2 above
+			// Same wholesale-clear overflow idiom as lyricEmbedTried.
+			if (this.coverFileSyncTried.size > Player.MAX_COVER_FILE_SYNCS) this.coverFileSyncTried.clear();
+			const rec = library.downloads.find((d) => d.uid === dlUid);
+			if (!rec) return;
+			// NO `filename`: the sticky base recorded in blob-store keeps a user-typed name.
+			void syncFileTags({
+				uid: dlUid,
+				title: names.dnTitle(rec.title, rec.artist),
+				artist: names.dnArtist(rec.artist),
+				album: names.zhLock(rec.album),
+				cover: url,
+				lyrics: readLyrics(rec) ?? undefined
+			})
+				.then((r) => logAction('cover.fileSync', { uid: dlUid, result: r }))
+				.catch(() => {
+					/* never-throws by contract; the catch keeps it out of the cover commit paths */
+				});
+		} catch {
+			// Best-effort — a failure leaves the file's existing art standing.
+		}
+	}
+
+	/**
+	 * EMBEDDED-FIRST enrichment for a track served from local bytes (37-D-04). Files this app
+	 * downloads carry both a FrontCover picture and the raw LRC, so for the common case everything
+	 * the now-playing surfaces need is already on the device and needs no network at all.
+	 *
+	 * The wasm decode is the ZERO-NETWORK path and it is the GATE: the name-based fallbacks fire only
+	 * for whichever of {lyric, cover} the file did NOT supply, and only AFTER the read settles.
+	 * Running them concurrently with it would fire calls the file's own tags then make redundant —
+	 * the opposite of this project's standing API-call-reduction posture. The two fallbacks do run in
+	 * parallel with each other.
+	 *
+	 * Bounded by construction: it fires from play() and restore() for `this.current` ONLY — never per
+	 * row, never from prefetchNext (that would turn one decode per play into two, and the Emscripten
+	 * heap grows but never shrinks) — and localEnrichment memoises the result, negative included, so
+	 * one uid is decoded at most once a session. Never rejects.
+	 *
+	 * LOOP SAFETY: this writes `current.lrc` and `resolvedCover` and NOTHING else. It never touches
+	 * audio.src, never bumps a generation, and never sets `detailsLoaded: false` / clears `audioUrl`
+	 * — those are reresolveCurrent's inputs, and a local file has no url to re-resolve. Same shape as
+	 * backfillLyrics, which is the template for every off-critical-path patch in this store.
+	 */
+	/**
+	 * quick-261007-abq3 — for a downloaded uid, the download record's quality fields describe the
+	 * FILE on disk (abq/abq2 keep them accurate across replaces). The passed track can carry a
+	 * STALE quality — the persisted restore snapshot, a queue/search object resolved before a
+	 * replace, or a pre-abq record — so the record wins for quality display. Returns the input
+	 * unchanged when there is no record or the record carries no quality info (never blanks a
+	 * good label). Pure, never throws.
+	 * quick-261008-dl1: resolves through library.downloadUidFor, so a track played under another
+	 * source's uid still reports its downloaded copy's quality.
+	 */
+	private applyDownloadQuality(t: Track): Track {
+		try {
+			const dlUid = library.downloadUidFor(t);
+			if (!dlUid) return t;
+			// quick-261102-to0 (DECISIONS.md §7): the shared merge (display-quality), not a hand copy.
+			return withDownloadQuality(t, library.qualityForDownload(dlUid));
+		} catch {
+			return t;
+		}
+	}
+	private async enrichFromLocalFile(track: Track, blob: Blob, myGen: number): Promise<void> {
+		try {
+			const uid = track.uid;
+			const found = await localEnrichment(uid, blob);
+			if (myGen !== this.playGen) return; // a newer play() superseded — discard
+			const cur = this.current;
+			if (!cur || cur.uid !== uid) return; // current moved on — discard
+			// The file's own LRC wins, and only when the track has none yet.
+			if (found.lrc && !cur.lrc) this.current = { ...cur, lrc: found.lrc };
+			// quick-260915-w4f: a local file's embedded art is the DEFAULT truth for a device track, but
+			// an explicit pin is still the user's — so it yields.
+			// 37-D-05: QUERY-ONLY. MediaStore maps an untagged file's artist to '', which degenerates
+			// every name-based lookup — the file's own tags can recover it. This local is what the
+			// fallbacks below are asked with; `this.current` is deliberately NOT renamed, because a
+			// re-import carries only `cover` across (device-import syncDevice) and a persisted
+			// recovered name would be silently blanked by the next scan.
+			// quick-261008-audit: build it BEFORE the art block — the cov1 cache write below must use
+			// the RECOVERED identity, or an untagged file's art lands under matchKey('', title):
+			// invisible to same-song lookups and colliding across artists' untagged same-title files.
+			const q: Track = {
+				...cur,
+				artist: found.artist || cur.artist,
+				title: found.title || cur.title
+			};
+			if (found.art && !getPinnedCover(uid)) {
+				// The full-res `data:` URL stays MEMORY-ONLY, and that is a hard constraint, not a
+				// preference: writeCoverBoth / setCachedCover have no scheme and no length guard, the
+				// cover cache is localStorage sized for ~80-150-byte https entries, and its writer
+				// swallows QuotaExceededError — so ONE ~400 KB `data:` URL in there silently stops all
+				// cover caching for the session. resolvedCover is not persisted either (player-persist
+				// never reads it). syncMetadata builds a FRESH MediaMetadata through buildArtwork, which
+				// passes a `data:` cover to the OS card as a single entry.
+				this.resolvedCover = found.art;
+				this.syncMetadata();
+				// quick-261008-cov1 (Hector 2026-10-08 directive: a fetched-and-shown cover shows
+				// EVERYWHERE the song appears): this embedded front cover is now SHOWING on the hero,
+				// the nowbar and the media card — so propagate a quota-safe DOWNSCALED copy
+				// (~10 KB JPEG) to the shared uid + name cache layers. Every row for this song repaints
+				// with the same art through the coverVersion() signal instead of its gradient, and the
+				// hero keeps the full-res memory-only copy. Generation-guarded: a newer play()
+				// superseding mid-downscale discards, exactly like the enrichment above.
+				const small = await downscaleCoverImage(found.art).catch(() => null);
+				if (myGen !== this.playGen) return;
+				const still = this.current;
+				if (!still || still.uid !== uid) return;
+				if (small) {
+					writeCoverBoth(uid, q.artist, q.title, small);
+					library.fillEntryCovers(uid, q.artist, q.title, small);
+				}
+			}
+			// Only for what the file did not supply. postPlayCover's own renderable gate additionally
+			// skips the chain when an https cover was already seeded from the cache.
+			if (!found.art) this.postPlayCover(q, myGen);
+			if (!found.lrc && !cur.lrc) this.backfillLyrics(q);
+			logAction('enrich.local', { uid, lrc: !!found.lrc, art: !!found.art, cached: !!found.cached });
+		} catch {
+			/* embedded enrichment is best-effort — audio already plays from the local file */
+		}
+	}
+
+	/** Timestamp (Date.now()) of the most recent seekFraction() call. The audio.error handler
+	 *  ignores errors that fire within SEEK_ERROR_WINDOW_MS of a seek — seeking past the
+	 *  buffered range on some CDNs raises an error the browser recovers from, but our
+	 *  cross-source fallback was treating that as a playback failure + calling play() again,
+	 *  which reset currentTime to 0 (visible to user as "seek restarted the song"). */
+	private lastSeekAt = 0;
+	private static SEEK_ERROR_WINDOW_MS = 1500;
+
+	/**
+	 * Initial-load stall watchdog (PLAY-07 / D-13, D-14). A freshly started track whose src was
+	 * just set but that produces NO `playing`/`timeupdate` within STALL_TIMEOUT_MS is treated as a
+	 * failure and routed into runFallback (D-13). This is the detector for the iOS "play() rejected
+	 * after an async src swap, no audio, no error event" case (Pitfall 3) — the rejection itself is
+	 * swallowed by .catch, so the watchdog is what actually notices the silent stop.
+	 *
+	 * D-14 mid-track distinction: `hasPlayedSinceSrc` is set false the instant a NEW src is
+	 * assigned for initial load and flipped true on the first `playing`/`timeupdate`. The watchdog
+	 * only fails over when it is still false — a buffer-dry stall AFTER playback started (timeupdate
+	 * already fired) is buffering, not a load failure, and must NOT fail over.
+	 */
+	private static STALL_TIMEOUT_MS = 15000;
+	/**
+	 * RESOLVE-PHASE WATCHDOG (26-06 / gap-1 BLOCKER, RESOLVE-02). Distinct from STALL_TIMEOUT_MS: the
+	 * stall watchdog covers the audio LOAD phase (src set, no `playing`); THIS bounds the earlier
+	 * NETWORK RESOLVE phase — the `ensureTrackDetails(track)` await in play(), BEFORE any src is set. A
+	 * tapped song whose upstream resolve stalls (a qijieya/qq flake) used to sit in `loading` up to
+	 * apiFetch's ~25s REQUEST_TIMEOUT_MS with NO cross-source fallback and NO skip (the UAT hang: a
+	 * fresh qq tap logged `play` then nothing — no resolve.ok/fail/fallback/skip — for 23s). On elapse
+	 * the in-flight resolve is aborted and the SAME song is routed into the existing kuwo-first
+	 * cross-source walk (runFallback → tryFallback → handleTotalFailure auto-skip). Intended band ~5-8s:
+	 * comfortably UNDER the ~25s apiFetch timeout (so a stall fails fast) and comfortably OVER a healthy
+	 * sub-2s resolve (so the happy path never trips it and never fans out). Private static tunable. */
+	private static RESOLVE_WATCHDOG_MS = 6000;
+	/**
+	 * FAILURE-EPISODE BUDGET (debug `slow-cold-start-first-playing`). RESOLVE_WATCHDOG_MS bounds only
+	 * play()'s FIRST resolve; it then hands the failure to runFallback → tryFallback, which had NO
+	 * deadline of any kind — a SERIAL walk over up to 7 sources, each doing searchAll +
+	 * ensureTrackDetails bounded only by apiFetch's ~25s REQUEST_TIMEOUT_MS (theoretical worst case
+	 * 7 x 50s). It aborted only on a playGen change, never on elapsed time. So the "fail fast" guard
+	 * handed off to something five times slower than the hang it was protecting against.
+	 *
+	 * MEASURED on-device (2026-09-12): one walk took 29,278ms (cold tap → first sound 56,369ms), and
+	 * a backgrounded walk left 26,016ms of TOTAL SILENCE after a track ended — which is exactly what
+	 * the user reports as "播播下會停". The player never stopped; it was blocked in here.
+	 *
+	 * 8s sits just above the observed healthy two-source walk and far below the unbounded tail. On
+	 * elapse the walk is aborted and the song is SKIPPED — deliberately WITHOUT burning the
+	 * consecutive-failure budget, because "we ran out of time" is NOT "this song failed everywhere",
+	 * and miscounting it would march toward the FAILURE_CAP loop-guard STOP. Never STOP, always SKIP
+	 * (the standing policy — see `nowbar-freeze-reresolve-loop`).
+	 *
+	 * quick-261006-kiri: raised 8s → 20s. Measured 2026-10-06: a SINGLE source rung (searchAll +
+	 * ensureTrackDetails) takes 5–10s on the CN sources (netease 2.7s search + 7.6s resolve incl.
+	 * lyric walk; kuwo 6.3s; joox 6.0s), so the 8s budget was aborting the walk BEFORE the first
+	 * source even finished — a QQ VIP track with no playable URL ("a kiridiculous distance": 3
+	 * tracks) never got its netease/kuwo fallback, and the user saw the song skipped as "failed".
+	 * 20s covers a healthy 2–3 source walk; the abort-then-skip semantics are unchanged. */
+	private static FALLBACK_BUDGET_MS = 20000;
+	/**
+	 * 37-D-03: deadline on the device lyric walk. Lyrics are decoration — audio is already playing
+	 * from the local file — but the walk is up to ~5 single-source rungs and each apiFetch carries a
+	 * ~25s ceiling of its own, so with no bound of its own it could hold a connection far longer than
+	 * anything on this path should. Sits above a healthy multi-rung walk and well under 5x25s. */
+	private static LYRIC_WALK_TIMEOUT_MS = 12000;
+	/**
+	 * DRY-GROW RECOVERY (user report 2026-09-12). When the queue empties, next() grows it and advances
+	 * into the new tracks. If the grow returned NOTHING the old code simply fell out of the `.then`
+	 * and playback ended in total silence — no advance, no notice, no state change. The action log
+	 * showed `ended → grow.request → grow.added count:0` and then five minutes of nothing. The comment
+	 * there claimed "the reactive never-stop chain owns the genuine stop", but no such handling
+	 * existed; a dry grow was an unguarded dead end, which is a never-stop violation.
+	 *
+	 * An empty grow is usually TRANSIENT (an upstream flake, or — as in that capture — kuwo 526ing on
+	 * a broken TLS cert while it is first in the resolve floor), so retry a bounded number of times
+	 * before giving up. Only after those fail is this a GENUINE stop, and then it must be VISIBLE:
+	 * the same sticky Retry notice the loop-guard uses, never silence.
+	 */
+	private static DRY_GROW_RETRY_MS = 5000;
+	private static DRY_GROW_MAX_RETRIES = 2;
+	/** Consecutive dry grows this episode. Reset by a real `playing` and by recoverFromStop. Plain
+	 *  field — internal budget, never read reactively. */
+	private dryGrowRetries = 0;
+	private dryGrowTimer: ReturnType<typeof setTimeout> | null = null;
+	private stallTimer: ReturnType<typeof setTimeout> | null = null;
+	/** True once the current src has produced audio (a `playing`/`timeupdate`); false from the
+	 *  moment a new initial-load src is set. Distinguishes initial-load stall (D-13) from a
+	 *  mid-track buffer-dry (D-14). Plain field — internal watchdog state, not reactive. */
+	private hasPlayedSinceSrc = false;
+
+	/** HTMLMediaElement.HAVE_CURRENT_DATA (readyState >= 2) — bytes for the current position are
+	 *  present. Used to distinguish "loaded but paused (autoplay-policy rejected)" from a genuine
+	 *  no-bytes load stall (the autoplay-retry / watchdog-gating fix). Inlined as a private static so
+	 *  the store does not depend on the live element's enum at module scope. */
+	private static HAVE_CURRENT_DATA = 2;
+	/**
+	 * Autoplay-rejection retry guard (next-song-current-but-paused fix). On a NON-fresh advance
+	 * (auto-advance / next / failover) the user-activation from the long-ago tap is gone after the async
+	 * ensureTrackDetails resolve, so on mobile `audio.play()` REJECTS — the rejection is swallowed, no
+	 * `playing` fires, and the next (playable) track sits CURRENT-BUT-PAUSED. This records, per loaded
+	 * src, that play() did not start so a single event-driven re-`play()` may be attempted ONCE when
+	 * bytes are present (readyState >= HAVE_CURRENT_DATA → it's an autoplay-policy pause, not a load
+	 * stall). Generation-guarded by playGen and one-shot (cleared after the retry / on a new src / on a
+	 * real `playing`). Plain field — internal, never reactive.
+	 */
+	private autoplayRetryArmed = false;
+
+	/**
+	 * NEVER-STOP resume hysteresis (Hector 2026-11-19): true while a mid-song
+	 * `waiting` stall on a slow (China-CDN) source is being HELD — the element
+	 * was paused by holdForRebuffer() at the stall point and must not resume
+	 * until buffered-ahead is healthy again (see buffer-gate's
+	 * SLOW_RESUME_TARGET_SEC). Any sanctioned pause (pauseAudio — user /
+	 * MediaSession / sleep timer / route loss) cancels the hold: a human's
+	 * pause always outranks a machine's resume. Plain field — internal.
+	 */
+	private stallHold = false;
+
+	/**
+	 * EXTERNAL-PAUSE SELF-HEAL (autoadvance-pauses-after-1s). On Android Chrome a genuinely-playable
+	 * track — typically right after an auto-advance src swap — plays ~1s then gets PAUSED by an
+	 * external event (audio-focus loss to a transient notification sound, background/lock-screen power
+	 * throttle, or a transient suspend during the swap). The element fires a `pause` event but NO
+	 * `error`, so none of the load-time recovery (armStall/maybeRetryAutoplay) and none of the
+	 * `error`-path re-resolve engages — the track sits frozen at ~0:01 until a manual tap or a
+	 * foreground return re-issues play. The fix re-issues `audio.play()` from the `pause` listener,
+	 * but ONLY for an UNEXPECTED pause: the track must have actually played (hasPlayedSinceSrc), there
+	 * must be time remaining (not at/near end), and the pause must NOT have been deliberate.
+	 *
+	 * `deliberatePause` is set true by the FIVE sanctioned pause sources (user toggle, MediaSession
+	 * pause action, sleep-timer finishExpiry, offline handleOffline, audio-route loss
+	 * pauseForRouteLoss) via `pauseAudio()` immediately
+	 * before they call `audio.pause()`, and consumed (read+reset) inside the `pause` listener. Any
+	 * pause that arrives WITHOUT this flag is treated as external and self-healed. Plain field —
+	 * internal, never reactive.
+	 */
+	private deliberatePause = false;
+	/** Pending resume timer slot (debounced re-play). SIMPLIFY (debug-midplay-stall-background): the
+	 *  external-pause self-heal that used to set this was removed (it fought external audio-focus loss
+	 *  ~2×/sec — the voice-note interference). The slot + disarmResume() are retained as harmless
+	 *  cancel points (nothing sets it now) so the many disarmResume() call sites stay valid; a future
+	 *  resume mechanism can reuse it. */
+	private resumeTimer: ReturnType<typeof setTimeout> | null = null;
+
+	/** Sleep-timer fade-out interval (TIMER-01, D-01). On platforms that honour volume writes
+	 *  expiry ramps the volume down over ~10s then pauses; cleared on finish/abort. Plain field —
+	 *  internal fade lifecycle, never reactive. Mirrors the stallTimer clearInterval idiom. */
+	private fadeTimer: ReturnType<typeof setInterval> | null = null;
+	/** Coarse secondary minutes-deadline backstop (RESEARCH Assumption A1): catches the iOS
+	 *  screen-wake case where `timeupdate` stalled while locked. The `timeupdate` listener stays
+	 *  the authority; this is a belt-and-suspenders net armed via onSleepTimerSet(). */
+	private wakeTimer: ReturnType<typeof setTimeout> | null = null;
+
+	currentTime = $state(0);
+	/** 0 until loadedmetadata; never NaN. */
+	duration = $state(0);
+
+	/**
+	 * quick-260919-et3: the USER's volume level, [0,1]. Reactive — the desktop Nowbar slider reads
+	 * it — and the SINGLE SOURCE OF TRUTH for `audio.volume`. Nothing else may treat the live
+	 * element value as authoritative.
+	 *
+	 * D-02 (sleep-timer fade) is exactly why that rule exists. The fade used to snapshot
+	 * `audio.volume` into a private `preFadeVolume` at fade start and write it back on
+	 * finish/abort. With a user-facing control that snapshot is a clobber in both directions: a
+	 * volume change made mid-fade would be overwritten by the restore, and the fade would keep
+	 * ramping from a level the user had already left. So `preFadeVolume` is GONE — the fade ramps
+	 * FROM this field (re-read every 200ms tick, so a mid-fade change is picked up within one
+	 * tick and the ramp continues from the new level) and restores TO this field. The element is
+	 * a sink, never a source.
+	 *
+	 * Mute is the native `audio.muted` flag, deliberately NOT a volume write to 0 — the platform
+	 * already restores the level on unmute, so there is no "previous level" to remember here.
+	 *
+	 * iOS ignores volume writes entirely (reads stay 1); that is pre-existing and harmless, and
+	 * the UI that drives this is desktop/hover-only so it never reaches a touch device.
+	 */
+	volume = $state(1);
+	/** quick-260919-et3: native-mute flag, mirrored onto `audio.muted`. Unmuting restores `volume`
+	 *  because muting never touched it. */
+	muted = $state(false);
+
+	private audio: HTMLAudioElement | null = null;
+	/**
+	 * quick-261014-routefix: audio-output route-loss watcher (native becoming-noisy broadcast +
+	 * web devicechange shrink detector), started in attach(). Plain field — lifecycle handle,
+	 * never reactive.
+	 */
+	private routeWatch: AudioRouteWatcher | null = null;
+	private growing = false;
+	private growPromise: Promise<void> | null = null;
+	/**
+	 * uid of the track whose details are currently being pre-resolved by prefetchNext().
+	 * A plain field (NOT $state) — it must not trigger reactivity; it is a pure in-flight
+	 * dedupe guard so a second prefetchNext() for the same next track is a no-op.
+	 */
+	private prefetchingUid: string | null = null;
+	/** Aborts the in-flight prefetch when a newer one supersedes it (stale-resolve guard). */
+	private prefetchController: AbortController | null = null;
+	// BOUNDED NEXT-SONG BLOB PRE-BUFFER (reintroduced: bg-lockscreen-stall-noskip). The f7c2580 flood was
+	// the UNBOUNDED version — prebufferedUid was set ONLY on 200-OK, so a dead/varying-vkey URL re-fetched
+	// on every churn cycle (the FLAC flood that helped freeze the app). This version is BOUNDED so it
+	// gives the bg-stall protection WITHOUT the flood: prebufferedUid is claimed BEFORE the fetch and set
+	// on BOTH success AND failure → a URL is fetched AT MOST ONCE per uid, never re-fetched; single
+	// in-flight (a newer next aborts the prior); fired ONLY from the idle-armed prefetch walk, never
+	// on churn. Purpose: a backgrounded/locked src-swap plays LOCAL bytes with NO network byte-load that
+	// could silently hang (the bg stall). The offline-download blob path (cachedBlobUrl) is separate.
+	private prebufferedUid: string | null = null;
+	private prebufferedBlobUrl: string | null = null;
+	private prebufferController: AbortController | null = null;
+	/** bg-lockscreen-stall-noskip: one-shot per-src flag — a load stall retries the SAME song ONCE, then
+	 *  the next stall skips. Reset on a new src (play()) and on a real `playing`. Plain field. */
+	private stallRetried = false;
+	/** bg-lockscreen-stall-noskip (round 2, bg-stall-burndown-log-1): has audio been AUDIBLE during the
+	 *  current hidden stint? Set at hide-time from this.playing, set true by a real `playing` event, and
+	 *  cleared by a stall.skip (one bg skip per audible streak). While hidden WITHOUT audible playback,
+	 *  Android Chrome DEFERS media byte-loads entirely — `stalled` there is the platform's normal state,
+	 *  not a track fault, so recoverLoadStall must park instead of retry/skip. Plain field. */
+	private audibleThisHide = false;
+	/** bg-lockscreen-stall-noskip (round 2): a load-stall rescue was parked while hidden-and-silent;
+	 *  the visibilitychange(visible) handler re-runs it with a fresh retry budget. Plain field. */
+	private stallRecheckOnVisible = false;
+	private preloadedCover: HTMLImageElement | null = null;
+	private preloadedCoverUid: string | null = null;
+	private preloadedCoverUrl: string | null = null;
+	/**
+	 * Uids the user pinned as "manual" (Play Next / Add to Queue / reordered). These
+	 * survive a fresh-play regeneration; auto-grown + similar-generated tracks do not.
+	 * Plain Set (not $state) so Track objects stay clean — no origin field on Track.
+	 */
+	private manualUids = new Set<string>();
+	/**
+	 * Uids the user swiped out of Up-Next this session (Phase 17, QUEUE-05 / D-10). An internal
+	 * exclusion budget mirroring manualUids: a plain Set (NOT $state — never reactive, keeps Track
+	 * objects clean) that regenerate's buildSimilarQueue exclude set + ensureAhead's buildDiversePicks
+	 * `have` set both union in, so a swiped-away song does not regenerate back. Session-scoped: reset
+	 * on a fresh user play and NEVER persisted (a reload starts a clean session).
+	 */
+	private removedUids = new Set<string>();
+	/**
+	 * quick-260615-i9u (Feature B): cap on how many played entries are kept BEFORE the new current on
+	 * a fresh user play. The history prefix is sliced to the LAST HISTORY_CAP entries so endless
+	 * clicking never grows the queue unbounded (T-i9u-02). Private static for tunability.
+	 */
+	private static HISTORY_CAP = 50;
+	/**
+	 * quick-260615-i9u (Feature B): one-shot carrier of the captured pre-wipe history prefix
+	 * (everything up to AND including the prior current, capped to HISTORY_CAP). setQueue/setListQueue
+	 * capture it BEFORE they replace this.queue; the very next fresh play() consumes it ONCE via
+	 * weaveFreshHistory and nulls it. A non-fresh play() also nulls it so a capture left by a
+	 * setQueue/setListQueue that is NOT followed by a fresh play never leaks into a LATER fresh play.
+	 * NOT $state — an internal carrier, never read reactively.
+	 */
+	private pendingHistory: Track[] | null = null;
+	/**
+	 * quick-260618-fiz (Fix 4): one-shot carrier of the user's EXPLICIT queue entries (uid ∈
+	 * manualUids — added via playNext/addToQueue/reorder) captured from the prior queue BEFORE
+	 * setQueue/setListQueue wipes it. The next fresh play() re-weaves them right AFTER the seed
+	 * (preserveManual) so explicit picks survive a context switch while the prior AUTO/context tail
+	 * is dropped. manualUids stays the single provenance source — this is just the carrier of the
+	 * Track OBJECTS (the Set holds only uids). Consumed once per fresh play and nulled; a non-fresh
+	 * play also nulls it so a capture left by a setQueue NOT followed by a fresh play can't leak.
+	 * NOT $state — an internal carrier, never read reactively (mirrors pendingHistory).
+	 */
+	private pendingManual: Track[] | null = null;
+	/**
+	 * PLAY-RESILIENCE: uids confirmed UNPLAYABLE this session by the prefetchNext probe walk — a track
+	 * that resolved without an audioUrl, or whose audio URL fired a hard `error` during the silent
+	 * probe. nextPlayableIndex() routes past these, so next()/track-end advance never lands on a
+	 * known-dead up-next entry before it becomes current. Plain Set (NOT $state) mirroring the
+	 * removedUids discipline; session-scoped, never persisted, cleared on recoverFromStop/clearQueue.
+	 * A probe TIMEOUT does NOT add here (transient buffer stalls must not permanently sideline a
+	 * track) — only definitive no-url / error signals do. quick-260615-i9u: this IS now a reactive
+	 * SvelteSet (drop-in for Set — same add/delete/has/clear/size surface) so the Up-Next list
+	 * repaints the instant a uid is marked/unmarked, rendering a dimmed ✗ "skipped" marker. The
+	 * field stays PRIVATE; the component reads it only through the reactive isUnplayable() accessor
+	 * and mutates it only via retryUnplayable() (no arbitrary external mutation).
+	 */
+	private unplayableUids = new SvelteSet<string>();
+	/**
+	 * quick-260926-l69: the last skip cause per uid. Reactive (SvelteMap) because the Up Next row reads
+	 * it per-row to draw ✗ + the reason; session-scoped, never persisted. Cleared in lockstep with
+	 * `unplayableUids` (clearQueue / recoverFromStop / retryUnplayable / advanceTo's second chance /
+	 * handleDefinitiveFailure's promotion-undo) plus per-uid on a real `playing`. Private — read only
+	 * through skipReason().
+	 */
+	private skipReasons = new SvelteMap<string, SkipReason>();
+	/**
+	 * NEVER-STOP (quick-260630-q03): uids of dead tracks that have already been given their ONE
+	 * second-chance retry on advance. When current ends and the next candidate is in `unplayableUids`,
+	 * the advance re-resolves + replays it ONCE (a transient probe failure recovers this way) and
+	 * records the uid here so it is never retried again this session — a genuinely-dead track is then
+	 * skipped, so the retry can never become an infinite loop. Plain Set (NOT $state — only the dimmed
+	 * ✗ row needs reactivity, and that lives on `unplayableUids`), mirroring the manualUids/removedUids
+	 * side-state discipline. Session-scoped, never persisted. Cleared in lockstep with `unplayableUids`
+	 * (clearQueue / recoverFromStop) and per-uid on a real `playing` recovery + manual retryUnplayable,
+	 * so a recovered track is eligible for a fresh retry after a later transient blip.
+	 */
+	private retriedDeadUids = new Set<string>();
+
+	/**
+	 * PLAY-RESILIENCE strike counter (over-aggressive-skip fix). The prefetchNext probe walk no longer
+	 * marks a uid PERMANENTLY dead on the FIRST definitive failure (no-url resolve OR a hard probe
+	 * `error`) — because both the per-source URL probe and the offscreen probePlayable element are
+	 * SEPARATE fetches from the real <audio> byte fetch, a single transient timeout / edge 403 on a
+	 * signed URL / CORS blip was being misclassified as permanent death. Instead each definitive
+	 * failure records a strike here; only at STRIKE_CAP confirmed definitive failures is the uid
+	 * promoted into the reactive `unplayableUids` set (and the ✗ row drawn). A FIRST definitive failure
+	 * behaves like a probe TIMEOUT does — skip this advance walk, do NOT mark dead, retry on demand.
+	 *
+	 * Plain Map (NOT $state / SvelteSet) — it is internal loop-guard budget, never read reactively in
+	 * markup (only `unplayableUids` needs reactivity for the dimmed ✗ row), mirroring the
+	 * manualUids/removedUids side-state discipline. Cleared in lockstep with `unplayableUids`
+	 * (clearQueue / recoverFromStop / per-uid on retryUnplayable) plus dropped for the current track on
+	 * a real `playing` event so a recovered track resets cleanly. Session-scoped, never persisted.
+	 */
+	private unplayableStrikes = new Map<string, number>();
+	/**
+	 * Confirmed-definitive-failure strikes required before a uid is promoted into unplayableUids
+	 * (the over-aggressive-skip fix). Private static for tunability.
+	 *
+	 * 31-D-16: raised 2 → 3, and deliberately NOT further. The complaint this addresses is "a tunnel /
+	 * Wi-Fi blip blacklists half the queue for the session", and the cheap half of that fix is the
+	 * EAGER CLEARING below (clearAllStrikes on network recovery + foreground return) — refunding the
+	 * budget costs nothing. Raising the cap is the EXPENSIVE half: every extra strike is another
+	 * resolve + probe in the prefetch walk, multiplied again by RETRY_RESOLVE_MAX = 2 delayed re-runs
+	 * layered on top, which already gives a uid roughly 9 chances before it dies. Under a systemic
+	 * outage every track is a failing track, so per-track work multiplies across the whole queue —
+	 * exactly the "individually-bounded loops compose into an unbounded flood" shape that caused
+	 * api-fetch-flood-freeze. 3 is the smallest raise that survives two consecutive blips.
+	 * SYSTEMIC_SKIP_CAP (the only CROSS-track bound) is what actually backstops this — do not touch it.
+	 */
+	private static STRIKE_CAP = 3;
+
+	/**
+	 * quick-260627-huo (HUO-RETRY): max DELAYED fresh re-resolve attempts armed per uid before it is
+	 * finally allowed to be promoted into unplayableUids. The user hit a genuinely-playable Next-up
+	 * song getting permanently sidelined because two quick transient upstream blips reached STRIKE_CAP.
+	 * Instead of "strike → dead", we now do "strike → (a few seconds later) re-resolve from scratch →
+	 * only dead after these delayed attempts are exhausted". Bounded so endless playback never fires an
+	 * unbounded resolve burst that reads as bot traffic (T-huo-01). Private static for tunability.
+	 */
+	private static RETRY_RESOLVE_MAX = 2;
+	/** quick-260627-huo (HUO-RETRY): base delay before the first delayed re-resolve ("a few seconds
+	 *  later" per the user). Later attempts back off linearly (delay * (attempt+1)) so a stubbornly
+	 *  flaky upstream is probed at a decreasing rate, not hammered. */
+	private static RETRY_RESOLVE_DELAY_MS = 4000;
+
+	/**
+	 * Record one CONFIRMED definitive failure (no-url resolve OR hard probe error) for a uid and report
+	 * whether it has now reached STRIKE_CAP — i.e. should be treated as dead this walk. Below the cap a
+	 * single failure is transient-equivalent (skipped this round, retryable on demand). At the cap it is
+	 * promoted into the reactive `unplayableUids` set (idempotent) so next()/the walk route past it and
+	 * the ✗ row draws. Returns true once the uid is dead (so the caller can mirror the no-mark/skip vs
+	 * mark-and-route-past branch).
+	 */
+	private strikeUnplayable(uid: string, reason: SkipReason): boolean {
+		const n = (this.unplayableStrikes.get(uid) ?? 0) + 1;
+		this.unplayableStrikes.set(uid, n);
+		if (n >= Player.STRIKE_CAP) {
+			logAction('mark-dead', { uid, reason }); // quick-260926-l69: the reason rides the existing log line
+			this.unplayableUids.add(uid); // promote — reactive ✗ row + nextPlayableIndex routes past it
+			this.skipReasons.set(uid, reason); // quick-260926-l69: the ✗ row explains itself
+			return true;
+		}
+		return false;
+	}
+
+	/** quick-260926-l69: tag a uid with why it was just skipped (reactive — the Up Next row reads it)
+	 *  and record it in the Activity log. */
+	private recordSkip(uid: string, reason: SkipReason): void {
+		this.skipReasons.set(uid, reason);
+		logAction('skip', { uid, reason });
+	}
+
+	/** Drop a uid's accumulated strikes (a recovery point: a real `playing`, an explicit retry, or a
+	 *  full session reset). Mirrors the unplayableUids clear discipline so a recovered track starts
+	 *  clean and a transient blip never accumulates toward a false permanent skip. */
+	private clearStrike(uid: string): void {
+		this.unplayableStrikes.delete(uid);
+	}
+
+	/**
+	 * 31-D-16: refund the ENTIRE accumulated strike budget. Called from the two signals that mean "the
+	 * condition that produced those strikes is probably over": the network came back, and the user came
+	 * back to the app. A tunnel strikes every candidate the prefetch walk touches while it lasts, and
+	 * without this those strikes persist for the whole session, so the queue stays half-blacklisted
+	 * long after the connection recovered.
+	 *
+	 * Deliberately narrow — it refunds BUDGET and nothing else:
+	 *  - it does NOT call play(). A recovery signal is not an instruction to start audio;
+	 *    quick-260703-i7e removed foreground auto-resume because it caused unwanted playback.
+	 *  - it does NOT touch `unplayableUids`. A uid already promoted to dead survived the full strike +
+	 *    delayed-retry ladder; clearing the ✗ row stays with the explicit recovery points
+	 *    (retryUnplayable / advanceTo / recoverFromStop / clearQueue).
+	 *  - it does NOT cancel pending retryResolveTimers. Those are in-flight recovery work already
+	 *    bounded by RETRY_RESOLVE_MAX; cancelling them would throw away the retry, not grant one.
+	 */
+	private clearAllStrikes(reason: string): void {
+		if (this.unplayableStrikes.size === 0) return; // nothing to refund — don't log noise
+		logAction('strike.clear-all', { reason, n: this.unplayableStrikes.size });
+		this.unplayableStrikes.clear();
+	}
+
+	/**
+	 * quick-260627-huo (HUO-RETRY): the prefetchNext walk's single decision point for a DEFINITIVE
+	 * failure (a no-url resolve OR a hard probe `error`) on a next-up candidate. Records the strike (so
+	 * strike accounting is unchanged), then chooses between two outcomes when the strike reaches
+	 * STRIKE_CAP:
+	 *  - if the uid still has delayed-retry BUDGET left, UNDO the premature promotion and instead arm a
+	 *    bounded, backed-off fresh re-resolve a few seconds later — a genuinely-playable song hit by a
+	 *    transient blip recovers automatically without the user tapping Retry (the original complaint);
+	 *  - if the budget is exhausted, leave it promoted into unplayableUids (genuinely dead — the ✗ row
+	 *    still draws and nextPlayableIndex still routes past it, so recovery never becomes an infinite
+	 *    skip-stall).
+	 * A sub-cap strike (first failure) behaves exactly as before: not dead, not scheduled — it is the
+	 * existing "transient-equivalent, retry on demand" round.
+	 *
+	 * 31-D-15 prepends ONE step: before any strike is recorded, try the same song on another source.
+	 * A track that fails on kuwo often plays fine on qq, and silently dropping it is the actual user
+	 * complaint. This is the walk's single decision point, so the retry lives here rather than at
+	 * prefetchNext's two call sites.
+	 */
+	private async handleDefinitiveFailure(uid: string, reason: SkipReason): Promise<void> {
+		// ─── 31-D-15 CROSS-SOURCE RETRY (before death, not after) ────────────────────────────────────
+		// Reuses tryFallback wholesale: it is already kuwo-first via registry order, already
+		// sameSongKey-gated (WR-06 — a fuzzy upstream search can return a DIFFERENT song), already
+		// bounded by the per-episode `attempted` set, and already never-throws. No new source walk.
+		const failedIdx = this.queue.findIndex((t) => t.uid === uid);
+		// Skip the retry when the uid is not in the queue (nothing to repair) and, crucially, when it is
+		// the CURRENTLY-PLAYING track: the live error path is runFallback's job and it owns the
+		// playGen/fallbackGen re-entrancy guards. Two concurrent cross-source walks for one song is
+		// exactly the churn 31-D-17 warns about.
+		if (failedIdx >= 0 && uid !== this.current?.uid) {
+			const failed = this.queue[failedIdx];
+			// 31-D-15/31-D-17: bound by the EXISTING per-episode attempted set (the same machinery
+			// runFallback uses), NOT a fresh one. That is what guarantees each source is tried at most
+			// once per logical song, and is why this retry does not multiply into an unbounded fan-out.
+			const key = this.episodeKey(failed);
+			if (this.fallbackEpisodeKey !== key) {
+				this.fallbackEpisodeKey = key;
+				this.fallbackAttempted = new Set<SourceId>();
+			}
+			// quick-261102-sy0: a name stub's `source` is a PLACEHOLDER (similar.ts primarySourceId) —
+			// seeding it as attempted excluded that source from the episode without ever trying it.
+			if (!failed.resolveByName) this.fallbackAttempted.add(failed.source);
+			// Generation guard (the walk's own discipline): snapshot before the await, re-check after. A
+			// retry for a track the user has already moved past must discard silently — re-entering the
+			// strike logic on a superseded walk would strike a track nobody is waiting on.
+			const seedUid = this.current?.uid;
+			const sig = this.prefetchController?.signal;
+			const swap = await tryFallback(
+				failed,
+				settings.preferredSource,
+				sig,
+				this.fallbackAttempted
+			);
+			if (sig?.aborted || this.current?.uid !== seedUid) return; // superseded — discard, do not strike
+			if (swap) {
+				// Repaired. Locate the slot FRESHLY by uid (never a closed-over index) and write back only
+				// while it is still ahead of the recomputed current — the same shape prefetchNext's own
+				// land-write uses.
+				const writeIdx = this.queue.findIndex((t) => t.uid === uid);
+				if (writeIdx >= 0 && writeIdx > this.indexOf(this.current)) this.queue[writeIdx] = swap;
+				logAction('prefetch.cross-source-swap', { from: uid, to: swap.uid });
+				this.clearStrike(uid);
+				// 31-D-15/31-D-17: deliberately NOT `this.failoverSkips++`. failoverSkips counts consecutive
+				// failure-driven auto-SKIPS with no real `playing` between, and SYSTEMIC_SKIP_CAP is the only
+				// cross-track bound in the whole system. This path skipped nothing — it repaired a track —
+				// so counting it would trip the systemic STOP early and pause playback on a queue that is
+				// actually healing. That is a never-stop violation.
+				return;
+			}
+			// Every other source dry — fall through to the pre-existing strike/retry-budget logic below,
+			// completely unchanged.
+		}
+		// ─────────────────────────────────────────────────────────────────────────────────────────────
+		const reachedCap = this.strikeUnplayable(uid, reason);
+		if (!reachedCap) return; // sub-cap: transient-equivalent this round, nothing further to do
+		const budgetLeft = (this.retryResolveAttempts.get(uid) ?? 0) < Player.RETRY_RESOLVE_MAX;
+		if (budgetLeft) {
+			// Undo the premature death and try a fresh re-resolve a few seconds later instead.
+			this.unplayableUids.delete(uid);
+			this.skipReasons.delete(uid); // quick-260926-l69: lockstep — the promotion is undone
+			this.scheduleRetryResolve(uid);
+		}
+		// else: budget exhausted — leave it promoted (genuinely dead).
+	}
+
+	/**
+	 * quick-260627-huo (HUO-RETRY): pending DELAYED re-resolve timer per uid (for cancellation). A uid
+	 * appears here only while a scheduleRetryResolve() setTimeout is in flight; the callback deletes its
+	 * own entry the instant it fires. Plain Map — internal loop-guard state, never read reactively in
+	 * markup. Cleared in lockstep with unplayableStrikes (clearQueue / recoverFromStop) and per-uid on
+	 * retryUnplayable / real `playing` so no orphan timer survives a track change (T-huo-02).
+	 */
+	private retryResolveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	/**
+	 * quick-260627-huo (HUO-RETRY): delayed re-resolve budget consumed per uid. Bumped each time
+	 * scheduleRetryResolve arms a timer for the uid; once it reaches RETRY_RESOLVE_MAX the caller stops
+	 * scheduling and lets the uid be promoted into unplayableUids (a genuinely-dead track must still be
+	 * routed past — recovery is bounded, never an infinite skip-stall). Reset in lockstep with
+	 * unplayableStrikes (T-huo-01).
+	 */
+	private retryResolveAttempts = new Map<string, number>();
+
+	/**
+	 * quick-260627-huo (HUO-RETRY): arm a single DELAYED, backed-off fresh re-resolve for a next-up uid
+	 * that just hit a definitive failure, INSTEAD of marching it straight to permanent death. After the
+	 * delay it clears the uid's strike (so the fresh attempt starts clean) and re-runs the existing
+	 * prefetchNext() walk — reusing ALL of prefetch's abort/dedupe/probe machinery rather than
+	 * duplicating any resolve logic.
+	 *
+	 * Bounded + deduped + self-guarded:
+	 *  - returns early if a timer is already pending for this uid (one in-flight retry per uid), OR if
+	 *    the per-uid delayed-attempt budget is already exhausted (caller promotes to dead instead);
+	 *  - backs off linearly per attempt so a stubbornly flaky upstream is not hammered;
+	 *  - the timer callback re-reads this.current/queue AT FIRE TIME (never a closed-over index) and
+	 *    drops silently if the track was passed/removed or is already known-dead — no resolve burst,
+	 *    no stale write (T-huo-02).
+	 *
+	 * Best-effort: never throws, never bumps playGen, never calls next()/runFallback. It only re-arms
+	 * prefetchNext().
+	 */
+	private scheduleRetryResolve(uid: string): void {
+		// Dedupe: one in-flight delayed retry per uid.
+		if (this.retryResolveTimers.has(uid)) return;
+		const attempts = this.retryResolveAttempts.get(uid) ?? 0;
+		// Budget exhausted — the caller will leave the uid promoted to dead.
+		if (attempts >= Player.RETRY_RESOLVE_MAX) return;
+		this.retryResolveAttempts.set(uid, attempts + 1);
+		// Back off on later attempts so a flaky upstream is probed at a decreasing rate.
+		const delay = Player.RETRY_RESOLVE_DELAY_MS * (attempts + 1);
+		const timer = setTimeout(() => {
+			// One-shot — drop our own pending-timer entry first so a future failure can re-arm.
+			this.retryResolveTimers.delete(uid);
+			// Self-guard: re-read current/queue at fire time. Only re-resolve if the uid is still AHEAD
+			// of the current track and has not since been confirmed dead. If the track was passed,
+			// removed, or already promoted, drop silently — best-effort recovery, never a forced replay.
+			const curIdx = this.indexOf(this.current);
+			const aheadIdx = this.queue.findIndex((t) => t.uid === uid);
+			if (aheadIdx < 0 || aheadIdx <= curIdx) return; // not ahead anymore — nothing to recover
+			if (this.unplayableUids.has(uid)) return; // already confirmed dead elsewhere
+			// Re-run the prefetch walk for a FRESH upstream re-resolve + re-probe. We deliberately do NOT
+			// clearStrike() here: the uid is already at STRIKE_CAP, so a candidate that STILL fails
+			// definitively re-enters handleDefinitiveFailure at-cap and either re-schedules (budget left,
+			// with backoff) or is finally promoted to dead (budget exhausted) — that is what makes the
+			// delayed path CONVERGE and stay bounded. A candidate that RECOVERS lands in its slot and is
+			// never re-struck; its stale at-cap strike is cleared on the real `playing` event (and by
+			// clearQueue / recoverFromStop / retryUnplayable) so it does not leak into a later session.
+			void this.prefetchNext();
+		}, delay);
+		this.retryResolveTimers.set(uid, timer);
+	}
+
+	/** quick-260627-huo (HUO-RETRY): cancel + forget a single uid's pending delayed re-resolve timer
+	 *  (a superseding recovery point: manual retry, or a real `playing` for the now-current track). */
+	private cancelRetryResolve(uid: string): void {
+		const timer = this.retryResolveTimers.get(uid);
+		if (timer !== undefined) clearTimeout(timer);
+		this.retryResolveTimers.delete(uid);
+	}
+
+	/** quick-260627-huo (HUO-RETRY): cancel EVERY pending delayed re-resolve timer and empty both the
+	 *  timer + attempt-budget maps. Called wherever unplayableStrikes.clear() is (clearQueue /
+	 *  recoverFromStop) so a full session reset leaves no orphan timer and no carried budget. */
+	private cancelAllRetryResolves(): void {
+		for (const timer of this.retryResolveTimers.values()) clearTimeout(timer);
+		this.retryResolveTimers.clear();
+		this.retryResolveAttempts.clear();
+	}
+
+	/**
+	 * Lazily-built native Media Session adapter (D-04/D-05). Created once on first native
+	 * `ms` access so the `@jofr/capacitor-media-session` import has no effect on the web
+	 * bundle's runtime path. Null on web (the accessor returns navigator.mediaSession there).
+	 */
+	private nativeMs: PlayerMediaSession | null = null;
+
+	/**
+	 * Single guard for the Media Session surface (MS-05, T-kyf-03, D-05). EVERY Media Session
+	 * call goes through this accessor and early-returns when null, so nothing crashes under SSR
+	 * or on unsupported browsers.
+	 *
+	 * - **Native (Capacitor/Android WebView)**: the System WebView has NO `navigator.mediaSession`,
+	 *   so the web wiring is a silent no-op there (no notification, no lock-screen controls, and the
+	 *   OS kills backgrounded audio). Return the native adapter, which bridges the exact subset of
+	 *   the Web MediaSession surface the player uses onto the jofr plugin (which starts the
+	 *   `mediaPlayback` foreground service and renders the system media UI). The player still does
+	 *   the two things the plugin requires — explicit `playbackState = 'playing'` on every metadata
+	 *   write + all transport action handlers registered in attach() — so they take effect natively.
+	 * - **Web**: return `navigator.mediaSession` exactly as before (feature-detected; web unchanged).
+	 */
+	private get ms(): PlayerMediaSession | null {
+		if (Capacitor.isNativePlatform()) {
+			this.nativeMs ??= createNativeMediaSession();
+			return this.nativeMs;
+		}
+		return typeof navigator !== 'undefined' && 'mediaSession' in navigator
+			? navigator.mediaSession
+			: null;
+	}
+
+	/** Push the current finite, in-range position to the OS media UI (guarded, MS-04). */
+	private syncPosition(el: HTMLAudioElement) {
+		const ms = this.ms;
+		if (!ms) return;
+		const st = safePositionState(el.duration, el.currentTime);
+		if (st) ms.setPositionState(st);
+	}
+
+	/** Keep the OS media UI play/pause/none state synced with real playback (MS-02). */
+	private syncPlaybackState() {
+		const ms = this.ms;
+		if (ms) ms.playbackState = playbackStateFor(!!this.current, this.playing);
+	}
+
+	/**
+	 * cover-hero-mediacard-missing (Issue 2): write the OS/browser media metadata (title + artist +
+	 * album + best-known artwork) from the CURRENT track. Title/artist come straight off the track
+	 * (always present post-search), so the media card ALWAYS shows the song identity regardless of
+	 * whether a cover has resolved yet. Artwork mirrors the HERO fix: it reads `displayCover`, so the
+	 * SHARED cover cache (PIN → uid → name) LEADS and resolvedCover is the last resort, else
+	 * buildArtwork's /favicon.svg. WHY the cache leads (media-card asymmetry): resolveCoverAsync fires
+	 * ONLY when resolvedCover starts null + is gen-guarded, so a cover that lands in the shared cache
+	 * via another surface (up-next lazyCover, backfill, sibling tile) AFTER that window never reaches
+	 * resolvedCover — reading resolvedCover alone left the lock-screen art on the favicon even though
+	 * the cache had the real cover. quick-260920-nyq made the cache the LEADING rung rather than the
+	 * fallback, so the card cannot disagree with the hero or the rows.
+	 * Assigns a BRAND-NEW MediaMetadata (Pitfall 4) so the lock screen repaints, and mirrors the
+	 * current playbackState.
+	 *
+	 * WHY it exists: before this, ms.metadata was written ONLY inside play()'s success branches, so
+	 * paths that never call play() — a PWA reopen (restore()) then a resume — left the OS card with no
+	 * metadata, and it fell back to the bare document/PWA name ("OpenMusic — music streaming…"). This
+	 * is the ONE reusable place restore() and play()-entry can guarantee the card is populated.
+	 * No-ops when there is no current track or no media session (SSR / feature-absent). Never throws.
+	 */
+	private syncMetadata() {
+		const ms = this.ms;
+		const cur = this.current;
+		if (!ms || !cur) return;
+		ms.metadata = makeMetadata({
+			title: names.dnTitle(cur.title, cur.artist),
+			artist: names.dnArtist(cur.artist),
+			album: cur.album,
+			// quick-260920-nyq: the ONE now-playing cover reader — shared cache (PIN → uid → name)
+			// first, resolvedCover last, else buildArtwork's favicon fallback. Same value the hero
+			// and the Nowbar paint, so the three surfaces cannot disagree.
+			artwork: buildArtwork(this.displayCover)
+		});
+		ms.playbackState = playbackStateFor(!!this.current, this.playing);
+	}
+
+	/** Clear OS media metadata + set state 'none' when playback stops / track cleared (MS-05/MS-02). */
+	private clearMedia() {
+		this.keepAliveOff(); // playback stopped / track cleared — release the background keep-alive
+		const ms = this.ms;
+		if (!ms) return;
+		ms.metadata = null;
+		ms.playbackState = 'none';
+		ms.setPositionState(); // clears any stale position
+	}
+
+	/**
+	 * Arm the initial-load stall watchdog (D-13). Snapshot playGen so a newer play() supersedes
+	 * this timer (the gen-check inside the callback discards a stale arm). When STALL_TIMEOUT_MS
+	 * elapses with no audio (hasPlayedSinceSrc still false) for the still-current track, route into
+	 * runFallback — runFallback owns its OWN gen-guard + AbortController, so the watchdog just fires
+	 * the failover and lets it decide supersedence. Always clears any prior timer first.
+	 */
+	private armStall() {
+		const gen = this.playGen;
+		this.disarmStall();
+		this.stallTimer = setTimeout(() => {
+			this.stallTimer = null;
+			if (this.playGen !== gen) return; // a newer play() superseded this arm
+			// bg-lockscreen-stall-noskip: the FOREGROUND backstop. The same recovery is ALSO driven by the
+			// media `stalled` event (which fires in a hidden tab, unlike this throttled setTimeout) so a
+			// backgrounded/locked stall is rescued in time. Both route through the one bounded handler.
+			this.recoverLoadStall();
+		}, Player.STALL_TIMEOUT_MS);
+	}
+
+	/**
+	 * Bg-tolerant load-stall recovery — the retry-once-then-skip the user asked for (bg-lockscreen-stall-
+	 * noskip). A backgrounded/locked src that never produces `playing` fires NO `audio.error` (so the
+	 * bg-error-skip path never runs) and armStall's setTimeout is throttled in a long-hidden tab — so this
+	 * is ALSO driven by the media `stalled` event, which DOES fire in a hidden tab. Bounded + guarded:
+	 *  - no-op once the src produced audio (hasPlayedSinceSrc), on a deliberate pause, or with no current;
+	 *  - an autoplay-policy pause (bytes present + paused) routes to the single autoplay retry, NEVER a skip;
+	 *  - FIRST stall on a src → re-resolve + re-attach the SAME song ONCE (a transient bg byte-load stall
+	 *    usually clears with a fresh URL); reresolveCurrent goes through the braked driveSrc so it cannot
+	 *    itself loop;
+	 *  - a SECOND stall with still no `playing` → the song is genuinely stuck → strike + advance (skip) so
+	 *    music never stops (mirrors bg-error-skip). next() bumps playGen, superseding this src's stale arms.
+	 * stallRetried resets on a new src (play()) and a real `playing`, so a later transient stall on another
+	 * track starts with a fresh single-retry budget — no cross-track accumulation.
+	 */
+	private recoverLoadStall() {
+		if (this.hasPlayedSinceSrc) return; // already producing audio — not a load stall
+		if (this.deliberatePause) return; // user paused — respect it (do not fight the OS)
+		if (!this.current || !this.audio) return;
+		const el = this.audio;
+		if (el.paused && el.readyState >= Player.HAVE_CURRENT_DATA) {
+			this.maybeRetryAutoplay(this.playGen); // autoplay-policy pause, not a no-bytes load stall
+			return;
+		}
+		// bg-lockscreen-stall-noskip (round 2, bg-stall-burndown-log-1): a hidden tab with NO audible
+		// playback this hide-stint does not load media bytes AT ALL on Android Chrome — `stalled` there
+		// is the platform's NORMAL deferred state, not a track fault. Retrying re-attaches a src that
+		// equally cannot load, and skipping burns the queue (device capture: 2 healthy tracks struck in
+		// 11s; qq resolved hasUrl:true and was skipped anyway) without ever restoring audio — the next
+		// track faces the identical deferral. PARK instead: recheck the moment the tab is visible again
+		// (foreground un-defers loading; the manual next/prev recovery played the same song in ~600ms).
+		// audibleThisHide=true (music WAS flowing while hidden — the July capture played 8.6min locked)
+		// means the platform demonstrably loads bytes in bg, so a stall there IS track-specific and the
+		// retry-once-then-skip below stays live for exactly the case it was built for.
+		if (typeof document !== 'undefined' && document.hidden && !this.audibleThisHide) {
+			this.stallRecheckOnVisible = true;
+			return;
+		}
+		if (!this.stallRetried) {
+			this.stallRetried = true;
+			logAction('stall.retry', { uid: this.current.uid });
+			void this.reresolveCurrent(); // retry the SAME song ONCE (fresh URL + re-attach)
+			// stall-kills-healthy-tracks: reresolveCurrent deliberately arms no watchdog (D-14, it is a
+			// seek-recovery re-attach), and the foreground `stalled` listener no longer acts — so re-arm
+			// here or a foreground silent hang on the RETRIED src would have no second signal and never
+			// reach the skip below. Same playGen: a real `playing` / `error` / newer play() disarms it.
+			this.armStall();
+			return;
+		}
+		logAction('stall.skip', { uid: this.current.uid });
+		this.playing = false;
+		// stall-kills-healthy-tracks (B): ONE strike + the skip toast, deliberately NOT a promotion to
+		// unplayableUids (the ✗ row). The user read "skipped but no ✗" as a contract breach; it is not:
+		// ✗ = STRIKE_CAP confirmed-definitive failures (31-D-16 — a 15s+15s silent hang is a probable
+		// failure, not a confirmed one; forcing ✗ would sideline a track for the session on one network
+		// blip, the exact regression 31-D-16 / HUO-RETRY were written against). The VISIBLE half of a
+		// live skip is emitSkipNotice (31-D-18), identical to the error-ceiling path. The real defect was
+		// that this skip fired on healthy tracks at all — fixed at the `stalled` listener.
+		// quick-260926-l69: the row still shows ✗ + "timed out" via skipReasons — VISUAL only; routing
+		// (unplayableUids / nextPlayableIndex) is unchanged, so the track is not sidelined.
+		this.recordSkip(this.current.uid, 'timeout');
+		this.strikeUnplayable(this.current.uid, 'timeout');
+		// 31-D-18: the user is looking at a song stuck on the loading line — say that it was dropped.
+		// Same batched channel as every other visible skip. Deliberately does NOT touch failoverSkips:
+		// this path never counted toward the systemic ceiling and 31-D-17 keeps that accounting frozen.
+		this.emitSkipNotice(this.current, 'timeout');
+		// bg-lockscreen-stall-noskip (round 2): ONE bg skip per audible streak — the skipped-to track
+		// must itself produce audio (`playing` re-arms the flag) before another hidden-tab skip is
+		// allowed, so even the audible-bg path can never burn more than one hop down the queue.
+		this.audibleThisHide = false;
+		this.next();
+	}
+
+	/**
+	 * Single event-driven retry of `audio.play()` for the autoplay-policy pause (next-song-current-
+	 * but-paused fix). Called from the deferred (canplay / readyState-ready) path AFTER a non-fresh
+	 * advance recorded that play() did not start (autoplayRetryArmed). Re-invokes play() ONLY when the
+	 * element is still paused with bytes present (readyState >= HAVE_CURRENT_DATA) — i.e. it is an
+	 * autoplay-policy pause, NOT a load stall and NOT a genuine user pause (a real user pause clears
+	 * the arm via the `pause` listener). Generation-guarded by the playGen snapshot so a newer play()
+	 * supersedes it, and one-shot (disarms itself) so it never fights a deliberate pause. Deliberately
+	 * NOT driven from the `pause` listener (per specialist) — only from the canplay/watchdog seam.
+	 */
+	private maybeRetryAutoplay(gen: number) {
+		if (!this.autoplayRetryArmed) return;
+		if (this.playGen !== gen) return; // a newer play() superseded this arm
+		const el = this.audio;
+		if (!el) return;
+		// Only retry an autoplay-policy pause: paused, bytes present, a src still set. A no-bytes
+		// stall (readyState < HAVE_CURRENT_DATA) is left to the stall watchdog; an already-playing
+		// element needs no retry.
+		if (!el.paused) {
+			this.autoplayRetryArmed = false; // it started on its own — nothing to retry
+			return;
+		}
+		if (el.readyState < Player.HAVE_CURRENT_DATA) return; // not loaded yet — wait for canplay
+		if (!el.src) return;
+		this.autoplayRetryArmed = false; // one-shot — never fight a subsequent deliberate pause
+		void el.play().catch(() => {
+			/* still rejected (no activation) — leave paused; user/Media-Session play resumes it */
+		});
+	}
+
+	/**
+	 * NEVER-STOP RESUME HYSTERESIS (Hector 2026-11-19): a mid-song `waiting`
+	 * stall on a slow (China-CDN) source must not sliver-resume. The browser
+	 * restarts the instant ~1s of data lands and starves again seconds later —
+	 * the "停下播下停下播下" loop Hector named as the worst listening
+	 * experience (immersed listening, and Car Mode: a sudden stop makes a
+	 * driver reach for the phone). So on `waiting` — MID-SONG only
+	 * (hasPlayedSinceSrc; the initial load is owned by the play() buffer gate
+	 * + stall watchdog) — we pause the element ourselves and hold the resume
+	 * until buffered-ahead is back above SLOW_RESUME_TARGET_SEC (15s), with a
+	 * SLOW_RESUME_TIMEOUT_MS (10s) hard cap: on timeout we resume with
+	 * whatever has arrived, so a dying CDN is never trapped by the hold and
+	 * the never-stop failover/interlude logic keeps owning total failure.
+	 * This is NOT the removed external-pause self-heal: that fought USER/OS
+	 * pauses; this acts only on a network starvation event while the element
+	 * was playing, and any sanctioned pause during the hold cancels it
+	 * (pauseAudio clears stallHold). Fast sources and blob kinds never hold.
+	 */
+	private onMidSongStall() {
+		if (this.stallHold) return; // already holding — one hold per stall
+		if (!this.hasPlayedSinceSrc) return; // initial load — gate + watchdog own it
+		if (this.deliberatePause) return;
+		const el = this.audio;
+		const cur = this.current;
+		if (!el || !cur || el.paused) return;
+		if (!shouldBufferGate({ source: cur.source, kind: this.lastSrcKind, src: el.src })) return;
+		void this.holdForRebuffer(this.playGen, cur.uid);
+	}
+
+	private async holdForRebuffer(gen: number, uid: string) {
+		const el = this.audio;
+		if (!el) return;
+		this.stallHold = true;
+		this.loading = true; // existing loading state — no new UI
+		logAction('buffer.hold', { uid, ahead: Math.round(bufferedAheadSec(el) * 10) / 10 });
+		// Pause WITHOUT pauseAudio(): that is the sanctioned USER pause (it
+		// would cancel this very hold + release the keep-alive we want during
+		// the refill). Set the deliberate flag manually so the pause listener
+		// consumes this stop as intentional, exactly like a sanctioned pause.
+		this.deliberatePause = true;
+		try {
+			el.pause();
+		} catch {
+			/* a partial/test element — the hold poll below still governs the resume */
+		}
+		let outcome: string = 'superseded';
+		try {
+			outcome = await waitForBufferGate(el, {
+				targetSec: SLOW_RESUME_TARGET_SEC,
+				timeoutMs: SLOW_RESUME_TIMEOUT_MS,
+				isSuperseded: () =>
+					gen !== this.playGen || !this.stallHold || this.current?.uid !== uid
+			});
+		} finally {
+			const stillMine = gen === this.playGen && this.current?.uid === uid;
+			this.stallHold = false;
+			if (stillMine) this.loading = false;
+		}
+		if (gen !== this.playGen || this.current?.uid !== uid) return; // superseded — newer play owns the element
+		if (outcome === 'superseded') return; // cancelled in place (sanctioned pause) — a human's pause outranks the resume
+		logAction('buffer.resume', { uid, outcome, ahead: Math.round(bufferedAheadSec(el) * 10) / 10 });
+		// Resume on EVERY outcome (ready / timeout / error): ready is the
+		// hysteresis win; timeout/error hand the element back to the existing
+		// stall/error/never-stop chains rather than trapping it paused.
+		if (el.paused) {
+			this.keepAliveOn();
+			void el.play().catch(() => {
+				/* rejected (activation lost in bg) — leave paused; existing seams own it */
+			});
+		}
+	}
+
+	/** Disarm the stall watchdog (a real playing/timeupdate, an error, or end-of-track). */
+	private disarmStall() {
+		if (this.stallTimer) {
+			clearTimeout(this.stallTimer);
+			this.stallTimer = null;
+		}
+	}
+
+	/**
+	 * SINGLE AUDIO.SRC AUTHORITY + RE-DRIVE BRAKE (debug-song-click-lrc-flood-noplay). The one place a
+	 * playback stream is attached to `<audio>` for a network/CDN track. Returns true after setting the
+	 * src; returns FALSE (and STOPS via haltRunawayRecovery) when the SAME uid has been re-driven
+	 * SRC_REDRIVE_CAP times within SRC_REDRIVE_WINDOW_MS with no real `playing` between — the same-track
+	 * re-drive storm the error-based ceiling cannot catch (the element `(cancels)` the prior load before
+	 * it fires `error`, so errorBurst never climbs). A NEW uid (normal fast-skipping) resets the burst,
+	 * so this fires ONLY on a genuine loop. Logs `src.redrive-brake` with the culprit uid so the trigger
+	 * is captured in the Activity log. Callers MUST bail their own play/re-resolve when this returns false.
+	 *
+	 * 31-D-12: `kind` travels WITH the url so provenance is recorded by the same authority that owns
+	 * the attach — a caller cannot set the src here and forget the flag, and a braked bail (which
+	 * never touches audio.src) correctly leaves the previous src's provenance intact.
+	 */
+	/**
+	 * Direct-first provenance for a driveSrc attach: when the track carries a distinct proxy
+	 * fallback URL and the URL being attached is the direct CDN one, record 'direct-url' so
+	 * the audio.error handler can route a direct failure to the proxy BEFORE cross-source
+	 * fallback. Otherwise 'url' (the pre-direct-first meaning — proxy/own-origin network URL).
+	 */
+	private srcKindFor(track: Track): SrcKind {
+		return track.proxyUrl && track.audioUrl && track.audioUrl !== track.proxyUrl
+			? 'direct-url'
+			: 'url';
+	}
+
+	private driveSrc(uid: string, url: string, kind: SrcKind = 'url'): boolean {
+		if (!this.audio) return false;
+		const now = Date.now();
+		this.driveBurst =
+			uid === this.lastDriveUid && now - this.lastDriveAt < Player.SRC_REDRIVE_WINDOW_MS
+				? this.driveBurst + 1
+				: 0;
+		this.lastDriveUid = uid;
+		this.lastDriveAt = now;
+		if (this.driveBurst >= Player.SRC_REDRIVE_CAP) {
+			logAction('src.redrive-brake', { uid, burst: this.driveBurst });
+			this.driveBurst = 0;
+			this.haltRunawayRecovery(); // pause + abort in-flight + sticky Retry — never a spinning flood
+			return false;
+		}
+		this.setSrcKind(kind); // 31-D-12
+		this.armedUid = uid; // debug-share-card-play-dead-replay
+		this.audio.src = url;
+		// slow-cold-start-first-playing: stamp the src-set so the media-event log lines in attach() carry
+		// Δms from the attach (resolve.ok → playing was unexplained on device; this splits it into
+		// src-set → first byte → decodable → playing). `ext` names the container (flac/m4a/blob) because
+		// the lossless tier is a suspect. Bounded: one line here + one per event type per src.
+		this.srcSetAt = now;
+		this.mediaLogged.clear();
+		logAction('src.set', { uid, kind, ext: srcExt(url) });
+		return true;
+	}
+
+	/** slow-cold-start-first-playing: Date.now() of the last driveSrc attach (0 = none). Plain field. */
+	private srcSetAt = 0;
+	/** slow-cold-start-first-playing: media event types already logged for the current src (one-shot
+	 *  per src so `progress`/`suspend`/`waiting` never flood the log). Plain field. */
+	private mediaLogged = new Set<string>();
+	/** slow-cold-start-first-playing: log ONE media element event with Δms since driveSrc + element
+	 *  state. Never throws (a fake/partial element in tests has no `buffered`/`networkState`). */
+	private logMedia(ev: string) {
+		if (this.mediaLogged.has(ev)) return;
+		this.mediaLogged.add(ev);
+		const el = this.audio;
+		let buf = 0;
+		try {
+			const b = el?.buffered;
+			if (b && b.length > 0) buf = Math.round(b.end(b.length - 1) * 10) / 10;
+		} catch {
+			/* buffered.end() throws on a detached element — log 0 */
+		}
+		logAction(`media.${ev}`, {
+			ms: this.srcSetAt ? Date.now() - this.srcSetAt : -1,
+			rs: el?.readyState ?? -1,
+			ns: el?.networkState ?? -1,
+			buf
+		});
+	}
+
+	/**
+	 * SANCTIONED PAUSE (quick-261014-routefix): the ONE sanctioned way to pause the element.
+	 * Sets `deliberatePause` so the `pause` listener knows this stop was intentional (user /
+	 * MediaSession / sleep-timer / offline / audio-route loss) and treats it as such — no load-stall
+	 * retry, no auto-resume, the queue simply waits for the next user tap. (The old external-pause
+	 * self-heal that re-played non-deliberate pauses was removed in SIMPLIFY
+	 * debug-midplay-stall-background because it fought external audio-focus holders.) Every code
+	 * path that pauses on purpose calls this instead of `audio.pause()` directly.
+	 */
+	private pauseAudio() {
+		this.stallHold = false; // NEVER-STOP hold: a sanctioned pause cancels any pending hysteresis resume
+		this.deliberatePause = true;
+		this.disarmResume(); // an intentional pause cancels any pending external-pause resume
+		this.keepAliveOff(); // a deliberate stop releases the background keep-alive (bg-resolve-gap-stall)
+		this.audio?.pause();
+	}
+
+	/**
+	 * AUDIO-ROUTE LOSS (quick-261014-routefix): earphones unplugged / BT headset disconnected.
+	 * The FIFTH sanctioned pause source — a DELIBERATE pause via pauseAudio(), so the `pause`
+	 * listener treats it as intentional (no stall retry, no self-heal, no auto-resume; the queue
+	 * waits for the next user tap instead of blasting out of the phone speaker).
+	 *
+	 * Guarded to a no-op unless audio is actually audible: setting `deliberatePause` without an
+	 * element `pause` event to consume it would leave a STALE true flag, and recoverLoadStall()
+	 * reads that flag as "user paused — respect it", which would wrongly suppress a later
+	 * load-stall rescue. When nothing is playing there is nothing to pause, so we simply return.
+	 */
+	pauseForRouteLoss() {
+		if (!browser) return;
+		const el = this.audio;
+		if (!el || el.paused || !this.playing) return; // nothing audible — never set a stale deliberate flag
+		logAction('route-loss.pause');
+		this.pauseAudio();
+	}
+
+	/** Cancel a pending external-pause resume (new src / real playing / deliberate pause / ended). */
+	private disarmResume() {
+		if (this.resumeTimer) {
+			clearTimeout(this.resumeTimer);
+			this.resumeTimer = null;
+		}
+	}
+
+	/** BACKGROUND KEEP-ALIVE (bg-resolve-gap-stall round 2) — Web Audio silent source + its context.
+	 *  Plain fields (never reactive): audio-graph handles, not UI state. */
+	private keepAliveCtx: AudioContext | null = null;
+	private keepAliveNode: OscillatorNode | null = null;
+
+	/**
+	 * BACKGROUND KEEP-ALIVE (bg-resolve-gap-stall round 2). Once the <audio> element stops decoding
+	 * (between tracks, during a cold ensureTrackDetails resolve, or an ensureAhead grow) nothing keeps
+	 * the page awake — Android freezes the WebView, so the in-flight network fetch never settles and
+	 * playback hangs (the residual dead-run freeze: a long region-locked skip run ends on a cold
+	 * resolve/grow that never returns until foreground). A near-silent Web Audio graph is active audio
+	 * output from the SAME page, so it holds the page awake across those gaps. Crucially it is NOT a
+	 * competing HTMLMediaElement — the second-<audio> focus-steal that broke autoadvance-pauses-after-1s
+	 * does not apply; Web Audio shares the page's own output and never claims the MediaSession pill.
+	 *
+	 * Unlocked lazily here (AudioContext needs a user gesture — play() supplies it on the first tap),
+	 * then kept RUNNING for the whole auto-advance session; only a DELIBERATE pause/stop tears it down.
+	 * Gain is inaudible-but-nonzero (so the graph is not optimised away) at a sub-audible frequency.
+	 * Fully feature-detected + try/catch: any absence/failure is a silent no-op and the player falls
+	 * back to prior behaviour. DEVICE-VERIFY PENDING — Web Audio background behaviour is not
+	 * reproducible off-device.
+	 */
+	private keepAliveOn() {
+		if (!browser) return;
+		try {
+			if (!this.keepAliveCtx) {
+				const Ctor: typeof AudioContext | undefined =
+					typeof AudioContext !== 'undefined'
+						? AudioContext
+						: (globalThis as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+				if (!Ctor) return; // no Web Audio — no-op
+				this.keepAliveCtx = new Ctor();
+			}
+			const ctx = this.keepAliveCtx;
+			void ctx.resume?.(); // needs the play() gesture on the first call's stack; idempotent after
+			if (!this.keepAliveNode) {
+				const osc = ctx.createOscillator();
+				const gain = ctx.createGain();
+				gain.gain.value = 0.0001; // inaudible, but non-zero so the node counts as active output
+				osc.frequency.value = 30; // sub-audible
+				osc.connect(gain).connect(ctx.destination);
+				osc.start();
+				this.keepAliveNode = osc;
+			}
+		} catch {
+			/* Web Audio unavailable / blocked — silent no-op, prior behaviour unchanged */
+		}
+	}
+
+	/** Tear down the background keep-alive graph (a DELIBERATE pause or a full stop). */
+	private keepAliveOff() {
+		try {
+			this.keepAliveNode?.stop();
+		} catch {
+			/* already stopped */
+		}
+		this.keepAliveNode = null;
+		try {
+			void this.keepAliveCtx?.suspend?.();
+		} catch {
+			/* ignore */
+		}
+	}
+
+
+	/**
+	 * The sleep-timer minutes expiry (TIMER-01). The ONE sanctioned way playback stops by itself
+	 * — an INTENTIONAL pause, not a failure. Phase-18 blocker (STATE.md): this path MUST be
+	 * invisible to the Phase-16 never-stop machinery — it never calls next(), never bumps playGen
+	 * (the sole legitimate bump stays in play()), never touches consecutiveFailures/errorBurst, and
+	 * never routes into runFallback/tripLoopGuard. It only pauses + restores volume + cancels the
+	 * timer, and the paused lock-screen state comes for free via the existing `pause` listener (D-09).
+	 *
+	 * D-01: on platforms that honour volume writes, ramp the volume down over ~10s then pause; on
+	 * iOS (read-only volume) pause instantly. D-04: if the user already paused manually, clear the
+	 * timer silently (no second pause, no fade).
+	 */
+	expireSleepTimer() {
+		// CR-01: re-entry guard. A fade in flight means the stop has already begun — the
+		// ~4×/sec `timeupdate` firehose (and the wake-timer backstop) keep re-checking the
+		// past deadline while `sleepTimer.mode` stays 'minutes' for the whole fade. Without
+		// this guard each re-entry re-snapshots `preFadeVolume` (restoring a degraded value),
+		// restarts the interval, and re-runs canFadeVolume's volume=0 write-probe (audible
+		// stutter). Bailing while `fadeTimer` is set makes the method idempotent (also WR-04).
+		if (this.fadeTimer) return;
+		if (!this.audio) {
+			sleepTimer.cancel();
+			return;
+		}
+		// D-04: already paused → silent clear, no fade, no duplicate pause.
+		if (this.audio.paused) {
+			sleepTimer.cancel();
+			return;
+		}
+		const audio = this.audio;
+		if (canFadeVolume(audio)) {
+			// D-01: ~10s linear fade, then pause (the indicator stays until finishExpiry cancels it).
+			// quick-260919-et3: the ramp base is re-read from `this.volume` on EVERY tick instead of
+			// snapshotted once into the old `preFadeVolume`. That is what lets the user move the
+			// desktop slider mid-fade: the very next 200ms tick ramps from their new level at the
+			// fade's current progress fraction, so the fade neither fights the slider nor gets
+			// undone by it.
+			const start = Date.now();
+			const FADE_MS = 10_000;
+			this.disarmFadeTimer(); // never stack two fades
+			this.fadeTimer = setInterval(() => {
+				const elapsed = Date.now() - start;
+				audio.volume = fadeVolumeAt(elapsed, FADE_MS, this.volume); // pure, clamped [0,1]
+				if (elapsed >= FADE_MS) this.finishExpiry();
+			}, 200);
+		} else {
+			// iOS / unsupported volume writes → instant pause (D-01 feature-detected).
+			this.finishExpiry();
+		}
+	}
+
+	/** Complete the expiry: stop the fade, pause (→ `pause` listener → lock screen paused, D-09),
+	 *  restore the pre-fade volume for the next play (D-02), and cancel the timer (silent, D-09). */
+	private finishExpiry() {
+		this.disarmFadeTimer();
+		this.disarmWakeTimer();
+		// EXTERNAL-PAUSE SELF-HEAL: the sleep-timer stop is INTENTIONAL — route through pauseAudio()
+		// so the `pause` listener does not treat it as an external pause and re-play the track.
+		this.pauseAudio();
+		// D-02: restore for next play. quick-260919-et3 — restores to the USER's level, which is
+		// also what the ramp was reading, so a mid-fade change survives the stop.
+		// disarmFadeTimer() above already cleared fadeTimer, so applyVolume writes through.
+		this.applyVolume();
+		sleepTimer.cancel();
+	}
+
+	/** D-05: any playback gesture during a fade aborts the stop — clear the fade, restore the
+	 *  pre-fade volume, and cancel the timer (the user is awake). No-op when no fade is in flight. */
+	private abortFade() {
+		if (this.fadeTimer) {
+			this.disarmFadeTimer();
+			this.applyVolume(); // restore to the user's level (D-02, quick-260919-et3)
+			sleepTimer.cancel(); // user is awake — clear the timer too
+		}
+	}
+
+	/** Clear the fade interval (mirrors disarmStall's clearTimeout idiom). */
+	private disarmFadeTimer() {
+		if (this.fadeTimer) {
+			clearInterval(this.fadeTimer);
+			this.fadeTimer = null;
+		}
+	}
+
+	/** Clear the coarse secondary deadline backstop. */
+	private disarmWakeTimer() {
+		if (this.wakeTimer) {
+			clearTimeout(this.wakeTimer);
+			this.wakeTimer = null;
+		}
+	}
+
+	/**
+	 * Arm the coarse secondary minutes-deadline backstop (RESEARCH Assumption A1). Called by the
+	 * timer UI AFTER `sleepTimer.set('minutes', …)` (leaf-store direction: the store never imports
+	 * the player; the player reads the store, the UI bridges them). The `timeupdate` listener stays
+	 * the authority — this single `setTimeout` is a free catch-the-wake net for the iOS locked-screen
+	 * case where `timeupdate` stalled while the page was hidden. It re-checks isExpired() and obeys
+	 * the SAME suppress-next/no-failure-machinery rules (it calls the same expireSleepTimer()). A
+	 * non-minutes set (end-of-track) just disarms any prior wake timer.
+	 */
+	onSleepTimerSet() {
+		this.disarmWakeTimer();
+		if (sleepTimer.mode === 'minutes' && sleepTimer.deadline != null) {
+			const delay = Math.max(0, sleepTimer.deadline - Date.now());
+			this.wakeTimer = setTimeout(() => {
+				this.wakeTimer = null;
+				if (sleepTimer.mode === 'minutes' && isExpired(Date.now(), sleepTimer.deadline)) {
+					this.expireSleepTimer();
+				}
+			}, delay);
+		}
+	}
+
+	/** Bind the single long-lived <audio> element (called once from the layout). */
+	attach(el: HTMLAudioElement) {
+		this.audio = el;
+		el.setAttribute('referrerpolicy', 'no-referrer');
+		// quick-260919-et3: restore the persisted level and push it onto the fresh element. The
+		// element is created per page load with volume=1/muted=false, so without this the saved
+		// level would be reactive-only and silently ignored by the audio.
+		this.loadVolume();
+		this.applyVolume();
+
+		// GLN-6: page-lifecycle persistence. attach() runs client-side from the root layout, but guard
+		// document/window so a stray SSR/test call never throws. On hide/freeze/navigation-away, flush
+		// the EXACT current position immediately (bypassing the 2s throttle) so an Android process
+		// eviction / tab freeze can never persist a stale currentTime → "restores to 0". On a bfcache
+		// restore (pageshow persisted) the audio element is live but the UI state may be stale, so
+		// re-sync currentTime/playing from the element — without autoplaying (browser policy).
+		// quick-261008-audit note: these document/window listeners would stack on a second
+		// attach() call. Deliberately NOT guarded: the root layout calls attach() once per <audio>
+		// mount (its only effect dep), and the test suite exercises multi-attach re-registration —
+		// a guard breaks that contract. Documented as latent, not fixed.
+		if (typeof document !== 'undefined') {
+			document.addEventListener('visibilitychange', () => {
+				logAction('visibility', { hidden: document.hidden });
+				// On hide, flush the exact current position so a bg eviction can't persist a stale time.
+				// On foreground return we do NOTHING: the foreground auto-resume mechanism was removed
+				// (quick-260703-i7e) because it re-issued play() on the current track when the tab became
+				// visible, causing unwanted playback more often than it helped. Playback now starts/resumes
+				// only from explicit user action or normal track-end auto-advance.
+				if (document.hidden) {
+					// bg-lockscreen-stall-noskip (round 2): snapshot whether audio is audibly flowing at
+					// hide-time — the discriminator between "bg loads work" (keep retry/skip live) and
+					// "platform defers media loads" (park the stall rescue until foreground).
+					this.audibleThisHide = this.playing;
+					this.flushPersist();
+				} else {
+					// 31-D-16: the ONE thing foreground return may do is refund the strike budget. A stint in
+					// a tunnel/background strikes every candidate the prefetch walk touched; coming back is
+					// good evidence those strikes were circumstantial, and refunding them is free.
+					// This branch must NEVER grow a play()/resume call — that is exactly what
+					// quick-260703-i7e removed, because it re-issued play() on the current track whenever the
+					// tab became visible and caused unwanted playback more often than it helped.
+					// clearAllStrikes is deliberately incapable of starting audio; keep it that way.
+					this.clearAllStrikes('foreground');
+					// bg-lockscreen-stall-noskip (round 2): resume a PARKED load-stall rescue. While hidden
+					// with no audible playback, recoverLoadStall parks instead of retry/skip (media byte-
+					// loads are platform-deferred there); the moment the tab is visible loading un-defers,
+					// so the rescue can actually work — fresh retry budget because the hidden-stint stall
+					// was the platform's doing, not the track's. This is NOT the quick-260703-i7e foreground
+					// auto-resume (that re-issued play() on a track that had ALREADY played and was paused):
+					// here the src NEVER produced audio, the user's last intent was "play", and
+					// recoverLoadStall itself refuses deliberate pauses / already-playing srcs.
+					if (this.stallRecheckOnVisible) {
+						this.stallRecheckOnVisible = false;
+						if (!this.hasPlayedSinceSrc && this.current) {
+							this.stallRetried = false;
+							logAction('stall.fg-recheck', { uid: this.current.uid });
+							this.recoverLoadStall();
+						}
+					}
+				}
+			});
+			// Page Lifecycle API (Chrome/Android); browsers without it simply never fire it.
+			document.addEventListener('freeze', () => this.flushPersist());
+		}
+		if (typeof window !== 'undefined') {
+			// 31-D-16: network recovery refunds the strike budget (see clearAllStrikes). A PLAIN listener,
+			// not an $effect on online.isOnline: the layout mount effect untrack()s attach()+restore()
+			// precisely because tracked player state written during attach self-invalidates that effect
+			// (the restore-effect-self-invalidation-loop freeze class). A raw listener adds no tracked read.
+			window.addEventListener('online', () => this.clearAllStrikes('online'));
+			// Covers bfcache eviction / navigation away on mobile Safari + Chrome.
+			window.addEventListener('pagehide', () => this.flushPersist());
+			window.addEventListener('pageshow', (e: PageTransitionEvent) => {
+				if (!e.persisted || !this.audio) return; // only a bfcache restore needs the re-sync
+				logAction('bfcache.restore');
+				this.currentTime = this.audio.currentTime || 0;
+				this.playing = !this.audio.paused;
+			});
+		}
+		// quick-261014-routefix: AUDIO-ROUTE LOSS detection. The old SIMPLIFY
+		// (debug-midplay-stall-background) devicechange listener was removed along with the
+		// external-pause self-heal it fed — but the browser's own "becoming noisy" pause turned out
+		// NOT to fire on the user's phone (unplugging earphones kept playing out of the speaker), and
+		// Android exposes only a single "Default" audiooutput to `enumerateDevices()`, so no web API
+		// could see the route change. Detection is back, in service form
+		// ($lib/services/audio-route.ts): the APK forwards Android's ACTION_AUDIO_BECOMING_NOISY
+		// via the hand-written AudioRoute plugin, and web platforms get a `devicechange` strict-shrink
+		// detector. Both arms land in pauseForRouteLoss() — a DELIBERATE pause (not a resume-suppress),
+		// so playback stays paused until the user taps play again.
+		this.routeWatch?.stop();
+		this.routeWatch = watchAudioRouteLoss(() => this.pauseForRouteLoss());
+		el.addEventListener('play', () => {
+			// `play` fires the instant `paused` flips false (inside audio.play(), at
+			// readyState HAVE_NOTHING — before a single byte loads). It is a UI-STATE signal
+			// only ("the user/transport intends to play"), NOT proof that audio started. The
+			// D-06 success reset and the D-13/D-14 watchdog disarm must NOT hang off this event
+			// (CR-01): doing so reset the failure counter on every auto-skip before the dead
+			// URL's `error` even arrived, so the loop-guard cap was unreachable. Those moved to
+			// the `playing` listener below.
+			this.playing = true;
+			this.syncPlaybackState();
+		});
+		// slow-cold-start-first-playing: pure observability, one line per event type per src (logMedia is
+		// one-shot). Splits the src-set → playing window: loadstart (request issued) → first progress
+		// (first bytes) → loadedmetadata/canplay (decodable) → stalled/suspend/waiting (why not).
+		for (const ev of ['loadstart', 'progress', 'loadedmetadata', 'canplay', 'stalled', 'suspend', 'waiting'])
+			el.addEventListener(ev, () => this.logMedia(ev));
+		el.addEventListener('playing', () => {
+			logAction('playing', { uid: this.current?.uid, ms: this.srcSetAt ? Date.now() - this.srcSetAt : -1 });
+			// `playing` is the event that means audio is ACTUALLY producing output (CR-01).
+			// D-13/D-14: mark the src as having played + disarm the initial-load stall watchdog.
+			// ANALYTICS: exactly one play event per track load — the first real audio output.
+			// Pause/resume and mid-track re-resolves keep the flag true, so they never
+			// double-count. Fire-and-forget; a failed ping never touches playback.
+			const firstAudiblePlay = !this.hasPlayedSinceSrc;
+			this.hasPlayedSinceSrc = true;
+			if (firstAudiblePlay && this.current) {
+				trackPlayStart(this.current);
+				// quick-261010-posthog: exactly one PostHog `track_played` per real
+				// audio output — same signal as the D1 ping above, song_id/source
+				// only, no PII. analytics.ts stays untouched.
+				trackPosthog('track_played', {
+					song_id: this.current.uid,
+					source: this.current.source ?? ''
+				});
+			}
+			this.disarmStall();
+			// Next-song-current-but-paused fix: real audio started — the autoplay-retry arm is moot.
+			this.autoplayRetryArmed = false;
+			// Audio is actually producing output — cancel any pending resume timer.
+			this.disarmResume();
+			// D-06 success reset: a real `playing` event is the natural counter reset — the track
+			// is actually producing audio, so the never-stop chain has recovered. Clear the
+			// consecutive-failure budget + the audio-error burst, and drop any sticky 'stopped'
+			// (loop-guard / offline) notice so the UI stops showing "playback stopped" the instant
+			// playback resumes.
+			this.consecutiveFailures = 0;
+			this.failoverSkips = 0; // SYSTEMIC-FAILURE CEILING (debug-nowbar-frozen-audius-spam): real audio = the storm is not systemic.
+			this.dryGrowRetries = 0; // DRY-GROW: real audio ends the episode…
+			this.clearDryGrowTimer(); // …and a queued retry from it is now stale.
+			this.driveBurst = 0; // SINGLE AUTHORITY (debug-song-click-lrc-flood-noplay): real output = the src re-drive is not looping.
+			this.lastDriveUid = null;
+			// 31-D-12: real output = the corrupt-blob episode is over. Drop the one-shot dedupes so a
+			// track whose re-download later goes bad again can report + repair itself once more.
+			this.corruptNotified.clear();
+			this.redownloadQueued.clear();
+			this.stallRetried = false; // bg-lockscreen-stall-noskip: real output = the load did not stall; fresh retry budget.
+			// bg-lockscreen-stall-noskip (round 2): real output while hidden = the platform IS loading
+			// media bytes in bg → the stall rescue may act; and any parked recheck is moot.
+			this.audibleThisHide = true;
+			this.stallRecheckOnVisible = false;
+			this.errorBurst = 0;
+			this.reresolveBurst = 0; // RERESOLVE-LOOP GUARD: real audio = the same-src re-resolve recovered.
+			this.loadRetryBurst = 0; // loadRetries: real audio = the load retry worked.
+			this.rapidErrorBurst = 0; // RAPID-FIRE BRAKE (debug-nowbar-freeze-reresolve-loop): output = the storm ended.
+			this.lastAudioErrorAt = 0;
+			// quick-261116-prebuf: a new track is producing audio — the local pool just
+			// shrank by one track, so the rolling car-buffer walk re-tops-up (a no-op
+			// unless armed and below the 30-minute target).
+			this.kickCarBuffer();
+			// Over-aggressive-skip fix: this track actually produced audio — drop any accumulated
+			// unplayable strikes for it so an earlier transient prefetch/probe failure can't push it
+			// toward a false permanent skip later in the session.
+			if (this.current) {
+				this.clearStrike(this.current.uid);
+				this.skipReasons.delete(this.current.uid); // quick-260926-l69: it plays — no longer skipped
+				// NEVER-STOP (quick-260630-q03): a recovered track is eligible for a fresh second-chance
+				// retry if it hits a later transient blip — drop its one-retry record.
+				this.retriedDeadUids.delete(this.current.uid);
+				// quick-260627-huo: a track that actually started playing has recovered — cancel any stale
+				// pending delayed re-resolve for it and reset its delayed-attempt budget so a later
+				// transient blip on the same song starts from a clean slate.
+				this.cancelRetryResolve(this.current.uid);
+				this.retryResolveAttempts.delete(this.current.uid);
+			}
+			// CR-03: real playback succeeded — end the fallback episode so the next failure for ANY
+			// song (incl. this one later) starts with a fresh attempted set.
+			this.fallbackEpisodeKey = null;
+			this.fallbackAttempted = new Set<SourceId>();
+			if (this.notice?.kind === 'stopped') this.notice = null;
+			// quick-261116-nstop: if this real audio is the REVIVAL PROBE track, the interlude
+			// is over — the saved queue (already restored by attemptRevivalProbe) owns playback.
+			this.exitInterludeRecovered();
+		});
+		el.addEventListener('pause', () => {
+			logAction('pause', { deliberate: this.deliberatePause });
+			this.playing = false;
+			this.syncPlaybackState();
+			// WR-05: a pause during the initial-load window means the user opted OUT of this load —
+			// disarm the stall watchdog so it can't, 15s later, runFallback → play(swap) and start
+			// audio against an explicit pause. Mirrors the `ended` disarm. (Masked before CR-01 by
+			// the early `play`-event disarm; reachable now that disarm only happens on real audio.)
+			this.disarmStall();
+			// Next-song-current-but-paused fix: an observed `pause` (user OR the swallowed autoplay
+			// rejection itself) clears the autoplay-retry arm so we NEVER re-play() from inside the
+			// INITIAL-LOAD retry seam (per specialist — that would fight a genuine user pause). The
+			// initial-load retry is driven solely from the canplay/immediate seam set up in play().
+			this.autoplayRetryArmed = false;
+			// SIMPLIFY (debug-midplay-stall-background): we do NOT force play() against a pause anymore.
+			// The old external-pause self-heal (scheduleExternalResume) re-issued play() on every
+			// non-deliberate pause — but because a successful re-play fires `playing`, which refunded the
+			// per-src budget (externalResumeBudget=0), the EXTERNAL_RESUME_CAP never engaged and the
+			// player fought an external audio-focus holder ~2×/sec indefinitely (log Pattern A). That is
+			// exactly the "interferes with other apps' voice notes" complaint: the OS pauses us to let
+			// another app speak, we immediately grab focus back. Per the user's target spec we now
+			// RESPECT any pause (whether a deliberate stop or an external audio-focus loss) and simply
+			// consume the deliberate flag. Recovery of a background-stalled track is no longer attempted:
+			// the foreground auto-resume mechanism was removed (quick-260703-i7e), so playback resumes only
+			// on explicit user action or normal track-end auto-advance — never by fighting the OS while
+			// backgrounded, and never on foreground return.
+			this.deliberatePause = false;
+			this.disarmResume();
+		});
+		el.addEventListener('waiting', () => {
+			// NEVER-STOP resume hysteresis (Hector 2026-11-19): a mid-song starvation
+			// stall on a slow source holds its own resume until the buffer is healthy
+			// again — see onMidSongStall. (logMedia's one-shot `waiting` line above is
+			// observability only; this listener is the actor, and it self-guards to
+			// mid-song slow-source stalls.)
+			this.onMidSongStall();
+		});
+		el.addEventListener('canplay', () => {
+			// Next-song-current-but-paused fix: the canplay event is the readyState-ready signal — if a
+			// non-fresh advance armed an autoplay retry but bytes were not yet present when play() ran,
+			// re-attempt the single play() now that the element has buffered. maybeRetryAutoplay is
+			// gen-guarded + one-shot + only acts on a paused, bytes-present element, so this is a no-op
+			// in every other case (fresh play, already playing, user pause, no arm).
+			this.maybeRetryAutoplay(this.playGen);
+		});
+		// bg-lockscreen-stall-noskip: the BACKGROUND-RELIABLE load-stall signal. `stalled` fires when the
+		// element is trying to fetch media data but none is forthcoming — and unlike setTimeout it FIRES
+		// in a hidden/locked tab, so it rescues the silent bg byte-load hang that produces no `audio.error`
+		// and that armStall's throttled timer misses. Only act on an INITIAL-load stall (before the src
+		// ever produced audio); a mid-track buffer dip after playback started is left to the browser.
+		//
+		// stall-kills-healthy-tracks (device capture 2026-09-12): BACKGROUND ONLY. Chrome fires `stalled`
+		// ONCE per load, ~3s after the last progress — with no bytes yet that is ~3.2s after src.set,
+		// while this device's normal first-byte is 1.8–2.9s. Acting on it in the FOREGROUND executed
+		// healthy tracks: ten stalls in a 24ms band across five sources, all rs:0, each retried (the
+		// re-attach destroys the in-flight load) then skipped, no ✗ drawn. The foreground already has the
+		// un-throttled STALL_TIMEOUT_MS watchdog armed at every src-set, and a dead URL fires `error` —
+		// so here `stalled` is observability only (logMedia above). It stays the trigger while hidden,
+		// where recoverLoadStall's PARK / audibleThisHide guards discriminate.
+		el.addEventListener('stalled', () => {
+			if (typeof document === 'undefined' || !document.hidden) return;
+			if (!this.hasPlayedSinceSrc) this.recoverLoadStall();
+		});
+		el.addEventListener('timeupdate', () => {
+			// Sleep-timer minutes backstop (TIMER-01, Pattern 1): `timeupdate` fires ~4×/sec while
+			// audio plays — exempt from intensive bg-tab throttling — so checking the ABSOLUTE
+			// deadline here is the throttle-proof expiry authority. expireSleepTimer() pauses in
+			// place; the existing body (currentTime/syncPosition/persist) is suppressed for this tick.
+			if (sleepTimer.mode === 'minutes' && isExpired(Date.now(), sleepTimer.deadline)) {
+				this.expireSleepTimer();
+				return;
+			}
+			this.currentTime = el.currentTime || 0;
+			// IDLE-PREFETCH backstop (quick-261102-idle1): play()'s src-set arms the idle
+			// prefetch itself; this timeupdate hook only re-arms when no arm exists — the
+			// restore()/resume paths that never ran play()'s arming points, or a repeat-one
+			// toggle-off mid-song (the arm refuses while repeat-one is on). armPrefetchWhenIdle
+			// self-guards (armed / pending / repeat / no-current), so the per-tick call is a
+			// no-op in the common case; the walk itself fires only when the /api pipeline is
+			// idle. Best-effort, never blocks.
+			if (!this.prefetchArmedForSrc && !this.prefetchArmPending) this.armPrefetchWhenIdle();
+			this.syncPosition(el);
+			// D-13/D-14: the first timeupdate since src-set is the "we are actually playing" signal —
+			// flip the flag + disarm the stall watchdog. This is what makes a mid-track buffer-dry
+			// (timeupdate already fired) NOT fail over, while an initial-load that never produced a
+			// timeupdate still does.
+			this.hasPlayedSinceSrc = true;
+			this.disarmStall();
+			// Coalesce currentTime writes to localStorage so a refresh resumes near where the
+			// user left off (within ~2s). Throttled to avoid the 4×/sec timeupdate firehose.
+			this.persistThrottled();
+		});
+		const syncDur = () => {
+			this.duration = Number.isFinite(el.duration) ? el.duration : 0;
+			// Apply any pending seek the moment duration becomes known. Order: a user-issued
+			// pendingSeekFrac (clicked progress before metadata loaded) wins over a restored
+			// pendingSeek (saved currentTime from the last session). Both cleared after apply.
+			if (Number.isFinite(el.duration) && el.duration > 0) {
+				if (this.pendingSeekFrac != null) {
+					el.currentTime = this.pendingSeekFrac * el.duration;
+					this.pendingSeekFrac = null;
+					this.pendingSeek = null;
+					this.pendingSeekUid = null;
+				} else if (this.pendingSeek != null) {
+					// quick-261008-audit: only the track the seek was armed for may consume it. A
+					// different song tapped meanwhile starts at 0 — the stale value is dropped.
+					if (this.pendingSeekUid === this.current?.uid) {
+						el.currentTime = Math.min(this.pendingSeek, el.duration);
+					}
+					this.pendingSeek = null;
+					this.pendingSeekUid = null;
+				}
+			}
+			this.syncPosition(el);
+		};
+		el.addEventListener('loadedmetadata', syncDur);
+		el.addEventListener('durationchange', syncDur);
+		el.addEventListener('ended', () => {
+			logAction('ended', { uid: this.current?.uid });
+			this.playing = false;
+			this.syncPlaybackState();
+			this.disarmStall(); // track finished — no initial-load stall to watch for
+			// EXTERNAL-PAUSE SELF-HEAL: a natural end-of-track also fires `pause` (just before/with
+			// `ended`). Cancel any resume the `pause` listener may have scheduled so we never re-play a
+			// track that finished on its own — `ended` owns the advance into next().
+			this.disarmResume();
+			// Sleep end-of-track (TIMER-01, D-03): when an end-of-track timer is armed, the natural
+			// track boundary is the stop point — and it BEATS repeat-one. decideEndedAction makes the
+			// precedence explicit + unit-tested: 'sleep-stop' returns BEFORE the repeat-one rewind and
+			// BEFORE next(), so neither runs. The `ended` event already paused the element; cancel the
+			// timer (indicator disappears, D-09) and clear the OS media UI. NEVER calls next()/playGen.
+			const endedAction = decideEndedAction(sleepTimer.mode, this.repeatMode);
+			if (endedAction === 'sleep-stop') {
+				sleepTimer.cancel();
+				this.clearMedia();
+				return;
+			}
+			// Repeat-one (D-10): loop the current track without advancing. The `ended` event
+			// already paused the element; rewind + play(). 'off' is the straight advance into
+			// next() (which grows auto up-next at the end of the queue — no repeat-all wrap).
+			if (this.repeatMode === 'one' && this.audio) {
+				// WR-02: a minutes fade keeps the audio PLAYING (it only pauses at finishExpiry). If
+				// the track ends naturally mid-fade, `fadeTimer` is still set — the timer has expired.
+				// Replaying here would loop a fading track (and the fade would keep lowering the new
+				// loop's volume). Finish the expiry instead (disarm fade, restore volume, pause, cancel
+				// timer) and do NOT loop. The 'advance' branch is already safe — next() calls abortFade.
+				if (this.fadeTimer) {
+					this.finishExpiry();
+					return;
+				}
+				this.audio.currentTime = 0;
+				// Not an initial-load arming point (D-14): repeat-one rewinds an already-playing
+				// src, so a rejection here is a paused-loop, not a load failure — the watchdog
+				// stays disarmed and we rely on the user to tap play.
+				void this.audio.play().catch(() => {
+					/* autoplay may require gesture — controls still work */
+				});
+				return;
+			}
+			this.next();
+		});
+		el.addEventListener('error', () => {
+			const willReresolve =
+				Date.now() - this.lastSeekAt < Player.SEEK_ERROR_WINDOW_MS || this.hasPlayedSinceSrc;
+			logAction('audio.error', {
+				uid: this.current?.uid,
+				hasPlayed: this.hasPlayedSinceSrc,
+				reresolve: willReresolve
+			});
+			this.disarmStall(); // an error event is the failure signal — the watchdog is redundant now
+
+			// ─── RAPID-FIRE BRAKE + ABSOLUTE CEILING (debug-nowbar-freeze-reresolve-loop) ───────────────
+			// Every recovery action below (reresolveCurrent, runFallback→play) re-attaches audio.src; a
+			// re-attached src that errors AGAIN before producing audio re-enters this handler. Two paths
+			// could loop unbounded and PEG THE MAIN THREAD → the whole SvelteKit app freezes (nowbar stuck
+			// on the loading line, no tap registers): (1) the seek-error branch calls reresolveCurrent()
+			// with no cap/counter/guard (repro: 2000+ synchronous src-sets); (2) the fall-through counts
+			// errorBurst but its FAILURE_CAP guard is commented out (ef2c751) so it never trips. Both were
+			// unbounded. This block is the single explicit ceiling for ALL error paths and is checked
+			// FIRST. Both bounds SKIP (strike the track + advance), NEVER the ef2c751-disabled
+			// tripLoopGuard() STOP — that hard pause + sticky "playback stopped" Retry notice was the
+			// false-positive that stranded the player on a transient CDN blip / region-lock churn
+			// (debug-midplay-stall-background root cause C, debug-reresolve-loop-stops-playback). Skipping
+			// honours never-stop; a genuine give-up still surfaces only via the offline / no-url paths.
+			const now = Date.now();
+			// A rapid error = fired < RAPID_ERROR_WINDOW_MS after the previous one with no `playing`
+			// between. No real resolve + <audio> load completes that fast, so this is a synchronous
+			// re-attach storm, not a distinct network failure. A normally-spaced error resets the run.
+			this.rapidErrorBurst = now - this.lastAudioErrorAt < Player.RAPID_ERROR_WINDOW_MS ? this.rapidErrorBurst + 1 : 0;
+			this.lastAudioErrorAt = now;
+			this.errorBurst++;
+			// (a) source-level brake: cut a synchronous loop off at RAPID_ERROR_CAP consecutive rapid
+			//     errors — refusing to re-drive recovery is what stops the CPU peg (a cap alone would
+			//     still spin synchronously up to it). (b) absolute backstop: FAILURE_CAP raw errors since
+			//     the last real `playing` regardless of spacing (the slow resolve-but-unplayable ping-pong
+			//     across 3+ sources the per-episode `attempted` set cannot bound). Either bound → SKIP.
+			if (this.rapidErrorBurst >= Player.RAPID_ERROR_CAP || this.errorBurst >= Player.FAILURE_CAP) {
+				logAction('error.ceiling', {
+					uid: this.current?.uid,
+					rapid: this.rapidErrorBurst,
+					burst: this.errorBurst
+				});
+				this.errorBurst = 0;
+				this.rapidErrorBurst = 0;
+				this.reresolveBurst = 0;
+				this.loadRetryBurst = 0;
+				// D-12: never-stop wins over explicit repeat — break a repeat-one loop on a failing track.
+				if (this.repeatMode === 'one') {
+					this.repeatMode = 'off';
+					this.persist();
+				}
+				this.playing = false;
+				// Strike the current track so nextAdvanceIndex / the prefetch walk route past it (bounded +
+				// recoverable: advanceTo still grants one second-chance retry and a real `playing` clears
+				// the strikes), then advance. next() bumps playGen via play(), superseding any in-flight
+				// fallback/reresolve for the now-abandoned dead track so it cannot re-enter this handler.
+				if (this.current) {
+					this.recordSkip(this.current.uid, 'load-error'); // quick-260926-l69: tagged even if the STOP below trips
+					this.strikeUnplayable(this.current.uid, 'load-error');
+				}
+				// quick-261116-nstop: a failed REVIVAL PROBE lands here too — it is budgeted
+				// separately (one per interlude track) and must not burn the skip ceiling.
+				if (this.nsProbeUid !== null && this.current?.uid === this.nsProbeUid) {
+					this.handleProbeFailure();
+					return;
+				}
+				// SYSTEMIC-FAILURE CEILING (debug-nowbar-frozen-audius-spam): this ceiling just fired for
+				// yet another track with no real `playing` since the last one. Count it; once
+				// SYSTEMIC_SKIP_CAP distinct tracks fail back-to-back the outage is systemic, so enter
+				// the Fallback Interlude (quick-261116-nstop: it used to STOP via haltRunawayRecovery)
+				// rather than skipping into another resolve/regenerate/prefetch burst that only spams
+				// /api/*. A real `playing` resets failoverSkips, so this can't trip on a blip.
+				if (++this.failoverSkips >= Player.SYSTEMIC_SKIP_CAP) {
+					this.enterFallbackInterlude();
+					return;
+				}
+				// 31-D-18: this is a skip the user is watching happen, and until now it happened in total
+				// silence — half the original complaint was not knowing a song had been dropped. Route it
+				// through the EXISTING batched channel (never a second toast channel): emitSkipNotice
+				// already collapses N skips inside SKIP_BURST_WINDOW_MS into ONE notice with a count, so a
+				// storm cannot become a toast storm. Emitted inside the else path, so the STOP branch above
+				// keeps its sticky Retry notice untouched.
+				if (this.current) this.emitSkipNotice(this.current, 'load-error');
+				this.next();
+				return;
+			}
+			// ────────────────────────────────────────────────────────────────────────────────────────────
+
+			// ─── 31-D-12 CORRUPT-BLOB SELF-REPAIR ────────────────────────────────────────────────────────
+			// Placed AFTER the ceiling block (the freeze guards must keep winning — a corrupt-blob path
+			// must never outrank them) and BEFORE the seek / hasPlayedSinceSrc branches (local bytes that
+			// fail to decode are a DEFINITIVE "these bytes are bad" signal, so they should not burn the
+			// seek-recovery or one-shot in-place-reresolve budgets those branches meter).
+			const badBytes = this.lastSrcKind;
+			// Blob-only: a 'direct-url' (or 'url') failure is a NETWORK failure and must take
+			// the ordinary recovery chain below — only real blob bytes get the self-repair.
+			if (badBytes === 'download-blob' || badBytes === 'prebuffer-blob') {
+				// Whatever happens below, the next attach decides its own provenance; clear it now so a
+				// repeat error on the network re-stream takes the ordinary path.
+				this.setSrcKind('url');
+				if (badBytes === 'prebuffer-blob') {
+					// A prebuffer blob is NOT a download. Discard it (and any still-claimed slot) and FALL
+					// THROUGH to the pre-existing handling — no eviction, no toast, no library write. A
+					// naive `blob:` sniff here would have deleted a download record for a song the user
+					// never downloaded.
+					if (this.prebufferedBlobUrl) URL.revokeObjectURL(this.prebufferedBlobUrl);
+					this.prebufferedBlobUrl = null;
+					this.prebufferedUid = null;
+					// quick-261116-prebuf: a CAR-BUFFER entry's bytes live in blobStore under the
+					// track uid (not the in-memory slot above). Corrupt CACHE bytes are safe to
+					// delete outright — unregister + del so the walk can re-buffer a fresh copy.
+					// Still no library write: the entry was never a download.
+					if (this.current && this.carBufferEntry(this.current.uid)) {
+						const uid = this.current.uid;
+						this.unregisterCarBuffer(uid);
+						void blobStore.del(uid); // never-throws
+					}
+				} else if (this.current) {
+					// A LIBRARY download that will not decode. Evict it, tell the user once, keep playing
+					// over the network, and quietly re-download so offline works next time. No strike, no
+					// next(), no STOP — this is a repair, not a failure.
+					const track = this.current;
+					const uid = track.uid;
+					logAction('blob.corrupt', { uid });
+					void blobStore.del(uid); // never-throws
+					// 34-D-06 / RESEARCH Pitfall 10: evict-and-silently-re-download is the right repair for an
+					// evictable APP blob and the wrong one for the user's own file. A device file that will not
+					// decode stays LISTED and marked; re-downloading a local file is meaningless (downloadTrack
+					// would just return 'failed'). blobStore.del is already a refusal for device uids (Plan
+					// 34-01), so the call above is harmless — kept so the stored-uri index is cleared.
+					if (isDeviceUid(uid)) library.markUnavailable(uid); else library.removeDownload(uid); // makes reresolveCurrent's isDownloaded gate false
+					if (!this.corruptNotified.has(uid)) {
+						this.corruptNotified.add(uid);
+						this.notice = {
+							kind: 'corrupt-download',
+							msg: 'toast.downloadCorrupted',
+							title: track.title
+						};
+						// WR-04 window-close discipline (mirrors emitSkipNotice): clear the channel once the
+						// window elapses so a stale notice cannot re-toast on a later language switch.
+						setTimeout(() => {
+							if (this.notice?.kind === 'corrupt-download') this.notice = null;
+						}, Player.SKIP_BURST_WINDOW_MS);
+					}
+					if (!isDeviceUid(uid) && !this.redownloadQueued.has(uid)) {
+						this.redownloadQueued.add(uid);
+						// Dynamic import: download-track imports the player singleton, so a static import
+						// here would close a module cycle. Fire-and-forget + never-throw; `save:false` keeps
+						// the repair silent (no save dialog mid-playback).
+						void import('$lib/services/download-track')
+							.then((m) => m.downloadTrack({ ...track }, { save: false }))
+							.catch(() => {});
+					}
+					// The download record is gone, so this re-resolves over the NETWORK — that is the whole
+					// self-repair; no new resolve path is needed.
+					void this.reresolveCurrent();
+					return;
+				}
+			}
+			// ────────────────────────────────────────────────────────────────────────────────────────────
+
+			// 31-D-09 / 31-D-11: repair the edge resolve cache. 31-D-11 accepts as a DESIGNED risk that
+			// a globally-shared audio URL can be IP- or region-bound and will 403 for another user, so
+			// this failure path is the load-bearing half of the feature, not an exception. The call is
+			// deliberately UNCONDITIONAL and SELF-GATING in the service: it consults its own
+			// served-url registry and no-ops (zero requests) for a URL the cache never served, so a
+			// normally-resolved URL that fails is never reported. Keeping the gate there rather than
+			// here is what avoids adding a fourth provenance flag to this already-huge store, and it
+			// means the error handler gains exactly one line. Pure side effect: no branch, no return,
+			// no strike, no skip, no await — recovery continues into the seek / hasPlayedSinceSrc /
+			// cross-source chain below EXACTLY as before, which is what makes "keep playing" true.
+			reportDeadUrl(this.audio?.src ?? '');
+			// quick-261006-r2: same repair for the CLIENT direct-url cache (stream-url.ts). Also
+			// unconditional and self-gating — a src the cache never served is a no-op — so a dead
+			// direct URL can never be re-served by a later re-resolve of the same track.
+			reportDeadDirectUrl(this.audio?.src ?? '');
+			// quick-261119-mcache: same repair for the PERSISTED audio-url cache (audio-url-cache.ts).
+			// Also unconditional and self-gating — a src that cache never served is a no-op — so a
+			// dead persisted kuwo url is evicted here and the re-resolve below mints a fresh one.
+			reportDeadAudioUrl(this.audio?.src ?? '');
+
+			// lw9-followup: if the error fires WITHIN the seek window, the user just clicked the
+			// progress bar — but the audio element may not be able to honor the seek because the
+			// audio.src is a stale CDN URL (typical after a page-reload restore: the resolved URL
+			// from minutes ago can still stream-from-0 but rejects range requests on a new edge
+			// node / expired signature). Don't fall back across sources — RE-RESOLVE the same
+			// track to get a fresh URL, then re-apply the user's seek via pendingSeek so the
+			// audio resumes at the position they clicked. A genuine non-seek failure (no recent
+			// seek) still routes through the cross-source path below.
+			const sinceSeek = Date.now() - this.lastSeekAt;
+			if (sinceSeek < Player.SEEK_ERROR_WINDOW_MS) {
+				void this.reresolveCurrent();
+				return;
+			}
+			// SIMPLIFY (debug-midplay-stall-background): a track that has ALREADY produced audio
+			// (hasPlayedSinceSrc) but then errors gets ONE in-place same-src re-resolve — this recovers a
+			// genuinely transient mid-track buffer/CDN blip WITHOUT restarting the song, which is the good
+			// case the old RERESOLVE_CAP loop was built for. But the dominant real-world signature (log
+			// Pattern B: netease region-lock) is a URL that resolves fine, plays ~1s, then the byte-stream
+			// 403s and re-errors instantly — for which repeatedly re-resolving the SAME dead URL (up to
+			// the cap, then falling through) was a wasteful storm that pinned the player mid-song. So we
+			// cap the in-place recovery at ONE attempt: if a re-resolved src errors AGAIN before producing
+			// audio, we treat the track as failed and fall through to the cross-source fallback + advance
+			// (SKIP), per the user's "fails to resolve → skip it" spec. reresolveBurst resets on the next
+			// real `playing` / new src / recoverFromStop.
+			if (this.hasPlayedSinceSrc) {
+				// BG-SKIP-FIRST (bg-resolve-gap-stall, Freeze 2). In a HIDDEN / locked WebView the in-place
+				// reresolveCurrent() below re-attaches a fresh src and then awaits `playing`/`error` events
+				// that never fire — Android freezes the page the instant the errored track stops decoding, so
+				// reresolveCurrent's network re-resolve hangs and the element sits at 0:00 with no duration
+				// forever (observed: resolve.ok → a single audio.error → 44 min of nothing until foreground).
+				// reresolveCurrent deliberately arms no stall watchdog (see its D-14 note), so nothing escapes.
+				// So when hidden we SKIP the in-place recovery ENTIRELY and advance straight into the next
+				// track — depth-2 pre-warmed by prefetchNext()/warmAfter(), so its play() short-circuits with
+				// NO cold background resolve, completing the src-swap in one JS turn before the page freezes
+				// and thus keeping audio (and the MediaSession pill) alive. Foreground keeps the richer
+				// in-place reresolve + cross-source recovery below. This SUBSUMES the old post-cap
+				// bg-error-skip (debug-bg-no-pill-split-play-stop, Option B): skipping on the FIRST error is
+				// strictly safer than giving one hang-prone in-place attempt. An external audio-focus loss
+				// (voice note) fires `pause`, not `audio.error`, so it never enters here — i7e's "do not
+				// fight the OS" mandate stays intact (this is a forward skip of a genuinely errored stream).
+				if (typeof document !== 'undefined' && document.hidden) {
+					logAction('bg-error-skip', { uid: this.current?.uid });
+					// DEAD-RUN MITIGATION (bg-resolve-gap-stall round 2): strike the errored track so a
+					// whole region-locked batch (netease 403-after-resolve) is not re-churned on every queue
+					// pass. At STRIKE_CAP (2) the uid is promoted into unplayableUids, so nextAdvanceIndex /
+					// prefetchNext route past it instead of replaying it (the log showed the same 5-track
+					// batch bg-error-skipping again a minute later). Bounded + recoverable: advanceTo still
+					// grants one second-chance retry, and a real `playing` clears the strikes.
+					if (this.current) {
+						this.recordSkip(this.current.uid, 'load-error'); // quick-260926-l69
+						this.strikeUnplayable(this.current.uid, 'load-error');
+					}
+					this.playing = false;
+					// 31-D-17/31-D-18: this path DELIBERATELY differs from its sibling ceiling path in two
+					// ways, and both omissions are load-bearing — do not "fix" either of them.
+					//  (a) NO emitSkipNotice: it only runs while document.hidden, so nobody sees the toast,
+					//      and emitSkipNotice's burst window would replay it as a stale burst the moment the
+					//      user returns to the app. quick-260926-l69: the reason IS still recorded, so the
+					//      Up Next row explains the skip when the user returns.
+					//  (b) NO `++this.failoverSkips`, unlike the ceiling path above. failoverSkips is the
+					//      only CROSS-track bound in the system and reaching SYSTEMIC_SKIP_CAP calls
+					//      haltRunawayRecovery() — a hard pause + sticky Retry. Counting background skips
+					//      would let an unattended, locked device with a run of region-locked tracks PAUSE
+					//      itself and sit dead until the user picked up the phone: a never-stop violation in
+					//      exactly the scenario this must not break. The bounding here is the per-track
+					//      strike (routing past the dead batch), not a cross-track ceiling.
+					this.next();
+					return;
+				}
+				this.reresolveBurst++;
+				if (this.reresolveBurst <= 1) {
+					void this.reresolveCurrent();
+					return;
+				}
+				logAction('reresolve.cap', { uid: this.current?.uid, n: this.reresolveBurst });
+				// fall through (foreground only) — the single in-place recovery failed; SKIP via the
+				// cross-source runFallback/advance below.
+			}
+			// LOAD RETRY (fast 2026-10-04, `loadRetries` registry flag): a source whose failures are
+			// per-REQUEST, not per-song, gets a bounded fresh re-attach when its track errors BEFORE
+			// producing audio. ytmusic is the case: YouTube bot-gates Cloudflare egress per invocation, a new
+			// request may land on an un-gated IP, and with no fallback target one gated request used to end
+			// the song as "not found on any source". Bounded by the registry budget (2), reset by `playing` /
+			// play() / the ceilings, and the ~1 s gated round trip keeps it clear of the rapid-fire brake;
+			// the errorBurst FAILURE_CAP above still backstops it. FOREGROUND ONLY, for the BG-SKIP-FIRST
+			// reason: a hidden WebView freezes reresolveCurrent's network re-resolve.
+			if (
+				!this.hasPlayedSinceSrc &&
+				this.current &&
+				!(typeof document !== 'undefined' && document.hidden) &&
+				this.loadRetryBurst < loadRetriesFor(this.current.source)
+			) {
+				this.loadRetryBurst++;
+				logAction('load.retry', { uid: this.current.uid, n: this.loadRetryBurst });
+				void this.reresolveCurrent();
+				return;
+			}
+			// DIRECT-FIRST PROXY FALLBACK: the errored src was the direct CDN URL and this
+			// source keeps a proxied route. Try it BEFORE cross-source fallback — zero listener
+			// compromise: the primary path never touches our bytes; this fires only when direct
+			// fails (hotlink block, missing referer). lastSrcKind is the single-shot guard: the
+			// re-drive below records 'url', so a second error falls through to runFallback.
+			// FOREGROUND ONLY (BG-SKIP-FIRST): a hidden WebView freezes network re-resolves.
+			const cur = this.current;
+			const proxyUrl = cur?.proxyUrl;
+			if (
+				this.lastSrcKind === 'direct-url' &&
+				cur &&
+				proxyUrl &&
+				!(typeof document !== 'undefined' && document.hidden)
+			) {
+				const myGen = this.playGen;
+				logAction('proxy.fallback', { uid: cur.uid });
+				// Resume where the direct stream died — a restart at 0:00 would be the compromise
+				// this design refuses. pendingSeek is picked up by the loadedmetadata listener
+				// (the same slot reresolveCurrent uses).
+				this.pendingSeek = this.currentTime > 0 ? this.currentTime : null;
+				// SINGLE AUTHORITY: re-attach through the braked setter so a proxy that also
+				// fails cannot spin (the brake + the errorBurst ceiling above bound it).
+				if (this.driveSrc(cur.uid, proxyUrl, 'url')) {
+					if (myGen === this.playGen) void this.audio?.play().catch(() => {});
+					return;
+				}
+				// driveSrc braked → fall through to cross-source fallback below.
+			}
+			// Cross-source fallback (gte / SRC-FB-01): rather than surface the error immediately,
+			// try the same {artist,title} on the remaining enabled sources. Only after every
+			// source is exhausted does the existing error surface. Generation-guarded so a
+			// newer play() supersedes a stale retry.
+			this.playing = false;
+			const failed = this.current;
+			if (!failed) {
+				this.error = 'toast.playbackStopped';
+				this.clearMedia();
+				return;
+			}
+			// CR-03 note: the dominant region-lock mode is "URL resolves, the <audio> 403s" — the `error`
+			// event fires while tryFallback keeps 'succeeding' (it resolves SOME url every cycle), so
+			// handleTotalFailure (and consecutiveFailures) never runs and the A↔B ping-pong would be
+			// unbounded. The raw-audio-error ceiling that backstops this now lives at the TOP of the
+			// handler (debug-nowbar-freeze-reresolve-loop): errorBurst is incremented + checked against
+			// FAILURE_CAP there for EVERY error path (this fall-through, the seek branch, and the in-place
+			// reresolve), and the rapid-fire brake cuts a synchronous storm off even sooner. So this
+			// per-episode fallback keeps only the cross-source retry — the absolute cap is no longer
+			// duplicated here (its old commented FAILURE_CAP/tripLoopGuard STOP block was removed; the
+			// ceiling now SKIPS, not STOPS).
+			void this.runFallback(failed);
+		});
+
+		// Register OS media transport + seek handlers ONCE (MS-03). They reuse the
+		// existing player methods / audio element — no new playback or queue logic.
+		// `details.seekOffset` / `details.seekTime` come from the user agent and are
+		// treated as untrusted: only acted on when finite, and clamped into range
+		// (T-kyf-01) — the same discipline the pure safePositionState enforces.
+		const ms = this.ms;
+		if (!ms) return;
+		ms.setActionHandler('play', () => this.resumeAudio());
+		// EXTERNAL-PAUSE SELF-HEAL: an OS/lock-screen pause is INTENTIONAL — route through pauseAudio()
+		// so the `pause` listener honours it instead of re-playing the track.
+		ms.setActionHandler('pause', () => this.pauseAudio());
+		// Voice "Hey Google, stop the music" arrives as onStop (native) / 'stop' (web). With no
+		// handler the native plugin never advertises ACTION_STOP, so Assistant had nothing to call.
+		// Treated as an intentional pause (keeps the track + queue resumable). try/catch: older
+		// browsers throw TypeError on an action they don't know.
+		try {
+			ms.setActionHandler('stop', () => this.pauseAudio());
+		} catch {
+			/* unsupported action — voice stop just isn't offered there */
+		}
+		ms.setActionHandler('previoustrack', () => this.prev());
+		ms.setActionHandler('nexttrack', () => this.next());
+		ms.setActionHandler('seekbackward', (details) => {
+			const offset = Number.isFinite(details.seekOffset) ? (details.seekOffset as number) : 10;
+			this.lastSeekAt = Date.now();
+			el.currentTime = Math.max(0, el.currentTime - offset);
+		});
+		ms.setActionHandler('seekforward', (details) => {
+			const offset = Number.isFinite(details.seekOffset) ? (details.seekOffset as number) : 10;
+			const cap = Number.isFinite(el.duration) ? el.duration : el.currentTime + offset;
+			this.lastSeekAt = Date.now();
+			el.currentTime = Math.min(cap, el.currentTime + offset);
+		});
+		ms.setActionHandler('seekto', (details) => {
+			if (typeof details.seekTime !== 'number' || !Number.isFinite(details.seekTime)) return;
+			if (Number.isFinite(el.duration) && el.duration > 0) {
+				this.seekFraction(details.seekTime / el.duration); // clamps [0,1] internally
+			} else {
+				el.currentTime = Math.max(0, details.seekTime);
+			}
+		});
+	}
+
+	/**
+	 * quick-260615-i9u (Feature B): snapshot the history prefix from the CURRENT queue BEFORE it is
+	 * wiped — everything up to AND INCLUDING the prior current — capped to the last HISTORY_CAP
+	 * entries. Returns [] when there is no current (cold start → fresh play degrades to today's
+	 * [seed, ...tail] shape, no regression). Must run before this.queue is reassigned.
+	 */
+	private captureHistory(): Track[] {
+		const cur = this.current;
+		if (!cur) return [];
+		let idx = this.queue.findIndex((t) => t.uid === cur.uid);
+		if (idx < 0) idx = this.queue.findIndex((t) => sameSongKey(t, cur));
+		let h = idx >= 0 ? this.queue.slice(0, idx + 1) : [cur];
+		if (h.length > Player.HISTORY_CAP) h = h.slice(h.length - Player.HISTORY_CAP);
+		return h;
+	}
+
+	/**
+	 * quick-260618-fiz (Fix 4): snapshot the user's EXPLICIT queue entries (uid ∈ manualUids) from
+	 * the CURRENT queue BEFORE it is wiped by setQueue/setListQueue. These are songs the user pinned
+	 * via playNext/addToQueue/reorder and MUST survive a fresh-play context switch (unlike auto/
+	 * context picks, which are dropped). The current track is excluded — the seed/history path owns
+	 * it. Returns [] when nothing is pinned. Must run before this.queue is reassigned.
+	 */
+	private captureManual(): Track[] {
+		const curUid = this.current?.uid;
+		return this.queue.filter((t) => this.manualUids.has(t.uid) && t.uid !== curUid);
+	}
+
+	/** Set the active list (home grid / search results) as the Up-Next source. The optional
+	 *  `context` records which surface started the queue (Phase 17, QUEUE-03) so the fresh-play
+	 *  path can resolve the effective sourcing mode. Defaults to null (unknown → global default).
+	 *  The optional `cover` is the LIST's own art (an album's hero image) — quick-260910-piz. */
+	setQueue(tracks: Track[], context: QueueContext = null, cover: string | null = null) {
+		// quick-260615-i9u (Feature B): capture the pre-wipe history prefix so the next fresh play()
+		// can re-weave it in front of the seed. `??=` so a setListQueue→setQueue delegate doesn't
+		// clobber a capture already taken this tick (whichever runs first wins).
+		this.pendingHistory ??= this.captureHistory();
+		// quick-260618-fiz (Fix 4): capture explicit manual entries BEFORE the wipe so the next fresh
+		// play re-weaves them after the seed while this auto/context tail is dropped. `??=` mirrors
+		// pendingHistory — whichever of a setListQueue→setQueue delegate pair runs first wins.
+		this.pendingManual ??= this.captureManual();
+		this.queueGen++; // WR-06: an explicit queue supersedes any in-flight regenerate result
+		// quick-261103-upnext: a new explicit list voids the generated-tail bookkeeping.
+		this.pendingGeneratedTail = false;
+		// quick-260910-piz: seed + attach HERE, not in the album page — this is the single chokepoint
+		// every list surface installs through, so the tiles (which read `track.cover`) and the hero
+		// (which reads the attachment) can never disagree. A missing/non-https cover means "this list
+		// has no album art": seedCover is a pass-through (never blanks an existing cover) and the
+		// attachment is cleared, which is exactly what every non-album surface wants.
+		this.queue = dedupeBest(seedCover(tracks, cover), settings.preferredSource);
+		this.attachedCover = buildAttachment(this.queue, cover);
+		this.queueContext = context;
+		// quick-260618-lsw (LSW-03): a brand-new list is a fresh start — re-anchor the Up-Next list to
+		// the new current (or null when cold) so old played songs do not bleed into the new Up-Next.
+		this.upNextAnchorUid = this.current?.uid ?? null;
+		this.persist();
+	}
+
+	private queueWithAnchor(tracks: Track[], anchor: Track): Track[] {
+		const deduped = dedupeBest(tracks, settings.preferredSource);
+		let idx = deduped.findIndex((t) => t.uid === anchor.uid);
+		if (idx < 0) idx = deduped.findIndex((t) => sameSongKey(t, anchor));
+		if (idx >= 0) {
+			deduped[idx] = anchor;
+			return deduped;
+		}
+		return [anchor, ...deduped.filter((t) => t.uid !== anchor.uid)];
+	}
+
+	/**
+	 * Install an explicit ordered LIST as the up-next queue while GUARANTEEING the currently
+	 * playing track is a member of it (album-and-next-song-bug fix). The single-tap album path and
+	 * any other "play one item, then back-fill the rest of its list" flow needs the current track to
+	 * live INSIDE the queue at its real position, otherwise indexOf(current) is -1 and next()/prev()/
+	 * ensureAhead/prefetchNext all go dead AND the "same-list" up-next can never be the list remainder
+	 * (it falls through to generation). This re-anchors current into the deduped list WITHOUT
+	 * restarting playback (unlike play(), which resets currentTime + re-sets audio.src):
+	 *
+	 *  - Dedupe the list (cross-source collapse, same as setQueue).
+	 *  - Locate current in it by uid first, then by sameSongKey (a different-source variant of the
+	 *    same song collapses under dedupe, so the uid may differ — match the SONG, not the id).
+	 *  - If found, REPLACE that slot with the exact `current` object so indexOf(current) is valid and
+	 *    audio keeps playing the already-loaded track.
+	 *  - If NOT found (the song isn't in its own list — rare), splice current at the front so it
+	 *    stays a member and the rest of the list becomes the up-next remainder.
+	 *
+	 * No-op delegate to setQueue() when there is no current track (nothing to anchor).
+	 */
+	setListQueue(tracks: Track[], context: QueueContext = null, cover: string | null = null) {
+		// quick-260615-i9u (Feature B): capture the pre-wipe history prefix BEFORE anything (incl. the
+		// no-current delegate to setQueue, which also captures with `??=`). `??=` so the delegate path
+		// doesn't double-capture/clobber — whichever runs first wins.
+		this.pendingHistory ??= this.captureHistory();
+		// quick-260618-fiz (Fix 4): capture explicit manual entries BEFORE the wipe (same as setQueue).
+		this.pendingManual ??= this.captureManual();
+		const current = this.current;
+		if (!current) {
+			this.setQueue(tracks, context, cover);
+			return;
+		}
+		this.queueGen++; // WR-06: an explicit queue supersedes any in-flight regenerate result
+		// quick-261103-upnext: same bookkeeping reset as setQueue (this is the anchored path).
+		this.pendingGeneratedTail = false;
+		// quick-260910-piz: the keys come from the ANCHORED queue, so the current track (possibly a
+		// different-source variant) is a member by song key. The anchored `current` object itself is
+		// NOT re-covered here — it already carries playStub's attached cover and `resolvedCover` was
+		// set at play time; retro-patching the live hero is out of scope.
+		this.queue = this.queueWithAnchor(seedCover(tracks, cover), current);
+		this.attachedCover = buildAttachment(this.queue, cover);
+		this.queueContext = context;
+		// quick-260618-lsw (LSW-03): installing a new list re-anchors the Up-Next list to current.
+		this.upNextAnchorUid = current.uid;
+		this.persist();
+	}
+
+	/** 38-D-02 — the ONE queue-splice primitive: de-dupe by uid FIRST, then land the track directly
+	 *  after `current` (index 0 when there is no current). Extracted so the three arrivals needing
+	 *  this exact shape provably share it instead of carrying copies that drift: `playNext` (pins,
+	 *  and autoplays on an empty queue), `spliceAndPlay` (plays, never pins) and `armTrack` (seats a
+	 *  resolved + paused track, never plays).
+	 *
+	 *  The de-dupe-BEFORE-lookup ordering is load-bearing, and it is why every caller guards on
+	 *  `current?.uid === t.uid`: splicing the CURRENT track filters it out, so the findIndex for
+	 *  current returns -1 and the track lands at index 0 instead of staying put. */
+	private spliceAfterCurrent(t: Track): void {
+		const q = this.queue.filter((x) => x.uid !== t.uid);
+		const i = q.findIndex((x) => x.uid === this.current?.uid);
+		q.splice(i >= 0 ? i + 1 : 0, 0, t);
+		this.queue = q;
+	}
+
+	/** Insert a track right after the current one (de-duped). Plays it if nothing is playing. */
+	/**
+	 * Splice a track in directly after the current one.
+	 *
+	 * `pin` (default true) records the track in `manualUids`, which is what makes it SURVIVE a later
+	 * queue reset (quick-260618-fiz Fix 4 re-weaves pinned entries after the new seed). That is right
+	 * for an explicit "Play next" — a swipe-left or the track menu, both of which raise a toast, so
+	 * the user knowingly pinned it.
+	 *
+	 * It is WRONG for a plain tap that just means "play this now". `relatedTapPlay` called this only
+	 * to get the splice and inherited the pin as a side effect, so a related-list tap on b1 left b1
+	 * pinned forever: starting a brand-new queue from the main page then produced `c1, b1, c2…`
+	 * instead of `c1, c2, c3…` — a song the user never queued, riding along through every later
+	 * context switch. Pass `{ pin: false }` for positional inserts that carry no user intent to keep.
+	 */
+	playNext(t: Track, opts: { pin?: boolean } = {}) {
+		if (opts.pin !== false) this.manualUids.add(t.uid); // explicit manual add — preserved across regen
+		this.spliceAfterCurrent(t);
+		if (!this.current) this.play(t);
+		else {
+			this.persist();
+			this.revalidatePrefetchArm(); // quick-261102-idle1: the immediate next just changed
+		}
+	}
+
+	/**
+	 * 38-D-02/D-07 — splice a track in right after `current` and play it WITHOUT destroying the
+	 * listener's queue shape. Returns false when the track is ALREADY current (a no-op re-open,
+	 * 38-D-03); true when it was spliced and started.
+	 *
+	 * quick-260910-qjv (relocated here from NpRelated.relatedTapPlay, which was its first and until
+	 * now only implementation): a Related TAP is "queue at the top and play", not "nuke my queue". It
+	 * used to be play({ fresh: true }) — the fresh branch weaves history, re-anchors upNextAnchorUid
+	 * to the tapped song, clears removedUids and REGENERATES the tail, so every row the user had
+	 * lined up vanished. Composed from two existing methods instead:
+	 *   playNext({ pin: false }) — the exact surgery a swipe-left performs (de-dupe by uid, splice
+	 *       after current, persist) MINUS the pin. pin:false because this means "play this now", NOT
+	 *       "pin this for later": taking playNext's manualUids side effect too left the tapped song
+	 *       surviving every later queue reset (a main-page play then yielded `c1, b1, c2…`). An
+	 *       explicit Play-next — the swipe-left, or the track menu — still pins.
+	 *   play(…, { fresh: false }) — the path next()/prev()/auto-advance take: it never weaves
+	 *       history, never re-anchors, never clears removedUids and never regenerates.
+	 * So the anchored queue.slice the Up-Next pane renders keeps every row; only the .playing
+	 * highlight moves.
+	 *
+	 * The already-current guard is not cosmetic. Tapping the now-playing song is a NO-OP, not a
+	 * restart, and it also keeps spliceAfterCurrent from mis-splicing: it filters the uid out FIRST,
+	 * then looks for current — which would be gone — landing the track at index 0.
+	 *
+	 * The second `current?.uid !== t.uid` check is the double-play guard: on a cold start, with no
+	 * current, playNext plays the track itself (setting current synchronously). No toast/haptic —
+	 * the row becoming the playing track IS the feedback.
+	 *
+	 * 🔴 NOT the cold share-arrival path. playNext AUTOPLAYS on a truly empty queue (38-D-29), which
+	 * a first-time visitor with nothing persisted hits, and a non-gesture autoplay both violates
+	 * 38-D-06 and is rejected by mobile autoplay policy anyway. A cold arrival calls `armTrack`,
+	 * which seats the track resolved + paused and never calls play().
+	 *
+	 * It lives on the store because the share arrival (both /song routes) and the legacy `?play=`
+	 * decoder are its second and third callers, and CLAUDE.md flags a third inline copy as debt.
+	 */
+	spliceAndPlay(t: Track): boolean {
+		if (this.current?.uid === t.uid) return false;
+		this.playNext(t, { pin: false });
+		if (this.current?.uid !== t.uid) void this.play(t, { fresh: false });
+		return true;
+	}
+
+	/** Append a track to the end of the queue (de-duped). Plays it if nothing is playing. */
+	addToQueue(t: Track) {
+		this.manualUids.add(t.uid); // explicit manual add — preserved across regen
+		if (!this.queue.some((x) => x.uid === t.uid)) this.queue = [...this.queue, t];
+		if (!this.current) this.play(t);
+		else {
+			this.persist();
+			this.revalidatePrefetchArm(); // quick-261102-idle1: may have created a next where none was
+		}
+	}
+
+	/**
+	 * Remove one track from Up-Next (Phase 17, QUEUE-05 / D-10 — swipe-to-remove). The uid is
+	 * session-excluded from auto-generation (removedUids) so it does not regenerate back in, and
+	 * dropped from manualUids so a previously-pinned track can still be swiped away. Re-reads
+	 * `this.queue` at write-time and filters it (Pitfall 1 — never a closed-over snapshot).
+	 *
+	 * quick-260910-omt: returns a `QueueRemoval` receipt (or null when nothing was removed) that
+	 * `restoreToQueue` consumes to reverse the removal — the Up-Next swipe-left undo toast.
+	 */
+	removeFromQueue(uid: string): QueueRemoval | null {
+		// CR-01: never-stop — the CURRENT track survives (mirrors clearQueue's invariant).
+		// Removing it would orphan indexOf(current) → next()/ensureAhead/prefetchNext all go
+		// permanently dead AND persist() would write the broken state across reloads.
+		if (uid === this.current?.uid) return null;
+		const index = this.queue.findIndex((t) => t.uid === uid);
+		if (index === -1) return null; // nothing removed → nothing to undo
+		const track = this.queue[index];
+		// Captured BEFORE the mutations so the receipt records the PRIOR side-state.
+		const wasManual = this.manualUids.has(uid);
+		const wasExcluded = this.removedUids.has(uid);
+		this.removedUids.add(uid); // D-10: session-excluded from regen/grow
+		this.manualUids.delete(uid);
+		this.queue = this.queue.filter((t) => t.uid !== uid);
+		this.persist();
+		this.revalidatePrefetchArm(); // quick-261102-idle1: the removed row may have been the next
+		return { track, index, wasManual, wasExcluded };
+	}
+
+	/**
+	 * quick-260910-omt: the exact inverse of `removeFromQueue` — reverses the queue slot, the
+	 * manual pin and the D-10 exclusion so an undone swipe leaves no trace. Idempotent (a stale
+	 * double-tap finds the uid already present and bails) and index-clamped (the queue may have
+	 * shrunk during the ~5s undo window). Re-reads `this.queue` at write-time (Pitfall 1).
+	 */
+	restoreToQueue(r: QueueRemoval): void {
+		if (this.queue.some((t) => t.uid === r.track.uid)) return;
+		const q = [...this.queue];
+		q.splice(Math.min(r.index, q.length), 0, r.track);
+		this.queue = q;
+		// Lift the session exclusion only if THIS removal introduced it — a uid excluded by an
+		// earlier swipe keeps that prior state.
+		if (!r.wasExcluded) this.removedUids.delete(r.track.uid);
+		if (r.wasManual) this.manualUids.add(r.track.uid);
+		this.persist();
+	}
+
+	/**
+	 * Clear the whole queue (Phase 17, QUEUE-05 / D-08). Keeps ONLY the currently-playing track
+	 * (never-stop: current survives) and resets manual pins. D-09: deliberately does NOT regenerate
+	 * or ensureAhead here — the queue stays at [current] and the exhaust engine refills only when
+	 * the current track nears its end. Re-reads `this.current`/`this.queue` at write-time (Pitfall 1).
+	 */
+	clearQueue() {
+		this.queue = this.current ? [this.current] : [];
+		// quick-260618-lsw (LSW-03): the list collapses to [current], so the anchor follows the
+		// surviving current (or null when there is none).
+		this.upNextAnchorUid = this.current?.uid ?? null;
+		this.attachedCover = null; // quick-260910-piz: the list is gone, nothing left to scope the album art to
+		this.manualUids.clear();
+		this.pendingManual = null; // quick-260618-fiz (Fix 4): drop any uncommitted manual carry too
+		this.unplayableUids.clear(); // PLAY-RESILIENCE: a user queue reset clears the dead-track set too
+		this.skipReasons.clear(); // quick-260926-l69: …and the per-uid skip reasons in lockstep
+		this.unplayableStrikes.clear(); // …and the sub-cap strike budget in lockstep (over-aggressive-skip fix)
+		this.retriedDeadUids.clear(); // NEVER-STOP (quick-260630-q03): …and the one-retry record in lockstep
+		this.cancelAllRetryResolves(); // quick-260627-huo: …and cancel any pending delayed re-resolve timers (no leak)
+		// bg-lockscreen-stall-noskip: drop any pre-buffered next-song blob so a queue reset can't later
+		// serve stale local bytes for a since-removed track (and never leak the Object URL).
+		this.prebufferController?.abort();
+		if (this.prebufferedBlobUrl) URL.revokeObjectURL(this.prebufferedBlobUrl);
+		this.prebufferedBlobUrl = null;
+		this.prebufferedUid = null;
+		// A queue reset cancels any pending resume timer so a fresh session starts clean.
+		this.disarmResume();
+		this.persist();
+	}
+
+	/**
+	 * Append more diverse picks when the queue is within 2 of the end, so playback
+	 * never runs short. Guarded against re-entry (growing flag) and dry sources.
+	 */
+	private ensureAhead(): Promise<void> {
+		if (this.growPromise) return this.growPromise;
+		const current = this.current;
+		if (!current) return Promise.resolve();
+		let i = this.indexOf(current);
+		if (i < 0 && this.queue.length) {
+			this.queue = this.queueWithAnchor(this.queue, current);
+			this.persist();
+			i = this.indexOf(current);
+		}
+		if (i < 0 || this.queue.length - i > 2) return Promise.resolve();
+		this.growing = true;
+		// album-and-next-song-bug fix: snapshot the queue generation (mirrors regenerate's WR-06).
+		// A fresh single-tap album play fires ensureAhead against the optimistic one-track queue;
+		// while buildDiversePicks is in flight the album page installs the FULL album list via
+		// setListQueue (which bumps queueGen). Without this guard the stale grow would append
+		// GENERATED picks onto the explicit album queue, re-introducing the "up-next still generated"
+		// bug. Discard the grow if an explicit queue landed meanwhile.
+		const myQueueGen = this.queueGen;
+		this.growPromise = (async () => {
+			try {
+				// Union removedUids (Phase 17, D-10/QUEUE-02): swiped-away songs stay excluded from the
+				// auto-grow picks, not just from the current queue snapshot.
+				const have = new Set([...this.queue.map((t) => t.uid), ...this.removedUids]);
+				// quick-260618-fiz Fix 3: the continuation is seeded from the CURRENT track (the song
+				// playing as the queue empties), per Fix 3 — buildSimilarQueue (artist.getSimilar →
+				// same-artist fallback) is the existing related mechanism; buildDiversePicks is now only
+				// the last-resort fallback. This replaces the old random buildDiversePicks-from-nothing
+				// continuation so an exhausted queue extends from what you were just listening to rather
+				// than from the liked/favorites list or unrelated random picks.
+				// 26-09 (Gap 2): thread the 26-07 report callback so the GROW path is verifiable in the
+				// Activity log too (parity with regenerate's fresh-play upnext.source). This does NOT change
+				// ensureAhead's control flow — it already has its own buildDiversePicks net below.
+				let via: 'similar' | 'radio' | 'artist' | 'lastresort' | 'empty' | 'diverse' = 'empty';
+				let more = await buildSimilarQueue(current, have, (v) => (via = v));
+				// Never-stop invariant (STATE.md Phase 16): if Last.fm is dry AND the same-artist search
+				// yields nothing, fall back to diverse random picks so an obscure-artist queue still grows.
+				if (!more.length) {
+					more = await buildDiversePicks(8, have);
+					via = 'diverse';
+				}
+				if (myQueueGen !== this.queueGen) return; // an explicit setQueue/setListQueue superseded
+				if (more.length) this.queue = this.queueWithAnchor([...this.queue, ...more], current);
+				logAction('grow.added', { count: more.length });
+				if (more.length) logAction('upnext.source', { via, count: more.length });
+			} catch {
+				/* sources dry — leave the queue as-is */
+			} finally {
+				this.growing = false;
+				this.growPromise = null;
+			}
+		})();
+		return this.growPromise;
+	}
+
+	private indexOf(track: Track | null): number {
+		if (!track) return -1;
+		return this.queue.findIndex((t) => t.uid === track.uid);
+	}
+
+	/**
+	/**
+	 * IDLE-PREFETCH arm (quick-261102-idle1): subscribe ONCE to the /api pipeline draining,
+	 * then fire the single prefetch walk for the CURRENT src's next song. Called from play()'s
+	 * src-set points (stream + download-blob) and from the timeupdate backstop (restore /
+	 * resume / repeat-toggle paths play() did not arm). No-ops when: the walk already fired
+	 * for this src, an arm is already pending, repeat-one is on (next IS the current song —
+	 * nothing to warm), or there is no current track. The callback re-validates generation +
+	 * seed uid + repeat mode at fire time, so a superseded arm (newer src, queue mutation,
+	 * repeat toggled on while waiting) discards itself. Never throws.
+	 */
+	private armPrefetchWhenIdle(): void {
+		if (this.prefetchArmedForSrc || this.prefetchArmPending) return;
+		if (this.repeatMode === 'one') return; // next = same song — nothing to do
+		const seedUid = this.current?.uid;
+		if (!seedUid) return;
+		const gen = ++this.prefetchArmGen;
+		this.prefetchArmPending = true;
+		this.prefetchIdleUnsub = onApiPipelineIdle(() => {
+			this.prefetchArmPending = false;
+			this.prefetchIdleUnsub = null;
+			if (gen !== this.prefetchArmGen) return; // superseded arm — discard
+			if (this.current?.uid !== seedUid) return; // current moved on — discard
+			if (this.prefetchArmedForSrc) return; // already walked for this src
+			if (this.repeatMode === 'one') return; // toggled on while waiting
+			this.prefetchArmedForSrc = true;
+			void this.prefetchNext();
+		});
+	}
+
+	/**
+	 * Cancel any pending idle arm and re-arm the one-shot for a NEW src. Called at play()'s
+	 * two initial-load arming points (replacing the bare prefetchArmedForSrc = false they
+	 * used to do) so an idle-wait queued for the PREVIOUS src can never fire a walk keyed
+	 * to it. Does NOT abort an in-flight walk — prefetchNext's own seedUid guard discards
+	 * its result once current has changed.
+	 */
+	private resetPrefetchArm(): void {
+		this.prefetchArmGen++;
+		this.prefetchIdleUnsub?.();
+		this.prefetchIdleUnsub = null;
+		this.prefetchArmPending = false;
+		this.prefetchArmedForSrc = false;
+	}
+
+	/**
+	 * Queue mutations that can change WHO the next song is while playback is underway
+	 * (Up-Next drag-reorder — Bug 1's reorderQueue — playNext, addToQueue, removeFromQueue):
+	 * the armed/prefetched "next" may now be wrong. Abort an in-flight walk for the old
+	 * next (its write-back is uid-keyed and its prebuffer blob is consumed only by uid
+	 * match, so a landed stale warm could never be PLAYED for the wrong song — aborting
+	 * just stops wasting the bytes), reset the arm, and re-arm against the NEW immediate
+	 * next when the current src has actually been playing.
+	 */
+	private revalidatePrefetchArm(): void {
+		this.prefetchController?.abort();
+		this.resetPrefetchArm();
+		if (this.current && this.hasPlayedSinceSrc) this.armPrefetchWhenIdle();
+	}
+
+	/**
+	 * Pre-resolve the track next() WOULD pick next, so a later next()/track-end starts
+	 * instantly (the user-felt latency on advance is the per-source proxy round-trip inside
+	 * ensureTrackDetails, NOT byte buffering). Because ensureTrackDetails is idempotent (its
+	 * readiness guard short-circuits a detailsLoaded track) and play() syncs the resolved
+	 * track back into queue[i], pre-resolving the next entry means the later play() hits a
+	 * no-op resolve = instant start.
+	 *
+	 * Best-effort, fired as `void this.prefetchNext()` from armPrefetchWhenIdle once the /api
+	 * pipeline is idle (quick-261102-idle1) — mirrors ensureAhead()/regenerate(): never blocks the current play(),
+	 * never throws. After details resolve, it also warms the next audio URL through a muted offscreen
+	 * Audio element and preloads the cover image, so the later main-audio src swap and cover repaint
+	 * can reuse browser cache when supported.
+	 *
+	 * PLAY-RESILIENCE: this is a bounded FORWARD-RESOLVE-AND-PROBE walk (restored from the pre-76b3e6f
+	 * design + a silent probe). Starting at queue[indexOf(current)+1], it advances through up to
+	 * PREFETCH_MAX_CANDIDATES entries, skipping any candidate that rejects, resolves WITHOUT an
+	 * audioUrl, or fails the silent ~1s muted test-play probe, until one PROBES playable. A candidate
+	 * that is definitively dead (no url / probe `error`) is recorded in unplayableUids so next()
+	 * routes past it instead of stalling on it; a transient reject / probe timeout is merely skipped
+	 * this round (retried on demand).
+	 *
+	 * quick-260629-nyl Task 2 — two LAYERED never-stop additions, both reusing existing machinery:
+	 *  (2a) timeout → delayed retry: a probe TIMEOUT (transient "playable later on click") now arms the
+	 *       existing bounded/backed-off scheduleRetryResolve so the candidate is re-resolved a few
+	 *       seconds later instead of being skipped-and-forgotten. It STILL is not marked dead (no ✗).
+	 *  (2b) walk-exhaustion → eager ensureAhead: if the forward walk lands NO playable candidate (every
+	 *       entry ahead is dead/timed-out/off the end), the queue is eagerly grown via the existing
+	 *       ensureAhead so next()/track-end always has somewhere to advance — fixing the "stops on 2-3
+	 *       consecutive unplayable" stall. ensureAhead is idempotent + queueGen-guarded + grows only on
+	 *       a short tail, so it is a safe no-op otherwise.
+	 * This is what guarantees "the next song can always be played":
+	 * the entry next() will pick (nextPlayableIndex) is pre-resolved + probe-verified here, and known
+	 * -dead entries ahead of current are skipped. Still bounded so endless playback never fires an
+	 * unbounded resolve burst that reads as bot traffic.
+	 *
+	 * Guards:
+	 *  - silent no-op at end of queue / no current;
+	 *  - already-complete candidate short-circuit (warm assets, skip resolve — still probed);
+	 *  - in-flight dedupe keyed to the immediate-next uid (no duplicate concurrent walk);
+	 *  - single shared prefetchController — a superseding prefetch aborts the in-flight resolve;
+	 *  - seedUid stale-guard re-checked after EVERY await — a `current` change mid-walk discards the
+	 *    work and never clobbers the queue;
+	 *  - write-back locates the slot FRESHLY by uid (never a closed-over index) and only writes a
+	 *    slot still AHEAD of the recomputed current.
+	 * It never throws, never bumps playGen, never calls next()/runFallback — a pure pre-resolve
+	 * optimization that composes with the never-stop chain.
+	 */
+	private async prefetchNext() {
+		const i = this.indexOf(this.current);
+		if (i < 0) return; // no current track in the queue — nothing to prefetch from
+		const firstIndex = i + 1;
+		if (firstIndex >= this.queue.length) return; // at end of queue — silent no-op (growth is ensureAhead's job)
+
+		// Always warm the cover of the immediate-next (preserve today's cover-warm behavior).
+		this.preloadNextCover(this.queue[firstIndex]);
+
+		// In-flight dedupe: already walking from this exact immediate-next — no second walk.
+		const claimedUid = this.queue[firstIndex].uid;
+		if (this.prefetchingUid === claimedUid) return;
+
+		// Supersede any prior in-flight prefetch (different target) before claiming this one. The
+		// walk is keyed to the immediate-next uid for dedupe + finally cleanup.
+		this.prefetchController?.abort();
+		this.prefetchingUid = claimedUid;
+		this.prefetchController = new AbortController();
+		const sig = this.prefetchController.signal;
+		const seedUid = this.current?.uid; // stale-guard: current must not change away
+
+		// quick-260629-nyl Task 2b: track whether the walk LANDED a probe-verified playable candidate.
+		// If it falls out of the loop having landed NOTHING (every entry ahead was dead/timed-out/off
+		// the end), eagerly grow the queue so next()/track-end always has somewhere to advance — the
+		// "stops on 2-3 consecutive unplayable" fix (see the post-loop ensureAhead below).
+		let landed = false;
+		try {
+			for (let step = 0; step < Player.PREFETCH_MAX_CANDIDATES; step++) {
+				const candIdx = firstIndex + step;
+				if (candIdx >= this.queue.length) break; // ran off the end — growth is ensureAhead's job
+				const cand = this.queue[candIdx];
+				if (this.unplayableUids.has(cand.uid)) continue; // already known-dead — walk past it
+
+				// IDLE-PREFETCH (quick-261102-idle1): a DOWNLOADED candidate needs NO network
+				// prefetch at all — play() will serve its local blob. Count it landed (it is
+				// guaranteed playable) and depth-warm the entry after it, exactly like a
+				// probe-verified land; never resolve / probe / prebuffer it over the network.
+				if (library.downloadUidFor(cand)) {
+					landed = true;
+					void this.warmAfter(cand.uid, sig, seedUid);
+					return;
+				}
+
+				// Resolve (or short-circuit an already-complete candidate) to obtain an audioUrl.
+				let resolved: Track;
+				// isTrackReady (debug slow-cold-start-first-playing): this was an inline copy of the
+				// readiness guard with no age check, so the walk happily marked a candidate "pre-warmed"
+				// off a url resolved long enough ago to be dead upstream — the prefetch that exists to
+				// PREVENT a gap was causing one. Now the SHARED guard, so it can never drift again.
+				if (isTrackReady(cand)) {
+					resolved = cand;
+				} else {
+					try {
+						resolved = await ensureTrackDetails(cand, sig);
+					} catch {
+						// Transient reject (proxy/rate-limit) — do NOT mark dead; skip this candidate
+						// this round and walk on (next play() resolves it on demand if reached).
+						if (sig.aborted || this.current?.uid !== seedUid) return;
+						continue;
+					}
+					if (sig.aborted || this.current?.uid !== seedUid) return; // current changed — discard
+				}
+
+				if (!resolved.audioUrl) {
+					// Definitive failure (resolved but no url) — but a SINGLE one is treated as transient
+					// (the resolve is a separate fetch from the real <audio> fetch; signed-URL/edge blips
+					// recover on a fresh resolve at click-time). 31-D-15: this now awaits a cross-source
+					// retry before any strike is recorded, so re-check the stale-guard after it (the walk
+					// re-checks after EVERY await — a superseded walk must discard, never write back).
+					await this.handleDefinitiveFailure(cand.uid, 'no-source'); // quick-260926-l69
+					if (sig.aborted || this.current?.uid !== seedUid) return; // current changed — discard
+					continue;
+				}
+
+				// Silent probe — the ~1s muted test-play that proactively detects un-playability.
+				const probe = await this.probePlayable(resolved.audioUrl);
+				if (sig.aborted || this.current?.uid !== seedUid) return; // current changed — discard
+				if (!probe.ok) {
+					// A hard probe `error` is definitive — but the probe element is a SEPARATE fetch from
+					// the live <audio> byte fetch, so a single error can be a transient signed-URL refresh /
+					// codec quirk / network blip. Strike it (promoted to dead only at the cap); a probe
+					// TIMEOUT stays unmarked entirely. Either way the walk advances this round.
+					if (probe.errored) {
+						// 31-D-15: awaits a cross-source retry before striking — re-check the stale-guard after.
+						await this.handleDefinitiveFailure(cand.uid, 'load-error'); // quick-260926-l69
+						if (sig.aborted || this.current?.uid !== seedUid) return; // current changed — discard
+					} else {
+						// quick-260629-nyl Task 2a: a probe TIMEOUT is the transient "playable later on click"
+						// class the user reports. Previously this branch did a bare `continue` — the candidate
+						// was skipped this round and NEVER re-armed for a delayed retry (only an at-cap
+						// definitive failure scheduled one). Arm the EXISTING bounded, backed-off, dedupe- +
+						// budget-guarded scheduleRetryResolve so it re-resolves a few seconds later instead of
+						// being silently skipped-and-forgotten. A timeout MUST still NOT add to unplayableUids
+						// (no ✗ row for a transient); scheduleRetryResolve self-converges (it no-ops once the
+						// per-uid RETRY_RESOLVE_MAX budget is spent, then next() simply routes past on demand).
+						this.scheduleRetryResolve(cand.uid);
+					}
+					continue; // timeout (retry armed) or sub-cap error: walk to the next candidate
+				}
+
+				// LANDED a probe-verified playable track. Locate the slot FRESHLY by uid (never a
+				// closed-over index, Pitfall 1) and write back only if still AHEAD of the recomputed
+				// current — same in-place sync play() does, so the later play() no-ops.
+				const writeIdx = this.queue.findIndex((t) => t.uid === cand.uid);
+				if (writeIdx >= 0 && writeIdx > this.indexOf(this.current)) {
+					this.queue[writeIdx] = resolved;
+					this.prewarmNextAssets(resolved);
+				}
+				landed = true;
+				// DEPTH-2 WARM (bg-resolve-gap-stall, Freeze 1). The dominant region-lock signature is a
+				// URL that resolves + probes fine, plays ~1s, then the byte-stream 403s (audio.error) — so
+				// the immediate-next we just landed can still die at play-time and the never-stop chain SKIPS
+				// to the track AFTER it. If that track was never pre-resolved, its play() must run a cold
+				// network resolve; in a backgrounded/frozen WebView that resolve hangs and the player freezes
+				// at 0:00 (observed: bg-error-skip → play → no resolve.ok → dead until foreground). So
+				// best-effort pre-resolve the FOLLOWING entry too (no probe — we only need detailsLoaded so
+				// its play() short-circuits with no cold network round-trip). Fire-and-forget, reusing the
+				// walk's abort signal + seedUid stale-guard.
+				void this.warmAfter(cand.uid, sig, seedUid);
+				return; // done — landed the next playable (+ warmed the one after)
+			}
+			// quick-260629-nyl Task 2b: the walk fell out of the loop without landing a playable
+			// candidate (every entry ahead was dead / timed-out / off the end of the queue). Today
+			// nothing grows the queue here — growth is only reactive inside next() — so 2-3 consecutive
+			// unplayable up-next entries could leave next() with nothing to advance to (the reported
+			// stall). Proactively top up via the EXISTING ensureAhead so generated related songs are
+			// appended BEFORE the track ends. ensureAhead is idempotent (single in-flight growPromise),
+			// queueGen-guarded, only grows when the tail is within 2 of current, and never throws / never
+			// bumps playGen — so this is a safe no-op when the tail is already long. Re-check the
+			// seedUid/abort stale-guard first so a superseded walk does not grow a stale queue.
+			if (!landed && !sig.aborted && this.current?.uid === seedUid) {
+				void this.ensureAhead();
+			}
+		} catch {
+			/* best-effort — abort or unexpected failure leaves the queue as-is */
+		} finally {
+			// Clear the in-flight guard only if it still points at the claimed uid (a superseding
+			// prefetch may have already claimed a newer uid).
+			if (this.prefetchingUid === claimedUid) {
+				this.prefetchingUid = null;
+				this.prefetchController = null;
+			}
+		}
+	}
+
+	/**
+	 * DEPTH-2 WARM (bg-resolve-gap-stall, Freeze 1). Best-effort pre-resolve of the queue entry that
+	 * FOLLOWS the one prefetchNext() just landed, so a region-lock 403 on the landed immediate-next
+	 * (URL resolves + probes fine, then the byte-stream 403s at play-time) skips forward into an
+	 * already-detailsLoaded track whose play() SHORT-CIRCUITS ensureTrackDetails — no cold network
+	 * resolve in the background src-swap gap where a frozen Android WebView would hang it at 0:00.
+	 *
+	 * Deliberately does NOT probe (probing costs a ~1s muted test-play per candidate and we only need
+	 * the audioUrl cached so play() no-ops its resolve) and NEVER marks anything dead (a resolve blip
+	 * just leaves the entry cold — play() resolves it on demand). Reuses prefetchNext's AbortSignal and
+	 * seedUid so a superseding walk / track change discards it. Never throws, never bumps playGen.
+	 */
+	private async warmAfter(landedUid: string, sig: AbortSignal, seedUid: string | undefined) {
+		const landedIdx = this.queue.findIndex((t) => t.uid === landedUid);
+		if (landedIdx < 0) return;
+		const after = this.queue[landedIdx + 1];
+		if (!after) return; // landed track is the tail — growth is ensureAhead's job
+		if (this.unplayableUids.has(after.uid)) return; // known-dead — next() routes past it anyway
+		// Shared guard: "warm" must mean a url still worth trusting, not merely a url present.
+		if (hasFreshAudioUrl(after)) return; // already warm — nothing to do
+		try {
+			const resolved = await ensureTrackDetails(after, sig);
+			if (sig.aborted || this.current?.uid !== seedUid) return; // superseded / current moved on
+			if (!resolved.audioUrl) return; // no url — leave cold, play() retries on demand
+			const w = this.queue.findIndex((t) => t.uid === after.uid);
+			if (w >= 0 && w > this.indexOf(this.current)) this.queue[w] = resolved;
+		} catch {
+			/* best-effort warm — a transient resolve failure leaves the entry cold */
+		}
+	}
+
+	/**
+	 * PLAY-RESILIENCE silent probe: verify a resolved audio URL is actually playable BEFORE the track
+	 * becomes current, by loading it into a muted offscreen Audio element and racing a canplay signal
+	 * against a hard `error` and a PROBE_TIMEOUT_MS deadline. This catches the dominant "URL resolves
+	 * fine but the byte fetch 403s / wrong codec" failure mode proactively instead of reactively
+	 * (after the live element errors mid-transition). Returns {ok} = true on canplay/loadeddata,
+	 * {ok:false, errored:true} on a hard error event (caller marks the track dead), {ok:false,
+	 * errored:false} on timeout (transient — caller skips this round but does NOT mark dead).
+	 * Degrades to {ok:true} in any environment without a real event-capable Audio (can't probe →
+	 * assume playable; the reactive never-stop chain still backstops). Best-effort, never throws.
+	 */
+	private probePlayable(url: string): Promise<{ ok: boolean; errored: boolean }> {
+		// Degrade gracefully where there is no event-capable Audio (SSR, or unit-test stubs whose
+		// prototype has no addEventListener): can't observe playability → assume playable rather than
+		// false-fail every prefetch, and construct NOTHING so we don't perturb asset-warming counts.
+		if (typeof Audio === 'undefined' || typeof Audio.prototype?.addEventListener !== 'function') {
+			return Promise.resolve({ ok: true, errored: false });
+		}
+		return new Promise((resolve) => {
+			let a: HTMLAudioElement;
+			try {
+				a = new Audio();
+			} catch {
+				resolve({ ok: true, errored: false });
+				return;
+			}
+			let done = false;
+			const onOk = () => settle({ ok: true, errored: false });
+			const onErr = () => settle({ ok: false, errored: true });
+			const timer = setTimeout(() => settle({ ok: false, errored: false }), Player.PROBE_TIMEOUT_MS);
+			function settle(result: { ok: boolean; errored: boolean }) {
+				if (done) return;
+				done = true;
+				clearTimeout(timer);
+				a.removeEventListener('canplay', onOk);
+				a.removeEventListener('loadeddata', onOk);
+				a.removeEventListener('error', onErr);
+				try {
+					a.pause();
+					a.removeAttribute('src');
+					a.load(); // release the byte fetch
+				} catch {
+					/* best-effort teardown */
+				}
+				resolve(result);
+			}
+			try {
+				a.muted = true;
+				a.preload = 'auto';
+				a.setAttribute('referrerpolicy', 'no-referrer');
+				a.addEventListener('canplay', onOk);
+				a.addEventListener('loadeddata', onOk);
+				a.addEventListener('error', onErr);
+				a.src = url;
+				a.load();
+				// play() nudges buffering on some engines; canplay/loadeddata is the real signal and
+				// the timeout backstops. A rejected play() (autoplay/codec) is ignored here.
+				void a.play?.()?.catch?.(() => {});
+			} catch {
+				settle({ ok: true, errored: false }); // can't even start a probe → don't penalize
+			}
+		});
+	}
+
+	private prewarmNextAssets(track: Track) {
+		this.preloadNextCover(track);
+		void this.prebufferNext(track); // bg-lockscreen-stall-noskip: local bytes for the bg src-swap
+	}
+
+	/**
+	 * BOUNDED next-song blob pre-buffer (bg-lockscreen-stall-noskip). Fetch the RESOLVED immediate-next's
+	 * full bytes into a Blob NOW — while the current song plays and the page is reliably awake — and hold
+	 * it as a `blob:` URL keyed by uid, so play() at advance swaps to LOCAL bytes: a backgrounded/locked
+	 * src-swap then has NO network byte-load that could silently hang (the bg stall this fixes).
+	 *
+	 * BOUNDED (the f7c2580 flood fix): prebufferedUid is claimed BEFORE the await and left set on BOTH a
+	 * 200-OK AND a failure/abort, so a dead or slow URL is fetched AT MOST ONCE per uid and NEVER re-
+	 * fetched on churn; single in-flight (a newer next aborts the prior); fired only from the
+	 * idle-armed prefetch walk (prewarmNextAssets), never on the never-stop churn. Skipped for a
+	 * downloaded track (offline blob serves it) and where fetch/URL are absent. Raw fetch of media bytes
+	 * (NOT apiFetch — media never routes through the /api governor). Never throws, never bumps playGen.
+	 *
+	 * 32-D-15: ALSO bounded by SIZE — an advance whose Content-Length exceeds PREBUFFER_MAX_BYTES (24MB,
+	 * i.e. lossless only) skips the blob and streams from the CDN instead, so a low-end phone never holds
+	 * a ~50MB Blob per advance. Every lossy tier still prebuffers, so the bg-stall protection above is
+	 * intact exactly where it matters most (the cellular/'320' path).
+	 */
+	private async prebufferNext(track: Track) {
+		if (!browser) return;
+		const url = track.audioUrl;
+		if (!url) return;
+		if (typeof fetch === 'undefined' || typeof URL === 'undefined' || !URL.createObjectURL) return;
+		// quick-261008-dl1: a downloaded copy (exact uid or same song, other source) is served
+		// locally — never prebuffer a stream for it.
+		if (library.downloadUidFor(track)) return; // offline-blob branch already serves this locally
+		if (this.prebufferedUid === track.uid) return; // already buffered OR already attempted (flood fix)
+		// Supersede any prior in-flight prebuffer for a DIFFERENT next track, then CLAIM this uid BEFORE
+		// the await — so a failed fetch below is never retried (the f7c2580 bug set this only on 200-OK).
+		this.prebufferController?.abort();
+		this.prebufferController = new AbortController();
+		const sig = this.prebufferController.signal;
+		// quick-261108-h3w (Hector: Up Next a..e rebuilt to f..j, track end played A's audio under
+		// F's title/lyrics): the held blob belongs to the PREVIOUS uid. Claiming a new uid without
+		// dropping it re-labelled A's bytes as F's whenever F's own fetch then failed / hit the size
+		// ceiling — and play()'s consume check (`prebufferedUid === uid && blob`) swapped them in.
+		// Never the live src: play() moves a consumed blob to cachedBlobUrl and nulls this slot.
+		if (this.prebufferedBlobUrl) URL.revokeObjectURL(this.prebufferedBlobUrl);
+		this.prebufferedBlobUrl = null;
+		this.prebufferedUid = track.uid;
+		try {
+			const resp = await fetch(url, { signal: sig, referrerPolicy: 'no-referrer' });
+			if (sig.aborted) return;
+			if (!resp.ok) return; // dead URL — leave the uid claimed so it is NOT re-fetched (play() uses the CDN URL)
+			// 32-D-15: decide from the response HEAD, before a single body byte is read. Content-Length is
+			// readable cross-origin here ONLY because the QQ CDN sends `access-control-expose-headers:
+			// Content-Length,Content-Range` (verified live on both 200 and 206) — it is not CORS-safelisted,
+			// so another provider may return null, which falls THROUGH to the blob (unknown size behaves
+			// exactly as it did before this guard — no regression on a header-less CDN). Stays a RAW fetch:
+			// media bytes never route through the /api governor (api-fetch-flood-freeze).
+			if (overPrebufferCeiling(resp.headers?.get('content-length') ?? null)) {
+				// Release the stream without downloading it, then bail with the uid still CLAIMED — the
+				// same f7c2580 contract as the !resp.ok branch above, so churn never re-fetches. play()
+				// simply finds no blob and uses the CDN URL, i.e. it STREAMS. Nothing changes for the
+				// 'prebuffer-blob' consumer at the src-swap site: that branch just does not fire (31-D-12
+				// provenance tagging untouched).
+				try {
+					await resp.body?.cancel();
+				} catch {
+					/* best-effort stream release */
+				}
+				return;
+			}
+			const blob = await resp.blob();
+			if (sig.aborted) return;
+			if (this.prebufferedBlobUrl) URL.revokeObjectURL(this.prebufferedBlobUrl);
+			this.prebufferedBlobUrl = URL.createObjectURL(blob);
+		} catch {
+			/* abort / CORS / network — uid stays claimed (no re-fetch); play() falls back to the CDN URL */
+		}
+	}
+
+	private preloadNextCover(track: Track) {
+		const url = track.cover;
+		if (!url || typeof Image === 'undefined') return;
+		if (this.preloadedCoverUid === track.uid && this.preloadedCoverUrl === url) return;
+		try {
+			const img = new Image();
+			img.decoding = 'async';
+			img.referrerPolicy = 'no-referrer';
+			img.src = url;
+			this.preloadedCover = img;
+			this.preloadedCoverUid = track.uid;
+			this.preloadedCoverUrl = url;
+		} catch {
+			/* best-effort image cache warm only */
+		}
+	}
+
+	/**
+	 * Keep Up-Next topped up on play() entry. IDLE-PREFETCH (quick-261102-idle1): primeNext does
+	 * NOT fire prefetchNext — the walk is armed at play()'s src-set points and fires when the
+	 * /api pipeline is idle (armPrefetchWhenIdle), so it never competes with the resolve this
+	 * very play() is doing. The four play() call sites (offline-blob / fresh+generated /
+	 * fresh+same-list / auto-advance) stay unchanged: they still ensureAhead() so next() always
+	 * has somewhere to advance to.
+	 */
+	private async primeNext() {
+		await this.ensureAhead();
+	}
+
+	/**
+	 * Optimistic resolve-on-tap (FIX-A). A discovery tile is a Last.fm {artist,title} stub,
+	 * NOT a Track — resolveStub re-searches it through searchAll+dedupeBest (~5-10s). This
+	 * makes that feel instant + native:
+	 *
+	 *  - SYNCHRONOUSLY (before awaiting) it locks the tapped {artist,title,cover} into
+	 *    `pendingTrack` and sets `loading`, so the now-bar renders immediately.
+	 *  - DEDUPE: a second tap with the SAME pending key while one is in flight is a NO-OP
+	 *    (no second resolveStub) — repeated double-taps don't stack resolves.
+	 *  - SUPERSEDE: a tap with a DIFFERENT key bumps `pendingGen`; when an older resolve
+	 *    settles its gen !== current → its result is discarded (never played, pendingTrack
+	 *    is left pointing at the NEWER song).
+	 *  - On success for the current gen → setQueue([track]) + play(track) (play() owns
+	 *    loading/current from there) and pendingTrack is cleared.
+	 *  - On a miss (null) for the current gen → pendingTrack + loading clear and null is
+	 *    returned so the CALLER owns its own unplayable toast.
+	 *
+	 * Returns the resolved Track on success, or null on a miss OR a supersede. Never throws
+	 * (resolveStub is best-effort; this wraps it defensively too).
+	 */
+	async playStub(
+		artist: string,
+		title: string,
+		cover?: string | null,
+		context: QueueContext = null,
+		opts: { sameList?: boolean; forceGenerated?: boolean } = {}
+	): Promise<Track | null> {
+		const key = songKey(artist, title); // quick-261102-sjg: the song identity, not a lowercase copy
+
+		// Dedupe: same song tapped again while its resolve is still in flight → no-op.
+		// "In flight" = a pendingTrack still showing (it is cleared on success/miss/supersede).
+		if (key === this.pendingKey && this.pendingTrack !== null) return null;
+
+		const gen = ++this.pendingGen;
+		this.pendingKey = key;
+		this.pendingTrack = { artist, title, cover: cover ?? null };
+		this.loading = true;
+		this.error = null;
+
+		let tr: Track | null = null;
+		try {
+			tr = await resolveStub(artist, title);
+		} catch {
+			tr = null; // resolveStub never throws, but stay defensive — never reject.
+		}
+
+		// Superseded by a newer tap while we were resolving → discard silently. Do NOT touch
+		// pendingTrack/loading; the newer playStub call owns them now.
+		if (gen !== this.pendingGen) return null;
+
+		if (tr) {
+			// Hand off to the real player. Clear the optimistic overlay; play() sets `current`
+			// (and owns loading from here) so there is no flicker of a stale pending bar.
+			this.pendingTrack = null;
+			// quick-260831-t2g: carry the caller's cover onto the RESOLVED track. Previously this
+			// argument only painted the optimistic pending bar and was then thrown away, so a track
+			// played from a surface that ALREADY KNOWS its art (every album row shares the album
+			// cover) still went through per-song cover resolution — N wasted fetches per album, and
+			// sibling tracks could land on different images. play() reads `track.cover` first, so
+			// attaching it here is what makes the resolution skip happen.
+			// It WINS over the source's own inline cover on purpose: the point is that all songs on
+			// an album show the album's art, not whatever thumbnail each source happens to return.
+			// quick-260910-piz: the attachment is installed by setQueue now (list-scoped) — the album
+			// page's follow-up setListQueue(all, 'album', heroImg) then widens it to the whole album.
+			if (hasHttpsScheme(cover)) tr = { ...tr, cover };
+			this.setQueue([tr], context, cover);
+			// quick-260919-alb: forward the caller's `sameList` intent (quick-260915-vb9) to play().
+			// A "play this whole LIST" button (the album hero Play) installs its list right after this
+			// call returns, so the fresh-play tail must KEEP that list instead of regenerating over it.
+			// A plain row tap passes nothing and keeps resolving through the user's per-context setting.
+			void this.play(tr, { fresh: true, sameList: opts.sameList, forceGenerated: opts.forceGenerated });
+			return tr;
+		}
+
+		// Genuine miss for the current generation — clear the overlay; caller toasts.
+		this.pendingTrack = null;
+		this.pendingKey = '';
+		this.loading = false;
+		return null;
+	}
+
+	/**
+	 * quick-261103-tapsplice (Hector 2026-11-03): playStub's resolve discipline — the same
+	 * optimistic pending bar, same-song double-tap dedupe, same generation supersede — but
+	 * the handoff is `spliceAndPlay`, NOT setQueue + a fresh play. Hector's rule: a song tap
+	 * ANYWHERE behaves like a Related-list tap, so the listener's queue — including every
+	 * already-played row the Up-Next pane shows as history — survives the tap untouched.
+	 * playStub keeps its queue-installing handoff for the explicit list starters (album /
+	 * pack Play + Shuffle buttons, startAlbum), where replacing the queue IS the intent.
+	 *
+	 * Contract mirrors playStub's: the resolved Track on success (including the
+	 * already-current no-op, which is NOT a miss), null on a miss OR a supersede; the
+	 * caller owns its unplayable toast, shown only when pendingTrack has cleared.
+	 * Never throws.
+	 */
+	async spliceStub(
+		artist: string,
+		title: string,
+		cover?: string | null
+	): Promise<Track | null> {
+		const key = songKey(artist, title);
+		if (key === this.pendingKey && this.pendingTrack !== null) return null;
+		const gen = ++this.pendingGen;
+		this.pendingKey = key;
+		this.pendingTrack = { artist, title, cover: cover ?? null };
+		this.loading = true;
+		this.error = null;
+
+		let tr: Track | null = null;
+		try {
+			tr = await resolveStub(artist, title);
+		} catch {
+			tr = null; // resolveStub never throws, but stay defensive — never reject.
+		}
+		if (gen !== this.pendingGen) return null; // superseded — the newer tap owns the overlay
+
+		if (tr) {
+			this.pendingTrack = null;
+			this.pendingKey = '';
+			// The caller's cover wins over the source's inline art (playStub's t2g rule —
+			// e.g. every album row carries the album's art).
+			if (hasHttpsScheme(cover)) tr = { ...tr, cover };
+			if (!this.spliceAndPlay(tr)) {
+				// Already current (38-D-03 no-op): spliceAndPlay started nothing, so the
+				// loading flag this method raised has no play() to hand off to — clear it.
+				this.loading = false;
+			}
+			return tr;
+		}
+
+		// Genuine miss for the current generation — clear the overlay; caller toasts.
+		this.pendingTrack = null;
+		this.pendingKey = '';
+		this.loading = false;
+		return null;
+	}
+
+	/**
+	 * quick-261103-tapsplice (Hector 2026-11-03) — THE tap deciders. Every casual song
+	 * tap in the app (search, shelves, library, charts, Related, version picks…) routes
+	 * through these two, and `settings.tapUpnext` alone decides what the tap does to
+	 * the upcoming tail:
+	 *  - 'preserve' (default): splice — the song lands after current and plays; the
+	 *    queue, played history included, is untouched (Related-tap behaviour).
+	 *  - 'generate': a fresh play with forceGenerated — the upcoming tail rebuilds
+	 *    from the tapped song (TrackMenu Auto behaviour); played history still weaves
+	 *    back in and stays visible.
+	 * List starters (Play / Shuffle on a list, startAlbum, radio, remix) do NOT route
+	 * through here — they keep their own install semantics and per-context sourcing.
+	 */
+	tapPlay(t: Track): boolean {
+		if (settings.tapUpnext === 'generate') {
+			// A bare fresh play captures nothing by itself (capture lives in
+			// setQueue/setListQueue) — take the same captures here so the fresh play
+			// weaves played history in front and re-seats manual play-next picks after
+			// the seed, exactly like an installing tap. `??=` mirrors the installers.
+			this.pendingHistory ??= this.captureHistory();
+			this.pendingManual ??= this.captureManual();
+			this.markUpNextPending();
+			void this.play(t, { fresh: true, forceGenerated: true });
+			return true;
+		}
+		return this.spliceAndPlay(t);
+	}
+
+	/** The stub twin of tapPlay: name-only rows resolve first, then the same decision. */
+	async tapStub(
+		artist: string,
+		title: string,
+		cover?: string | null,
+		context: QueueContext = null
+	): Promise<Track | null> {
+		if (settings.tapUpnext === 'generate') {
+			this.markUpNextPending();
+			const tr = await this.playStub(artist, title, cover, context, { forceGenerated: true });
+			// quick-261108-h3w: a miss never reaches play()/regenerate, so nothing else would
+			// clear the skeletons.
+			if (!tr) this.upNextPending = false;
+			return tr;
+		}
+		return this.spliceStub(artist, title, cover);
+	}
+
+	/** quick-261108-h3w: a Generate tap starts a new Up Next — show skeletons, and void any
+	 *  build still in flight for the PREVIOUS song so it can neither install its now-stale
+	 *  tail nor clear the new tap's skeletons when it settles (regenerate's regenGen check). */
+	private markUpNextPending(): void {
+		this.upNextPending = true;
+		this.regenGen++;
+	}
+
+	/**
+	 * Play a track. `opts.fresh` marks a FRESH user-initiated play (the user tapped a
+	 * song in a list to start something new) — that regenerates the AUTO portion of
+	 * Up-Next from songs similar to the new track, preserving the current track + all
+	 * manual entries. `next()`, `prev()`, and auto-advance (ended) call the NON-fresh
+	 * path, so they never regenerate.
+	 */
+	/**
+	 * quick-260915-vb9 — `sameList`: force the fresh-play tail to KEEP the queue the caller just
+	 * installed instead of regenerating it from genre-similar songs.
+	 *
+	 * The mode is normally resolved from `queueContext` via settings.effectiveUpnextMode(), and every
+	 * context except 'album' resolves to 'generated' by default (UPNEXT_DEFAULTS) — correct for a
+	 * plain ROW TAP, which means "play this song" and should seed a similar-songs Up-Next
+	 * (quick-260831-jtw). It is wrong for an explicit "play this whole LIST" button: the user pressed
+	 * Play/Shuffle ON a list, so the list IS the Up-Next they asked for. Without this flag regenerate()
+	 * replaces the tail and the list the user pressed Play on never reaches Up Next.
+	 *
+	 * Deliberately a per-call option, not a new QueueContext token and not a settings override: it is
+	 * the CALL that carries the intent, and the user's per-context preference must keep governing
+	 * ordinary taps on the same surface.
+	 */
+	async play(
+		track: Track,
+		opts?: { fresh?: boolean; fromFallback?: boolean; context?: QueueContext; sameList?: boolean; forceGenerated?: boolean }
+	) {
+		logAction('play', { uid: track.uid, source: track.source, fresh: !!opts?.fresh });
+		// quick-261116-nstop: a play of a NON-pool streaming track while a Fallback Interlude
+		// is active supersedes the interlude (the user took over) — exit it silently, no
+		// summary. Pool plays and the revival probe (nsProbeUid, set before its play) are the
+		// only plays that keep the interlude alive.
+		if (
+			this.nsInterlude &&
+			this.nsProbeUid !== track.uid &&
+			!this.nsPoolTracks.some((t) => t.uid === track.uid)
+		) {
+			logAction('neverstop.interlude.exit', { reason: 'manual-play', uid: track.uid });
+			this.clearInterludeState();
+		}
+		// quick-261008-audit: a user play is a NEW intent — a pending dry-grow retry belongs to the
+		// old queue tail's episode. Clear it now (not just on `playing`): a slow-resolving tap would
+		// otherwise be skipped past when the 5s timer fires mid-resolve.
+		this.dryGrowRetries = 0;
+		this.clearDryGrowTimer();
+		// quick-261108-h3w: any play that is not the Generate tap itself (next/prev, an explicit
+		// list Play, auto-advance) ends the tap's pending state. A fallback swap continues the
+		// tap's episode, so it leaves the flag for postPlayQueue to settle.
+		if (!opts?.forceGenerated && !opts?.fromFallback) this.upNextPending = false;
+		// quick-260831-sp9: adopt the surface that started this play, WITHOUT touching the queue.
+		//
+		// The home shelves (liked / downloads / history / playlists) call play({fresh:true}) directly
+		// — they never install a queue, because a simple tap is meant to GENERATE a new Up-Next, not
+		// snapshot the shelf. But queueContext is what decides generated-vs-same-list, and with no
+		// context set it kept whatever the PREVIOUS play left behind. Tap an album, go Home, tap a
+		// liked song: context was still 'album' → 'same-list' → the fresh-play branch below skipped
+		// regenerate entirely and Up-Next still showed the album's remaining tracks.
+		//
+		// Deliberately a bare field assignment rather than setQueue(): setQueue REPLACES the queue,
+		// which would discard the user's `Play next` / `Add to queue` entries. regenerate() already
+		// preserves those (it re-emits manualEntries around the new tail), so the ONLY thing missing
+		// was an accurate context. queueGen is likewise left alone — a fresh play's regenerate is
+		// supposed to run, not be invalidated.
+		if (opts?.context !== undefined) this.queueContext = opts.context;
+		// BACKGROUND KEEP-ALIVE (bg-resolve-gap-stall round 2): (re)assert the silent Web Audio source
+		// synchronously at the TOP of play() — BEFORE the ensureTrackDetails await — so the page stays
+		// awake across a cold background resolve. Idempotent (no-op once running); a fresh user tap
+		// supplies the AudioContext-unlock gesture, and every later auto-advance just keeps it running.
+		this.keepAliveOn();
+		this.reresolveBurst = 0; // RERESOLVE-LOOP GUARD: a genuine new play() gives the track a fresh re-resolve budget.
+		this.loadRetryBurst = 0; // loadRetries: a new play() gets a fresh initial-load retry budget.
+		// RAPID-FIRE BRAKE (debug-nowbar-freeze-reresolve-loop): a genuine new play() starts a fresh
+		// synchronous-storm budget — the first error on a new src must never count as "rapid" (0 = no
+		// prior error this src). errorBurst is deliberately NOT reset here (CR-01: it must survive
+		// auto-skips so a RUN of dead tracks still trips the absolute ceiling; only a real `playing` or
+		// recoverFromStop clears it).
+		this.rapidErrorBurst = 0;
+		this.lastAudioErrorAt = 0;
+		this.healProbed.clear(); // quick-260704-20e: a new track invalidates prior current-cover heals (also caps set growth).
+		this.adoptedCoverUid = null; // quick-260809-38i: a new track invalidates the prior track's adopted-cover flag.
+		// A direct play() (queue/auto-advance/share link) supersedes any optimistic overlay,
+		// so a stale pending bar never lingers once a real track takes over.
+		this.pendingTrack = null;
+		this.pendingKey = '';
+		this.error = null;
+		this.loading = true;
+		// quick-261019-cov: captured BEFORE the reassignment below — the play() cover seed needs
+		// the PREVIOUS track to decide whether a null seed may clear the current cover.
+		const prevTrack = this.current;
+		this.current = track;
+		// STALE-FLAG FIX (background-autoadvance-stall follow-up): reset hasPlayedSinceSrc the MOMENT we
+		// commit to the new current track — NOT later at src-set (which happens only after the async
+		// ensureTrackDetails resolve, up to several seconds). Otherwise, during that resolve gap `current`
+		// is the NEW track while `hasPlayedSinceSrc` still holds the OLD (played) track's `true`. A dead
+		// new track (e.g. netease 403) that errors in that window was then misrouted into the
+		// already-played recovery (reresolveCurrent + external-pause self-heal) instead of the
+		// cross-source fallback that advances PAST it — the observed "next track hangs at 0:00" in the
+		// background. reresolveCurrent (a mid-track re-attach) deliberately does NOT go through play(), so
+		// it keeps its own true — only a genuine track change resets here.
+		this.hasPlayedSinceSrc = false;
+		this.currentTime = 0;
+		this.duration = 0;
+		// quick-260910-piz: a FRESH user play of a song OUTSIDE the attached list is a context switch,
+		// so the album art stops applying. Needed in addition to setQueue's clear because the home
+		// shelves call play({fresh}) directly with no queue install (quick-260831-sp9). A fresh play of
+		// a MEMBER (playStub → play, or tapping another album row) keeps it, and auto-advance / next() /
+		// fallback are non-fresh so they never clear.
+		if (opts?.fresh && !this.attachedCoverFor(track)) this.attachedCover = null;
+		// COVER-01 / D-09: set the ONE cover field SYNCHRONOUSLY from the best-known source so the
+		// nowbar/now-playing surfaces AND the first MediaMetadata write below paint real art with no
+		// flicker. Read order is name-cache BEFORE uid-cache (quick-261020-latest: the name layer
+		// holds the latest write for the song — the same order readCoverByUidOrName uses) and
+		// BEFORE null; a total
+		// miss leaves null and the async tier chain (further down) takes over. Repointing this on
+		// every entry also clears any stale cover from the prior track.
+		// quick-260831-t2g: an attached cover outranks everything, INCLUDING the source's own inline
+		// art. That is the point — every song on an album must show the album's cover, not whatever
+		// thumbnail each source happens to return for it.
+		// quick-260915-w4f: a USER PIN outranks even the attached album cover. t2g's rule is "the album's
+		// art, not whatever thumbnail a source returned"; a pin is the user saying "THIS song, THIS art",
+		// which is a stronger statement than either. It is also why the pin has to be read here and not
+		// only through the cache read below — track.cover sits ahead of the cache.
+		// Phase 40 D-14 / D-14a: the CROWD pick (a human choice shared by other listeners) sits right
+		// behind the pin and AHEAD of the attached album cover and the inline art. RESEARCH A7 trade-off,
+		// accepted by the user: an album page can show one song's crowd pick instead of uniform album art.
+		const coverSeed =
+			getPinnedCover(track.uid) ??
+			getCrowdCover(track.uid, track.artist, track.title) ??
+			this.attachedCoverFor(track) ??
+			track.cover ??
+			getCachedCover(track.artist, track.title) ??
+			(track.uid ? getCachedCoverByUid(track.uid) : null) ??
+			null;
+		// quick-261019-cov: REJECT a null/gradient replacement. A cover-less re-entry for the SAME
+		// song — runFallback's play(swap) after the first source fails, or a same-song re-tap —
+		// re-runs this seed with a stub whose cover chain is empty; blanking resolvedCover there is
+		// exactly the "cover degrades to gradient after play starts" report (the good art the user
+		// is already looking at gets wiped). So a null/empty seed keeps the existing cover when the
+		// incoming track is the same song we already hold art for (same uid, or same matchKey
+		// identity across a cross-source fallback swap). A genuine track change still re-seeds and
+		// clears stale art as before — '' counts as a miss here, like pickRowCover's rungs.
+		if (coverSeed) {
+			this.resolvedCover = coverSeed;
+		} else {
+			const sameSong =
+				!!prevTrack &&
+				(prevTrack.uid === track.uid ||
+					matchKey(prevTrack.artist, prevTrack.title) === matchKey(track.artist, track.title));
+			// sameSong: keep this.resolvedCover as-is — the null/empty seed is rejected.
+			if (!sameSong) this.resolvedCover = null; // explicit: stale art cleared on track change
+		}
+		// quick-260615-hep Site A: write the displayed cover (incl. the track.cover path) into BOTH cache
+		// layers + bump so other surfaces reuse it and repaint live. https-only (T-0bb-01); writeCoverBoth
+		// no-ops on empty/non-https — harmless even before the myGen guards' discard points (real art only).
+		// quick-260915-w4f: a PINNED cover is NOT written here. writeCoverBoth also writes the SHARED
+		// {artist,title} name layer, which would push this one song's chosen art onto every same-named
+		// uid (covers, live versions, other sources) — the exact leak the separate pin store exists to
+		// prevent. The pin store IS the persistence; nothing else needs to learn it.
+		// Phase 40 D-14: same for a crowd-chosen seed — chosen art must not leak into the auto name layer.
+		if (
+			hasHttpsScheme(this.resolvedCover) &&
+			!getPinnedCover(track.uid) &&
+			!getCrowdCover(track.uid, track.artist, track.title)
+		)
+			writeCoverBoth(track.uid, track.artist, track.title, this.resolvedCover);
+		// cover-hero-mediacard-missing (Issue 2): populate the OS media card title/artist IMMEDIATELY
+		// from the stub — BEFORE the async ensureTrackDetails resolve — so the card never shows the bare
+		// app name during the resolve gap or when a track goes through the runFallback early-return
+		// (which returns before the post-resolve metadata write below). The later writes only REFRESH
+		// the artwork once a cover resolves; title/artist are guaranteed here regardless of cover.
+		this.syncMetadata();
+		// Bump the play-generation so any older in-flight fallback bails (gte). Skipped on a
+		// fallback continuation — the fallback IS the continuation of the user's original intent
+		// and must not invalidate itself.
+		if (!opts?.fromFallback) this.playGen++;
+		// quick-261019-lyrspin: a new play takes over — drop any stale backfill signal; the new
+		// track's own backfill (if it needs one) re-asserts it. Fallback continuations pass
+		// through here too (fromFallback), so a swap never inherits the old track's spinner.
+		this.lyricsFetching = false;
+		// CR-02: snapshot the generation right after the (conditional) bump and re-check it after
+		// EVERY await below before writing current / audio.src / Media Session. A fallback
+		// continuation inherits the value it was started under (it deliberately does not bump),
+		// so it bails the instant a newer user play() supersedes it. Without this, a slow resolve
+		// for an earlier tap could settle late and clobber the track the user actually chose.
+		const myGen = this.playGen;
+		// One-way edge: record the play BEFORE resolution so it lands even if audio
+		// resolution later errors. history imports nothing back (no circular dep).
+		// Fallback continuations DO NOT re-record — history reflects user intent, not the
+		// resolved source we ended up playing.
+		if (!opts?.fromFallback) history.record(track);
+		// D-05: auto-expand fires ONLY on explicit fresh user plays — never on auto-advance,
+		// failover skip, or queue progression (those call play() without opts.fresh). Fixes the
+		// track-change auto-expand bug where the nowbar jumped open on every advance.
+		if (opts?.fresh && settings.autoExpandOnPlay) this.expanded = true;
+		try {
+			// Offline-first: if the track is in library.downloads AND we have its blob cached,
+			// skip the network resolve entirely and play straight from the local blob. The
+			// blob *is* the audio — no need to fetch a fresh URL just to ignore it again on
+			// the route-to-blob branch below. Lets the player work with NO network when a
+			// song was downloaded earlier.
+			// quick-261008-dl1: resolve via downloadUidFor (exact uid, or the same song under
+			// another source's uid) — a downloaded copy always wins over streaming.
+			const tdlUid = library.downloadUidFor(track);
+			let offlineBlob: Blob | null = null;
+			// 31-D-12 provenance for the offline branch below: a library download reads as
+			// 'download-blob'; a car-buffer CACHE entry (quick-261116-prebuf) reads as
+			// 'prebuffer-blob' so the corrupt-byte repair discards bytes WITHOUT ever
+			// touching library state.
+			let offlineKind: SrcKind = 'download-blob';
+			if (tdlUid) {
+				offlineBlob = await blobStore.get(tdlUid).catch(() => null);
+				if (myGen !== this.playGen) return; // CR-02: superseded mid-IDB-read — discard
+			} else if (this.carBufferEntry(track.uid)) {
+				// quick-261116-prebuf: no download, but the adaptive pre-buffer cached this
+				// track's bytes — play them straight from blobStore, no network resolve.
+				offlineBlob = await blobStore.get(track.uid).catch(() => null);
+				if (myGen !== this.playGen) return; // CR-02: superseded mid-IDB-read — discard
+				if (offlineBlob) offlineKind = 'prebuffer-blob';
+				else this.unregisterCarBuffer(track.uid); // bytes vanished (IDB eviction) — drop the stale entry
+			}
+			// ─── 34-D-06 (the ONE player seam D-05 could not cover) ──────────────────────────────────
+			// blobStore.get answers "give me the bytes" for both kinds of download, but only the player
+			// knows the read came back empty. For a `device:` uid that means the USER'S OWN file is gone
+			// (deleted, SD card pulled) — not an evictable app blob. Mark it so RowBadges /
+			// DownloadControl swap to the alert glyph, say why inline (the Nowbar renders player.error),
+			// and hand off to the existing never-stop skip so a downloads queue keeps advancing. The
+			// entry is NEVER removed here — D-07/D-08: only the next explicit import may drop it.
+			// Without this branch we would fall through to ensureTrackDetails (guarded — returns the
+			// track url-less) → runFallback (barred in tryFallback) → a generic "couldn't play": honest,
+			// but it would not tell the user their file is missing or leave any mark behind.
+			// quick-261008-dl1: the isDownloaded gate keeps this device-only — a catalog track
+			// that merely failed a cross-source blob lookup must fall through to streaming.
+			if (!offlineBlob && isDeviceUid(track.uid) && library.isDownloaded(track.uid)) {
+				library.markUnavailable(track.uid);
+				logAction('device.missing', { uid: track.uid });
+				this.loading = false;
+				this.error = 'toast.fileMissing';
+				this.clearMedia();
+				this.handleTotalFailure(track, 'load-error'); // quick-260926-l69: the file is gone
+				return;
+			}
+			if (offlineBlob && this.audio) {
+				if (this.cachedBlobUrl) {
+					URL.revokeObjectURL(this.cachedBlobUrl);
+				}
+				this.cachedBlobUrl = URL.createObjectURL(offlineBlob);
+				// Held as a local as well: this is the track handed to the enrichment + the shared
+				// post-play queue tail at the end of the branch, and `this.current` can be
+				// reassigned by either of them.
+				// quick-261008-dl1: a cross-source match plays another record's file — report that
+				// record's quality, not the tapped stub's.
+				const localTrack: Track = { ...track, detailsLoaded: true };
+				this.current = this.applyDownloadQuality(localTrack);
+				this.persist();
+				const ms = this.ms;
+				if (ms) {
+					ms.metadata = makeMetadata({
+						title: names.dnTitle(track.title, track.artist),
+						artist: names.dnArtist(track.artist),
+						album: track.album,
+						artwork: buildArtwork(this.displayCover)
+					});
+					ms.playbackState = 'playing';
+				}
+				// Initial-load arming point (D-13): a NEW src for this track. Reset the played
+				// flag + arm the stall watchdog so a silent no-audio start routes into failover.
+				this.hasPlayedSinceSrc = false;
+				// IDLE-PREFETCH: a NEW src — cancel any idle arm queued for the previous src
+				// and re-arm the one-shot for THIS src (quick-261102-idle1).
+				this.resetPrefetchArm();
+				// Next-song-current-but-paused fix: a NEW src clears any prior autoplay-retry arm.
+				this.autoplayRetryArmed = false;
+				// A NEW src cancels any pending resume timer from the prior track and clears a stale
+				// deliberate-pause flag so the next pause is judged on this src's own merits.
+				this.disarmResume();
+				this.deliberatePause = false;
+				this.setSrcKind(offlineKind); // 31-D-12 (direct assign — see restore()'s note); quick-261116-prebuf: 'prebuffer-blob' for car-buffer cache plays
+				this.armedUid = track.uid; // debug-share-card-play-dead-replay
+				this.audio.src = this.cachedBlobUrl;
+				this.armStall();
+				// quick-260627-huo (HUO-PREFETCH), re-scheduled by quick-261102-idle1: one-shot
+				// prefetch of the immediate-next at src-set — so a SHORT track or a FAST skip still
+				// has its next song pre-resolved + probe-verified before it ends (gapless, non-stop
+				// advance) — now fired through the IDLE arm: it runs the moment the /api pipeline
+				// drains instead of piling onto in-flight fetching. Fired AFTER the src is attached
+				// so prefetchNext's indexOf(current) sees the correct current track; single walk
+				// per src (T-huo-03) via the arm's one-shot. Best-effort + fire-and-forget
+				// (gen-guarded by prefetch's own seedUid/abort); NOT gated on the `playing`
+				// event (memory: that froze iOS — reverted) — the idle pipeline is the gate.
+				this.armPrefetchWhenIdle();
+				// D-06: a rejected play() is intentionally surfaced to the stall/failure path,
+				// not swallowed — if play() rejects (iOS gesture loss) and no `play` event
+				// follows, the armed watchdog above routes into runFallback. .catch only prevents
+				// an unhandled rejection.
+				let rejected = false;
+				await this.audio.play().catch(() => {
+					rejected = true; // capture the autoplay rejection — see arm below
+				});
+				// Next-song-current-but-paused fix (offline-blob path): same autoplay-rejection retry
+				// as the network path — a non-fresh advance into a downloaded next track can still be
+				// autoplay-blocked on mobile. Arm the single gen-guarded re-play when bytes are present.
+				if (rejected && !opts?.fresh && this.audio.paused) {
+					this.autoplayRetryArmed = true;
+					this.maybeRetryAutoplay(myGen);
+				}
+				this.loading = false;
+				// 37-D-01: this branch used to `return` here after a bare primeNext(), which sat 225
+				// lines ABOVE the cover chain and the fresh-play up-next branch. So EVERY
+				// offline-served track — an imported `device:` file or a song the user downloaded —
+				// silently lost its cover, its lyrics and its generated up-next. That one return was
+				// the whole bug; these two calls are the whole fix.
+				//
+				// The fall-through is deliberately UNCONDITIONAL — no isDeviceUid gate. An ordinary
+				// download hits the same return and loses the same two features, and a device-only
+				// gate would re-create the two-code-paths asymmetry behind four prior cover-surface
+				// bugs. The cover chain is NOT fired here: enrichFromLocalFile decides after reading
+				// the file's own tags, because the file may already carry the art (37-D-04).
+				//
+				// PLAY-09 / D-15 is preserved: primeNext() is reached through BOTH branches of
+				// postPlayQueue, so the downloaded-queue prefetch this used to do still happens.
+				void this.enrichFromLocalFile(localTrack, offlineBlob, myGen);
+				this.postPlayQueue(localTrack, opts);
+				return;
+			}
+			// RESOLVE-PHASE WATCHDOG (26-06 / gap-1 BLOCKER, RESOLVE-02). The click-to-play network resolve
+			// used to run with NO signal + NO timeout — a stalled upstream (qijieya/qq flake) sat in
+			// `loading` up to apiFetch's ~25s REQUEST_TIMEOUT_MS with no cross-source fallback and no skip
+			// (the UAT hang). Bound it: race the resolve against a short RESOLVE_WATCHDOG_MS deadline. On the
+			// deadline we (a) set `timedOut`, (b) `ac.abort()` the in-flight resolve so the stalled /api
+			// fetch is cancelled and the connection frees (apiFetch rejects a caller-abort — T-26-06-02), and
+			// (c) win the race with the (audioUrl-less) tapped stub so play() unblocks and routes into
+			// runFallback BELOW even if a downstream ignored the signal — the never-hang guarantee does NOT
+			// depend on adapter cooperation. The offline-blob early-return above never reaches here, so local
+			// bytes never arm this. A fast, healthy resolve wins the race first → `timedOut` stays false, the
+			// timer is cleared in `finally` (no dangling timer / spurious late abort), and the single-source
+			// happy path proceeds with NO cross-source fan-out (the ~3-call budget is preserved).
+			// PRECONNECT (measured: handshake is ~83% of time-to-first-byte — cold TTFB 0.526s vs 0.090s
+			// on a reused connection). We know the SOURCE now but will not have a url for ~2.7s, so
+			// open the socket into that dead window: by the time the url lands the TLS handshake is
+			// already done. Costs one socket and ZERO requests, and needs no prediction — the user has
+			// already tapped. Fire-and-forget, never throws.
+			preconnectForSource(track.source);
+
+			const ac = new AbortController();
+			let timedOut = false;
+			// Kick off the resolve WITH the abort signal (ensureTrackDetails threads it to the adapter →
+			// apiFetch). Attach a swallowing .catch up-front: after the watchdog aborts, the in-flight
+			// resolve rejects LATE (apiFetch caller-abort) and the race has already settled — this prevents
+			// that late rejection surfacing as an unhandled rejection. A PRE-timeout reject is caught by the
+			// try/catch below (routed as a failed resolve).
+			const resolveP = ensureTrackDetails(track, ac.signal);
+			resolveP.catch(() => {});
+			let resolveTimer: ReturnType<typeof setTimeout> | undefined;
+			const timeoutP = new Promise<Track>((resolve) => {
+				resolveTimer = setTimeout(() => {
+					timedOut = true;
+					ac.abort(); // cancel the stalled upstream fetch — free the connection (T-26-06-02)
+					resolve(track); // unblock with the unresolved (audioUrl-less) stub → runFallback below
+				}, Player.RESOLVE_WATCHDOG_MS);
+			});
+			let resolved: Track;
+			try {
+				resolved = await Promise.race([resolveP, timeoutP]);
+			} catch {
+				// A hard resolve throw (network error, or a non-timeout abort) is a failed resolve: fall back
+				// to the tapped track (audioUrl-less) so the shared resolve-failure branch below routes it
+				// into the cross-source walk (never-throw parity with the null-resolve path).
+				resolved = track;
+			} finally {
+				clearTimeout(resolveTimer); // fast resolve → no dangling timer / spurious late abort
+			}
+			if (myGen !== this.playGen) return; // CR-02: superseded mid-resolve — discard
+			// 43-D-08: PLAY the auto-picked substitute but say it may not be the original. Emitted here
+			// (after resolve + gen-check), never gated on `playing` (unreliable on iOS). Names the resolved
+			// track — for a fallback swap `track` IS the swap, so both agree. Once per uid.
+			if (resolved.versionMismatch && !this.versionNotified.has(resolved.uid)) {
+				this.versionNotified.add(resolved.uid);
+				logAction('version.mismatch', { uid: resolved.uid });
+				this.notice = {
+					kind: 'version',
+					msg: 'toast.mayNotBeOriginal',
+					title: resolved.title,
+					artist: resolved.artist
+				};
+				// WR-04 window-close discipline (mirrors the corrupt-download notice).
+				setTimeout(() => {
+					if (this.notice?.kind === 'version') this.notice = null;
+				}, Player.SKIP_BURST_WINDOW_MS);
+			}
+			if (timedOut) {
+				// Make the hang→fallback transition visible in the Activity log (Settings → Activity log).
+				logAction('resolve.timeout', { uid: track.uid, source: track.source });
+			} else {
+				logAction(resolved.audioUrl ? 'resolve.ok' : 'resolve.fail', {
+					uid: resolved.uid,
+					source: resolved.source,
+					hasUrl: !!resolved.audioUrl
+				});
+			}
+			// quick-260831-t2g: re-apply an ATTACHED cover across the resolve.
+			//
+			// `resolved` comes from ensureTrackDetails and carries the SOURCE's own art, so assigning
+			// it to `current` below silently discarded the cover the caller attached in playStub —
+			// which is why every album row still ended up on its source's per-track thumbnail (an
+			// http y.gtimg.cn image for qq) instead of the album cover, and why siblings disagreed.
+			// resolvedCover survived (its adoption is `if (!this.resolvedCover)`-guarded), but
+			// `current.cover` is what the nowbar and persistence read, so it has to survive too.
+			// quick-260910-piz: attachedCoverFor now matches every song of the installed list, so this
+			// re-apply fires on every album ADVANCE — the fix for the hero flipping to the source
+			// thumbnail on track 2+.
+			// Teach the preconnect map which origin this source actually serves audio from, so the next
+			// cold play preconnects the RIGHT host even if the CDN shard is renamed.
+			noteAudioOrigin(resolved.source, resolved.audioUrl);
+			const attached = this.attachedCoverFor(resolved);
+			if (attached && resolved.cover !== attached) resolved = { ...resolved, cover: attached };
+			this.current = resolved;
+			// keep the queue entry in sync with the resolved track
+			const i = this.indexOf(track);
+			if (i >= 0) this.queue[i] = resolved;
+			// Persist the new current+queue immediately so a reload mid-resolve still has the
+			// right track to restore (the throttled timeupdate write covers progress alone).
+			this.persist();
+			// Cover-chain: a resolve that landed a cover shares it with every same-song
+			// library entry + the cover-cache, so home/library tiles stop rendering
+			// gradients for songs whose art the player has already fetched.
+			if (resolved.cover) {
+				library.adoptCover(resolved);
+				// COVER-01: ensureTrackDetails resolved a cover the sync set missed (the search stub
+				// had none) — adopt it into the single field so the network-path MediaMetadata write
+				// below and both UI surfaces show real art without waiting on the async tier chain.
+				// media-card-shows-app-icon: a NON-https seed (an http url from a pre-fix cache entry or
+				// persisted current) must not outrank a resolve that carries a real https cover — it can
+				// never reach the media card (buildArtwork) and it starves every https-gated re-resolve.
+				if (!hasHttpsScheme(this.resolvedCover)) this.resolvedCover = resolved.cover;
+				// quick-260615-hep Site B: ensureTrackDetails fetched a real cover — write BOTH layers + bump
+				// so home/library tiles for this song reuse it and repaint live. https-only (T-0bb-01).
+				if (hasHttpsScheme(resolved.cover))
+					writeCoverBoth(resolved.uid, resolved.artist, resolved.title, resolved.cover);
+			}
+			if (timedOut || !resolved.audioUrl) {
+				// Resolve FAILED — the watchdog fired (stalled upstream) OR the resolve returned no
+				// audioUrl. Both route into the cross-source fallback (gte / 26-06 gap-1): walk the
+				// remaining sources kuwo-first for the SAME song before surfacing an error. On a playable
+				// hit runFallback() calls play() again with fromFallback:true; on total exhaustion
+				// handleTotalFailure auto-skips via next() — the player never sits permanently in `loading`.
+				if (!opts?.fromFallback) {
+					this.loading = false;
+					void this.runFallback(resolved);
+					return;
+				}
+				// User report 2026-11-02: this IS a fallback continuation, and the swap's own
+				// resolve just failed too — the song is unresolvable on every source the walk
+				// could reach. The old code hard-stopped here (error='toast.playbackStopped' +
+				// clearMedia), stranding the whole session on ONE bad song while loadable songs
+				// remained queued. Route it through the same total-failure policy as a walk that
+				// found nothing: count it, tag the row, emit the batched skip toast and advance
+				// via next(). The systemic ceiling inside handleTotalFailure stays the ONLY stop
+				// on this path, and it trips only on an unbroken run of total failures — never on
+				// a single song. No clearMedia: the skip's next play() re-syncs the OS media UI
+				// to the new track synchronously at its head (MS-05's concern was a stop with
+				// nothing following; a skip always has a successor play or the terminal stop,
+				// which pauses + notifies on its own).
+				this.handleTotalFailure(resolved);
+				return;
+			}
+			// 31-D-08: the resolve came back PLAYABLE but lyric-less because it was served by the edge
+			// resolve cache (the entry stores a url only, so the source walk that produces `lrc` was
+			// short-circuited). A cache HIT must never render worse than a MISS, so fill the lyrics pane
+			// out of band through the same best-effort mechanism the offline-blob path uses — never
+			// awaited, never throws, never bumps a generation. Fires ONLY on the marker, so a cold
+			// resolve that genuinely found no lyrics (crossSourceLyric already walked) never re-walks.
+			if (resolved.lrcUnresolved && !resolved.lrc) this.backfillLyrics(resolved);
+			// Populate the OS/browser media UI from the RESOLVED track so album/cover
+			// are present (MS-01). Titles/artists go through the per-part name resolvers
+			// for the active display language (returns the original under SSR/off). Guarded via `ms`.
+			const ms = this.ms;
+			if (ms) {
+				ms.metadata = makeMetadata({
+					title: names.dnTitle(resolved.title, resolved.artist),
+					artist: names.dnArtist(resolved.artist),
+					album: resolved.album,
+					artwork: buildArtwork(this.displayCover)
+				});
+				ms.playbackState = 'playing';
+			}
+			if (this.audio) {
+				// kyf: prefer the offline blob when the track is in library.downloads AND the
+				// blob is still in the IDB cache. A miss / SSR / IDB-unavailable falls through to
+				// the CDN URL (never throws). Always revoke the prior Object URL first.
+				if (this.cachedBlobUrl) {
+					URL.revokeObjectURL(this.cachedBlobUrl);
+					this.cachedBlobUrl = null;
+				}
+				let src: string = resolved.audioUrl;
+				// Direct-first provenance: a direct CDN URL records 'direct-url' so a later
+				// audio.error can fall back to the proxy; a proxy URL keeps 'url'.
+				let kind: SrcKind = this.srcKindFor(resolved); // 31-D-12 provenance, threaded into driveSrc below
+				// quick-261008-dl1: a downloaded copy (exact uid or same song, other source) always
+				// wins over the resolved stream URL. The CR-02 gen re-check stays AFTER the blob
+				// await even on a null blob.
+				const fdlUid = library.downloadUidFor(resolved);
+				if (fdlUid) {
+					const fblob = await blobStore.get(fdlUid).catch(() => null);
+					if (myGen !== this.playGen) return; // CR-02: superseded mid-IDB-read — discard
+					if (fblob) {
+						this.cachedBlobUrl = URL.createObjectURL(fblob);
+						src = this.cachedBlobUrl;
+						kind = 'download-blob';
+					}
+				}
+				// BOUNDED BLOB PRE-BUFFER consume (bg-lockscreen-stall-noskip): if the immediate-next was
+				// pre-buffered to LOCAL bytes, swap to the blob: URL so a backgrounded/locked src-set has
+				// NO network byte-load that could silently hang. Ownership transfers to cachedBlobUrl (its
+				// existing revoke discipline owns it from the next play()); clear the prebuffer slot so it
+				// is not double-revoked. `else if` — never override the offline-download blob above.
+				else if (this.prebufferedUid === resolved.uid && this.prebufferedBlobUrl) {
+					this.cachedBlobUrl = this.prebufferedBlobUrl;
+					src = this.cachedBlobUrl;
+					this.prebufferedBlobUrl = null;
+					this.prebufferedUid = null;
+					// 31-D-12: a prebuffer blob is NOT a library download — this kind exists so the
+					// audio.error handler can discard it WITHOUT evicting a download record.
+					kind = 'prebuffer-blob';
+				}
+				// Initial-load arming point (D-13): a NEW src for this track. Reset the played flag +
+				// arm the stall watchdog so a silent no-audio start (no `playing`/`timeupdate`
+				// within ~15s) routes into failover.
+				this.hasPlayedSinceSrc = false;
+				this.stallRetried = false; // bg-lockscreen-stall-noskip: fresh src → fresh single-retry budget
+				// IDLE-PREFETCH: a NEW src — cancel any idle arm queued for the previous src
+				// and re-arm the one-shot for THIS src (quick-261102-idle1).
+				this.resetPrefetchArm();
+				// Next-song-current-but-paused fix: a NEW src clears any prior autoplay-retry arm.
+				this.autoplayRetryArmed = false;
+				// A NEW src cancels any pending resume timer from the prior track and clears a stale
+				// deliberate-pause flag so the next pause is judged on this src's own merits.
+				this.disarmResume();
+				this.deliberatePause = false;
+				// SINGLE AUTHORITY (debug-song-click-lrc-flood-noplay): attach the stream through the ONE
+				// braked setter. If this play() is the Nth rapid re-drive of the SAME track with no
+				// `playing` between (a reactive re-entry / recovery ping-pong — the "api loop hell"), the
+				// brake STOPS with a logged trigger and we bail this play() rather than re-driving again.
+				if (!this.driveSrc(resolved.uid, src, kind)) return;
+				// NEVER-STOP BUFFER GATE (Hector 2026-11-19): a FRESH remote play of a
+				// China-CDN source (kuwo/qq/netease/gdnetease/joox/kugou/migu) does NOT
+				// start at canplay — it waits here, still under play()'s existing
+				// `loading` state, until the element holds a real head start
+				// (buffer-gate: 30s target / buffered-to-end / HAVE_ENOUGH_DATA, 12s
+				// hard timeout, then play anyway). Hector's doctrine: an initial wait
+				// is expected and free; a MID-SONG stall is the sin. Blobs never reach
+				// here as a gated kind (download/prebuffer branches set blob kinds),
+				// a repeat served from the media cache satisfies the gate on its
+				// first poll, and resume/seek/re-resolve paths never call this — only
+				// this fresh attach does. preload='auto' + load() is the nudge that
+				// makes the element actually fetch while play() is still withheld
+				// (a bare src attach may only pull metadata). The stall watchdog is
+				// armed AFTER the gate so its 15s window measures the post-start
+				// load, not the deliberate buffer wait.
+				if (shouldBufferGate({ source: resolved.source, kind, src })) {
+					try {
+						this.audio.preload = 'auto';
+						this.audio.load();
+					} catch {
+						/* a partial/test element without load() — the poll still judges its buffer */
+					}
+					const gateOutcome = await waitForBufferGate(this.audio, {
+						isSuperseded: () => myGen !== this.playGen
+					});
+					if (myGen !== this.playGen) return; // superseded mid-gate — the newer play owns the element
+					logAction('buffer.gate', {
+						uid: resolved.uid,
+						source: resolved.source,
+						outcome: gateOutcome,
+						ahead: Math.round(bufferedAheadSec(this.audio) * 10) / 10
+					});
+				}
+				this.armStall();
+				// IDLE-PREFETCH (quick-261102-idle1, superseding the RELAX-PREFETCH ~5s timeupdate
+				// gate AND the eager-fire removal of debug-song-click-lrc-flood-noplay): arm the
+				// one-shot prefetch HERE, at src-set — the walk fires the moment the governed /api
+				// pipeline is idle (immediately on a quiet pipeline; after drain when a search /
+				// cover / resolve burst is in flight), so the next song is resolved + byte-prebuffered
+				// ASAP without ever stalling user-initiated fetching or the just-started stream.
+				// A track that never starts is still safe: the walk is seedUid-guarded, and the
+				// failure path supersedes current (or retries it) before the walk can write back.
+				this.armPrefetchWhenIdle();
+				// D-06: a rejected play() is intentionally surfaced to the stall/failure path, not
+				// swallowed — if play() rejects (iOS gesture loss after the async resolve) and no
+				// `play` event follows, the armed watchdog above routes into runFallback. The .catch
+				// only prevents an unhandled rejection; it is NOT a silent no-op.
+				let rejected = false;
+				await this.audio.play().catch(() => {
+					rejected = true; // capture the autoplay rejection — see arm below
+				});
+				// Next-song-current-but-paused fix: on a NON-fresh advance (auto-advance/next/failover —
+				// no fresh user gesture survives the async resolve), a rejected play() with bytes present
+				// is an autoplay-policy pause, not a load stall. Arm a single event-driven re-play
+				// (canplay seam / readyState gate, gen-guarded) so the next playable track does not sit
+				// paused. A FRESH play already has user activation, so it is never armed here.
+				if (rejected && !opts?.fresh && this.audio.paused) {
+					this.autoplayRetryArmed = true;
+					this.maybeRetryAutoplay(myGen); // bytes may already be present — try immediately
+				}
+			}
+			this.postPlayCover(resolved, myGen);
+			this.postPlayQueue(resolved, opts);
+		} catch (e) {
+			// quick-261102-ty6 (DECISIONS.md §13): the failure VOCABULARY is TranslationKeys — a raw
+			// exception message is untranslatable store→UI text. The cause goes to the Activity log.
+			logAction('play.throw', { uid: track.uid, msg: e instanceof Error ? e.message : String(e) });
+			this.error = 'toast.playbackStopped';
+		} finally {
+			this.loading = false;
+		}
+	}
+
+	/**
+	 * The post-src COVER tail of play(), extracted verbatim from it (CLAUDE.md flags this store as a
+	 * god object and asks for cohesive slices to be pulled out as the store thin-calls them). ONE
+	 * branch: a coverless track gets the full tier chain. A track that already painted from an inline
+	 * cover keeps it — the HQ upgrade branch was removed in Phase 40 D-11a. Then `crowdCoverAsync`
+	 * looks up the crowd-shared pick (Phase 40 D-16, once per song per session). Non-blocking:
+	 * playback never waits on either.
+	 */
+	private postPlayCover(resolved: Track, myGen: number): void {
+		// COVER-01 / D-09: the playing track still has NO art (sync read missed AND the resolve
+		// did not carry a cover). Fire the Plan-02 single-item tier chain off the audio critical
+		// path — best-effort, never-throw, generation-guarded — so the nowbar/now-playing/lock
+		// screen pick up a real cover when one exists, and keep the gradient/favicon when it does
+		// not (D-12). Non-blocking: playback never waits on it (T-21-07 accept).
+		// media-card-shows-app-icon: the gate is SCHEME-based, not truthiness-based. A non-https
+		// cover is truthy, so `!this.resolvedCover` skipped this full-chain resolve — while the
+		// (since removed) HQ-upgrade branch rejected it on hasHttpsScheme, so such a track fell
+		// through BOTH branches and kept a cover that can never reach the OS media card
+		// (buildArtwork's https gate emits /favicon.svg). That was the QQ bug; e17ce39 fixed it at the qq.ts source, this fixes the
+		// gate that let it starve. kuwo/netease still commit `pic` raw — covered here for free.
+		// 37-D-02: RENDERABLE, not cacheable. A `data:` cover extracted from a local file's own tags
+		// IS art the hero, the nowbar and the media card all paint, so the full Deezer→iTunes→CN chain
+		// must not re-run for it on every play. isRenderableCover is the DISPLAYABLE predicate;
+		// everything below that writes to or probes the localStorage cover cache deliberately keeps
+		// hasHttpsScheme (a `data:` URL in that cache silently kills all cover caching).
+		if (!isRenderableCover(this.resolvedCover)) void this.resolveCoverAsync(resolved, myGen);
+		// quick-261020-itn1: Hector 2026-10-20 — a Netease cover never wins outright. If the seeded
+		// cover is a Netease meting-pic URL, try iTunes in the background and replace on any hit.
+		// (Overrides the Phase 40 D-11a "no automatic upgrade" rule for Netease only; iTunes miss
+		// keeps the Netease art.)
+		else if (isNeteaseCover(this.resolvedCover)) void this.preferItunesOverNetease(resolved, myGen);
+		// Phase 40 D-11a / D-09: a track that painted from an inline cover (kuwo/qq/netease pic, a
+		// ytmusic thumbnail, album art) KEEPS it — no automatic upgrade exists any more. The old
+		// post-paint iTunes → Deezer "HQ upgrade" (Plan 26-02, quick-260831-t2g, quick-260920-nyq)
+		// silently replaced user-visible art and could downgrade it. The crowd pick is the only
+		// post-paint replacement and it is a human choice.
+		// Phase 40 D-14 vs D-09: runs whether or not the track has inline art — a crowd pick may
+		// replace an inline/ytmusic thumbnail precisely because a person chose it.
+		void this.crowdCoverAsync(resolved, myGen);
+	}
+
+	/**
+	 * Phase 40 D-14 / D-16: fetch the crowd-shared cover pick for the playing song — ONE GET per played
+	 * song per session (edge-cached 300 s server-side), never per row. Skipped for device: uids (no
+	 * cross-user identity) and pinned songs (the pin wins anyway). A winner is cached in the crowd
+	 * family and adopted through adoptCover, which refreshes resolvedCover AND re-fires the OS media
+	 * card (memory: hero-mediacard-cover-resolvedcover-asymmetry). Generation-guarded (T-21-06).
+	 */
+	private async crowdCoverAsync(resolved: Track, myGen: number): Promise<void> {
+		const { uid, artist, title } = resolved;
+		if (isDeviceUid(uid) || getPinnedCover(uid) || this.crowdRequested.has(uid)) return;
+		this.crowdRequested.add(uid);
+		const keys = await coverPickKeys(uid, artist, title);
+		if (!keys) return;
+		let pick: Awaited<ReturnType<typeof fetchCoverPick>> = null;
+		try {
+			pick = await fetchCoverPick(keys);
+		} catch {
+			pick = null; // never-throw already, but stay defensive
+		}
+		// 40-WR-02: a null is a TRANSIENT miss (503, open circuit breaker, timeout) — un-mark the uid so
+		// a later play this session retries, instead of losing the crowd pick until restart.
+		if (!pick) {
+			this.crowdRequested.delete(uid);
+			return;
+		}
+		// 40-WR-02: the cache write is identity-keyed (uid + name), so it is correct whatever is playing
+		// now — caching BEFORE the gen check means a quick skip no longer throws the result away. Only
+		// the ADOPTION below is generation-gated (T-21-06).
+		writeCrowdCover(uid, artist, title, pick);
+		if (myGen !== this.playGen) return; // a newer play() superseded — cached, not adopted
+		// Read back through the same uid → name order adoptCover's `chosen` uses, so the two agree.
+		const winner = getCrowdCover(uid, artist, title);
+		if (winner) this.adoptCover(uid, winner);
+	}
+
+	/**
+	 * The post-src QUEUE tail of play(), extracted verbatim from it. A FRESH user play rebuilds the
+	 * up-next from the seed per the effective mode; every other entry (auto-advance, failover, next())
+	 * just tops the queue up. `primeNext()` is reached from BOTH branches, so no caller loses it.
+	 *
+	 * Only `fresh` is read — the parameter is typed to that one field so the shape of play()'s options
+	 * bag is not restated here.
+	 */
+	private postPlayQueue(resolved: Track, opts?: { fresh?: boolean; sameList?: boolean; forceGenerated?: boolean }): void {
+		// Fresh play -> per-context sourcing branch (Phase 17, D-03/D-04). 'generated'
+		// (global default) regenerates the auto portion from genre-similar songs; 'same-list'
+		// keeps the snapshot the caller passed via setQueue (search results / liked list /
+		// etc.) and only tops it up on exhaust via ensureAhead (the snapshot still grows when
+		// it runs out — D-03). A non-fresh play (auto-advance/failover) never WEAVES, and it
+		// regenerates ONLY to repair a tail that was never generated for the landed track
+		// (quick-261103-upnext, see the else branch).
+		if (opts?.fresh) {
+			// D-10: a fresh user play starts a NEW listening session — clear the swipe-removed
+			// exclusion budget BEFORE regenerate so previously-removed songs are eligible again.
+			this.removedUids.clear();
+			// quick-260615-i9u (Feature B): install the captured history baseline FIRST so the
+			// clicked song sits right after the prior current and earlier tracks stay revisitable
+			// via prev(). weaveFreshHistory bumps queueGen so any stale in-flight regen/grow
+			// discards (WR-06). THEN build the tail per the effective up-next mode.
+			this.weaveFreshHistory(resolved);
+			// quick-260618-lsw (LSW-02 / LSW-01): a fresh click anchors the Up-Next list at the
+			// WOVEN queue's head — the oldest kept history entry (or the clicked song itself when
+			// there is no history) — so previously played songs stay visible above the current
+			// row instead of the list being cut to start at the clicked song. quick-261019-qkh.
+			// Set AFTER weaveFreshHistory installs the woven queue so the head uid is definitely
+			// present in this.queue. Auto-advance (the non-fresh else branch below) leaves this
+			// put so the pointer advances without dropping history.
+			this.upNextAnchorUid = this.queue[0]?.uid ?? resolved.uid;
+			// quick-260915-vb9: an explicit "play this whole list" caller (opts.sameList) pins the
+			// same-list branch — the list it just installed IS the Up-Next the user asked for, so the
+			// context's default 'generated' mode must not throw it away. Row taps pass nothing and
+			// keep resolving through the user's per-context setting exactly as before.
+			// quick-261103-tapsplice: `forceGenerated` is the tap setting's Generate mode —
+			// the user's global tap choice wins over the queue's born-context sourcing for
+			// THIS play (a same-list-born queue still regenerates its tail around a tap).
+			if (!opts?.sameList && (settings.effectiveUpnextMode(this.queueContext) === 'generated' || opts?.forceGenerated)) {
+				// generated: regenerate (now history-aware) replaces only the tail after the seed.
+				// quick-261103-upnext: record the INTENT so a non-fresh landing can repair the
+				// tail if this build is superseded before it lands (see the else branch).
+				this.pendingGeneratedTail = true;
+				this.runRegenerate(resolved);
+			} else {
+				// same-list: setListQueue already installed [seed, ...list-remainder]; weave only
+				// PREPENDED history, so the remainder survives as the tail. On exhaust ensureAhead
+				// grows it (D-03). quick-261103-upnext: a same-list (or sameList) fresh play
+				// carries NO generated-tail intent — later advances keep the list as-is.
+				this.pendingGeneratedTail = false;
+				void this.primeNext();
+			}
+		} else {
+			// quick-260615-i9u (Feature B): a non-fresh advance (next/prev/auto-advance/failover/
+			// retry) never weaves — history already lives in the queue array. Null any capture left
+			// by a setQueue/setListQueue that is NOT followed by a fresh play so it can't leak into
+			// a LATER fresh play.
+			this.pendingHistory = null;
+			this.pendingManual = null; // quick-260618-fiz (Fix 4): same one-shot discipline
+			// quick-261103-upnext (Hector's bug, reproduced 2026-11-03): the fresh tap's
+			// regenerate is SLOW for obscure seeds (the similar ladder takes tens of seconds),
+			// and any skip/advance in between discards it via WR-06 — after which NOTHING ever
+			// rebuilt the tail, so Up Next stayed the raw search list forever (no upnext.source
+			// in the log at all). Repair it here: the fresh play recorded a generated-tail
+			// INTENT (pendingGeneratedTail) that no install has fulfilled yet, the context
+			// mode is still 'generated', and no build for THIS track is already in flight —
+			// so build the tail for the LANDED track. Unarmed queues (splices into an ongoing
+			// queue, advances inside an installed generated tail) never enter here.
+			if (
+				this.pendingGeneratedTail &&
+				settings.effectiveUpnextMode(this.queueContext) === 'generated' &&
+				this.regenSeedUid !== resolved.uid
+			) {
+				this.runRegenerate(resolved);
+			} else {
+				// quick-261108-h3w: no build will run for this landing — stop the skeletons.
+				this.upNextPending = false;
+				void this.primeNext();
+			}
+		}
+	}
+
+	/** quick-261103-upnext: the ONE regenerate launcher — marks the in-flight seed so a
+	 * second landing on the same track doesn't double-build, and primes the next track
+	 * only after the new tail lands (the fresh branch's original sequencing). */
+	private runRegenerate(seed: Track): void {
+		this.regenSeedUid = seed.uid;
+		void this.regenerate(seed).then(() => {
+			if (this.regenSeedUid === seed.uid) this.regenSeedUid = null;
+			this.primeNext();
+		});
+	}
+
+	/**
+	 * Best-effort async cover land for the playing track (COVER-01 / D-09). Runs the Plan-02
+	 * single-item resolve helper (Deezer → iTunes → CN tier chain; never throws; writes both cache
+	 * layers on a SOLID https hit) for a track that arrived with NO art. On a SOLID result, and ONLY
+	 * if a newer play() has not superseded this one (generation guard, Pitfall 4 + CR-02):
+	 *   - set `this.resolvedCover` so both UI surfaces repaint reactively, and
+	 *   - re-fire MediaSession by assigning a BRAND-NEW MediaMetadata object (never mutate artwork in
+	 *     place, A2/Pitfall 4) so the OS lock screen repaints — keeping playbackState correct.
+	 * On a miss (or a supersede) nothing is written: the gradient + /favicon.svg stand (D-12). This
+	 * runs off the audio critical path; playback never waits on it (T-21-07 accept).
+	 */
+	/**
+	 * quick-261020-itn1 (amended): Netease → iTunes preference for the NOW-PLAYING hero. The seeded
+	 * cover is a Netease meting-pic URL (often a placeholder); try iTunes first, then the FULL
+	 * chain (QQ → Deezer → CN → YTM); the Netease art is kept only when everything else misses.
+	 * Generation-guarded like resolveCoverAsync; never throws.
+	 */
+	private async preferItunesOverNetease(resolved: Track, myGen: number) {
+		let url: string | null = null;
+		try {
+			url = await itunesSongCover(
+				resolved.artist ?? '',
+				resolved.title ?? '',
+				undefined,
+				DISPLAY_ARTWORK_SIZE
+			);
+		} catch {
+			url = null;
+		}
+		// iTunes miss → run the full chain before falling back to the Netease art.
+		if (!url || !hasHttpsScheme(url)) {
+			try {
+				url = await resolveCoverForTrack(resolved);
+			} catch {
+				url = null;
+			}
+		}
+		if (myGen !== this.playGen) return;
+		if (this.adoptedCoverUid === resolved.uid) return;
+		if (!url || !hasHttpsScheme(url)) return; // total miss — keep the seeded Netease art
+		this.resolvedCover = url;
+		// quick-261102-tdc (DECISIONS.md §6): write through the ONE writer. The iTunes hit used to set
+		// resolvedCover only, so displayCover (cache-first) kept showing the cached Netease seed on
+		// the hero/Nowbar while the lock screen showed iTunes. writeCoverBoth bumps the version.
+		writeCoverBoth(resolved.uid, resolved.artist, resolved.title, url);
+		// quick-261114-fsync: the committed preference lands in the downloaded file's tags too.
+		this.syncCoverToDownloadedFile(resolved.uid, url);
+		const ms = this.ms;
+		if (ms) {
+			// Same metadata write as resolveCoverAsync — display names + the shared displayCover
+			// (was raw catalog title/artist and the bare url).
+			ms.metadata = makeMetadata({
+				title: names.dnTitle(resolved.title, resolved.artist),
+				artist: names.dnArtist(resolved.artist),
+				album: resolved.album,
+				artwork: buildArtwork(this.displayCover)
+			});
+			ms.playbackState = playbackStateFor(!!this.current, this.playing);
+		}
+	}
+
+	private async resolveCoverAsync(resolved: Track, myGen: number) {
+		let url: string | null = null;
+		try {
+			url = await resolveCoverForTrack(resolved);
+		} catch {
+			url = null; // resolveCoverForTrack never throws, but stay defensive — never reject.
+		}
+		if (myGen !== this.playGen) return; // a newer play() superseded — discard the stale art (T-21-06)
+		// quick-260809-38i: a surface already adopted an onload-VERIFIED cover for this track; a late
+		// chain result must not replace it.
+		if (this.adoptedCoverUid === resolved.uid) return;
+		if (!url) return; // total miss — keep the seeded gradient + favicon (D-12)
+		this.resolvedCover = url;
+		// quick-260615-hep Site C: resolveCoverForTrack already wrote BOTH cache layers internally — do NOT
+		// double-write; only bump the global reactive signal so a late async cover land repaints other tiles.
+		bumpCoverVersion();
+		// quick-261114-fsync: the committed chain cover lands in the downloaded file's tags too.
+		this.syncCoverToDownloadedFile(resolved.uid, url);
+		const ms = this.ms;
+		if (ms) {
+			// A FRESH MediaMetadata so the OS repaints the lock-screen art (never an in-place mutate).
+			ms.metadata = makeMetadata({
+				title: names.dnTitle(resolved.title, resolved.artist),
+				artist: names.dnArtist(resolved.artist),
+				album: resolved.album,
+				artwork: buildArtwork(this.displayCover)
+			});
+			ms.playbackState = playbackStateFor(!!this.current, this.playing);
+		}
+	}
+
+	/** The caller-attached cover for THIS song, or null. Song-keyed so it survives a cross-source
+	 *  fallback that replays the same song under a different uid (quick-260831-t2g).
+	 *  quick-260910-piz: set MEMBERSHIP, not a single key — every song of the installed list matches. */
+	private attachedCoverFor(track: Track): string | null {
+		const a = this.attachedCover;
+		if (!a) return null;
+		return a.keys.has(matchKey(track.artist, track.title)) ? a.url : null;
+	}
+
+	/**
+	 * Probe a cover URL with new Image() — resolve true if it LOADS (keep it), false on error (treat
+	 * as broken → repair). SSR guard: when Image is undefined resolve false. Never rejects. Private
+	 * 12-line twin of lazyCover's probeImage (quick-260704-20e) so the heal does NOT cross the action
+	 * boundary; mirrors the exact idiom preloadNextCover already uses (decoding/referrerPolicy).
+	 */
+	private probeCover(url: string): Promise<boolean> {
+		if (typeof Image === 'undefined') return Promise.resolve(false);
+		return new Promise<boolean>((resolve) => {
+			try {
+				const img = new Image();
+				img.decoding = 'async';
+				img.referrerPolicy = 'no-referrer';
+				img.onload = () => resolve(true);
+				img.onerror = () => resolve(false);
+				img.src = url;
+			} catch {
+				resolve(false);
+			}
+		});
+	}
+
+	/**
+	 * quick-260809-38i: the ONE seam through which a surface that has VERIFIED a better cover hands it
+	 * to the shared authority (COVER-01 / D-09). NowPlaying's Last.fm hi-res swap used to assign a
+	 * COMPONENT-LOCAL `$state`, so it won on the hero ONLY: Nowbar reads `resolvedCover ?? np.cover`
+	 * and the OS media card reads `resolvedCover ?? readCoverByUidOrName(...)`, so both were
+	 * structurally blind to it and the shared cache never learned the better art — one song, three
+	 * covers (the reported mismatch). Promoting here fixes every reader at once instead of teaching
+	 * each surface about the swap.
+	 *
+	 * The CALLER owns the contest (maybeSwapCover still measures the candidate against the raw SOURCE
+	 * cover via onload, D-04 g3 strictly-larger); this only commits the winner, under the same guards
+	 * every other cover writer uses:
+	 *   1. uid identity — a stale enrichment that lands after a track change is discarded (mirrors
+	 *      healCover step 1: the caller's uid IS the identity, not a captured generation).
+	 *   2. httpsOnly — never cache/paint a non-https or empty value (T-0bb-01).
+	 *   3. same-url — idempotent: no re-write, no version bump, no metadata churn.
+	 * Then: set the one field, flag the uid so a late resolveCoverAsync cannot replace it, write BOTH
+	 * cache layers via writeCoverBoth (which bumps the reactive signal ITSELF — do NOT also call
+	 * bumpCoverVersion, that is the Site C double-write), and re-fire a FRESH MediaMetadata (never an
+	 * in-place artwork mutate, A2/Pitfall 4). Never throws — it is called from an <img> onload handler.
+	 */
+	adoptCover(uid: string, url: string): void {
+		try {
+			const cur = this.current;
+			if (!cur || cur.uid !== uid) return; // (1) no track / superseded — discard
+			if (!hasHttpsScheme(url)) return; // (2) not a cacheable, renderable URL
+			// quick-260915-w4f (4): when the song is PINNED or crowd-chosen (Phase 40 D-14), that chosen
+			// url (pin ?? crowd) is the only URL this seam accepts.
+			// A Last.fm hi-res swap / any other "better cover" discovery must not displace the user's
+			// choice. The pin url itself IS allowed through — that is how the cover picker makes the
+			// hero, the Nowbar and the OS media card adopt a fresh pin instantly (Q5): this method is
+			// already THE seam for exactly that, so it is reused rather than duplicated.
+			const chosen = getPinnedCover(uid) ?? getCrowdCover(uid, cur.artist, cur.title);
+			if (chosen && url !== chosen) return;
+			if (url === this.resolvedCover) return; // (3) already showing it — nothing to do
+			this.resolvedCover = url;
+			this.adoptedCoverUid = uid;
+			// Writes uid + name layers AND bumps the reactive signal, so every sibling surface for this
+			// song (up-next rows, search tiles, backfill) repaints with the same art. SKIPPED for a chosen
+			// url: pinCover / writeCrowdCover already bumped, and the auto layers must never carry chosen
+			// art (see play()'s Site A).
+			// quick-261008-cov1: library entries for this song adopt the shown cover too (in place —
+			// rows read rung 2 ahead of the cache, so a stale entry cover would keep painting the old
+			// art next to the hero's new one). Skipped for chosen urls for the same D-14 reason: a
+			// crowd pick must not leak into the auto layers, and a pin is per-uid user intent.
+			if (!chosen) {
+				writeCoverBoth(uid, cur.artist, cur.title, url);
+				library.fillEntryCovers(uid, cur.artist, cur.title, url);
+				// quick-261114-fsync: the committed auto-layer cover lands in the downloaded file's
+				// tags too. The CHOSEN path above skips this on purpose — a pin gesture writes the
+				// file itself via TrackMenu, and a crowd arrival is not the user's own change.
+				this.syncCoverToDownloadedFile(uid, url);
+			}
+			const ms = this.ms;
+			if (ms) {
+				ms.metadata = makeMetadata({
+					title: names.dnTitle(cur.title, cur.artist),
+					artist: names.dnArtist(cur.artist),
+					album: cur.album,
+					artwork: buildArtwork(this.displayCover)
+				});
+				ms.playbackState = playbackStateFor(!!this.current, this.playing);
+			}
+		} catch {
+			// Best-effort — a failure leaves the previous cover standing (never throws into a DOM handler).
+		}
+	}
+
+	/**
+	 * quick-260919-1eh: the same promotion seam as adoptCover, for the NAME fields.
+	 *
+	 * This is the ONE seam that closes the hero / Nowbar / OS media-card asymmetry for a metadata
+	 * edit. Those three surfaces read `player.current` (and `resolvedCover`) DIRECTLY rather than the
+	 * library, so an edit that only called `library.applyMetadata` would repaint every list row and
+	 * leave the now-playing surfaces showing the old title until the next track change.
+	 *
+	 * Guards mirror adoptCover line for line: uid identity (an edit on a song that is NOT playing is
+	 * discarded), in-place field writes, then a FRESH `MediaMetadata` object — never an in-place
+	 * mutate of the existing one (A2 / Pitfall 4). Never throws: it is called from a DOM handler.
+	 *
+	 * D-4: a blank field is omission, not a clear — same rule as the codec and `library.applyMetadata`.
+	 *
+	 * Persistence needs no extra call here: mutating `this.current` in place is enough, the existing
+	 * persist path writes `current` as-is. No generation bump, no `<audio>` touch — the bytes and the
+	 * playback position are not what changed.
+	 */
+	adoptMetadata(uid: string, patch: { title?: string; artist?: string; album?: string }): void {
+		try {
+			const cur = this.current;
+			if (!cur || cur.uid !== uid) return; // no track / another song's edit — discard
+			const title = patch.title?.trim();
+			const artist = patch.artist?.trim();
+			const album = patch.album?.trim();
+			if (!title && !artist && !album) return; // nothing to adopt — no metadata churn
+			if (title) cur.title = title;
+			if (artist) cur.artist = artist;
+			if (album) cur.album = album;
+			const ms = this.ms;
+			if (ms) {
+				ms.metadata = makeMetadata({
+					title: names.dnTitle(cur.title, cur.artist),
+					artist: names.dnArtist(cur.artist),
+					album: cur.album,
+					artwork: buildArtwork(this.displayCover)
+				});
+				ms.playbackState = playbackStateFor(!!this.current, this.playing);
+			}
+		} catch {
+			// Best-effort — a failure leaves the previous names standing (never throws into a DOM handler).
+		}
+	}
+
+	/**
+	 * quick-260704-20e: SELF-HEAL a DEAD current cover — the missing counterpart to resolveCoverAsync
+	 * (which fires only when resolvedCover is NULL). resolvedCover is seeded FIRST from track.cover — a
+	 * source-CDN thumbnail that frequently expires / is served over http: — and resolveCoverAsync's
+	 * `if (!this.resolvedCover)` guard never re-resolves a non-null-but-DEAD URL, so the now-playing
+	 * current cell paints a broken url as a CSS background = the reported "black cover". This mirrors
+	 * lazyCover's per-row dead-URL self-heal (probe → removeCoverBoth → resolveCoverForTrack) but for
+	 * the ONE now-playing field. quick-260809-38i: NowPlaying now calls this for ANY non-null displayed
+	 * cover — the Last.fm hi-res swap is no longer a separate component-local field to opt out of, it
+	 * lands in resolvedCover via adoptCover. That is safe because adoptCover only ever commits an
+	 * onload-VERIFIED url, so step (5)'s probe loads and returns on the zero-network fast path.
+	 * NOT gated on the audio `playing` event (MEMORY: that froze iOS
+	 * background playback — reverted). Reuses existing helpers only — no new resolver/cache/dep/route.
+	 */
+	async healCover(uid: string) {
+		try {
+			// (1) The effect passes the uid it observed; a mismatch means the track already changed — bail.
+			if (!this.current || this.current.uid !== uid) return;
+			// (2) quick-261020-hcvr: probe the PAINTED cover — displayCover (pin → name cache → uid
+			//     cache → resolvedCover) is what the hero actually shows. The pre-hcvr code probed
+			//     resolvedCover alone, so a dead PIN over a live resolvedCover never healed. A
+			//     null/gradient painted cover is the resolveCoverAsync MISSING path, not here; a
+			//     non-https value is not a probe target. Only a present https URL can be "dead but painted".
+			const url = this.displayCover;
+			if (!hasHttpsScheme(url)) return;
+			// (3) One-shot per uid+url (mirror lazyCover's `done`): probe AT MOST once so an errored
+			//     background paint can never re-trigger an infinite re-probe loop (T-20e-02). Add BEFORE probing.
+			const key = `${uid}|${url}`;
+			if (this.healProbed.has(key)) return;
+			this.healProbed.add(key);
+			// (4) Snapshot the generation + identity off the current track (CR-02 supersedence guard).
+			const myGen = this.playGen;
+			const { artist, title } = this.current;
+			// (5) Probe the painted cover. TRUE (loads fine) → unmark any stale dead flag
+			//     (quick-261020-dcvr: a flaky URL that proves alive is unmarked) and stop — the
+			//     zero-network fast path.
+			const alive = await this.probeCover(url);
+			if (alive) {
+				unmarkCoverUrlDead(url);
+				return;
+			}
+			// (6) Dead url. Mark it FIRST (quick-261020-dcvr) so list rows stop letting this URL
+			//     shadow their live cache art while the heal below runs. Bail if a newer play()
+			//     superseded this heal mid-probe (T-20e-03).
+			markCoverUrlDead(url);
+			if (myGen !== this.playGen) return;
+			// quick-260915-w4f (Q2) — THE ONE CASE THAT OVERRIDES A PIN, and it is deliberately narrow:
+			// a FAILED IMAGE LOAD, never a resolver preferring something else. A pin names a URL, not an
+			// image; once that URL is dead the pin can no longer deliver what the user chose, and keeping
+			// it would repaint a black hero on every replay forever (the exact bug 20e fixed). So drop it
+			// BEFORE the eviction + re-resolve below, and let the normal chain find fresh art.
+			if (getPinnedCover(uid) === url) unpinCover(uid);
+			// Phase 40 D-19 / Pitfall 11: a dead CROWD url is evicted LOCALLY only — the cloud vote is
+			// never withdrawn (no server call). The chain below then re-resolves.
+			if (getCrowdCover(uid, artist, title) === url) removeCrowdCover(uid, artist, title);
+			// Evict BOTH cache layers (empty-uid safe — removeCoverBoth skips the shared 'uid:' slot for
+			// an empty uid) so the stale dead cover is dropped before the re-resolve re-caches.
+			removeCoverBoth(uid, artist, title);
+			// (7) Re-resolve via the SHARED tier chain (Deezer→iTunes→CN; never throws; writes both cache
+			//     layers internally on a SOLID hit). Re-check the gen AFTER the await → discard a stale heal.
+			const fresh = await resolveCoverForTrack(this.current);
+			if (myGen !== this.playGen) return;
+			// (8) quick-261020-hcvr: VERIFY the chain hit before committing. The pre-hcvr code
+			//     committed any solid https result unverified — including the chain re-offering the
+			//     EXACT dead url (the CN tier's dedupeBest echo), which the one-shot guard then
+			//     froze in place forever ("broken cover forever"). A re-offer of the dead url is
+			//     not a hit at all; a different hit must pass its own probe; a hit that fails the
+			//     probe is marked dead too. Only a verified hit commits (T-20e-01) — with the same
+			//     library push + repaint bump as before (the chain already wrote both cache layers;
+			//     do NOT double-write, mirror resolveCoverAsync Site C).
+			if (hasHttpsScheme(fresh) && fresh !== url) {
+				const freshAlive = await this.probeCover(fresh);
+				if (myGen !== this.playGen) return;
+				if (freshAlive) {
+					this.healProbed.add(`${uid}|${fresh}`); // verified alive — never re-probe this pair
+					this.resolvedCover = fresh;
+					// quick-261008-audit: the shown cover wins everywhere — push the healed art onto the
+					// library entries too, or liked/download rows keep the dead URL at rung 2 until
+					// their own lazyCover probe repairs them one by one.
+					library.fillEntryCovers(uid, artist, title, fresh);
+					bumpCoverVersion();
+					// quick-261114-fsync: the VERIFIED heal commit lands in the downloaded file too.
+					this.syncCoverToDownloadedFile(uid, fresh);
+					return;
+				}
+				markCoverUrlDead(fresh);
+			}
+			// (9) quick-261020-hcvr fan-out: the cover-picker candidates, iTunes FIRST (user:
+			//     "iTunes usually have the best and accurate cover"), the rest in chain order.
+			//     All probes are constructed up front (parallel), and the first VERIFIED-alive
+			//     candidate in priority order wins. A committed candidate is written to both
+			//     cache layers (collectCoverCandidates itself never writes) so rows converge.
+			const candidates = (await collectCoverCandidates(this.current)) ?? [];
+			if (myGen !== this.playGen) return;
+			const ordered = [...candidates].sort(
+				(a, b) => (a.source === 'itunes' ? 0 : 1) - (b.source === 'itunes' ? 0 : 1)
+			);
+			const pool = ordered.filter((c) => hasHttpsScheme(c.url) && c.url !== url && !isCoverUrlDead(c.url));
+			if (pool.length) {
+				const results = await Promise.all(pool.map((c) => this.probeCover(c.url)));
+				if (myGen !== this.playGen) return;
+				const winIdx = results.findIndex(Boolean);
+				if (winIdx >= 0) {
+					const win = pool[winIdx].url;
+					this.healProbed.add(`${uid}|${win}`); // verified alive — never re-probe this pair
+					this.resolvedCover = win;
+					writeCoverBoth(uid, artist, title, win);
+					library.fillEntryCovers(uid, artist, title, win);
+					bumpCoverVersion();
+					// quick-261114-fsync: the VERIFIED fan-out winner lands in the downloaded file too.
+					this.syncCoverToDownloadedFile(uid, win);
+				}
+			}
+			// Total miss: resolvedCover keeps the dead value and the component paints the
+			// gradient (the dead url is marked, so rows fall through to live cache art).
+		} catch {
+			// Best-effort — a failure leaves the gradient (never a broken image, never throws).
+		}
+	}
+
+	/**
+	 * quick-260615-i9u (Feature B): install the captured history prefix in FRONT of the just-installed
+	 * seed+tail baseline, so a fresh user click preserves prior playback instead of wiping it. New
+	 * queue shape becomes [...history(capped, prior current last), clickedSong (new current), ...tail].
+	 * Called from play()'s fresh-branch AFTER setQueue/setListQueue already put the seed snapshot in
+	 * this.queue. Bumps queueGen BEFORE the generated-branch regenerate snapshots its guard (WR-06), so
+	 * any PRIOR play's in-flight regenerate/ensureAhead grow discards while THIS play's own tail build
+	 * passes its guard. Consumes pendingHistory once (nulls it).
+	 */
+	private weaveFreshHistory(seed: Track): void {
+		let prefix = this.pendingHistory ?? [];
+		// De-dupe the seed out of the prefix so a RE-CLICK of an already-played song MOVES it to the
+		// new-current position rather than duplicating it in history.
+		prefix = prefix.filter((t) => t.uid !== seed.uid && !sameSongKey(t, seed));
+		// Anchor the seed into the current post-snapshot queue (seed+tail), then prepend the prefix.
+		// Because prefix has the seed removed and the baseline starts at the seed, the seed lands
+		// immediately AFTER the prefix (i.e. right after the prior current) — the insert-after-current
+		// position. queueWithAnchor's dedupe preserves first-occurrence order + force-keeps the seed.
+		const baseline = this.queueWithAnchor(this.queue, seed);
+		this.queueGen++; // WR-06: explicit re-install supersedes any stale in-flight regen/grow
+		this.queue = this.queueWithAnchor([...prefix, ...baseline], seed);
+		this.pendingHistory = null; // consumed
+		// quick-260618-fiz (Fix 4): re-insert the user's explicit manual entries (captured before the
+		// queue wipe) right AFTER the seed, so a fresh-play context switch preserves play-next/
+		// add-to-queue picks while the prior AUTO/context tail (the rest of `baseline`) is replaced by
+		// the per-mode tail build below. Runs in BOTH up-next modes (generated re-runs regenerate's
+		// own manual filter over this woven queue; same-list keeps these after the seed ahead of the
+		// list remainder). Re-reads this.queue at write time (Pitfall 1 — never a closed-over snapshot).
+		this.weaveManualAfterSeed(seed);
+	}
+
+	/**
+	 * quick-260618-fiz (Fix 4): splice the captured explicit-manual entries (pendingManual) into the
+	 * current queue immediately after `seed`, deduped against what is already present and against the
+	 * woven history head (everything up to+including the seed). manualUids stays the provenance
+	 * source; pendingManual just carries the Track objects across the queue wipe. Consumes
+	 * pendingManual. Bumps queueGen so any in-flight regen/grow that snapshotted an earlier gen
+	 * discards (WR-06).
+	 */
+	private weaveManualAfterSeed(seed: Track): void {
+		const carried = this.pendingManual ?? [];
+		this.pendingManual = null; // consumed
+		if (!carried.length) return;
+		const i = this.indexOf(seed);
+		const head = i >= 0 ? this.queue.slice(0, i + 1) : [seed];
+		const tail = i >= 0 ? this.queue.slice(i + 1) : this.queue.filter((t) => t.uid !== seed.uid);
+		const headUids = new Set(head.map((t) => t.uid));
+		// Keep only carried entries still flagged manual, not in the head, and not already in the tail.
+		const tailUids = new Set(tail.map((t) => t.uid));
+		const manual = carried.filter(
+			(t) => this.manualUids.has(t.uid) && !headUids.has(t.uid) && !tailUids.has(t.uid)
+		);
+		if (!manual.length) return;
+		this.queueGen++; // WR-06: explicit re-install supersedes any stale in-flight regen/grow
+		this.queue = this.queueWithAnchor([...head, ...manual, ...tail], seed);
+	}
+
+	/**
+	 * Rebuild the AUTO portion of Up-Next from songs similar to `seed`, preserving the
+	 * seed (current) + manual entries in their existing order. Best-effort: on any
+	 * failure the queue is left as-is. Invoked on a fresh user-initiated play, and —
+	 * quick-261103-upnext — as a repair when a non-fresh landing finds no generated
+	 * tail for its track (see postPlayQueue).
+	 *
+	 * quick-260615-i9u (Feature B): history-aware. Keeps EVERYTHING in this.queue up to AND INCLUDING
+	 * the seed (the woven history prefix + prior current + seed) and replaces only the tail AFTER the
+	 * seed with freshly generated similar picks. The head uids feed the buildSimilarQueue exclude set
+	 * so generated picks never duplicate history.
+	 */
+	private async regenerate(seed: Track) {
+		// WR-06: snapshot the queue generation. If an explicit setQueue() lands while
+		// buildSimilarQueue is in flight (e.g. playAlbum installing the full album list),
+		// that explicit queue wins — this regenerate's result is stale and must be discarded.
+		const myQueueGen = this.queueGen;
+		// quick-261103-upnext: a newer regenerate (for a newer landed track) supersedes this
+		// one the same way — a slow build for a skipped seed must never install over the
+		// current seed's tail.
+		const myRegenGen = ++this.regenGen;
+		try {
+			// quick-260615-i9u: the HEAD is everything up to+including the seed (woven history + seed);
+			// only the tail after the seed is regenerated.
+			const i = this.indexOf(seed);
+			const head = i >= 0 ? this.queue.slice(0, i + 1) : [seed];
+			const headUids = new Set(head.map((t) => t.uid));
+			const manualEntries = this.queue.filter(
+				(t) => this.manualUids.has(t.uid) && !headUids.has(t.uid)
+			);
+			// Union removedUids (Phase 17, D-10) + the history head uids (quick-260615-i9u) so the
+			// regenerated auto portion never reintroduces a swiped-away song NOR duplicates history.
+			const exclude = new Set<string>([
+				...headUids,
+				...manualEntries.map((t) => t.uid),
+				...this.removedUids
+			]);
+			// 26-09 (Gap 2 / UPNEXT-01): capture WHICH formation path buildSimilarQueue took via the
+			// 26-07 report callback so the Up-Next source is verifiable in the Activity log. 'diverse' is
+			// added locally for the safety-net branch below (never reported by buildSimilarQueue itself).
+			let via: 'similar' | 'radio' | 'artist' | 'lastresort' | 'empty' | 'diverse' = 'empty';
+			let tail = await buildSimilarQueue(seed, exclude, (v) => (via = v));
+			if (myQueueGen !== this.queueGen || myRegenGen !== this.regenGen) return; // WR-06 / upnext: superseded
+			// 26-09 (Gap 2 / T-26-09-01): mirror ensureAhead's never-empty safety net. On EVERY fresh
+			// click-to-play regenerate ran with NO fallback — installing buildSimilarQueue's [] left a
+			// dead-end empty Up-Next. When every similar path is dry, fall back to diverse picks so a
+			// fresh play is never left with an empty Up-Next.
+			if (tail.length === 0) {
+				tail = await buildDiversePicks(8, exclude);
+				if (myQueueGen !== this.queueGen || myRegenGen !== this.regenGen) return; // re-checked after the SECOND await (T-26-09-02)
+				via = 'diverse';
+			}
+			this.queue = this.queueWithAnchor([...head, ...manualEntries, ...tail], seed);
+			// quick-261103-upnext: the generated-tail intent is fulfilled — later advances
+			// inside this tail must not repair/rebuild it.
+			this.pendingGeneratedTail = false;
+			// 26-09: log the formation source + count so the UAT "up-next is one track.getSimilar call,
+			// never empty" claim is verifiable on device (Settings → Activity log).
+			logAction('upnext.source', { via, count: tail.length });
+		} catch {
+			/* leave queue as-is */
+		} finally {
+			// quick-261108-h3w: only the NEWEST build settles the Up Next skeletons — a superseded
+			// one must not clear them while the current tap's build is still in flight.
+			if (myRegenGen === this.regenGen) this.upNextPending = false;
+		}
+	}
+
+	/**
+	 * quick-260919-et3: set the user's volume level. The ONLY writer of `this.volume`.
+	 * Dragging above 0 unmutes (matching every desktop player); dragging to 0 leaves the mute
+	 * flag alone so a later drag back up is not swallowed.
+	 */
+	setVolume(v: number) {
+		const next = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : this.volume;
+		this.volume = next;
+		if (next > 0) this.muted = false;
+		this.applyVolume();
+		this.persistVolume();
+	}
+
+	/** quick-260919-et3: native mute toggle. `audio.muted` never touches `audio.volume`, so
+	 *  unmuting restores the exact prior level with no snapshot to keep. */
+	toggleMute() {
+		this.muted = !this.muted;
+		this.applyVolume();
+		this.persistVolume();
+	}
+
+	/**
+	 * quick-260919-et3: push `volume`/`muted` onto the element. The mute flag is always written —
+	 * it is orthogonal to the fade. The LEVEL is skipped while a sleep-timer fade owns
+	 * `audio.volume` (D-02): the fade's 200ms tick re-reads `this.volume` and would immediately
+	 * overwrite anything written here anyway, and writing full volume mid-fade would be an
+	 * audible jump back up. See the `volume` field doc for the whole cooperation contract.
+	 */
+	private applyVolume() {
+		if (!this.audio) return;
+		this.audio.muted = this.muted;
+		if (this.fadeTimer) return;
+		this.audio.volume = this.volume;
+	}
+
+	/** quick-260919-et3: `openmusic:<domain>:v<N>` convention. A DEDICATED key, not the throttled
+	 *  `openmusic:player:v1` blob — that one is REMOVED whenever persist() runs with no current
+	 *  track, which would silently reset the level on any cold boot. */
+	private static VOLUME_KEY = 'openmusic:volume:v1';
+
+	private persistVolume() {
+		if (!browser) return;
+		try {
+			localStorage.setItem(
+				Player.VOLUME_KEY,
+				JSON.stringify({ volume: this.volume, muted: this.muted })
+			);
+		} catch {
+			/* quota / private mode — a lost volume level is not worth a throw */
+		}
+	}
+
+	/** quick-260919-et3: called once from attach(), which the layout already runs inside untrack()
+	 *  — so writing these $state fields here cannot self-invalidate the mount effect
+	 *  (restore-effect-self-invalidation-loop). */
+	private loadVolume() {
+		if (!browser) return;
+		try {
+			const raw = localStorage.getItem(Player.VOLUME_KEY);
+			if (!raw) return;
+			const saved = JSON.parse(raw) as { volume?: unknown; muted?: unknown };
+			if (typeof saved.volume === 'number' && Number.isFinite(saved.volume)) {
+				this.volume = Math.min(1, Math.max(0, saved.volume));
+			}
+			if (typeof saved.muted === 'boolean') this.muted = saved.muted;
+		} catch {
+			/* corrupt entry → keep the defaults */
+		}
+	}
+
+	toggle() {
+		this.abortFade(); // D-05: a play/pause gesture during a fade aborts the sleep stop
+		if (!this.audio) return;
+		// EXTERNAL-PAUSE SELF-HEAL: a user tap is INTENTIONAL — pausing routes through pauseAudio()
+		// so the `pause` listener does not immediately re-play the track the user just paused.
+		if (!this.audio.paused) {
+			this.pauseAudio();
+			return;
+		}
+		// debug-share-card-play-dead-replay: "seated" is not "armed". A boot restore() (or armTrack)
+		// whose re-resolve failed or has not landed leaves `current` set with NO src attached for it
+		// (empty element, or still the previous track's stream). A bare audio.play() there loads
+		// nothing but still fires `play`, so `playing` went stale-true and every later tap — the share
+		// CTA's `if (!playing) toggle()`, the nowbar, NowPlaying — was a silent no-op. Route the tap
+		// through play(): the resolve + never-stop fallback path. Non-fresh, so it is a resume of the
+		// seated song (no history weave, no regenerate), and its playGen bump supersedes an in-flight
+		// restore() rather than racing it.
+		if (this.current && this.armedUid !== this.current.uid) {
+			void this.play(this.current, { fresh: false });
+			return;
+		}
+		this.audio.play().catch(() => {});
+	}
+
+	/**
+	 * quick-261008-audit: the PLAY half of toggle(), shared with the Media Session `play` handler.
+	 * A bare audio.play() on a seated-but-unarmed track (boot restore whose re-resolve failed or has
+	 * not landed) fires `play` with nothing loaded and leaves `playing` stale-true — the exact bug
+	 * toggle()'s guard was written for. Media keys / headset buttons must get the same guard.
+	 */
+	private resumeAudio() {
+		if (!this.audio || !this.audio.paused) return;
+		if (this.current && this.armedUid !== this.current.uid) {
+			void this.play(this.current, { fresh: false });
+			return;
+		}
+		this.audio.play().catch(() => {});
+	}
+
+	/**
+	 * PLAY-RESILIENCE: first queue index strictly after `from` whose track is NOT confirmed-unplayable
+	 * (prefetchNext's probe walk records dead uids in unplayableUids). Returns -1 if every entry ahead
+	 * is known-dead or there is nothing ahead. This is what next()/track-end advance use so playback
+	 * routes PAST a known-dead up-next entry instead of stalling on it.
+	 */
+	private nextPlayableIndex(from: number): number {
+		for (let k = from + 1; k < this.queue.length; k++) {
+			if (!this.unplayableUids.has(this.queue[k].uid)) return k;
+		}
+		return -1;
+	}
+
+	/**
+	 * quick-260615-i9u (Feature A): reactive read of the probe-confirmed-dead set. The Up-Next list
+	 * calls this per-row inside its template — because unplayableUids is a SvelteSet, the read is
+	 * tracked, so the row repaints (dims + shows ✗) the instant prefetchNext marks the uid dead and
+	 * un-dims when retry/recover clears it. PUBLIC, read-only accessor (the set itself stays private).
+	 */
+	isUnplayable(uid: string): boolean {
+		return this.unplayableUids.has(uid);
+	}
+
+	/** quick-260926-l69: reactive read of why `uid` was last skipped (null = not skipped / recovered).
+	 *  PUBLIC, read-only accessor — the SvelteMap itself stays private. */
+	skipReason(uid: string): SkipReason | null {
+		return this.skipReasons.get(uid) ?? null;
+	}
+
+	/**
+	 * quick-260615-i9u (Feature A): tap-to-retry a ✗ skipped Up-Next row. Clears the uid from the
+	 * dead set (un-dims the row reactively) and replays THAT EXACT track via the NON-fresh path
+	 * (no fresh regenerate — a retry of the same song, history/queue untouched). A transient failure
+	 * can recover this way; a definitively-dead track simply re-skips via the resilience chain
+	 * (prefetchNext re-marks it / next() routes past it) — acceptable per CONTEXT A (T-i9u-01: the
+	 * re-skip is bounded by the existing PREFETCH/FAILURE caps, not a new unbounded loop).
+	 */
+	retryUnplayable(track: Track): void {
+		this.unplayableUids.delete(track.uid);
+		this.clearStrike(track.uid); // over-aggressive-skip fix: a manual retry resets the strike budget too
+		this.retriedDeadUids.delete(track.uid); // NEVER-STOP (quick-260630-q03): a manual retry resets the auto-retry budget
+		this.cancelRetryResolve(track.uid); // quick-260627-huo: a manual retry supersedes any pending delayed retry
+		// quick-260926-l69 (R2): a GENUINE retry, not a replay of the prior miss. R1 keeps error/aborted
+		// search results out of the cache; this covers the remaining ok-but-dry flake (e.g. qq returning
+		// 0 rows under load) by evicting every cached search for the exact query tryFallback and
+		// resolveNameStub key their single-source searches on, and resets the fallback episode so
+		// tryFallback walks every eligible source again. Caps + generation guards are untouched.
+		// ponytail: evicts the CLIENT search cache only; a poisoned EDGE resolve-cache url (32-D-10) is repaired by its own reportDeadUrl bust path, and taps from surfaces other than Up Next rely on R1 alone.
+		this.skipReasons.delete(track.uid);
+		evictSearch(`${track.artist} ${track.title}`);
+		this.fallbackEpisodeKey = null;
+		this.fallbackAttempted = new Set<SourceId>();
+		void this.play(track, { fresh: false });
+	}
+
+	/**
+	 * NEVER-STOP advance walk (quick-260630-q03). Like nextPlayableIndex, but a dead track that has
+	 * NOT yet had its one second-chance retry is ALSO a valid advance target (advanceTo gives it that
+	 * retry). Returns the first index after `from` that is either playable or dead-but-not-yet-retried;
+	 * -1 only when every entry ahead is playable-exhausted AND already-retried. This is what stops the
+	 * "next 3 are dead → silent stop": those 3 are now retried in order instead of skipped to nothing.
+	 */
+	private nextAdvanceIndex(from: number): number {
+		for (let k = from + 1; k < this.queue.length; k++) {
+			const uid = this.queue[k].uid;
+			if (!this.unplayableUids.has(uid)) return k; // playable
+			if (!this.retriedDeadUids.has(uid)) return k; // dead, but owed its one retry
+		}
+		return -1;
+	}
+
+	/**
+	 * NEVER-STOP (quick-260630-q03): advance to queue[index]. If the track is still marked dead, give
+	 * it its single second-chance — record it in retriedDeadUids (so it is never retried twice this
+	 * session → no infinite loop), drop it from the dead set + reset its strike/delayed-retry budget,
+	 * and replay it NON-fresh (a transient probe failure recovers here; a genuinely-dead track simply
+	 * re-fails and the resilience chain advances past it). A playable track just plays.
+	 */
+	private advanceTo(index: number): void {
+		const t = this.queue[index];
+		logAction('advance', { toUid: t.uid });
+		if (this.unplayableUids.has(t.uid)) {
+			logAction('retry-dead', { uid: t.uid });
+			this.retriedDeadUids.add(t.uid);
+			this.unplayableUids.delete(t.uid);
+			this.skipReasons.delete(t.uid); // quick-260926-l69: lockstep with the dead set
+			this.clearStrike(t.uid);
+			this.cancelRetryResolve(t.uid);
+			this.play(t, { fresh: false });
+			return;
+		}
+		this.play(t);
+	}
+
+	next() {
+		this.abortFade(); // D-05: a skip gesture during a fade aborts the sleep stop
+		// quick-261008-audit: drop a pending dry-grow retry — a manual skip is a NEW intent, and a
+		// stale 5s retry must not advance away from the just-tapped song. The counter is left alone:
+		// handleDryGrow's own timer calls next() too (after nulling the timer, so this is a no-op
+		// there), and resetting it would break the bounded-retry budget.
+		this.clearDryGrowTimer();
+		// NEVER-STOP INTERLUDE routing (quick-261116-nstop). While an interlude is active the
+		// queue holds the local pool, and advancing must (a) spend a due revival probe FIRST
+		// (one per interlude track, only once a marked source has cooled down), (b) otherwise
+		// stay inside the pool — never the ensureAhead grow below, which is exactly the /api
+		// churn the interlude exists to stop — and (c) wrap the pool when it is exhausted.
+		// In the zero-asset retrying state a manual next just probes immediately.
+		if (this.nsRetrying) {
+			this.attemptRevivalProbe();
+			return;
+		}
+		if (this.nsInterlude) {
+			if (
+				this.nsProbeBudget.pending &&
+				this.nsCooldowns.anyEligible(this.nsInterlude.markedSources, Date.now()) &&
+				this.nsProbeBudget.tryConsume()
+			) {
+				this.attemptRevivalProbe();
+				return;
+			}
+			const pi = this.indexOf(this.current);
+			const pj = this.nextAdvanceIndex(pi);
+			if (pj >= 0 && this.nsPoolTracks.some((t) => t.uid === this.queue[pj].uid)) {
+				const target = this.queue[pj];
+				this.advanceTo(pj);
+				// Register the pool play (count + cycle + next probe token) — advanceTo has
+				// already started it through play().
+				if (this.nsInterlude) {
+					this.nsInterlude.plays++;
+					this.nsPlayedCycle.add(target.uid);
+					this.nsProbeBudget.onInterludeTrackStart();
+				}
+				return;
+			}
+			this.wrapInterludePool();
+			return;
+		}
+		const i = this.indexOf(this.current);
+		const j = this.nextAdvanceIndex(i);
+		if (j >= 0) {
+			this.advanceTo(j); // plays a playable track, or retries the next dead one ONCE (in order)
+			return;
+		}
+		// Every entry ahead is playable-exhausted AND already had its one retry (or end-of-queue).
+		// D-10/D-12: no repeat-all wrap — auto-generated up-next is the continuation. Grow via
+		// ensureAhead, then advance into the freshly-added tracks (fresh tracks are never dead/retried,
+		// so they are valid candidates). Never silently no-op on a dead/exhausted tail (that was the
+		// stall): only when sources are truly dry does ensureAhead add nothing and the reactive
+		// never-stop chain owns the genuine stop.
+		logAction('grow.request');
+		// quick-261008-audit: generation-guard the continuation. ensureAhead is async; a user
+		// play()/next()/prev() landing mid-grow bumps playGen, and without this check the stale
+		// .then would advanceTo() past the just-tapped song (tap A, hear the song after A).
+		const growGen = this.playGen;
+		void this.ensureAhead().then(() => {
+			if (growGen !== this.playGen) return; // superseded — the newer play owns the queue now
+			const k = this.indexOf(this.current);
+			const n = this.nextAdvanceIndex(k);
+			if (n >= 0) {
+				this.dryGrowRetries = 0; // the queue grew — the episode is over
+				this.advanceTo(n);
+				return;
+			}
+			// The grow added nothing. NEVER fall out silently here (that was the reported stop).
+			this.handleDryGrow();
+		});
+	}
+
+	/**
+	 * A grow produced no tracks. Retry a bounded number of times (a dry generator is usually a
+	 * transient upstream flake), then STOP VISIBLY rather than in silence.
+	 *
+	 * The stop reuses the loop-guard's sticky Retry notice + recoverFromStop, so there is exactly ONE
+	 * "we genuinely gave up" contract in this store rather than a second parallel one. It deliberately
+	 * does NOT call next()/advanceTo — nothing must re-arm ensureAhead from here, or a dry upstream
+	 * becomes a regenerate loop (the api-fetch-flood failure mode).
+	 */
+	private handleDryGrow() {
+		if (this.dryGrowRetries < Player.DRY_GROW_MAX_RETRIES) {
+			this.dryGrowRetries++;
+			logAction('grow.dry-retry', { attempt: this.dryGrowRetries });
+			this.clearDryGrowTimer();
+			this.dryGrowTimer = setTimeout(() => {
+				this.dryGrowTimer = null;
+				this.next(); // re-enters the grow path; a success resets the counter above
+			}, Player.DRY_GROW_RETRY_MS);
+			return;
+		}
+		logAction('grow.dry-stop', { attempts: this.dryGrowRetries });
+		this.dryGrowRetries = 0;
+		this.loading = false;
+		this.playing = false;
+		this.disarmStall();
+		this.pauseAudio(); // intentional pause — the `pause` listener must not fight it
+		this.error = 'toast.playbackStopped';
+		this.notice = {
+			kind: 'stopped',
+			reason: 'up-next-dry',
+			msg: 'toast.playbackStopped',
+			action: () => this.recoverFromStop()
+		};
+	}
+
+	/** Cancel a pending dry-grow retry (a user action or a real stop supersedes it). */
+	private clearDryGrowTimer() {
+		if (this.dryGrowTimer !== null) {
+			clearTimeout(this.dryGrowTimer);
+			this.dryGrowTimer = null;
+		}
+	}
+
+	prev() {
+		this.abortFade(); // D-05: a prev gesture during a fade aborts the sleep stop
+		// restart if >3s in, else previous track
+		if (this.audio && this.audio.currentTime > 3) {
+			this.audio.currentTime = 0;
+			return;
+		}
+		// quick-260615-i9u (Feature B): history now lives in the queue array (a fresh click weaves the
+		// prior current + earlier tracks BEFORE the new current), so indexOf(current) > 0 after a click
+		// and this back-walk replays the prior current / earlier tracks. The play() is NON-fresh, so
+		// prev() never re-weaves/regenerates — it just steps backward through the preserved history.
+		const i = this.indexOf(this.current);
+		if (i > 0) this.play(this.queue[i - 1]);
+		else if (this.audio) this.audio.currentTime = 0;
+	}
+
+	/**
+	 * Toggle shuffle (gte). Turning ON: Fisher-Yates the queue slice AFTER indexOf(current)+1.
+	 * Current track + everything before it (history) stay pinned. Turning OFF: leave the queue
+	 * as-is (user-specified — we do NOT restore the original order). Idempotent on empty/single
+	 * queues. Bumps reactivity via a fresh array reference.
+	 */
+	toggleShuffle() {
+		const next = !this.shuffle;
+		this.shuffle = next;
+		if (!next) { this.persist(); return; }
+		// quick-260615-i9u (Feature B): reads indexOf(current) LIVE, so with history now preserved in
+		// the queue the shuffle still pins the current track + ALL history before it and only the auto
+		// tail shuffles — correct after the model change. repeat-one never advances, so it is unaffected.
+		const i = this.indexOf(this.current);
+		const start = (i >= 0 ? i : -1) + 1; // shuffle everything strictly after current
+		if (start >= this.queue.length - 1) { this.persist(); return; }
+		const arr = [...this.queue];
+		// Fisher-Yates over [start, arr.length). Use ((Date.now() ^ idx) % range) is not a real
+		// CSPRNG — but Math.random() is fine for queue-shuffle UX.
+		for (let k = arr.length - 1; k > start; k--) {
+			const j = start + Math.floor(Math.random() * (k - start + 1));
+			[arr[k], arr[j]] = [arr[j], arr[k]];
+		}
+		this.queue = arr;
+		this.persist();
+	}
+
+	/** Toggle the repeat mode (PLAY-10 / D-10): off → one → off (no repeat-all). */
+	cycleRepeat() {
+		this.repeatMode = this.repeatMode === 'off' ? 'one' : 'off';
+		this.persist();
+	}
+
+	/**
+	 * Cross-source fallback driver (gte / SRC-FB-01). Capture the generation at the moment
+	 * we start the fallback; abort + bail if a newer play() bumps it (e.g. user tapped the
+	 * next song). On success, recurse play() with fromFallback:true so the inner play() does
+	 * NOT re-record history and does NOT bump the generation. On exhaustion, surface the
+	 * existing error. Never throws — tryFallback() is defensively wrapped.
+	 */
+	/** Normalized title+artist key identifying a logical song for the per-episode attempted set
+	 *  (CR-03). quick-261102-sjg: THE song identity (songKey) — the old lowercase-only key split a
+	 *  繁/简 cross-source swap (joox 周杰倫 → qq 周杰伦) into two episodes, so the second episode
+	 *  started a fresh attempted set and could re-try sources the first already burned. */
+	private episodeKey(t: Track): string {
+		return songKey(t.artist, t.title);
+	}
+
+	private async runFallback(failed: Track) {
+		// D-08 offline gate (Pitfall 1): if the device is offline, do NOT enter the failure chain.
+		// Network failover would just 0-for-N against unreachable proxies and — critically — must
+		// NOT burn the loop-guard counter (offline ≠ a track that failed all sources). Hand off to
+		// the offline path (switch up-next to downloads, or pause with an offline notice) and return
+		// BEFORE the consecutive-failure increment in handleTotalFailure ever runs.
+		if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+			this.handleOffline();
+			return;
+		}
+		const gen = this.playGen;
+		// WR-01 re-entrancy guard: only ONE failover per generation. Both the stall watchdog and the
+		// `error` listener route here, and a fallback's play(swap, fromFallback) deliberately does
+		// NOT bump the gen — so a watchdog fire at 15s and a slow error at 16s could otherwise run
+		// two concurrent fallbacks at the SAME gen (double swap onto audio.src, or double counter
+		// increment + two skipped tracks for one failure). Bail if one is already in flight here.
+		if (this.fallbackGen === gen) return;
+		this.fallbackGen = gen;
+		// CR-03 per-episode attempted set: a NEW logical song failing over starts a fresh set
+		// (seeded with the source that just failed). A continuation of the SAME song (the A↔B
+		// ping-pong) keeps accumulating into the existing set so each source is tried at most once.
+		const key = this.episodeKey(failed);
+		if (this.fallbackEpisodeKey !== key) {
+			this.fallbackEpisodeKey = key;
+			this.fallbackAttempted = new Set<SourceId>();
+		}
+		// quick-261102-sy0: a name stub's `source` is a PLACEHOLDER (similar.ts primarySourceId) —
+		// seeding it as attempted excluded that source from the episode without ever trying it.
+		if (!failed.resolveByName) this.fallbackAttempted.add(failed.source);
+		this.loading = true;
+		this.error = null;
+		const ac = new AbortController();
+		// If a newer play() bumps the gen mid-search, abort the in-flight searchAll +
+		// ensureTrackDetails so we don't burn the network on a stale attempt. The next
+		// gen-check below stops us from clobbering the newer track.
+		// FAILURE-EPISODE BUDGET (debug slow-cold-start-first-playing): the same interval that watches
+		// for supersedence now also enforces an elapsed-time ceiling. tryFallback threads `ac.signal`
+		// into searchAll + ensureTrackDetails and re-checks `signal?.aborted` at every loop step, so an
+		// abort unwinds the walk promptly and returns null.
+		const startedAt = Date.now();
+		let budgetExpired = false;
+		const watchdog = setInterval(() => {
+			if (this.playGen !== gen) {
+				ac.abort();
+				return;
+			}
+			if (Date.now() - startedAt >= Player.FALLBACK_BUDGET_MS) {
+				budgetExpired = true;
+				logAction('fallback.budget', { uid: failed.uid, ms: Date.now() - startedAt });
+				ac.abort();
+			}
+		}, 200);
+		try {
+			const swap = await tryFallback(
+				failed,
+				settings.preferredSource,
+				ac.signal,
+				this.fallbackAttempted
+			);
+			if (this.playGen !== gen) return; // a newer play() supersedes — discard silently
+			// BUDGET EXPIRY ≠ TOTAL FAILURE. The walk was cut short, so the remaining sources are
+			// UNKNOWN, not exhausted — routing this into handleTotalFailure would both lie about the
+			// song and march the consecutive-failure counter toward the FAILURE_CAP loop-guard STOP.
+			// Strike the uid (so the queue walk routes past it and the ✗ row renders) and skip forward,
+			// leaving the track IN the queue so a later retry can still play it.
+			if (budgetExpired && !swap) {
+				this.recordSkip(failed.uid, 'timeout'); // quick-260926-l69
+				this.strikeUnplayable(failed.uid, 'timeout');
+				// quick-261102-ty6 (DECISIONS.md §13): an audible skip is ALWAYS named in the batched skip
+				// toast — this path skipped silently. Still deliberately outside failoverSkips (the walk was
+				// cut short: the remaining sources are unknown, not exhausted).
+				this.emitSkipNotice(failed, 'timeout');
+				void this.next();
+				return;
+			}
+			if (swap) {
+				logAction('fallback', { fromSource: failed.source, toSource: swap.source });
+				// quick-261020-cov1: keep the FAILED track's cover on the swap. The swap is
+				// verified the same song (isAcceptableSubstitute gate in tryFallback), but it
+				// comes from a different source with its own artwork — adopting it would make
+				// now-playing show a different cover from the list row the user tapped ("the
+				// cover of same song should have same cover"). Title/artist stay the swap's
+				// own so a variant that slipped the gate remains visible, not hidden.
+				if (failed.cover) swap.cover = failed.cover;
+				// Sync the queue slot too so next()/prev() walk the resolved track.
+				const i = this.indexOf(failed);
+				if (i >= 0) this.queue[i] = swap;
+				await this.play(swap, { fromFallback: true });
+				return;
+			}
+			// Every remaining source exhausted for THIS song. Instead of just surfacing the error
+			// and stopping (the old behavior), run the never-stop policy (PLAY-07 / D-02, D-04,
+			// D-05, D-12): break a failing repeat-one loop, count the failure, then either auto-skip
+			// to the next track (below the cap) or trip the loop-guard and STOP with a sticky Retry
+			// notice (at the cap). The finally below clears loading for the loop-guard stop; the
+			// skip path's next()→play() bumps playGen and owns loading from there.
+			this.handleTotalFailure(failed);
+		} finally {
+			clearInterval(watchdog);
+			// Release the re-entrancy guard only if it still belongs to THIS generation (a newer
+			// play()/fallback may have already claimed a fresh gen).
+			if (this.fallbackGen === gen) this.fallbackGen = -1;
+			if (this.playGen === gen) this.loading = false;
+		}
+	}
+
+	/**
+	 * Never-stop total-failure policy (PLAY-07/08 / D-02, D-04, D-05, D-12). Called from
+	 * runFallback when EVERY source is exhausted for the current song. NOT called when offline —
+	 * the offline gate short-circuits before any failure is counted (D-08), so an offline dry spell
+	 * never burns the loop-guard budget.
+	 *
+	 *  - D-12: a failing repeat-one loop breaks repeat first (never-stop wins over explicit repeat),
+	 *    so we don't loop a dead track forever.
+	 *  - The failure is counted. At/over the systemic cap we enter the Fallback Interlude
+	 *    (quick-261116-nstop — D-04's STOP is retired: enterFallbackInterlude keeps the churn
+	 *    cuts but plays the local pool instead of pausing). Below the cap (D-02) we emit a
+	 *    batched skip notice and auto-skip via next().
+	 *
+	 * The skip path goes through the existing next() → play() which bumps playGen, so a user manual
+	 * skip mid-failover supersedes correctly (Pitfall 2) — there is NO parallel fast-skip path.
+	 */
+	private handleTotalFailure(failed: Track, reason: SkipReason = 'no-source') {
+		// D-12: never-stop wins over explicit repeat — break a repeat-one loop on a failing track so
+		// it doesn't loop a dead song forever, then continue with the skip/up-next path.
+		if (this.repeatMode === 'one') {
+			this.repeatMode = 'off';
+			this.persist();
+		}
+		this.consecutiveFailures++;
+		// SIMPLIFY (debug-midplay-stall-background): a track that failed ALL sources is SKIPPED, not
+		// stopped — so do NOT set this.error='toast.playbackStopped' here. Setting it made the sticky
+		// "playback stopped - couldn't load songs" toast appear on every skip; when a region-lock storm
+		// stalled the advance chain in the background (log Pattern B), no subsequent `playing` cleared
+		// it and the user saw a "stopped" message while the player was merely skipping. The batched
+		// skip notice below is the correct, self-dismissing signal for a skip. `this.error` is reserved
+		// for a genuine give-up (offline with no downloads / a resolve throw), not the never-stop skip.
+		// quick-261116-nstop: a failed REVIVAL PROBE is budgeted separately — route back to the
+		// interlude pool instead of counting it toward the ceiling or advancing the saved queue.
+		if (this.nsProbeUid !== null && failed.uid === this.nsProbeUid) {
+			this.recordSkip(failed.uid, reason);
+			this.handleProbeFailure();
+			return;
+		}
+		// SYSTEMIC-FAILURE CEILING (debug-nowbar-frozen-audius-spam): a total failover (EVERY source
+		// exhausted for this song) is another distinct failed track. Once SYSTEMIC_SKIP_CAP tracks fail
+		// back-to-back with no playback, enter the Fallback Interlude (quick-261116-nstop: it used to
+		// STOP via haltRunawayRecovery) rather than skipping into yet another regenerate/resolve burst
+		// that spams /api/*. A real `playing` resets failoverSkips so this can't trip on a blip.
+		// quick-260926-l69: tag the row BEFORE the ceiling check so a halted run still explains itself.
+		this.recordSkip(failed.uid, reason);
+		if (++this.failoverSkips >= Player.SYSTEMIC_SKIP_CAP) {
+			this.enterFallbackInterlude();
+			return;
+		}
+		// D-02: emit a batched skip notice and auto-skip to the next track.
+		this.emitSkipNotice(failed, reason);
+		this.next();
+	}
+
+	/**
+	 * SYSTEMIC-FAILURE STOP (debug-nowbar-frozen-audius-spam; the re-enabled successor of the
+	 * ef2c751-disabled tripLoopGuard). Halt the never-stop recovery once it has become a RUNAWAY
+	 * (SYSTEMIC_SKIP_CAP distinct tracks failed back-to-back with no playback) — the state that
+	 * otherwise churns resolve/regenerate/prefetch bursts and spams /api/* until the app freezes.
+	 *
+	 * Crucially this ACTUALLY STOPS THE SPAM AT THE SOURCE: it does not just pause the <audio>, it
+	 * aborts the in-flight prefetch walk and cancels every pending delayed re-resolve, and — because it
+	 * does NOT call next()/advanceTo — nothing re-arms ensureAhead/regenerate/prefetch. It then surfaces
+	 * ONE sticky Retry notice; recoverFromStop (D-05) skips ahead, drops the dead sets, and re-arms.
+	 *
+	 * Why this can't false-positive the way the disabled rapid-error STOP did: see SYSTEMIC_SKIP_CAP.
+	 * Routes the pause through pauseAudio() (the intentional-pause path) so the `pause` listener treats
+	 * it as deliberate and never fights it with a re-play (mirrors handleOffline / the sleep-timer stop).
+	 */
+	private haltRunawayRecovery() {
+		logAction('recovery.halt', { skips: this.failoverSkips });
+		this.failoverSkips = 0;
+		this.consecutiveFailures = Player.FAILURE_CAP; // pin at the cap (idempotent across callers)
+		this.errorBurst = 0;
+		this.rapidErrorBurst = 0;
+		this.reresolveBurst = 0;
+		this.loadRetryBurst = 0;
+		this.loading = false;
+		this.playing = false;
+		// Cut every out-of-band /api/* fetch source dead so the STOP genuinely stops the spam.
+		this.prefetchController?.abort();
+		this.cancelAllRetryResolves();
+		this.clearDryGrowTimer(); // a queued dry-grow retry would re-arm the churn this STOP just cut
+		this.disarmStall();
+		this.pauseAudio(); // intentional pause — the `pause` listener will not re-play it
+		this.clearMedia();
+		this.error = 'toast.playbackStopped';
+		this.notice = {
+			kind: 'stopped',
+			reason: 'loop-guard',
+			msg: 'toast.playbackStopped',
+			action: () => this.recoverFromStop()
+		};
+	}
+
+	/**
+	 * NEVER-STOP INTERLUDE ENTRY (quick-261116-nstop; grill Q8–Q10). Called from BOTH
+	 * SYSTEMIC_SKIP_CAP trip sites instead of haltRunawayRecovery. The network-churn cuts are
+	 * halt's own, kept verbatim — abort the prefetch walk, cancel pending re-resolves, kill the
+	 * dry-grow timer, disarm the stall watchdog — because the /api burst is what the ceiling
+	 * exists to bound. What changes is only the ending: no pause, no sticky Retry. The current
+	 * queue + Up Next anchor + context are saved, the attempted/failed sources are marked into
+	 * the probe cooldown tracker, and playback continues on the local pool (beginInterludePlayback).
+	 * A re-trip while an interlude is already active keeps the saved queue and pool; it only
+	 * merges the newly marked sources and advances the pool.
+	 */
+	private enterFallbackInterlude() {
+		logAction('neverstop.interlude.start', {
+			skips: this.failoverSkips,
+			already: !!this.nsInterlude
+		});
+		this.failoverSkips = 0;
+		this.errorBurst = 0;
+		this.rapidErrorBurst = 0;
+		this.reresolveBurst = 0;
+		this.loadRetryBurst = 0;
+		// Cut every out-of-band /api/* fetch source dead (halt's churn cuts, minus the pause).
+		this.prefetchController?.abort();
+		this.cancelAllRetryResolves();
+		this.clearDryGrowTimer(); // a queued dry-grow retry would re-arm the churn just cut
+		this.disarmStall();
+		this.loading = false;
+		// Mark the sources this systemic episode burned: the failed track's own source plus
+		// every source genuinely tried this fallback episode. The marks gate ONLY the revival
+		// probe schedule (SourceCooldowns) — normal playback and the per-source health gates
+		// are untouched, so an over-mark costs a later probe, never a blocked song.
+		const now = Date.now();
+		const marked = new Set<SourceId>();
+		if (this.current?.source) marked.add(this.current.source);
+		for (const s of this.fallbackAttempted) marked.add(s);
+		for (const s of marked) this.nsCooldowns.markFailed(s, now);
+		if (!this.nsInterlude) {
+			this.nsSavedQueue = {
+				queue: [...this.queue],
+				anchorUid: this.upNextAnchorUid,
+				context: this.queueContext,
+				resumeIndex: this.indexOf(this.current)
+			};
+			this.nsInterlude = { startedAt: now, plays: 0, markedSources: [...marked] };
+			this.nsPlayedCycle.clear();
+		} else {
+			for (const s of marked)
+				if (!this.nsInterlude.markedSources.includes(s)) this.nsInterlude.markedSources.push(s);
+		}
+		logAction('neverstop.interlude.sources', { sources: [...marked] });
+		// quick-261116-prebuf (Phase 2 trigger): an interlude entry arms the adaptive
+		// pre-buffer — if the local pool is under the 30-minute target, the walk caches
+		// the saved queue's upcoming tracks so a long outage outlasts the pool the user
+		// happened to download. Idle-gated + gen-guarded inside; a no-op at/above target.
+		this.armCarBuffer();
+		void this.beginInterludePlayback(this.playGen);
+	}
+
+	/**
+	 * Build the interlude pool (Q1/Q13): ALL Downloads (user-endorsed) + Cached filler —
+	 * history tracks whose bytes still sit in blobStore but that are not downloads — ordered
+	 * least-recently-played first by the pure orderFallbackPool. Zero-asset tail (Q14): if
+	 * neither exists, the last byte-buffered track (the prefetch prebuffer) is the pool of
+	 * one; if there is not even that, the pool is empty and the caller enters the retrying
+	 * state. Never throws: a blobStore probe failure reads as "no cached filler".
+	 */
+	private async buildInterludePool(): Promise<Track[]> {
+		const downloads = [...library.downloads];
+		const downloadUids = new Set(downloads.map((t) => t.uid));
+		const known = new Map<string, Track>();
+		for (const t of this.nsSavedQueue?.queue ?? []) if (t?.uid) known.set(t.uid, t);
+		if (this.current) known.set(this.current.uid, this.current);
+		const historyUids = history.entries.map((e) => e.uid);
+		// quick-261116-prebuf: car-buffered queue tracks are cached filler too — they were
+		// buffered for exactly this moment, so they lead the candidate list (history filler
+		// follows); their Track objects come from the buffer registry when the saved queue
+		// does not carry them.
+		const candidateUids = [...this.carBufferUids(), ...historyUids];
+		const cached: Track[] = [];
+		for (const uid of candidateUids.slice(0, 30)) {
+			if (cached.length >= 10) break;
+			if (downloadUids.has(uid)) continue;
+			const track = known.get(uid) ?? this.carBufferEntry(uid)?.track;
+			if (!track) continue;
+			try {
+				if (await blobStore.has(uid)) cached.push(track);
+			} catch {
+				/* probe unavailable — no cached filler, Downloads still carry the interlude */
+			}
+		}
+		let pool = orderFallbackPool(downloads, cached, historyUids, this.nsPlayedCycle);
+		if (pool.length === 0 && this.prebufferedUid) {
+			const buffered = known.get(this.prebufferedUid);
+			if (buffered) pool = [buffered];
+		}
+		return pool;
+	}
+
+	// ─── ADAPTIVE PRE-BUFFER (quick-261116-prebuf, Car Mode plan Phase 2, Q7/Q15) ────────
+	// The registry + walk below keep the local pool topped up to NS_POOL_TARGET_SEC
+	// (30 minutes — one car trip) of playable audio by byte-buffering upcoming queue
+	// tracks into blobStore as CACHE. The pure math (measure / top-up plan / tier cap /
+	// eviction plan) lives in never-stop.ts; this store owns the I/O. Buffered tracks
+	// become offline-playable through play()'s car-buffer branch and join the interlude
+	// pool as cached filler (buildInterludePool) — without ever becoming Downloads.
+
+	/** Lazy-load the persisted buffer registry (browser-only, never throws). Entries are
+	 *  validated on load; blobStore stays the byte authority, so a stale entry costs one
+	 *  failed read, never a phantom pool track (play() unregisters on a miss). */
+	private loadCarBuffer(): void {
+		if (this.cbLoaded) return;
+		this.cbLoaded = true;
+		if (!browser) return;
+		try {
+			const raw = localStorage.getItem(Player.CB_KEY);
+			if (!raw) return;
+			const arr = JSON.parse(raw) as { track?: Track; at?: number; sec?: number }[];
+			if (!Array.isArray(arr)) return;
+			for (const e of arr) {
+				if (!e?.track?.uid || typeof e.sec !== 'number' || !(e.sec > 0)) continue;
+				this.cbEntries.set(e.track.uid, {
+					track: e.track,
+					at: typeof e.at === 'number' ? e.at : 0,
+					sec: e.sec
+				});
+			}
+		} catch {
+			/* corrupt / unavailable storage — the buffer simply starts empty */
+		}
+	}
+
+	/** Persist the registry (inline data: covers stripped at the serialization boundary,
+	 *  the library's stripInlineCover discipline — the cover cache re-supplies them). */
+	private persistCarBuffer(): void {
+		if (!browser) return;
+		try {
+			const arr = [...this.cbEntries.values()].map((e) => ({
+				track:
+					e.track.cover && e.track.cover.startsWith('data:')
+						? { ...e.track, cover: null }
+						: e.track,
+				at: e.at,
+				sec: e.sec
+			}));
+			localStorage.setItem(Player.CB_KEY, JSON.stringify(arr));
+		} catch {
+			/* quota / unavailable — the in-memory registry still serves this session */
+		}
+	}
+
+	/** The registry entry for `uid` (loads the registry on first use), or undefined. */
+	private carBufferEntry(uid: string): { track: Track; at: number; sec: number } | undefined {
+		this.loadCarBuffer();
+		return this.cbEntries.get(uid);
+	}
+
+	/** All buffered uids, oldest first. */
+	private carBufferUids(): string[] {
+		this.loadCarBuffer();
+		return [...this.cbEntries.values()]
+			.sort((a, b) => a.at - b.at)
+			.map((e) => e.track.uid);
+	}
+
+	/** Drop a registry entry (bytes are the caller's concern — see evictCarBuffer for the
+	 *  one path that also deletes them; a stale entry whose bytes vanished needs no del). */
+	private unregisterCarBuffer(uid: string): void {
+		this.loadCarBuffer();
+		if (this.cbEntries.delete(uid)) this.persistCarBuffer();
+	}
+
+	/**
+	 * Measure the playable local pool (Q15): ALL Downloads + byte-present Cached tracks
+	 * (history filler, the buildInterludePool seam — plus car-buffer registry tracks,
+	 * whose bytes are present by construction but are still probed so an OS-evicted
+	 * entry never inflates the pool). Pure summation is measureLocalPool's; this method
+	 * owns the blobStore probes. Never throws.
+	 */
+	private async measureLocalPool(): Promise<PoolMeasure> {
+		const downloads = [...library.downloads];
+		const downloadUids = new Set(downloads.map((t) => t.uid));
+		const known = new Map<string, Track>();
+		for (const t of this.queue) if (t?.uid) known.set(t.uid, t);
+		if (this.current) known.set(this.current.uid, this.current);
+		const candidates: Track[] = [];
+		const pushCandidate = (t: Track | undefined) => {
+			if (t?.uid && !downloadUids.has(t.uid) && !candidates.some((c) => c.uid === t.uid))
+				candidates.push(t);
+		};
+		for (const e of this.cbEntries.values()) pushCandidate(e.track);
+		for (const uid of history.entries.map((e) => e.uid).slice(0, 20)) {
+			if (candidates.length >= 16) break;
+			pushCandidate(known.get(uid) ?? this.carBufferEntry(uid)?.track);
+		}
+		const cached: Track[] = [];
+		for (const t of candidates) {
+			try {
+				if (await blobStore.has(t.uid)) cached.push(t);
+			} catch {
+				/* probe unavailable — the track simply does not count toward the pool */
+			}
+		}
+		return measureLocalPool(downloads, cached);
+	}
+
+	/**
+	 * Arm the adaptive pre-buffer (Phase 2's public entry point): the first Fallback
+	 * Interlude entry calls this, and the Phase 4 Car Mode entry will call it too.
+	 * Arming is sticky for the session — the walk re-tops-up at every track boundary
+	 * (the `playing` handler kicks it) so the pool stays at target as playback drains
+	 * it. At/above the 30-minute target the walk is a no-op: no data is spent
+	 * re-fetching what the user already owns (Q15).
+	 */
+	armCarBuffer(): void {
+		this.loadCarBuffer();
+		this.cbArmed = true;
+		this.kickCarBuffer();
+	}
+
+	/** Disarm (a future Car Mode exit may call this): stop the walk and cancel the one
+	 *  in-flight resolve/fetch. Buffered bytes stay — they are the interlude's pool. */
+	disarmCarBuffer(): void {
+		this.cbArmed = false;
+		this.cbGen++;
+		this.cbAbort?.abort();
+		this.cbAbort = null;
+		// A walk parked in waitPipelineIdle may never wake (its idle subscription is its
+		// own); release the running flag so a later arm can walk again. The parked walk
+		// still exits at its next gen check, and its in-flight bufferOneTrack sees the
+		// aborted signal — the flag is the only state shared with it.
+		this.cbRunning = false;
+		if (this.cbIdleUnsub) {
+			this.cbIdleUnsub();
+			this.cbIdleUnsub = null;
+		}
+	}
+
+	/** Kick the buffer walk through the idle gate: it fires only when the governed /api
+	 *  pipeline has fully drained, so buffering never competes with the playing track's
+	 *  resolve or the single-next prefetch (the quick-261102-idle1 seam). */
+	private kickCarBuffer(): void {
+		if (!browser || !this.cbArmed || this.cbRunning || this.cbIdleUnsub) return;
+		const gen = this.cbGen;
+		this.cbIdleUnsub = onApiPipelineIdle(() => {
+			this.cbIdleUnsub = null;
+			if (gen !== this.cbGen || !this.cbArmed) return;
+			void this.runCarBuffer(gen);
+		});
+	}
+
+	/** One pipeline-idle wait, used between buffered tracks: each iteration re-earns the
+	 *  right to spend network by waiting for a full drain first. */
+	private waitPipelineIdle(): Promise<void> {
+		return new Promise((resolve) => {
+			const unsub = onApiPipelineIdle(() => {
+				unsub();
+				resolve();
+			});
+		});
+	}
+
+	/** Upcoming streaming-queue tracks eligible for buffering, in queue order: the saved
+	 *  queue while an interlude owns the live queue, else the live queue — in both cases
+	 *  strictly after the current/resume position. */
+	private carBufferCandidates(): Track[] {
+		const saved = this.nsInterlude ? this.nsSavedQueue : null;
+		const src = saved ? saved.queue : this.queue;
+		const start = saved ? saved.resumeIndex + 1 : this.indexOf(this.current) + 1;
+		return src.slice(Math.max(0, start));
+	}
+
+	/**
+	 * The buffer walk: strictly sequential (one track in flight — the map app and the
+	 * playing track keep their bandwidth), re-measuring and re-planning from the LIVE
+	 * queue each iteration so advances and queue edits self-correct. Two consecutive
+	 * failures end the walk (the network is likely gone — Q10's probing discipline);
+	 * the next track boundary re-kicks it. Ends with the eviction pass.
+	 */
+	private async runCarBuffer(gen: number): Promise<void> {
+		if (this.cbRunning || !this.cbArmed) return;
+		this.cbRunning = true;
+		this.cbAbort = new AbortController();
+		try {
+			let fails = 0;
+			while (gen === this.cbGen && this.cbArmed) {
+				const pool = await this.measureLocalPool();
+				if (gen !== this.cbGen || !this.cbArmed) break;
+				const skip = new Set<string>();
+				if (this.current) skip.add(this.current.uid);
+				for (const t of library.downloads) skip.add(t.uid);
+				for (const uid of this.cbEntries.keys()) skip.add(uid);
+				const plan = planBufferTopUp(
+					pool.totalSec,
+					NS_POOL_TARGET_SEC,
+					this.carBufferCandidates().filter(
+						(t) => t?.uid && !library.downloadUidFor(t) && !isDeviceUid(t.uid)
+					),
+					skip,
+					pool.fallbackSec
+				);
+				if (plan.length === 0) break; // at target, or nothing bufferable ahead
+				await this.waitPipelineIdle();
+				if (gen !== this.cbGen || !this.cbArmed) break;
+				const sec = await this.bufferOneTrack(plan[0], pool.fallbackSec);
+				if (sec > 0) fails = 0;
+				else if (++fails >= 2) break;
+			}
+		} finally {
+			this.cbRunning = false;
+			this.cbAbort = null;
+			this.evictCarBuffer();
+		}
+	}
+
+	/**
+	 * Buffer ONE queue track into blobStore as cache. The resolve is tier-capped per
+	 * call at bufferTierFor(settings.downloadQuality) — '320' even for a FLAC user
+	 * (Q7) — threaded through ensureTrackDetails exactly as probeDownload threads its
+	 * `want` tier (WR-07: never a settings swap). The byte fetch is a RAW fetch (media
+	 * bytes never route through the /api governor) under the prebuffer size ceiling.
+	 * Returns the seconds added to the pool, 0 on any failure. Never throws.
+	 */
+	private async bufferOneTrack(track: Track, fallbackSec: number): Promise<number> {
+		const tier = bufferTierFor(settings.downloadQuality);
+		const sig = this.cbAbort?.signal;
+		let resolved: Track;
+		try {
+			resolved = await ensureTrackDetails(
+				{ ...track, detailsLoaded: false, audioUrl: null, lrc: null },
+				sig,
+				tier
+			);
+		} catch {
+			return 0;
+		}
+		if (!resolved?.audioUrl || sig?.aborted) return 0;
+		let blob: Blob | null = null;
+		try {
+			const resp = await fetch(resolved.audioUrl, {
+				signal: sig,
+				referrerPolicy: 'no-referrer'
+			});
+			if (!resp.ok) return 0;
+			if (overPrebufferCeiling(resp.headers?.get('content-length') ?? null)) {
+				try {
+					await resp.body?.cancel();
+				} catch {
+					/* best-effort stream release */
+				}
+				return 0;
+			}
+			blob = await resp.blob();
+		} catch {
+			return 0;
+		}
+		if (!blob || sig?.aborted) return 0;
+		// A real download of this track landed while we fetched: its bytes own the uid
+		// now — drop ours on the floor rather than register a cache entry over them.
+		if (library.downloadUidFor(track)) return 0;
+		let ok = false;
+		try {
+			ok = await blobStore.put(track.uid, blob);
+		} catch {
+			ok = false;
+		}
+		if (!ok) return 0;
+		const sec = estimateTrackSec(resolved.duration ?? track.duration, fallbackSec);
+		this.cbEntries.set(track.uid, {
+			track: { ...track, duration: resolved.duration ?? track.duration },
+			at: Date.now(),
+			sec
+		});
+		this.persistCarBuffer();
+		logAction('prebuffer.carbuffer.stored', { uid: track.uid, sec, tier });
+		return sec;
+	}
+
+	/**
+	 * Eviction pass (runs at the end of every walk): registry entries whose uid became
+	 * a real Download are merely unregistered (the download owns the bytes — deleting
+	 * them would delete the user's download); the rest are LRU-evicted, oldest first,
+	 * down to the 30-minute target via planBufferEvictions. Real downloads are never
+	 * deleted — they are not registry entries, and the protected set guards the rest.
+	 */
+	private evictCarBuffer(): void {
+		this.loadCarBuffer();
+		if (this.cbEntries.size === 0) return;
+		let changed = false;
+		for (const uid of [...this.cbEntries.keys()]) {
+			if (library.isDownloaded(uid)) {
+				this.cbEntries.delete(uid);
+				changed = true;
+			}
+		}
+		const protectedUids = new Set(library.downloads.map((t) => t.uid));
+		const entries = [...this.cbEntries.values()].map((e) => ({
+			uid: e.track.uid,
+			at: e.at,
+			sec: e.sec
+		}));
+		for (const ev of planBufferEvictions(entries, protectedUids, NS_POOL_TARGET_SEC)) {
+			this.cbEntries.delete(ev.uid);
+			if (!library.isDownloaded(ev.uid)) void blobStore.del(ev.uid);
+			changed = true;
+			logAction('prebuffer.carbuffer.evict', { uid: ev.uid });
+		}
+		if (changed) this.persistCarBuffer();
+	}
+
+	/**
+	 * Start (or continue) interlude playback. Generation-guarded like every async play path:
+	 * a user play() landing while the pool was being built supersedes the interlude entry.
+	 * On a re-trip the existing pool is kept — only the next unplayed pool track is started.
+	 */
+	private async beginInterludePlayback(gen: number) {
+		if (this.nsPoolTracks.length > 0) {
+			const nxt = this.nsPoolTracks.find(
+				(t) => !this.nsPlayedCycle.has(t.uid) && t.uid !== this.current?.uid
+			);
+			if (nxt) this.playPoolTrack(nxt);
+			else this.wrapInterludePool();
+			return;
+		}
+		const pool = await this.buildInterludePool();
+		if (gen !== this.playGen) return; // superseded — the newer play owns playback now
+		if (!this.nsInterlude) return;
+		if (pool.length === 0) {
+			this.enterRetryingState();
+			return;
+		}
+		this.nsPoolTracks = pool;
+		// Mirror handleOffline's queue shape: the failed current stays at the head so
+		// indexOf(current) keeps working for next()/the Up Next slice while the pool plays.
+		this.queue = dedupeBest(
+			[...(this.current ? [this.current] : []), ...pool],
+			settings.preferredSource
+		);
+		this.playPoolTrack(pool[0]);
+	}
+
+	/**
+	 * quick-261116-dtap: the double-tap discovery dive DURING an interlude — play a random
+	 * pool track (never the current one) through the same playPoolTrack registration as a
+	 * boundary advance, so the dive earns its probe token and counts in the cycle exactly
+	 * like a next(). The interlude stays alive: play() only supersedes an interlude for a
+	 * NON-pool track, and this pick is pool by construction. Returns the played track, or
+	 * null when no interlude / pool is active (the caller then dives over the network).
+	 */
+	playRandomPoolTrack(rng: () => number = Math.random): Track | null {
+		if (!this.nsInterlude || this.nsPoolTracks.length === 0) return null;
+		const candidates = this.nsPoolTracks.filter((t) => t.uid !== this.current?.uid);
+		if (candidates.length === 0) return null;
+		const pick = candidates[Math.min(candidates.length - 1, Math.floor(rng() * candidates.length))];
+		// The live queue normally already holds the pool, but a failed probe leaves it
+		// holding the restored streaming queue — rebuild the interlude shape (the
+		// wrapInterludePool idiom) so next() keeps advancing inside the pool afterwards.
+		if (!this.queue.some((t) => t.uid === pick.uid)) {
+			this.queue = dedupeBest(
+				[...(this.current ? [this.current] : []), ...this.nsPoolTracks],
+				settings.preferredSource
+			);
+		}
+		logAction('neverstop.interlude.dtap', { uid: pick.uid });
+		this.playPoolTrack(pick);
+		return pick;
+	}
+
+	/** Play one local pool track and register it: play count, cycle set, and the one probe
+	 *  token this track earns for the NEXT boundary (Q10). */
+	private playPoolTrack(track: Track) {
+		if (this.nsInterlude) {
+			this.nsInterlude.plays++;
+			this.nsPlayedCycle.add(track.uid);
+			this.nsProbeBudget.onInterludeTrackStart();
+		}
+		logAction('neverstop.interlude.play', { uid: track.uid });
+		void this.play(track, { fresh: false });
+	}
+
+	/** Pool exhausted this cycle (Q13): repeats are now allowed — clear the cycle and start
+	 *  over from the pool's head (skipping the just-finished track when the pool has more). */
+	private wrapInterludePool() {
+		this.nsPlayedCycle.clear();
+		const pool = this.nsPoolTracks;
+		if (pool.length === 0) {
+			this.enterRetryingState();
+			return;
+		}
+		const nextTrack = pool.find((t) => t.uid !== this.current?.uid) ?? pool[0];
+		// The queue may currently be the restored streaming queue (a probe just failed and
+		// handleProbeFailure already rebuilt it) or the interlude queue; play() does not care,
+		// but next() needs the pool back inside the queue, so rebuild the interlude shape.
+		this.queue = dedupeBest(
+			[...(this.current ? [this.current] : []), ...pool],
+			settings.preferredSource
+		);
+		this.playPoolTrack(nextTrack);
+	}
+
+	/**
+	 * Spend the outstanding probe token: restore the saved queue and play ONE streaming
+	 * track (the first advanceable entry at/after the saved resume point) as the revival
+	 * probe. Its real `playing` exits the interlude (exitInterludeRecovered); its total
+	 * failure is intercepted by handleProbeFailure and routes back to the pool. Also the
+	 * zero-asset retry timer's probe (Q14).
+	 */
+	private attemptRevivalProbe() {
+		const saved = this.nsSavedQueue;
+		if (!saved || !this.nsInterlude) return;
+		this.clearNsRetry();
+		this.nsRetrying = false;
+		this.queue = [...saved.queue];
+		this.upNextAnchorUid = saved.anchorUid;
+		this.queueContext = saved.context;
+		const j = this.nextAdvanceIndex(saved.resumeIndex);
+		if (j < 0) {
+			// Nothing left to resume — the saved queue is exhausted. Exit the interlude and
+			// let the normal chain grow a fresh tail from here.
+			logAction('neverstop.interlude.exit', { reason: 'queue-exhausted' });
+			this.clearInterludeState();
+			this.next();
+			return;
+		}
+		this.nsProbeUid = this.queue[j].uid;
+		logAction('neverstop.probe.start', { uid: this.nsProbeUid });
+		this.advanceTo(j);
+	}
+
+	/**
+	 * The revival probe track failed totally. Extend every marked source's cooldown
+	 * (exponential, in SourceCooldowns), reset the skip ceiling (the probe is budgeted
+	 * separately and must not burn it), and return to the local pool — or, with no pool,
+	 * back to the zero-asset retrying state.
+	 */
+	private handleProbeFailure() {
+		logAction('neverstop.probe.failed', { uid: this.nsProbeUid });
+		this.nsProbeUid = null;
+		const now = Date.now();
+		if (this.nsInterlude)
+			for (const s of this.nsInterlude.markedSources) this.nsCooldowns.markFailed(s, now);
+		this.failoverSkips = 0;
+		if (this.nsPoolTracks.length === 0) {
+			this.enterRetryingState();
+			return;
+		}
+		const nextTrack =
+			this.nsPoolTracks.find((t) => !this.nsPlayedCycle.has(t.uid) && t.uid !== this.current?.uid) ??
+			this.nsPoolTracks.find((t) => !this.nsPlayedCycle.has(t.uid));
+		if (nextTrack) {
+			this.queue = dedupeBest(
+				[...(this.current ? [this.current] : []), ...this.nsPoolTracks],
+				settings.preferredSource
+			);
+			this.playPoolTrack(nextTrack);
+			return;
+		}
+		this.wrapInterludePool();
+	}
+
+	/**
+	 * Zero-asset state (Q14): no Downloads, no Cached, no byte-buffered track — nothing
+	 * local exists to play. Surface ONE quiet, auto-dismissing notice and arm the 60s
+	 * re-probe timer; recovery needs no tap. The notice field is cleared on the WR-04
+	 * window discipline so a stale retrying toast cannot resurrect on a language switch.
+	 */
+	private enterRetryingState() {
+		this.nsRetrying = true;
+		logAction('neverstop.retrying.start', {});
+		this.notice = { kind: 'never-stop', msg: 'toast.playbackRetrying' };
+		setTimeout(() => {
+			if (this.notice?.kind === 'never-stop' && this.notice.msg === 'toast.playbackRetrying')
+				this.notice = null;
+		}, Player.SKIP_BURST_WINDOW_MS);
+		this.scheduleNsRetry();
+	}
+
+	private scheduleNsRetry() {
+		this.clearNsRetry();
+		this.nsRetryTimer = setTimeout(() => {
+			this.nsRetryTimer = null;
+			if (!this.nsRetrying) return;
+			this.attemptRevivalProbe();
+		}, NS_RETRY_PROBE_MS);
+	}
+
+	private clearNsRetry() {
+		if (this.nsRetryTimer) {
+			clearTimeout(this.nsRetryTimer);
+			this.nsRetryTimer = null;
+		}
+	}
+
+	/**
+	 * Revival confirmed: the probe track produced real audio (called from the `playing`
+	 * listener's success reset). The saved queue is already restored (attemptRevivalProbe
+	 * installed it), so exiting is pure bookkeeping + the one-time post-session summary
+	 * (Q11) — shown only when local tracks actually carried the session; a pure
+	 * retry-state recovery (0 interlude plays) just clears the retrying notice silently.
+	 */
+	private exitInterludeRecovered() {
+		if (!this.nsInterlude || !this.current || this.nsProbeUid !== this.current.uid) return;
+		const { startedAt, plays } = this.nsInterlude;
+		logAction('neverstop.interlude.recovered', { durationMs: Date.now() - startedAt, plays });
+		for (const s of this.nsInterlude.markedSources) this.nsCooldowns.markOk(s);
+		this.clearInterludeState();
+		if (plays > 0) {
+			this.notice = { kind: 'never-stop', msg: 'toast.playbackRecovered', count: plays };
+		} else if (this.notice?.kind === 'never-stop') {
+			this.notice = null;
+		}
+	}
+
+	/** Drop every interlude field back to the idle state (recovery, manual supersede, or a
+	 *  full recoverFromStop-style reset). */
+	private clearInterludeState() {
+		this.nsInterlude = null;
+		this.nsSavedQueue = null;
+		this.nsPoolTracks = [];
+		this.nsPlayedCycle.clear();
+		this.nsProbeUid = null;
+		this.nsRetrying = false;
+		this.clearNsRetry();
+		this.nsProbeBudget.__reset();
+	}
+
+	/**
+	 * Recovery from the loop-guard stopped state (D-05). Bound to the sticky notice's Retry action
+	 * and reused by a user "tap play" recovery: skip AHEAD to the next track (NOT retry-current, NOT
+	 * regenerate), reset the consecutive-failure counter, and re-arm the never-stop chain. next()
+	 * bumps playGen via play(), so this correctly supersedes any stale in-flight fallback.
+	 */
+	private recoverFromStop() {
+		this.consecutiveFailures = 0;
+		this.failoverSkips = 0; // SYSTEMIC-FAILURE CEILING (debug-nowbar-frozen-audius-spam): a manual retry re-arms it.
+		this.clearInterludeState(); // quick-261116-nstop: a full recovery drops any interlude too
+		this.dryGrowRetries = 0; // DRY-GROW: a manual retry re-arms the grow budget too.
+		this.clearDryGrowTimer();
+		this.driveBurst = 0; // SINGLE AUTHORITY (debug-song-click-lrc-flood-noplay): a manual retry re-arms the src brake.
+		this.lastDriveUid = null;
+		this.corruptNotified.clear(); // 31-D-12: a full recovery re-arms the corrupt-blob one-shots too
+		this.versionNotified.clear(); // 43-D-08: …and the may-not-be-original one-shots
+		this.redownloadQueued.clear();
+		this.errorBurst = 0;
+		this.rapidErrorBurst = 0; // RAPID-FIRE BRAKE (debug-nowbar-freeze-reresolve-loop): a full recovery re-arms it too.
+		this.lastAudioErrorAt = 0;
+		// CR-03: re-arm — drop the per-episode attempted set so the skipped-ahead track gets a full
+		// fresh set of sources to try.
+		this.fallbackEpisodeKey = null;
+		this.fallbackAttempted = new Set<SourceId>();
+		// PLAY-RESILIENCE: a manual recovery re-arms everything — drop the probe-confirmed dead set so
+		// previously-sidelined tracks get a fresh chance on the way out of the stopped state.
+		this.unplayableUids.clear();
+		this.skipReasons.clear(); // quick-260926-l69: lockstep with the dead set
+		this.unplayableStrikes.clear(); // over-aggressive-skip fix: a full recovery resets the strike budget too
+		this.retriedDeadUids.clear(); // NEVER-STOP (quick-260630-q03): a full recovery clears the one-retry record too
+		this.cancelAllRetryResolves(); // quick-260627-huo: a full recovery cancels every pending delayed re-resolve
+		if (this.notice?.kind === 'stopped') this.notice = null;
+		this.next();
+	}
+
+	/**
+	 * Emit a batched auto-skip notice (D-02). N consecutive skips within SKIP_BURST_WINDOW_MS
+	 * collapse into ONE notice carrying the running `count` (so the UI shows "{count} songs
+	 * skipped" rather than N stacked toasts). Each skip (re)starts the debounce; when it elapses
+	 * with no further skip the burst counter resets so the NEXT isolated failure starts at 1.
+	 */
+	private emitSkipNotice(track: { title: string; artist: string }, reason: SkipReason) {
+		this.skipBurst++;
+		this.notice = {
+			kind: 'skip',
+			// WR-03: emit the REAL toast key the host renders (singular vs the batched plural),
+			// not a phantom `player.notice.skip` token that exists in no dictionary.
+			msg: this.skipBurst > 1 ? 'toast.skippedMany' : 'toast.skipped',
+			count: this.skipBurst,
+			title: track.title,
+			artist: track.artist,
+			skipReason: reason // quick-260926-l69: the most recent skip's cause (keys only)
+		};
+		if (this.skipBurstTimer) clearTimeout(this.skipBurstTimer);
+		this.skipBurstTimer = setTimeout(() => {
+			this.skipBurst = 0;
+			this.skipBurstTimer = null;
+			// WR-04: clear the channel when the burst window closes so `player.notice` reflects
+			// "nothing to show". Previously only 'stopped' notices were ever cleared, leaving a
+			// stale 'skip' object that the layout effect (which tracks t()/appLang) would re-toast
+			// out of nowhere on a later language switch or remount.
+			if (this.notice?.kind === 'skip') this.notice = null;
+		}, Player.SKIP_BURST_WINDOW_MS);
+	}
+
+	/**
+	 * Offline path (PLAY-09 / D-07, D-08, D-09). Reached only from the runFallback offline gate, so
+	 * the consecutive-failure counter is NEVER touched here (offline ≠ failure, D-08). Scope note
+	 * (D-09): this is the PLAYER's offline switch only — app-shell / service-worker / offline route
+	 * guards are Phase 24, not here.
+	 *
+	 *  - D-07: if the user has downloaded tracks not already in the current queue, switch up-next to
+	 *    them (most-recent-download-first, deduped) and continue playing from the first one. play()'s
+	 *    existing offline-blob branch streams it from the IndexedDB blob with no network, reusing the
+	 *    single cachedBlobUrl revoke discipline (Pitfall 13) — no new object URL is minted here.
+	 *  - D-08: if there are NO downloads to fall back to, pause and surface a sticky offline notice;
+	 *    do not auto-advance into a dead network.
+	 */
+	private handleOffline() {
+		this.loading = false;
+		const have = new Set<string>([
+			...this.queue.map((t) => t.uid),
+			...(this.current ? [this.current.uid] : [])
+		]);
+		const offline = buildOfflineQueue(library.downloads, have);
+		if (offline.length > 0) {
+			// D-07: switch up-next to the downloaded tracks and continue. dedupeBest gives a fresh
+			// array reference (reactivity) and collapses any cross-source duplicates. play() bumps
+			// playGen, so a user gesture mid-switch still supersedes correctly.
+			this.queue = dedupeBest([...(this.current ? [this.current] : []), ...offline], settings.preferredSource);
+			void this.play(offline[0]);
+			return;
+		}
+		// D-08: nothing downloaded to play — pause and show a sticky offline notice (no Retry action;
+		// playback resumes naturally when connectivity returns and the user taps play).
+		// EXTERNAL-PAUSE SELF-HEAL: this offline pause is INTENTIONAL — route through pauseAudio() so
+		// the `pause` listener does not fight it with a doomed re-play against the dead network.
+		this.pauseAudio();
+		// WR-07: i18n key (rendered via t()); WR-03: msg is the real toast key, not a phantom token.
+		this.error = 'toast.offlineNoDownloads';
+		this.notice = { kind: 'stopped', reason: 'offline', msg: 'toast.offlineNoDownloads' };
+	}
+
+	/**
+	 * Move a queue entry from `from` to `to` (clamped) and pin the moved track as
+	 * manual so the next fresh-play regeneration preserves it. No-op if indices are
+	 * out of range or equal.
+	 *
+	 * ANCHOR RE-SEAT (user report 2026-11-02): the Up-Next window slices the queue from
+	 * upNextAnchorUid's LIVE index (quick-260618-lsw). When the dragged row IS the anchor
+	 * (an already-played song) and it moves DOWN past the current row — e.g. a played song
+	 * dragged to the next-song slot — a by-uid anchor lands AFTER current, so the slice
+	 * start jumps past it and the current song (plus every row before the drop point)
+	 * vanished from the rendered list while the queue itself stayed intact. The anchor
+	 * therefore denotes the WINDOW, not a track: capture the visible set before the move
+	 * and re-seat the anchor on whichever of those tracks sits earliest afterwards, so a
+	 * reorder preserves exactly the rows the user could see. Moves wholly inside the
+	 * window leave the earliest member (the old anchor) in place, so the common case is
+	 * unchanged; a missing anchor (cold/restore) is left for the view's ci clamp.
+	 */
+	reorderQueue(from: number, to: number) {
+		const n = this.queue.length;
+		if (from < 0 || from >= n) return;
+		const target = Math.max(0, Math.min(n - 1, to));
+		if (target === from) return;
+		const anchorIdx = this.upNextAnchorUid
+			? this.queue.findIndex((t) => t.uid === this.upNextAnchorUid)
+			: -1;
+		const windowUids =
+			anchorIdx >= 0 ? new Set(this.queue.slice(anchorIdx).map((t) => t.uid)) : null;
+		const next = [...this.queue];
+		const [moved] = next.splice(from, 1);
+		next.splice(target, 0, moved);
+		this.queue = next;
+		if (windowUids) {
+			const head = next.find((t) => windowUids.has(t.uid));
+			if (head) this.upNextAnchorUid = head.uid;
+		}
+		this.manualUids.add(moved.uid); // reordered = pinned manual
+		this.persist(); // WR-05: every queue mutation persists — a reload keeps the user's order
+		// IDLE-PREFETCH (quick-261102-idle1): a drag can change who plays next — drop any
+		// arm/walk keyed to the old next and re-arm against the new one.
+		this.revalidatePrefetchArm();
+	}
+
+	/** Seek to a fraction [0,1] of the track. */
+	seekFraction(frac: number) {
+		this.abortFade(); // D-05: a seek gesture during a fade aborts the sleep stop
+		if (!this.audio) return;
+		// lw9-followup: stamp the seek time so a sympathetic audio.error fired by the same
+		// seek (past-buffered-range on a non-range-capable CDN) doesn't kick off runFallback().
+		this.lastSeekAt = Date.now();
+		const clamped = Math.max(0, Math.min(1, frac));
+		if (Number.isFinite(this.audio.duration) && this.audio.duration > 0) {
+			// Duration is known — apply immediately + clear any pending restore-seek so the
+			// loadedmetadata listener doesn't overwrite the user's intent later.
+			this.audio.currentTime = clamped * this.audio.duration;
+			this.pendingSeek = null;
+		} else {
+			// Metadata not loaded yet (fresh post-restore audio.src, or just-set src). Park the
+			// target on pendingSeek so the loadedmetadata listener applies it the moment
+			// duration lands.
+			this.pendingSeekFrac = clamped;
+		}
+		// fab67f8-followup: if audio is paused (typical post-restore state — restore() doesn't
+		// auto-play due to browser policy), the audio element hasn't started downloading
+		// anything yet; just setting currentTime makes the browser snap back to 0 on the next
+		// read because nothing is buffered to seek INTO. Kick off play() so the browser
+		// actually fetches the byte range around the seek target. Matches industry behavior
+		// (clicking the seek bar implies "play from here"). The user gesture from the click
+		// satisfies autoplay restrictions.
+		if (this.audio.paused) {
+			void this.audio.play().catch(() => {
+				/* autoplay rejected (rare on click) — user can tap play */
+			});
+		}
+	}
+
+	expand() {
+		if (this.current) this.expanded = true;
+	}
+	collapse() {
+		this.expanded = false;
+	}
+}
+
+export const player = new Player();

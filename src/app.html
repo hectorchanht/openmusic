@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+	<meta name="text-scale" content="scale" />
+	<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+	<link rel="apple-touch-icon" href="/icon-maskable.svg" />
+	<link rel="manifest" href="/manifest.webmanifest" />
+	<meta name="theme-color" content="#0b0b0f" />
+	<meta name="color-scheme" content="dark" />
+	<meta name="apple-mobile-web-app-capable" content="yes" />
+	<meta name="apple-mobile-web-app-title" content="openmusic" />
+	<!-- Cloudflare Web Analytics (privacy-friendly, no cookies) -->
+	<script defer src="https://static.cloudflareinsights.com/beacon.min.js"
+		data-cf-beacon='{"token": "758971ffd0b4482290351f9ed8612049"}'></script>
+	<!-- End Cloudflare Web Analytics -->
+	%sveltekit.head%
+	<!-- D-11 / Pitfall 6: under the root ssr=false shell the +layout.svelte head block is
+		     client-only, so non-JS crawlers see no title/description on the shell pages (search,
+		     library, settings, charts). This static site-default is the FALLBACK so every shell
+		     page carries baseline SEO without flipping any of them to SSR (preserves D-01). It sits
+		     AFTER the head-injection placeholder on purpose: per the HTML spec the FIRST <title> in
+		     tree order wins, so an SSR entity route (song/album/artist) whose <svelte:head> injects a
+		     per-entity <title>/description at the placeholder above out-ranks this fallback for
+		     crawlers; shell pages (no SSR head) fall through to it. MUST match +layout.svelte's
+		     TITLE/DESC verbatim.
+		     NOTE: never write the literal SvelteKit head token (percent + sveltekit.head + percent)
+		     anywhere in this file except the single real placeholder above — the head is substituted
+		     with a first-occurrence string replace, so a stray token (even in a comment) above the
+		     real one steals the head payload and leaks the real placeholder as visible text. -->
+	<title>openmusic — music streaming for earth</title>
+	<meta name="description"
+		content="Search and stream music for world. Synced lyrics, translation, playlists, library — a fast mobile-first web player." />
+	<link rel="canonical" href="https://openmusic.lol/" />
+	<meta name="robots" content="index, follow" />
+	<meta property="og:type" content="website" />
+	<meta property="og:site_name" content="openmusic" />
+	<meta property="og:title" content="openmusic — music streaming for earth" />
+	<meta property="og:description"
+		content="Search and stream music for world. Synced lyrics, translation, playlists, library — a fast mobile-first web player." />
+	<meta property="og:url" content="https://openmusic.lol/" />
+	<meta property="og:image" content="https://openmusic.lol/og.jpg" />
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:title" content="openmusic — music streaming for earth" />
+	<meta name="twitter:description"
+		content="Search and stream music for world. Synced lyrics, translation, playlists, library — a fast mobile-first web player." />
+	<meta name="twitter:image" content="https://openmusic.lol/og.jpg" />
+	<script type="application/ld+json">
+	{"@context":"https://schema.org","@type":"WebApplication","name":"openmusic","url":"https://openmusic.lol/","applicationCategory":"MultimediaApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Search and stream music for world. Synced lyrics, translation, playlists, library — a fast mobile-first web player."}
+	</script>
+</head>
+
+<body data-sveltekit-preload-data="hover">
+	<div style="display: contents">%sveltekit.body%</div>
+</body>
+
+</html>
