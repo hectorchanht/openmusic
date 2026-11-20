@@ -49,6 +49,10 @@
 	// quick-261116-dtap: cover double-tap → random discovery dive (Phase 3), on the
 	// current cover cell only — see the use:doubleTap mount at .cover-cell.cur.
 	import { doubleTap } from '$lib/actions/doubleTap';
+	// quick-261119-lpc: cover long-press / right-click → the current track's
+	// TrackMenu, on the SAME current cell as use:doubleTap — see the mount and
+	// openCoverMenu at .cover-cell.cur.
+	import { longpress } from '$lib/actions/longpress';
 	import { playRandomDiscovery } from '$lib/services/random-discovery';
 	import { CHART_GENRE_LABEL } from '$lib/services/home-charts';
 	import { playerSwipe } from '$lib/components/swipe-act';
@@ -986,6 +990,30 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		else if (r.kind === 'local') toast.show(t('toast.dtapLocal'));
 		else toast.show(t('toast.dtapAny'));
 	}
+	// quick-261119-lpc: long-press / right-click on the CURRENT cover opens the
+	// current track's TrackMenu — the same sheet the kebab button opens through
+	// openMenu, shared by onlongpress + oncontextmenu so the two gestures can
+	// never drift apart (the SongRow openRowMenu idiom).
+	// COEXISTENCE with the cell's other gestures — why none of them can break:
+	//   - longpress cancels past 8px of movement, so a coverSwipe carousel drag
+	//     or a vertical drag-collapse started on the cover never reaches the
+	//     450ms hold and never opens the menu;
+	//   - when the hold DOES fire, longpress arms its document-capture one-shot
+	//     click suppressor, so the trailing click on finger-lift is eaten
+	//     BEFORE it can reach doubleTap's node-capture gate (it can neither
+	//     run tapCoverCollapse nor pair into a double) — the exact ordering
+	//     doubleTap's header documents for the Nowbar;
+	//   - a double-tap is two SHORT taps: neither press lives 450ms, so the
+	//     hold never fires and coverRandom is untouched.
+	// The native context menu is suppressed twice over: the longpress action
+	// preventDefaults `contextmenu` on the node, and this handler does too.
+	function openCoverMenu(e: Event) {
+		if (!player.current) return;
+		e.preventDefault();
+		(e.currentTarget as HTMLElement | null)?.blur();
+		if (e.type === 'longpress') hapticTick();
+		openMenu(player.current);
+	}
 	// Keyboard parity for the cover's role="button" (Enter/Space) — mirrors the grip's gripKey idiom
 	// and satisfies the a11y click-needs-keydown rule. Inherits the closed→toggle / half→no-op behavior.
 	function tapCoverKey(e: KeyboardEvent) {
@@ -1157,7 +1185,12 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	         because neither path captures on pointerdown; a committed swipe does NOT replay it because
 	         coverSwipe arms a one-shot capture-phase click suppressor on the strip (stops the bubble to
 	         `.cover`). NO extra movement guard is added beyond the sheetState check.
-	     Net: |dy|>|dx| past slop → vertical collapse; |dx|>|dy| past slop → carousel; sub-slop → tap. -->
+	       • HOLD — use:longpress on `.cover-cell.cur` ONLY (quick-261119-lpc). A fourth path that
+	         owns NOTHING on either axis: it fires only after 450ms INSIDE the slop, and both drag
+	         paths cancel it the moment they pass 8px. Its trailing click is eaten by the action's
+	         document-capture suppressor, ahead of doubleTap's gate on the same cell.
+	     Net: |dy|>|dx| past slop → vertical collapse; |dx|>|dy| past slop → carousel; sub-slop → tap;
+	     sub-slop held 450ms → current track's TrackMenu. -->
 	{#if videoOn && canVideo}
 		<div class="cover video-cover">
 			<VideoStage videoId={player.current?.songid ?? ''} onclose={() => (videoOn = false)} />
@@ -1199,10 +1232,19 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 			     instantly), a double tap cancels it and dives (coverRandom). coverSwipe's
 			     committed-swipe suppressor sits on .cover-strip (an ancestor), so a swipe
 			     can never pair into a double; the keyboard path (tapCoverKey on .cover)
-			     never routes through the cell and stays instant. -->
+			     never routes through the cell and stays instant.
+			     quick-261119-lpc: use:longpress joins doubleTap on this SAME cell —
+			     a hold (or a right-click) opens the current track's TrackMenu via
+			     openCoverMenu. The prev/next cells get NEITHER action's menu side:
+			     the menu is for the current track only. See openCoverMenu for why
+			     the hold cannot eat a tap, a double-tap, a swipe or a drag. -->
+			<!-- svelte-ignore a11y_no_static_element_interactions — the cell is a gesture layer inside .cover (role="button"; the keyboard path is tapCoverKey there). The hold / right-click menu is a pointer bonus, never the only path to the TrackMenu (the kebab button opens it too). -->
 			<div
 				class="cover-cell cur"
 				use:doubleTap={{ onsingletap: tapCoverCollapse, ondoubletap: coverRandom }}
+				use:longpress
+				onlongpress={openCoverMenu}
+				oncontextmenu={openCoverMenu}
 			>
 				<!-- plan 003: the current cell crossfades its art on a non-swipe track change / late
 				     resolve. Two keyed layers stack at inset:0 and dissolve; the strip transform
