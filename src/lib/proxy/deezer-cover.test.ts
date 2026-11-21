@@ -134,8 +134,28 @@ describe('reshapeDeezerSearch', () => {
 			artist: '',
 			album: '',
 			cover: COVER_XL,
-			preview: PREVIEW
+			preview: PREVIEW,
+			artistPicture: PIC_XL
 		});
+	});
+
+	it('exposes the artist picture PER HIT (quick-261121-canon — the Megan scan)', () => {
+		// Hit #1 is a Maroon 5 collab, hit #2 IS the requested artist: the top-level
+		// artistPicture describes hit #1 only, so a resolver needs each hit's own picture.
+		const body = {
+			data: [
+				{ id: 1, title: 'Beautiful Mistakes', artist: { name: 'Maroon 5', picture_xl: PIC_XL } },
+				{ id: 2, title: 'Sweetest Pie', artist: { name: 'Megan Thee Stallion', picture_big: PIC_BIG } }
+			]
+		};
+		const hits = reshapeDeezerSearch(body, 5).results ?? [];
+		expect(hits.map((h) => h.artistPicture)).toEqual([PIC_XL, PIC_BIG]);
+		// An unsafe / foreign-host picture is validated to null per hit, never passed through.
+		const bad = reshapeDeezerSearch(
+			{ data: [{ id: 3, title: 'X', artist: { name: 'A', picture_xl: 'https://evil.example.com/a.jpg' } }] },
+			5
+		).results ?? [];
+		expect(bad[0].artistPicture).toBeNull();
 	});
 
 	it('drops a hit with no id from `results`', () => {

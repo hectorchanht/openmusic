@@ -54,6 +54,12 @@ export interface DeezerHit {
 	cover: string | null;
 	/** 30-second mp3 preview Deezer returns publicly (never the full track — that needs `arl`). */
 	preview: string | null;
+	/** quick-261121-canon: THIS hit's artist picture (picture_xl ?? picture_big, safe-validated).
+	 *  The top-level `artistPicture` only ever describes data[0]'s artist — an artist-image
+	 *  resolver scanning hits for the REQUESTED artist (the Megan case: hit #1 is a Maroon 5
+	 *  collab, hit #2 IS Megan) needs the picture per hit. Optional in the type so pre-existing
+	 *  hit literals stay valid; reshapeHit ALWAYS populates it (absent ⇒ treat as null). */
+	artistPicture?: string | null;
 }
 
 /**
@@ -135,7 +141,8 @@ function reshapeHit(it: DzResult | undefined, prefer: 'xl' | 'big' = 'xl'): Deez
 		artist: it.artist?.name ?? '',
 		album: it.album?.title ?? '',
 		cover: safeDeezerImageUrl(rawCover),
-		preview: safeDeezerPreviewUrl(it.preview)
+		preview: safeDeezerPreviewUrl(it.preview),
+		artistPicture: safeDeezerImageUrl(it.artist?.picture_xl ?? it.artist?.picture_big ?? null)
 	};
 }
 
