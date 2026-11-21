@@ -3,6 +3,7 @@ import {
 	chunkRanges,
 	dedupeSendList,
 	applyUniqueChunkResult,
+	applyUniqueChunkFlags,
 	initialPending,
 	clearUniqueChunkPending,
 	skeletonWidthPct,
@@ -158,5 +159,39 @@ describe('skeletonWidthPct', () => {
 	it('varies across different lines (not a uniform grid)', () => {
 		const pcts = new Set(['line one', 'line two', 'line three', 'line four', 'line five'].map(skeletonWidthPct));
 		expect(pcts.size).toBeGreaterThan(1);
+	});
+});
+
+// quick-261121-trfix: the genuine-flag stitch — a settled chunk's per-unique
+// flags fan out to every line position that sent that unique line, so the pane
+// can tell a real translation from an echo at render time.
+describe('applyUniqueChunkFlags', () => {
+	// Line indices 1 and 3 are the sent positions (0 and 2 were pass-through).
+	const positions = [1, 3];
+	it('lands genuine flags at their mapped line positions in a NEW array', () => {
+		const base = [false, false, false, false];
+		const next = applyUniqueChunkFlags(base, positions, [0, 1], 0, [true, false]);
+		expect(next).toEqual([false, true, false, false]);
+		expect(next).not.toBe(base);
+		expect(base).toEqual([false, false, false, false]); // base untouched
+	});
+
+	it('fans one unique line’s flag out to EVERY occurrence', () => {
+		// send list [hook, verse, hook]: uniqOf [0, 1, 0] at line positions 0, 1, 2.
+		const next = applyUniqueChunkFlags([false, false, false], [0, 1, 2], [0, 1, 0], 0, [false, true]);
+		expect(next).toEqual([false, true, false]); // both hooks echoed, the verse genuine
+	});
+
+	it('a later chunk only overwrites its own unique range', () => {
+		const base = [true, true, false, false];
+		const next = applyUniqueChunkFlags(base, [0, 1, 2, 3], [0, 1, 2, 3], 2, [true, false]);
+		// chunkStart 2 covers unique 2 and 3 → line positions 2 and 3.
+		expect(next).toEqual([true, true, true, false]);
+	});
+
+	it('pass-through positions keep their base value (never marked genuine)', () => {
+		const next = applyUniqueChunkFlags([false, false, false, false], positions, [0, 1], 0, [true, true]);
+		expect(next[0]).toBe(false);
+		expect(next[2]).toBe(false);
 	});
 });

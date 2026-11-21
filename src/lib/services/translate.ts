@@ -83,6 +83,82 @@ function lineCacheSet(line: string, to: string, translated: string): void {
 	}
 }
 
+function lineCacheDelete(line: string, to: string): void {
+	const k = lineKey(line, to);
+	lineMem.delete(k);
+	if (browser) {
+		try {
+			localStorage.removeItem(k);
+		} catch {
+			/* ignore */
+		}
+	}
+}
+
+/**
+ * quick-261121-trfix: SYNCHRONOUS peek at the line-level cache — the genuinely
+ * translated string for `line`→`to` when a previous run already paid for it,
+ * else null. This is what lets NpLyrics seed a language/skip switch from cache
+ * with NO placeholder reset and NO fetch for already-cached lines (Hector's
+ * switch rule): the pane renders cached lines as settled translations in the
+ * same tick the switch happens, and only genuinely-new lines go pending.
+ * Only genuine translations are ever stored (see lineCacheSet callers), so a
+ * peek hit is always a real translation — an echo can never be peeked. Note
+ * the standing zh-Hant asymmetry: Chinese lines are never line-cached (they
+ * resolve offline), so they peek null and resolve through the chunk path.
+ */
+export function peekLineTranslation(line: string, to: string): string | null {
+	if (!line || to === 'off') return null;
+	purgeStaleLyricsCache();
+	return lineCacheGet(line, to);
+}
+
+/** The batch-cache key for one translateLinesEx call (mem + localStorage). */
+function batchKey(lines: string[], to: string, opts?: TranslateOptions): string {
+	// quick-261120-segmix: a segment-routed run's output depends on the skip set
+	// (a skipped segment stays in its source language), so segment batches key on
+	// it — the same lines under a different skip set must never serve each other's
+	// cached stitch. Non-segment keys are byte-identical to before.
+	const segKey = opts?.segments ? `:seg${hash([...(opts.skip ?? [])].sort().join(','))}` : '';
+	return `openmusic:lyrics-tr:${CACHE_VER}:${to}:${hash(lines.join('|'))}${segKey}`;
+}
+
+/**
+ * quick-261121-trfix: FORCE-REFRESH bust — drop every CLIENT cache entry that
+ * could serve `lines`→`to` again: the batch entry for this exact lines array
+ * (under the caller's opts, so a segment run busts its own seg-keyed entry),
+ * the per-line entry for each line, and the per-SEGMENT line entries a mixed
+ * line's MT runs were cached under (keyed on the segment's trimmed core — the
+ * same key space resolveMixedSegments writes). Scoped to exactly the given
+ * lines + target: other songs, other targets and other lines keep their
+ * entries. This backs the user's explicit "re-translate this song" action —
+ * the ONE sanctioned exception to the no-re-translate-on-switch rule. The
+ * server's content-keyed KV is untouched (it only ever stores genuine,
+ * flag-true results; the client re-run re-derives everything client-side).
+ */
+export function bustLyricsTranslation(lines: string[], to: string, opts?: TranslateOptions): void {
+	if (!lines.length || to === 'off') return;
+	purgeStaleLyricsCache();
+	const key = batchKey(lines, to, opts);
+	mem.delete(key);
+	if (browser) {
+		try {
+			localStorage.removeItem(key);
+		} catch {
+			/* ignore */
+		}
+	}
+	for (const line of lines) {
+		if (!line) continue;
+		lineCacheDelete(line, to);
+		for (const seg of splitLyricSegments(line)) {
+			if (seg.kind !== 'mt') continue;
+			const core = seg.text.trim();
+			if (core && core !== line) lineCacheDelete(core, to);
+		}
+	}
+}
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function hash(s: string): string {
@@ -481,12 +557,7 @@ async function resolveWithLineCache(lines: string[], to: string, opts?: Translat
 export async function translateLinesEx(lines: string[], to: string, opts?: TranslateOptions): Promise<TranslateResult> {
 	if (to === 'off' || !lines.length) return { out: lines, flags: lines.map(() => false), complete: false };
 	purgeStaleLyricsCache();
-	// quick-261120-segmix: a segment-routed run's output depends on the skip set
-	// (a skipped segment stays in its source language), so segment batches key on
-	// it — the same lines under a different skip set must never serve each other's
-	// cached stitch. Non-segment keys are byte-identical to before.
-	const segKey = opts?.segments ? `:seg${hash([...(opts.skip ?? [])].sort().join(','))}` : '';
-	const key = `openmusic:lyrics-tr:${CACHE_VER}:${to}:${hash(lines.join('|'))}${segKey}`;
+	const key = batchKey(lines, to, opts);
 	if (mem.has(key)) {
 		const out = mem.get(key) as string[];
 		return { out, flags: out.map(() => true), complete: true };

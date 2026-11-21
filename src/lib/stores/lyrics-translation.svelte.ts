@@ -36,6 +36,26 @@ class LyricsTranslation implements PublishedTranslation {
 	lines = $state<string[]>([]);
 	pending = $state<boolean[]>([]);
 
+	// quick-261121-trfix: the FORCE-REFRESH request channel — the reverse
+	// direction of the publish seam, same leaf discipline. The Lyrics settings
+	// sheet (and the pane's own unavailable hint) call requestRetranslate for
+	// the CURRENT track + EFFECTIVE target; NpLyrics' translate effect reads
+	// `retranslateSeq` and, when the request targets its own (uid, lang),
+	// busts that song's client translation caches and re-runs. A monotonically
+	// increasing seq (not a boolean) so repeated taps each register as a new
+	// request even when nothing else changed.
+	retranslateUid = $state('');
+	retranslateLang = $state('');
+	retranslateSeq = $state(0);
+
+	/** Ask the pane to force re-translate ONE song into ONE target language. */
+	requestRetranslate(uid: string, lang: string): void {
+		if (!uid || !lang || lang === 'off') return;
+		this.retranslateUid = uid;
+		this.retranslateLang = lang;
+		this.retranslateSeq++;
+	}
+
 	/** Replace the whole snapshot (NpLyrics calls this on every progressive change). */
 	publish(uid: string, lang: string, lines: readonly string[], pending: readonly boolean[]): void {
 		this.uid = uid;

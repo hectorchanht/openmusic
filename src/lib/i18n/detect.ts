@@ -64,6 +64,43 @@ export function detectLang(text: string): LangTag {
 }
 
 /**
+ * quick-261121-trfix: the SONG-level source language — the majority detectLang
+ * over the non-blank lines, or null when no language holds at least half of
+ * them (a genuinely mixed song has no single source language). Pure. This is
+ * the whole-song skip pre-gate's detection source (NpLyrics): lyric language
+ * is stored nowhere on the track, so the gate reuses the per-line classifier
+ * over the parsed lines instead of inventing a new field. A tie at the top
+ * also returns null — the gate may only fire on an unambiguous majority, so a
+ * mixed song keeps the per-line skip rules rather than losing translation
+ * wholesale.
+ */
+export function majorityLang(texts: readonly string[]): LangTag | null {
+	const counts = new Map<LangTag, number>();
+	let total = 0;
+	for (const text of texts) {
+		if (!text || !text.trim()) continue;
+		const tag = detectLang(text);
+		counts.set(tag, (counts.get(tag) ?? 0) + 1);
+		total++;
+	}
+	if (!total) return null;
+	let best: LangTag | null = null;
+	let bestCount = 0;
+	let tied = false;
+	for (const [tag, count] of counts) {
+		if (count > bestCount) {
+			best = tag;
+			bestCount = count;
+			tied = false;
+		} else if (count === bestCount) {
+			tied = true;
+		}
+	}
+	if (tied || best === null || bestCount * 2 < total) return null;
+	return best;
+}
+
+/**
  * Per-text-unit decision: should this text be sent to translation for `target`?
  * Pure. Used per name (artist/title), per lyric line, per Last.fm tag.
  *   - target === 'off'                  → false (no translation at all)
