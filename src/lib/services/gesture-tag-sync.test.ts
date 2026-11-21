@@ -62,6 +62,17 @@ describe('gesture-tag-sync — the one shared gesture file-tag writer', () => {
 		expect(menu).toContain("toast.show(t('toast.tagsFailed'))");
 	});
 
+	it('the sheet candidate pick is the menu pick: pin + the same file write', () => {
+		// quick-261120-gpick: pickCandidate used to pin in-app ONLY, so a sheet pick
+		// and a TrackMenu pick of the same candidate left the downloaded file in
+		// different states. The pick now routes through the service with the
+		// sheet's binding (no probe — the service probes; failure → tagsFailed).
+		expect(sheet).toContain('pinLyrics(track.uid, lrc)');
+		expect(sheet).toContain(
+			"writeTagsForGesture(track, { lyrics: lrc }, { onFailure: () => toast.show(t('toast.tagsFailed')) });"
+		);
+	});
+
 	it('the sheet Use automatic is the same reset: unpin + fallback file re-sync', () => {
 		expect(sheet).toContain("from '$lib/services/gesture-tag-sync'");
 		expect(sheet).toContain('unpinLyrics(track.uid)');

@@ -129,6 +129,14 @@
 		if (!track?.uid) return;
 		pinLyrics(track.uid, lrc);
 		toast.show(t('toast.lyricsPinned'));
+		// quick-261120-gpick: the sheet's pick is FULLY the track menu's pick now —
+		// the pin also lands in the downloaded FILE through the ONE shared gesture
+		// writer (TrackMenu.pickLyrics has written it since F3; this pick was the
+		// one caller that silently skipped the file, so a sheet pick and a menu
+		// pick for the same song left the file in different states). Same gates,
+		// same failure toast; the service probes the blob itself — this sheet
+		// never probed one on open (the same binding as useAutomatic below).
+		writeTagsForGesture(track, { lyrics: lrc }, { onFailure: () => toast.show(t('toast.tagsFailed')) });
 		level = 'main';
 	}
 	function useAutomatic() {

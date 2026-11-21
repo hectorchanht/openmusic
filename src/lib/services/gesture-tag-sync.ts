@@ -3,7 +3,7 @@
 // Extracted from TrackMenu (Hector 2026-11-20: "Better be global logic so whole app can
 // trigger/use"), where writeTagsForGesture + its entry builder were component-local.
 // Callers: TrackMenu (cover pin / lyric pin / lyric reset) and the LyricsSettingsSheet
-// (Use automatic = the same reset). The failure toast stays with the CALLERS — services
+// (candidate pick = the same pin; Use automatic = the same reset). The failure toast stays with the CALLERS — services
 // in this repo return/signal, the UI localizes (see backup-io) — so a caller passes
 // `onFailure` and words it itself.
 //
