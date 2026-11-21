@@ -7,6 +7,13 @@
 	import { t } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { postComment, relativeTime, type CommentErr } from '$lib/services/comments';
+	import {
+		getCommentDraft,
+		setCommentDraft,
+		clearCommentDraft,
+		getCommentName,
+		setCommentName
+	} from '$lib/services/comment-drafts';
 	import { loadTurnstile, TURNSTILE_SITEKEY, type TurnstileApi } from '$lib/services/turnstile-widget';
 	import { apiOrigin } from '$lib/services/api-base';
 	import { BRIDGE_PATH, BRIDGE_MSG, bridgeOrigin, parseBridgeMessage } from '$lib/services/turnstile-bridge';
@@ -17,7 +24,6 @@
 	// pane is on screen) so the tab can show the count; this pane is a pure view of it plus the
 	// composer, which sits behind a "Write a comment" button.
 
-	const NAME_KEY = 'openmusic:comment-name:v1';
 	const TEXT_MAX = 280;
 
 	// quick-260926-ot5: native posts through a Turnstile BRIDGE. The Capacitor WebView's origin is
@@ -29,26 +35,9 @@
 	// wiped).
 	const native = browser && Capacitor.isNativePlatform();
 
-	function readName(): string {
-		if (!browser) return '';
-		try {
-			return localStorage.getItem(NAME_KEY) ?? '';
-		} catch {
-			return ''; // private mode / storage disabled
-		}
-	}
-	function writeName(n: string) {
-		if (!browser) return;
-		try {
-			if (n) localStorage.setItem(NAME_KEY, n);
-			else localStorage.removeItem(NAME_KEY);
-		} catch {
-			/* private mode — the name just is not remembered */
-		}
-	}
 
 	let composing = $state(false);
-	let name = $state(readName());
+	let name = $state(getCommentName());
 	let text = $state('');
 	let posting = $state(false);
 	let err = $state<CommentErr | null>(null);
@@ -70,6 +59,37 @@
 		void comments.uid;
 		err = null;
 		armed = null;
+	});
+
+	// quick-261120-cdraft (Hector 2026-11-20): an unposted comment must NEVER be lost to a
+	// track change. `draftKey` is the thread key the box's current text belongs to. The
+	// SAVE effect persists on every change (localStorage only — it writes no $state, so it
+	// cannot self-invalidate), which is what makes the draft durable at all times rather
+	// than at some unload moment that may never fire. The RESTORE effect runs when the
+	// thread key lands or changes: the previous song's text is already durable, so the box
+	// simply takes the new song's draft. Cleared ONLY by a successful Post or an explicit
+	// Cancel (see submit/close) — auto-advance, tab/pane close and reload all preserve it.
+	let draftKey = $state<string | null>(null);
+	$effect(() => {
+		const k = comments.key;
+		if (!k || k === draftKey) return;
+		if (draftKey === null && text.trim()) {
+			// Typed before the key resolved: that text belongs to THIS song — keep it.
+			draftKey = k;
+			setCommentDraft(k, text);
+			return;
+		}
+		draftKey = k;
+		text = getCommentDraft(k);
+	});
+	$effect(() => {
+		const k = draftKey;
+		const v = text;
+		if (k) setCommentDraft(k, v);
+	});
+	// The name is global and is remembered as typed, not only after a post.
+	$effect(() => {
+		setCommentName(name);
 	});
 
 	// Turnstile widget: script lazy-loaded once per app, rendered explicitly into the composer,
@@ -135,12 +155,16 @@
 		bridgeEl?.contentWindow?.postMessage({ type: BRIDGE_MSG.hello }, host);
 	}
 
-	// quick-260926-pb0: Cancel keeps the draft `text` — a mis-tapped Cancel must not eat a typed
-	// comment; reopening shows it.
+	// quick-261120-cdraft: Cancel is one of only two deliberate endings for a draft (the
+	// other is a successful Post), so it DISCARDS this song's draft — superseding the pb0
+	// keep-on-Cancel behaviour. With drafts durable per song there must be a way to throw
+	// one away, and this button is it. Track changes / tab or pane closes never clear.
 	function close() {
 		composing = false;
 		err = null;
 		token = '';
+		if (draftKey) clearCommentDraft(draftKey);
+		text = '';
 	}
 
 	async function submit() {
@@ -149,7 +173,7 @@
 		const uid = comments.uid;
 		if (!k || posting || !body || !token) return;
 		const n = name.trim() || t('comments.defaultName');
-		writeName(name.trim());
+		setCommentName(name.trim());
 		posting = true;
 		err = null;
 		const r = await postComment(k, n, body, token);
@@ -162,9 +186,10 @@
 		if (comments.uid !== uid) return; // song changed mid-post: the reply belongs to another thread
 		if (r.ok) {
 			// The reply is the whole thread, newest first: the new comment lands on top and the
-			// tab count updates on the same tick. The name stays remembered (writeName above).
+			// tab count updates on the same tick. The name stays remembered (setCommentName above).
 			comments.replace(r.items);
 			text = '';
+			if (k) clearCommentDraft(k); // posted — the draft's one other deliberate ending
 			composing = false;
 		} else err = r.err; // composer stays open with the error line
 	}
