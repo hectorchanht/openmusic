@@ -7,7 +7,8 @@ import {
 	deezerArtistWithFallbacks,
 	deezerAlbum,
 	deezerArtistAlbums,
-	downsizeDeezerCover
+	downsizeDeezerCover,
+	__clearArtistNegCache
 } from './deezer';
 import { __clearSearchCache } from './ttl-cache';
 
@@ -25,6 +26,7 @@ afterEach(() => {
 	// deezerArtist/deezerAlbum memoize via cached(); clear between cases so a prior
 	// (possibly null) result for the same name does not leak into the next test.
 	__clearSearchCache();
+	__clearArtistNegCache();
 });
 
 /** A minimal `Response`-like ok JSON stub. */
@@ -191,6 +193,43 @@ describe('deezerArtistCover — resolve artist picture via the proxy', () => {
 			})
 		);
 		await expect(deezerArtistCover('X')).resolves.toBeNull();
+	});
+
+	// quick-261121-canon (brief §1.4/§5 test 4): a gate-rejected picture used to be cached
+	// under the raw name for the full 7-day TTL — one collab top-hit stranded the artist for
+	// a week. Now the null lives ONLY in the 1h canonical negative memo.
+	it('a gate-rejected null is negative-memoised for ~1h, NOT pinned for 7 days', async () => {
+		const fetchMock = vi.fn(async () =>
+			jsonResponse({
+				cover: COVER,
+				artistPicture: PIC, // Maroon 5's photo — the top hit is NOT the requested artist
+				results: [{ id: '1', title: 'Beautiful Mistakes', artist: 'Maroon 5', album: '', cover: COVER, preview: null }]
+			})
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		await expect(deezerArtistCover('Megan Thee Stallion')).resolves.toBeNull();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		// Within the hour the memo answers — no re-fetch, still null (never the stranger's pic).
+		await expect(deezerArtistCover('Megan Thee Stallion')).resolves.toBeNull();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		// The memo is keyed canonically: another spelling of the same artist shares it.
+		await expect(deezerArtistCover('megan thee stallion')).resolves.toBeNull();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		// After ~1h it retries the network (a 7-day pin would still be silent here).
+		vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 61 * 60 * 1000);
+		await expect(deezerArtistCover('Megan Thee Stallion')).resolves.toBeNull();
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	it('a transient failure is never negative-memoised — the next call retries at once', async () => {
+		const fetchMock = vi
+			.fn()
+			.mockRejectedValueOnce(new Error('network down'))
+			.mockResolvedValue(jsonResponse({ cover: COVER, artistPicture: PIC, results: [{ id: '1', title: 'x', artist: 'Retry Artist', album: '', cover: COVER, preview: null }] }));
+		vi.stubGlobal('fetch', fetchMock);
+		await expect(deezerArtistCover('Retry Artist')).resolves.toBeNull();
+		await expect(deezerArtistCover('Retry Artist')).resolves.toBe(PIC);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
 });
 

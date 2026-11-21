@@ -99,6 +99,7 @@
 // CACHED: a SOLID (https) resolved cover is written via setCachedCover / setCachedArtistCover; an
 //   onResolved callback lets the page bump a reactive counter so each cover appears as it lands.
 // NEVER throws: per-item failures degrade to null (like resolveStub / mapWithConcurrency).
+import { recordArtistImage } from '$lib/services/artist-record';
 import { searchAll } from '$lib/services/catalog';
 import { dedupeBest } from '$lib/services/dedupe';
 import { settings } from '$lib/stores/settings.svelte';
@@ -555,6 +556,9 @@ export async function backfillArtistCovers(
 			const key = artistCoverCacheKey(name);
 			if (hasHttpsScheme(url)) {
 				setCachedArtistCover(name, url);
+				// quick-261121-canon: a home resolution also enters the canonical ArtistRecord
+				// (the forever layer) so every surface — search included — renders it offline.
+				recordArtistImage(name, url, 'backfill');
 				markHit(key);
 				onResolved?.(key, url);
 			} else {

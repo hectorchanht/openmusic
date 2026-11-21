@@ -59,6 +59,7 @@ const TTL_ARTIST = 7 * 24 * 60 * 60 * 1000;
  *  the internal annotations below need the matching `import type` (svelte-check baseline fix). */
 import type { DeezerCover, DeezerHit } from '$lib/proxy/deezer-cover';
 import { isCoverOf } from '$lib/services/song-variant';
+import { matchKey } from '$lib/services/dedupe';
 
 /** quick-261102-tdc: how many hits a song-cover lookup scans through the identity gate. */
 const COVER_CANDIDATES = 5;
@@ -203,11 +204,34 @@ export async function deezerSongCover(
 }
 
 /**
+ * quick-261121-canon: NEGATIVE memo for gate-rejected / picture-less artist lookups — 1 hour,
+ * keyed by the CANONICAL artist key (matchKey), in a store SEPARATE from the 7-day positive
+ * key. The pre-canon behaviour cached a gate-rejected `null` under the raw spelling for the
+ * full TTL_COVER (7 days): one unlucky top hit (a collab by another artist — the Megan case)
+ * pinned the tile to its gradient for a week per exact spelling. A negative answer is worth
+ * an hour, never a week, and one spelling's miss must not strand another spelling.
+ */
+const TTL_ARTIST_NEG = 60 * 60 * 1000; // 1h
+const artistNegUntil = new Map<string, number>();
+
+/** Test seam (mirrors ttl-cache's __clearSearchCache): drop every negative artist memo. */
+export function __clearArtistNegCache(): void {
+	artistNegUntil.clear();
+}
+
+/**
  * Resolve an artist picture via the Deezer proxy for the artist name. Returns the artist
  * picture URL or null on any miss/abort/throw (never throws). Deezer (unlike Last.fm)
  * carries a real artist picture, so this is the artist-tile cover source. Transient
  * failures are never cached (WR-03 / T-17-13). `prefer` selects the size rung (same
  * contract as deezerSongCover).
+ *
+ * quick-261121-canon: a SUCCESSFUL response with no gate-passing picture is a NEGATIVE
+ * result — it is no longer stored under the 7-day key (shouldStore drops nulls); instead
+ * the 1h negative memo above suppresses the immediate re-fetch. A transient failure still
+ * rejects inside cached() and is never memoised, so the next call retries at once.
+ * New callers should prefer resolveArtistImage (services/artist-image.ts), which adds the
+ * Deezer artist-search + hit-scan legs; this stays for the backfill chain's posture parity.
  */
 export async function deezerArtistCover(
 	artist: string,
@@ -217,15 +241,26 @@ export async function deezerArtistCover(
 	if (signal?.aborted) return null;
 	const term = (artist ?? '').trim();
 	if (!term) return null;
+	const negKey = matchKey(term, '');
+	const negUntil = artistNegUntil.get(negKey);
+	if (negUntil && negUntil > Date.now()) return null;
 	const key = prefer === 'big' ? `dz:cover:artist:500:${term}` : `dz:cover:artist:${term}`;
-	return cached(key, TTL_COVER, async () => {
-		// quick-261102-tdc (DECISIONS.md §6): artistPicture belongs to the TOP hit's artist — accept it
-		// only when that artist IS the requested one (THE cover identity gate, artist-only).
-		const result = await fetchDeezerOrThrow(term, signal, COVER_CANDIDATES);
-		const top = result?.results?.[0];
-		const pic = top && isCoverOf({ artist: term, title: '' }, { artist: top.artist }) ? (result?.artistPicture ?? null) : null;
-		return prefer === 'big' ? downsizeDeezerCover(pic) : pic;
-	}).catch(() => null);
+	return cached(
+		key,
+		TTL_COVER,
+		async () => {
+			// quick-261102-tdc (DECISIONS.md §6): artistPicture belongs to the TOP hit's artist — accept it
+			// only when that artist IS the requested one (THE cover identity gate, artist-only).
+			const result = await fetchDeezerOrThrow(term, signal, COVER_CANDIDATES);
+			const top = result?.results?.[0];
+			const pic = top && isCoverOf({ artist: term, title: '' }, { artist: top.artist }) ? (result?.artistPicture ?? null) : null;
+			// The response SUCCEEDED but carries no usable picture → negative-memo it for 1h
+			// (set INSIDE the factory: a rejection — transient failure — must never reach here).
+			if (!pic) artistNegUntil.set(negKey, Date.now() + TTL_ARTIST_NEG);
+			return prefer === 'big' ? downsizeDeezerCover(pic) : pic;
+		},
+		(v) => v !== null // never pin a null under the 7-day positive key again
+	).catch(() => null);
 }
 
 /**

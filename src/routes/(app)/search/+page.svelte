@@ -9,7 +9,9 @@
 	import { computeSetContext, tokenizeQuery } from '$lib/services/score-context';
 	// quick-260910-qwt: the shared row cover read (resolved → track.cover → the shared cache).
 	import { enrichArtist } from '$lib/services/lastfm';
-	import { deezerArtistCover, deezerSearchTopN, type DeezerHit } from '$lib/services/deezer';
+	import { deezerSearchTopN, type DeezerHit } from '$lib/services/deezer';
+	import { resolveArtistImage } from '$lib/services/artist-image';
+	import { registerArtistAlias } from '$lib/services/artist-record';
 	import {
 		deriveSuggestions,
 		suggestionKeyword,
@@ -322,7 +324,17 @@
 		// repeat-query runs hit cache for free.
 		const withCovers = await mapWithConcurrency(tiles, 6, async (tile) => {
 			const lf = await enrichArtist(tile.name).catch(() => null);
-			const img = lf?.lastfmArt ?? (await deezerArtistCover(tile.name).catch(() => null));
+			// quick-261121-canon: the avatar now comes from THE one artist-image resolver
+			// (pin → record → shared cache → Deezer artist search → gate-passing hit scan →
+			// Last.fm). The resolver writes the shared cover-cache artist family Home reads,
+			// so search JOINS that family here — an image resolved on either surface appears
+			// on both, and a collab-topped artist (the Megan green-disc class) resolves via
+			// the artist endpoint / hit scan instead of pinning a 7-day null. Last.fm is
+			// still called for its CANONICAL name (the merge key below), not for the image.
+			const img = await resolveArtistImage(tile.name).catch(() => null);
+			// Teach the record the canonical name: every spelling of this artist now maps to
+			// the one canonical record (the record migrates to the canonical key if needed).
+			if (lf?.name && lf.name !== tile.name) registerArtistAlias(lf.name, tile.name);
 			// quick-260831-s0c: keep Last.fm's CANONICAL name from the call we were already making
 			// for the avatar. It is the merge key — Last.fm resolves 周傑倫 / 周杰倫 / 周杰伦 /
 			// "Jay Chou" to one entity, which is why that search produced three tiles for one artist.
