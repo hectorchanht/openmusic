@@ -16,6 +16,8 @@
 <script lang="ts">
 	import { settings, effectiveTarget } from '$lib/stores/settings.svelte';
 	import LoadingState from '$lib/components/LoadingState.svelte';
+	import LyricsEditor from '$lib/components/LyricsEditor.svelte';
+	import { tapBounce } from '$lib/actions/tapBounce';
 	import { player } from '$lib/stores/player.svelte';
 	import { t } from '$lib/i18n';
 	import { translateLinesEx } from '$lib/services/translate';
@@ -597,6 +599,11 @@
 	// tabbable; Up/Down in seekToLineKey reach the rest. A line hidden by lyricsHideParenLines has no
 	// <p>, which only means no line is tabbable until the next visible one goes active.
 	const focusIdx = $derived(activeLine >= 0 ? activeLine : 0);
+	// quick-261120-ugcb2: the No-lyrics CTA opens the ONE shared LyricsEditor (brief §2.1
+	// entry point 1). Saving pins through the pin store, so `lines` re-derives and this pane
+	// fills on the spot — the editor is wrong if Hector can't go from this empty state to
+	// singing along in one sitting (brief §8, dogfood #1).
+	let editorOpen = $state(false);
 </script>
 
 {#if lines.length}
@@ -657,7 +664,9 @@
 			{/if}
 		{/each}
 	</div>
-{:else if lyricsPending}<LoadingState label={t('common.loading')} lines={6} />{:else}<p class="empty">{t('nowplaying.noLyrics')}</p>{/if}
+{:else if lyricsPending}<LoadingState label={t('common.loading')} lines={6} />{:else}<div class="empty-wrap"><p class="empty">{t('nowplaying.noLyrics')}</p>{#if player.current?.uid}<button type="button" class="add-lyrics" onclick={() => (editorOpen = true)} use:tapBounce>{t('nowplaying.addLyrics')}</button>{/if}</div>{/if}
+
+<LyricsEditor track={player.current} open={editorOpen} onclose={() => (editorOpen = false)} />
 
 <style>
 	/* quick-260919-np3: the lyrics SUBSET of NowPlaying.svelte's old panel CSS, moved verbatim with
@@ -701,6 +710,11 @@
 	   small text on the light floor was ~2:1. */
 	.tr-hint { text-align: center; font-size: 0.6875rem; color: var(--color-text-muted); margin: 0 0 6px; }
 	.empty { color: var(--color-text-muted); font-size: 0.875rem; text-align: center; padding: 24px; }
+	/* quick-261120-ugcb2: the No-lyrics state carries the Add-lyrics CTA under the line —
+	   a centred primary pill, the pane's one action. */
+	.empty-wrap { display: flex; flex-direction: column; align-items: center; }
+	.empty-wrap .empty { padding-bottom: 8px; }
+	.add-lyrics { background: var(--color-primary); color: var(--color-on-primary); border: none; border-radius: 999px; padding: 8px 18px; font-size: 0.875rem; min-height: 40px; cursor: pointer; margin-bottom: 24px; }
 	/* quick-261029-xor1: the fetching state is the shared LoadingState — skeleton ONLY
 	   for lyrics (long text; spinner + skeleton together are banned, standing rule) —
 	   the old scoped .row-spinner (quick-261019-lyrspin) retired with load1. */

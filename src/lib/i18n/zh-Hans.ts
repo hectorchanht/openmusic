@@ -967,6 +967,22 @@ const zhHans: Dict = {
 	"free.shot.listAlt": "OpenMusic 设置列表:账号、播放、下载、外观、首页布局、翻译、数据、活动日志和关于",
 	"free.shot.homeCaption": "首页上是真实的歌曲。不用账号,没有广告 — 只有一行标明的赞助。",
 	"free.shot.homeAlt": "OpenMusic 首页:标明的赞助行、搜索栏,以及真实歌曲的精选推荐",
+
+	// --- lyrics editor (quick-261120-ugcb2) ---
+	"nowplaying.addLyrics": "添加歌词",
+	"menu.writeOwnLyrics": "自己写 / 上传歌词",
+	"lyricsEditor.title": "歌词编辑器",
+	"lyricsEditor.pasteHint": "粘贴歌词 — 一行一行。时间由系统估计，想调整再慢慢改。",
+	"lyricsEditor.import": "导入 .lrc 文件",
+	"lyricsEditor.estimated": "估计时间",
+	"lyricsEditor.stamp": "从播放位置开始",
+	"lyricsEditor.start": "开始",
+	"lyricsEditor.end": "结束",
+	"lyricsEditor.review": "检查并保存",
+	"lyricsEditor.save": "保存歌词",
+	"lyricsEditor.back": "返回",
+	"lyricsEditor.confirmHint": "会保存在这台设备上，属于这首歌。",
+	"lyricsEditor.linesCount": "{count} 行",
 };
 
 export default zhHans;

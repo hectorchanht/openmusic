@@ -935,6 +935,22 @@ const hi: Dict = {
 	"free.shot.listAlt": "OpenMusic सेटिंग्स सूची: अकाउंट, प्लेबैक, डाउनलोड, रूप-रंग, होम लेआउट, अनुवाद, डेटा, गतिविधि लॉग और परिचय",
 	"free.shot.homeCaption": "होम पर असली गाने। कोई अकाउंट नहीं, कोई विज्ञापन नहीं — बस एक लेबल वाली प्रायोजित पंक्ति।",
 	"free.shot.homeAlt": "OpenMusic होम: लेबल वाली प्रायोजित पंक्ति, सर्च बार और असली गानों की शेल्फ़",
+
+	// --- lyrics editor (quick-261120-ugcb2) ---
+	"nowplaying.addLyrics": "बोल जोड़ें",
+	"menu.writeOwnLyrics": "खुद लिखें / अपलोड करें",
+	"lyricsEditor.title": "बोल संपादक",
+	"lyricsEditor.pasteHint": "बोल चिपकाएँ — एक पंक्ति में एक लाइन। समय का अनुमान अपने आप लग जाता है; चाहें तो बाद में ठीक करें।",
+	"lyricsEditor.import": ".lrc फ़ाइल आयात करें",
+	"lyricsEditor.estimated": "अनुमानित समय",
+	"lyricsEditor.stamp": "प्लेहेड से शुरू करें",
+	"lyricsEditor.start": "शुरू",
+	"lyricsEditor.end": "अंत",
+	"lyricsEditor.review": "देखें और सहेजें",
+	"lyricsEditor.save": "बोल सहेजें",
+	"lyricsEditor.back": "वापस",
+	"lyricsEditor.confirmHint": "इस गाने के लिए इस डिवाइस पर सहेजा जाएगा।",
+	"lyricsEditor.linesCount": "{count} पंक्तियाँ",
 };
 
 export default hi;

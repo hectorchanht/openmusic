@@ -935,6 +935,22 @@ const fr: Dict = {
 	"free.shot.listAlt": "Liste des réglages d'OpenMusic : Compte, Lecture, Téléchargements, Apparence, Mise en page de l'accueil, Traduction, Données, Journal d'activité et À propos",
 	"free.shot.homeCaption": "De vrais titres sur l'Accueil. Sans compte, sans pub — juste la ligne Sponsorisé bien identifiée.",
 	"free.shot.homeAlt": "Accueil d'OpenMusic : la ligne Sponsorisé identifiée, la barre de recherche et des rayons de vrais titres",
+
+	// --- lyrics editor (quick-261120-ugcb2) ---
+	"nowplaying.addLyrics": "Ajouter les paroles",
+	"menu.writeOwnLyrics": "Écrire / importer les vôtres",
+	"lyricsEditor.title": "Éditeur de paroles",
+	"lyricsEditor.pasteHint": "Collez les paroles — une ligne par ligne. Le timing est estimé pour vous ; ajustez seulement si vous voulez.",
+	"lyricsEditor.import": "Importer un fichier .lrc",
+	"lyricsEditor.estimated": "Timing estimé",
+	"lyricsEditor.stamp": "Commencer à la lecture",
+	"lyricsEditor.start": "Début",
+	"lyricsEditor.end": "Fin",
+	"lyricsEditor.review": "Vérifier et enregistrer",
+	"lyricsEditor.save": "Enregistrer les paroles",
+	"lyricsEditor.back": "Retour",
+	"lyricsEditor.confirmHint": "Enregistré sur cet appareil pour cette chanson.",
+	"lyricsEditor.linesCount": "{count} lignes",
 };
 
 export default fr;

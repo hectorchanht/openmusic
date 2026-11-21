@@ -935,6 +935,22 @@ const vi: Dict = {
 	"free.shot.listAlt": "Danh sách cài đặt OpenMusic: Tài khoản, Phát nhạc, Tải xuống, Giao diện, Bố cục Trang chủ, Dịch, Dữ liệu, Nhật ký hoạt động và Giới thiệu",
 	"free.shot.homeCaption": "Bài hát thật trên Trang chủ. Không tài khoản, không quảng cáo — chỉ một hàng Được tài trợ được ghi rõ.",
 	"free.shot.homeAlt": "Trang chủ OpenMusic: hàng Được tài trợ được ghi rõ, thanh tìm kiếm và các kệ bài hát thật",
+
+	// --- lyrics editor (quick-261120-ugcb2) ---
+	"nowplaying.addLyrics": "Thêm lời bài hát",
+	"menu.writeOwnLyrics": "Tự viết / tải lên",
+	"lyricsEditor.title": "Trình sửa lời bài hát",
+	"lyricsEditor.pasteHint": "Dán lời bài hát — mỗi dòng một dòng. Thời gian được ước tính sẵn; chỉ chỉnh khi bạn muốn.",
+	"lyricsEditor.import": "Nhập tệp .lrc",
+	"lyricsEditor.estimated": "Thời gian ước tính",
+	"lyricsEditor.stamp": "Bắt đầu tại vị trí phát",
+	"lyricsEditor.start": "Bắt đầu",
+	"lyricsEditor.end": "Kết thúc",
+	"lyricsEditor.review": "Xem lại & lưu",
+	"lyricsEditor.save": "Lưu lời bài hát",
+	"lyricsEditor.back": "Quay lại",
+	"lyricsEditor.confirmHint": "Lưu trên thiết bị này cho bài hát này.",
+	"lyricsEditor.linesCount": "{count} dòng",
 };
 
 export default vi;

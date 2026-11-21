@@ -935,6 +935,22 @@ const ar: Dict = {
 	"free.shot.listAlt": "قائمة إعدادات OpenMusic: الحساب، التشغيل، التنزيلات، المظهر، تخطيط الرئيسية، الترجمة، البيانات، سجل النشاط وحول",
 	"free.shot.homeCaption": "أغانٍ حقيقية في الرئيسية. بلا حساب، بلا إعلانات — فقط صف «برعاية» واحد موسوم.",
 	"free.shot.homeAlt": "الصفحة الرئيسية لـ OpenMusic: صف «برعاية» الموسوم وشريط البحث ورفوف أغانٍ حقيقية",
+
+	// --- lyrics editor (quick-261120-ugcb2) ---
+	"nowplaying.addLyrics": "إضافة كلمات",
+	"menu.writeOwnLyrics": "اكتب / ارفع كلماتك",
+	"lyricsEditor.title": "محرر الكلمات",
+	"lyricsEditor.pasteHint": "الصق الكلمات — سطر لكل سطر. يتم تقدير التوقيت تلقائيًا؛ عدّل فقط إن أردت.",
+	"lyricsEditor.import": "استيراد ملف .lrc",
+	"lyricsEditor.estimated": "توقيت تقديري",
+	"lyricsEditor.stamp": "البدء من موضع التشغيل",
+	"lyricsEditor.start": "البداية",
+	"lyricsEditor.end": "النهاية",
+	"lyricsEditor.review": "مراجعة وحفظ",
+	"lyricsEditor.save": "حفظ الكلمات",
+	"lyricsEditor.back": "رجوع",
+	"lyricsEditor.confirmHint": "يُحفظ على هذا الجهاز لهذه الأغنية.",
+	"lyricsEditor.linesCount": "{count} سطر",
 };
 
 export default ar;

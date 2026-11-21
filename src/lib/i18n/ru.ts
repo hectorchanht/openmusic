@@ -935,6 +935,22 @@ const ru: Dict = {
 	"free.shot.listAlt": "Список настроек OpenMusic: Аккаунт, Воспроизведение, Загрузки, Оформление, Макет главной, Перевод, Данные, Журнал действий и О приложении",
 	"free.shot.homeCaption": "Настоящие песни на главной. Без аккаунта и рекламы — только одна помеченная строка «Спонсор».",
 	"free.shot.homeAlt": "Главная OpenMusic: помеченная строка «Спонсор», строка поиска и полки с настоящими песнями",
+
+	// --- lyrics editor (quick-261120-ugcb2) ---
+	"nowplaying.addLyrics": "Добавить текст",
+	"menu.writeOwnLyrics": "Написать / загрузить свой",
+	"lyricsEditor.title": "Редактор текста",
+	"lyricsEditor.pasteHint": "Вставьте текст — одна строка на строку. Время оценивается автоматически; правьте только если хотите.",
+	"lyricsEditor.import": "Импорт файла .lrc",
+	"lyricsEditor.estimated": "Оценочное время",
+	"lyricsEditor.stamp": "Начало с позиции воспроизведения",
+	"lyricsEditor.start": "Начало",
+	"lyricsEditor.end": "Конец",
+	"lyricsEditor.review": "Проверить и сохранить",
+	"lyricsEditor.save": "Сохранить текст",
+	"lyricsEditor.back": "Назад",
+	"lyricsEditor.confirmHint": "Сохраняется на этом устройстве для этой песни.",
+	"lyricsEditor.linesCount": "Строк: {count}",
 };
 
 export default ru;

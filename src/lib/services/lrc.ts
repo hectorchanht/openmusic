@@ -16,6 +16,13 @@ export interface LyricLine {
 	 *  quick-261020-lyr2: enables Hide parenthesised translations/lines to catch
 	 *  separate-line translations, not just inline brackets. */
 	isTranslation?: boolean;
+	/** quick-261120-ugcb2 (brief §2.4 line layer): the line's explicit END in seconds, when
+	 *  the source carries one. Standard LRC has no end — it is implied by the next line —
+	 *  which is wrong across instrumental breaks, so user-created lyrics store it. Written
+	 *  and read by serializeLRC/parseLRC as a second timestamp tag directly after the
+	 *  start tag (`[start][end]text`). Absent = legacy: resolve via lineEndAt. Per-character
+	 *  spans (the B4 character layer) will live INSIDE this [time, end] window. */
+	end?: number;
 }
 
 export interface QualityInfo {
@@ -40,8 +47,25 @@ export function parseLRC(txt: string): LyricLine[] {
 		const sec = parseInt(m[2], 10) || 0;
 		const ms = m[3] ? parseInt(m[3].padEnd(3, '0'), 10) : 0;
 		const time = min * 60 + sec + ms / 1000;
-		const text = line.replace(reg, '').trim();
-		if (text) out.push({ time, text });
+		let rest = line.replace(reg, '');
+		// quick-261120-ugcb2: an immediately-following second timestamp tag is the line's
+		// explicit END (the serializeLRC double-tag form), not lyric text — but only when
+		// it is strictly after the start; a stale or equal tag stays part of the text
+		// exactly as before, so legacy multi-tag lines are untouched.
+		let end: number | undefined;
+		const m2 = /^\s*\[(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?\]/.exec(rest);
+		if (m2) {
+			const e =
+				(parseInt(m2[1], 10) || 0) * 60 +
+				(parseInt(m2[2], 10) || 0) +
+				(m2[3] ? parseInt(m2[3].padEnd(3, '0'), 10) / 1000 : 0);
+			if (e > time) {
+				end = e;
+				rest = rest.slice(m2[0].length);
+			}
+		}
+		const text = rest.trim();
+		if (text) out.push(end !== undefined ? { time, text, end } : { time, text });
 	}
 	out.sort((a, b) => a.time - b.time);
 	return out;
@@ -55,19 +79,45 @@ export function parseLRC(txt: string): LyricLine[] {
  * is stable. Used to embed a COMPLETED lyric translation into a downloaded
  * file's tags (the RetagEntry.lyrics contract is exactly this raw-LRC shape).
  */
+function lrcStamp(t0: number): string {
+	const t = Math.max(0, t0);
+	const min = Math.floor(t / 60);
+	const sec = Math.floor(t % 60);
+	const cs = Math.floor((t * 100) % 100);
+	return `[${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}.${String(cs).padStart(2, '0')}]`;
+}
+
 export function serializeLRC(lines: readonly LyricLine[], texts?: readonly string[]): string {
 	const out: string[] = [];
 	for (let i = 0; i < lines.length; i++) {
 		const text = (texts?.[i] ?? lines[i].text).trim();
 		if (!text) continue;
 		const t = Math.max(0, lines[i].time);
-		const min = Math.floor(t / 60);
-		const sec = Math.floor(t % 60);
-		const cs = Math.floor((t * 100) % 100);
-		const stamp = `[${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}.${String(cs).padStart(2, '0')}]`;
-		out.push(`${stamp}${text}`);
+		// quick-261120-ugcb2: an explicit end rides as a second tag (`[start][end]text`) —
+		// emitted ONLY when the line carries a finite end after its start, so every
+		// pre-existing caller's output is byte-identical to before.
+		const e = lines[i].end;
+		const endTag =
+			typeof e === 'number' && Number.isFinite(e) && e > t ? lrcStamp(e) : '';
+		out.push(`${lrcStamp(t)}${endTag}${text}`);
 	}
 	return out.join('\n');
+}
+
+/**
+ * quick-261120-ugcb2: THE definition of a line's end (brief §2.4) — the explicit `end`
+ * when the line carries a valid one, else the next line's start (the legacy LRC
+ * implication), else the track duration when known, else the line's own start.
+ * Every consumer (editor, Nowbar underline maths) resolves ends through here, never
+ * by re-deriving the fallback chain inline.
+ */
+export function lineEndAt(lines: readonly LyricLine[], i: number, durationSec = 0): number {
+	const l = lines[i];
+	if (!l) return 0;
+	if (typeof l.end === 'number' && Number.isFinite(l.end) && l.end > l.time) return l.end;
+	const next = lines[i + 1];
+	if (next) return next.time;
+	return Number.isFinite(durationSec) && durationSec > l.time ? durationSec : l.time;
 }
 
 /**

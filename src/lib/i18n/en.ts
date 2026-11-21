@@ -983,6 +983,22 @@ const en = {
 	"free.shot.listAlt": "OpenMusic Settings list: Account, Playback, Downloads, Appearance, Home layout, Translation, Data, Activity log and About",
 	"free.shot.homeCaption": "Real songs on Home. No account, no ads — just the one labelled Sponsored row.",
 	"free.shot.homeAlt": "OpenMusic Home: the labelled Sponsored row, the search bar and Top picks shelves of real songs",
+
+	// --- lyrics editor (quick-261120-ugcb2) ---
+	"nowplaying.addLyrics": "Add lyrics",
+	"menu.writeOwnLyrics": "Write / upload your own",
+	"lyricsEditor.title": "Lyrics editor",
+	"lyricsEditor.pasteHint": "Paste the lyrics — one line per line. Timing is estimated for you; adjust only if you like.",
+	"lyricsEditor.import": "Import .lrc file",
+	"lyricsEditor.estimated": "Estimated timing",
+	"lyricsEditor.stamp": "Start at playhead",
+	"lyricsEditor.start": "Start",
+	"lyricsEditor.end": "End",
+	"lyricsEditor.review": "Review & save",
+	"lyricsEditor.save": "Save lyrics",
+	"lyricsEditor.back": "Back",
+	"lyricsEditor.confirmHint": "Saved on this device for this song.",
+	"lyricsEditor.linesCount": "{count} lines",
 } as const;
 
 export default en;

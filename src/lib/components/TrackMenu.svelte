@@ -50,6 +50,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	// quick-260919-1eh: the tag-edit sheet. Same co-mount arrangement as VersionPicker above — it
 	// owns its own overlay lifecycle under a DISTINCT overlayId.
 	import MetadataEditor from '$lib/components/MetadataEditor.svelte';
+	import LyricsEditor from '$lib/components/LyricsEditor.svelte';
 	// quick-260919-vrq: the app's ONLY boolean-control idiom (a real <button role="switch"
 	// aria-checked>). No `type="checkbox"` exists anywhere in src, so the Remove-download confirm
 	// borrows this rather than hand-rolling one.
@@ -667,6 +668,9 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	// on the Fix-lyrics row tap, never on menu open (T-1we-03 / T-26-10-02 posture). lyricGen /
 	// lyricAc are PLAIN fields: supersedence guards the UI never reads reactively (house convention).
 	let lyricsOpen = $state(false);
+	// quick-261120-ugcb2: the LyricsEditor's open flag — mounted outside the menu block like
+	// the MetadataEditor, so it survives the menu closing when the picker footer opens it.
+	let lyricsEditorOpen = $state(false);
 	let lyricsLoading = $state(false);
 	let lyricCandidates = $state<LyricCandidate[]>([]);
 	let lyricGen = 0;
@@ -963,6 +967,16 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	function closeLyricsPicker() {
 		lyricsOpen = false;
 		lyricAc?.abort();
+	}
+	// quick-261120-ugcb2: picker footer → the shared LyricsEditor, seeded with what the app
+	// currently shows for this track (readLyrics — the pin-first read) so "write your own"
+	// on a song that HAS lyrics starts from them, fork-to-edit style. The editor mount lives
+	// outside the menu block, so closing the menu + picker here does not unmount it.
+	function openLyricsEditor() {
+		if (!track?.uid) return;
+		closeLyricsPicker();
+		close();
+		lyricsEditorOpen = true;
 	}
 	// Pin the tapped LRC. D-4: NO player call is needed — pinLyrics bumps the shared reactive signal
 	// and every lyrics surface reads through readLyrics(), so the NowPlaying pane and the Nowbar line
@@ -2215,6 +2229,10 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		<!-- quick-261021-menu7 (user): shared LyricsTimingToggle — same component reused
 		     everywhere the toggle appears, not a duplicate button. -->
 		<LyricsTimingToggle />
+		<!-- quick-261120-ugcb2 (brief §2.1 entry point 2): the PERMANENT footer — present on a
+		     dry walk and with candidates alike, because a user's own lyric can be better than
+		     every upstream one, not only a fallback. Opens the ONE shared LyricsEditor. -->
+		<MenuActionButton icon={Pencil} onclick={openLyricsEditor}>{t('menu.writeOwnLyrics')}</MenuActionButton>
 	</div>
 {/if}
 
@@ -2298,6 +2316,17 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		player.adoptMetadata(track.uid, patch);
 		close();
 	}}
+/>
+
+<!-- quick-261120-ugcb2: the shared LyricsEditor, mounted outside the menu block like the
+     MetadataEditor above so it survives the menu closing on open. Seeded with the current
+     read (pin-first) for fork-to-edit; the editor seeds once per open, so the pin landing
+     on save never reseeds over the user's work. -->
+<LyricsEditor
+	{track}
+	open={lyricsEditorOpen}
+	initialLrc={readLyrics(track)}
+	onclose={() => (lyricsEditorOpen = false)}
 />
 
 <style>

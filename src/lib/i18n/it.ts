@@ -935,6 +935,22 @@ const it: Dict = {
 	"free.shot.listAlt": "Elenco impostazioni di OpenMusic: Account, Riproduzione, Download, Aspetto, Layout della Home, Traduzione, Dati, Registro attività e Info",
 	"free.shot.homeCaption": "Brani veri nella Home. Nessun account, niente pubblicità — solo la riga Sponsorizzato ben indicata.",
 	"free.shot.homeAlt": "Home di OpenMusic: la riga Sponsorizzato indicata, la barra di ricerca e scaffali di brani veri",
+
+	// --- lyrics editor (quick-261120-ugcb2) ---
+	"nowplaying.addLyrics": "Aggiungi testo",
+	"menu.writeOwnLyrics": "Scrivi / carica il tuo",
+	"lyricsEditor.title": "Editor dei testi",
+	"lyricsEditor.pasteHint": "Incolla il testo — una riga per riga. Il timing viene stimato per te; regolalo solo se vuoi.",
+	"lyricsEditor.import": "Importa file .lrc",
+	"lyricsEditor.estimated": "Timing stimato",
+	"lyricsEditor.stamp": "Inizia dalla posizione",
+	"lyricsEditor.start": "Inizio",
+	"lyricsEditor.end": "Fine",
+	"lyricsEditor.review": "Controlla e salva",
+	"lyricsEditor.save": "Salva testo",
+	"lyricsEditor.back": "Indietro",
+	"lyricsEditor.confirmHint": "Salvato su questo dispositivo per questo brano.",
+	"lyricsEditor.linesCount": "{count} righe",
 };
 
 export default it;

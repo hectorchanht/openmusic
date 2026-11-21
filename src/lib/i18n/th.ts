@@ -935,6 +935,22 @@ const th: Dict = {
 	"free.shot.listAlt": "รายการการตั้งค่า OpenMusic: บัญชี การเล่น ดาวน์โหลด หน้าตา เลย์เอาต์หน้าแรก การแปล ข้อมูล บันทึกกิจกรรม และเกี่ยวกับ",
 	"free.shot.homeCaption": "เพลงจริงบนหน้าแรก ไม่ต้องมีบัญชี ไม่มีโฆษณา — มีแค่แถว ได้รับการสนับสนุน ที่ติดป้ายไว้แถวเดียว",
 	"free.shot.homeAlt": "หน้าแรก OpenMusic: แถว ได้รับการสนับสนุน ที่ติดป้าย แถบค้นหา และชั้นเพลงจริง",
+
+	// --- lyrics editor (quick-261120-ugcb2) ---
+	"nowplaying.addLyrics": "เพิ่มเนื้อเพลง",
+	"menu.writeOwnLyrics": "เขียน / อัปโหลดเอง",
+	"lyricsEditor.title": "ตัวแก้ไขเนื้อเพลง",
+	"lyricsEditor.pasteHint": "วางเนื้อเพลง — หนึ่งบรรทัดต่อบรรทัด ระบบจะกะเวลาให้ ปรับทีหลังได้ตามใจ",
+	"lyricsEditor.import": "นำเข้าไฟล์ .lrc",
+	"lyricsEditor.estimated": "เวลาประมาณการ",
+	"lyricsEditor.stamp": "เริ่มที่ตำแหน่งเล่น",
+	"lyricsEditor.start": "เริ่ม",
+	"lyricsEditor.end": "จบ",
+	"lyricsEditor.review": "ตรวจทานและบันทึก",
+	"lyricsEditor.save": "บันทึกเนื้อเพลง",
+	"lyricsEditor.back": "กลับ",
+	"lyricsEditor.confirmHint": "บันทึกในอุปกรณ์นี้สำหรับเพลงนี้",
+	"lyricsEditor.linesCount": "{count} บรรทัด",
 };
 
 export default th;

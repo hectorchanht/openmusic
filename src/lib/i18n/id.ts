@@ -935,6 +935,22 @@ const id: Dict = {
 	"free.shot.listAlt": "Daftar pengaturan OpenMusic: Akun, Pemutaran, Unduhan, Tampilan, Tata letak Beranda, Terjemahan, Data, Log aktivitas dan Tentang",
 	"free.shot.homeCaption": "Lagu sungguhan di Beranda. Tanpa akun, tanpa iklan — hanya satu baris Bersponsor berlabel.",
 	"free.shot.homeAlt": "Beranda OpenMusic: baris Bersponsor berlabel, bilah pencarian, dan rak lagu sungguhan",
+
+	// --- lyrics editor (quick-261120-ugcb2) ---
+	"nowplaying.addLyrics": "Tambah lirik",
+	"menu.writeOwnLyrics": "Tulis / unggah sendiri",
+	"lyricsEditor.title": "Editor lirik",
+	"lyricsEditor.pasteHint": "Tempel lirik — satu baris per baris. Waktunya diperkirakan untukmu; sesuaikan hanya jika mau.",
+	"lyricsEditor.import": "Impor file .lrc",
+	"lyricsEditor.estimated": "Perkiraan waktu",
+	"lyricsEditor.stamp": "Mulai di posisi putar",
+	"lyricsEditor.start": "Mulai",
+	"lyricsEditor.end": "Selesai",
+	"lyricsEditor.review": "Tinjau & simpan",
+	"lyricsEditor.save": "Simpan lirik",
+	"lyricsEditor.back": "Kembali",
+	"lyricsEditor.confirmHint": "Disimpan di perangkat ini untuk lagu ini.",
+	"lyricsEditor.linesCount": "{count} baris",
 };
 
 export default id;

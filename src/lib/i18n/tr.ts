@@ -935,6 +935,22 @@ const tr: Dict = {
 	"free.shot.listAlt": "OpenMusic ayar listesi: Hesap, Çalma, İndirmeler, Görünüm, Ana sayfa düzeni, Çeviri, Veri, Etkinlik günlüğü ve Hakkında",
 	"free.shot.homeCaption": "Ana sayfada gerçek şarkılar. Hesap yok, reklam yok — sadece etiketli tek bir Sponsorlu satırı.",
 	"free.shot.homeAlt": "OpenMusic Ana sayfası: etiketli Sponsorlu satırı, arama çubuğu ve gerçek şarkı rafları",
+
+	// --- lyrics editor (quick-261120-ugcb2) ---
+	"nowplaying.addLyrics": "Şarkı sözü ekle",
+	"menu.writeOwnLyrics": "Kendin yaz / yükle",
+	"lyricsEditor.title": "Şarkı sözü düzenleyici",
+	"lyricsEditor.pasteHint": "Sözleri yapıştır — satır başına bir satır. Zamanlama senin için tahmin edilir; istersen sonra düzelt.",
+	"lyricsEditor.import": ".lrc dosyası içe aktar",
+	"lyricsEditor.estimated": "Tahmini zamanlama",
+	"lyricsEditor.stamp": "Çalma konumundan başlat",
+	"lyricsEditor.start": "Başlangıç",
+	"lyricsEditor.end": "Bitiş",
+	"lyricsEditor.review": "Gözden geçir ve kaydet",
+	"lyricsEditor.save": "Sözleri kaydet",
+	"lyricsEditor.back": "Geri",
+	"lyricsEditor.confirmHint": "Bu şarkı için bu cihazda saklanır.",
+	"lyricsEditor.linesCount": "{count} satır",
 };
 
 export default tr;

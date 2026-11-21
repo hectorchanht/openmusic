@@ -967,6 +967,22 @@ const zhHant: Dict = {
 	"free.shot.listAlt": "OpenMusic 設定列表:帳號、播放、下載、外觀、首頁版面、翻譯、資料、活動記錄及關於",
 	"free.shot.homeCaption": "首頁上是真實的歌曲。不用帳號,沒有廣告 — 只有一行標明的贊助。",
 	"free.shot.homeAlt": "OpenMusic 首頁:標明的贊助行、搜尋列,以及真實歌曲的精選推薦",
+
+	// --- lyrics editor (quick-261120-ugcb2) ---
+	"nowplaying.addLyrics": "新增歌詞",
+	"menu.writeOwnLyrics": "自己寫 / 上載歌詞",
+	"lyricsEditor.title": "歌詞編輯器",
+	"lyricsEditor.pasteHint": "貼上歌詞 — 一行一行。時間由系統估計，你想先再慢慢改。",
+	"lyricsEditor.import": "匯入 .lrc 檔案",
+	"lyricsEditor.estimated": "估計時間",
+	"lyricsEditor.stamp": "由播放位置開始",
+	"lyricsEditor.start": "開始",
+	"lyricsEditor.end": "結束",
+	"lyricsEditor.review": "檢查並儲存",
+	"lyricsEditor.save": "儲存歌詞",
+	"lyricsEditor.back": "返回",
+	"lyricsEditor.confirmHint": "會儲存在這部裝置，屬於這首歌。",
+	"lyricsEditor.linesCount": "{count} 行",
 };
 
 export default zhHant;

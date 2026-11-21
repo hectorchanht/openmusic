@@ -935,6 +935,22 @@ const pt: Dict = {
 	"free.shot.listAlt": "Lista de configurações do OpenMusic: Conta, Reprodução, Downloads, Aparência, Layout do início, Tradução, Dados, Registro de atividade e Sobre",
 	"free.shot.homeCaption": "Músicas reais no Início. Sem conta, sem anúncios — só a linha Patrocinado identificada.",
 	"free.shot.homeAlt": "Início do OpenMusic: a linha Patrocinado identificada, a barra de busca e prateleiras de músicas reais",
+
+	// --- lyrics editor (quick-261120-ugcb2) ---
+	"nowplaying.addLyrics": "Adicionar letra",
+	"menu.writeOwnLyrics": "Escrever / enviar a sua",
+	"lyricsEditor.title": "Editor de letras",
+	"lyricsEditor.pasteHint": "Cole a letra — uma linha por linha. O tempo é estimado para você; ajuste só se quiser.",
+	"lyricsEditor.import": "Importar arquivo .lrc",
+	"lyricsEditor.estimated": "Tempo estimado",
+	"lyricsEditor.stamp": "Começar na reprodução",
+	"lyricsEditor.start": "Início",
+	"lyricsEditor.end": "Fim",
+	"lyricsEditor.review": "Revisar e salvar",
+	"lyricsEditor.save": "Salvar letra",
+	"lyricsEditor.back": "Voltar",
+	"lyricsEditor.confirmHint": "Salvo neste dispositivo para esta música.",
+	"lyricsEditor.linesCount": "{count} linhas",
 };
 
 export default pt;
