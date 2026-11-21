@@ -17,12 +17,31 @@ import { matchKey, versionedMatchKey } from './dedupe';
 import { hasHttpsScheme } from './url-safety';
 import { createForeverStore, ensurePersistentStorage } from './record-persist';
 import { getPinnedCover } from './cover-cache';
+import { isOfficialTitle } from './song-variant';
 
 /** One gate-passing cover candidate, provenance-stamped (WHY NOT ALL: keep them all). */
 export interface TrackCoverCandidate {
 	url: string;
 	/** 'chain' | 'instance' | 'cache' | 'crowd' | 'pin' | 'download' | … */
 	source: string;
+	at: number;
+}
+
+/**
+ * One playable provider variant of the song, living INSIDE the record (entity
+ * resolution → golden record, Hector 2026-11-21): variants are never rendered as
+ * duplicate rows — surfaces render the record's ONE default variant, and the full
+ * set is enumerated only inside the sources modal (VersionPicker).
+ */
+export interface TrackVariant {
+	uid: string;
+	/** The instance's source id ('qq', 'netease', 'bilibili', …) — provenance. */
+	source: string;
+	/** The variant's own title as its provider named it (officialness is judged on it). */
+	title: string;
+	/** True when the variant is the official/original recording (正版原版) per the
+	 * ONE existing gate, song-variant's isOfficialTitle — never re-derived here. */
+	official: boolean;
 	at: number;
 }
 
@@ -49,6 +68,12 @@ export interface TrackRecord {
 	};
 	/** Uids known to be this song (from variants/dedupe/resolve hints). */
 	instances: string[];
+	/** ALL known provider variants of this song, in first-seen order (golden record:
+	 * every variant lives inside the record as a selectable source — never a row). */
+	variants: TrackVariant[];
+	/** The user's pinned variant uid — beats the official default thereafter
+	 * (precedence: pin > official/original > auto). */
+	variantPinUid: string | null;
 	/** True once the song is downloaded: the record travels with the download (protected). */
 	downloaded: boolean;
 	resolvedAt: number;
@@ -59,7 +84,8 @@ const STORE_KEY = 'openmusic:track-records:v1';
 
 const store = createForeverStore<TrackRecord>(STORE_KEY, {
 	// User intent and offline property are never quota-eviction victims.
-	isProtected: (r) => r.cover.pin !== null || r.lyrics.pinUid !== null || r.downloaded,
+	isProtected: (r) =>
+		r.cover.pin !== null || r.lyrics.pinUid !== null || r.downloaded || r.variantPinUid !== null,
 	stampOf: (r) => r.resolvedAt
 });
 
@@ -78,6 +104,8 @@ function blankRecord(artist: string, title: string): TrackRecord {
 		cover: { chosen: null, candidates: [], pin: null },
 		lyrics: { chosenRef: null, pinUid: null },
 		instances: [],
+		variants: [],
+		variantPinUid: null,
 		downloaded: false,
 		resolvedAt: 0,
 		version: 0
@@ -282,4 +310,123 @@ export function bustTrackRecord(artist: string, title: string): void {
 		delete all[key];
 		store.write(all);
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Variants — entity resolution → golden record (Hector 2026-11-21 02:06 CST).
+// ONE RENDER: a song renders exactly once everywhere; every provider variant
+// lives inside this record as a selectable source. DEFAULT PLAY = OFFICIAL/
+// ORIGINAL (正版原版): the record's default variant resolves by the precedence
+// pin > official > auto (first-seen). The user may switch to any variant in the
+// sources modal, and pinning one overrides the default thereafter.
+// ---------------------------------------------------------------------------
+
+/** The record's variant list, tolerating records persisted before the field existed. */
+function variantsOf(rec: TrackRecord): TrackVariant[] {
+	return Array.isArray(rec.variants) ? rec.variants : [];
+}
+
+/**
+ * Register one provider variant inside the record (dedupe by uid; the variant's
+ * officialness is judged ONCE by the existing isOfficialTitle gate on its own
+ * title). Also registers the uid as a known instance. Returns the record.
+ */
+export function recordTrackVariant(
+	artist: string,
+	title: string,
+	variant: { uid: string; source: string; title: string }
+): TrackRecord {
+	const rec = ensureTrackRecord(artist, title, { uid: variant.uid });
+	const variants = variantsOf(rec);
+	if (variant.uid && !variants.some((v) => v.uid === variant.uid)) {
+		rec.variants = [
+			...variants,
+			{
+				uid: variant.uid,
+				source: variant.source ?? '',
+				title: variant.title ?? '',
+				official: isOfficialTitle(variant.title ?? ''),
+				at: Date.now()
+			}
+		];
+		rec.resolvedAt = Date.now();
+		rec.version += 1;
+		writeRecord(rec);
+	}
+	return rec;
+}
+
+/** Pin (or, with null, unpin) the song's default-play variant at the RECORD level. */
+export function pinTrackVariant(artist: string, title: string, uid: string | null): TrackRecord {
+	const rec = ensureTrackRecord(artist, title, uid ? { uid } : {});
+	rec.variantPinUid = uid || null;
+	rec.resolvedAt = Date.now();
+	rec.version += 1;
+	writeRecord(rec);
+	return rec;
+}
+
+/** The user's pinned variant uid for the song, or null. */
+export function getVariantPin(artist: string, title: string): string | null {
+	return getTrackRecord(artist, title)?.variantPinUid ?? null;
+}
+
+/**
+ * The record's ONE default variant — the only variant a surface renders/plays
+ * first. PURE. Precedence (Hector's survivorship rule): the user's pin, then the
+ * first OFFICIAL/ORIGINAL variant, then the first-seen variant (auto). A pin
+ * naming a not-yet-registered uid still wins (the pin is the user's word; the
+ * variant entry may register later), returned as a minimal entry.
+ */
+export function defaultVariantOf(rec: TrackRecord | null): TrackVariant | null {
+	if (!rec) return null;
+	const variants = variantsOf(rec);
+	if (rec.variantPinUid) {
+		return (
+			variants.find((v) => v.uid === rec.variantPinUid) ?? {
+				uid: rec.variantPinUid,
+				source: '',
+				title: rec.title,
+				official: false,
+				at: 0
+			}
+		);
+	}
+	return variants.find((v) => v.official) ?? variants[0] ?? null;
+}
+
+/** The default variant's uid for a song (pin > official > auto), or null. */
+export function getDefaultVariantUid(artist: string, title: string): string | null {
+	return defaultVariantOf(getTrackRecord(artist, title))?.uid ?? null;
+}
+
+/**
+ * ONE RENDER, as a pure list transform: collapse a mixed list of per-source
+ * tracks to ONE row per canonical record. The representative is the record's
+ * default variant when it is in the group (pin > official > auto), else the
+ * first official-titled track, else the first track. Group order = first
+ * appearance. Surfaces that list songs run their rows through this (or through
+ * the record-aware dedupe) so duplicate-source rows can never render.
+ */
+export function collapseToCanonicalRows<T extends { artist: string; title: string; uid: string }>(
+	tracks: T[]
+): T[] {
+	const groups = new Map<string, T[]>();
+	for (const t of tracks) {
+		const key = trackRecordKey(t.artist, t.title);
+		const group = groups.get(key);
+		if (group) group.push(t);
+		else groups.set(key, [t]);
+	}
+	const out: T[] = [];
+	for (const group of groups.values()) {
+		const first = group[0];
+		const defaultUid = getDefaultVariantUid(first.artist, first.title);
+		const rep =
+			(defaultUid ? group.find((t) => t.uid === defaultUid) : undefined) ??
+			group.find((t) => isOfficialTitle(t.title)) ??
+			first;
+		out.push(rep);
+	}
+	return out;
 }

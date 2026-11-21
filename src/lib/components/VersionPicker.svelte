@@ -25,6 +25,7 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { marquee } from '$lib/actions/marquee';
 	import { t } from '$lib/i18n';
+	import { Pin } from '@lucide/svelte';
 	import { collapseVariants, variantTag, type VersionTag } from '$lib/services/dedupe';
 	import { rankPool } from '$lib/services/song-variant';
 	import { scoreMatch } from '$lib/services/score-match';
@@ -41,7 +42,10 @@
 		onpick,
 		loading = false,
 		overlayId = 'versionpicker',
-		target
+		target,
+		defaultUid = null,
+		pinnedUid = null,
+		onpinvariant
 	}: {
 		versions: Track[];
 		open: boolean;
@@ -49,6 +53,15 @@
 		onpick: (t: Track) => void;
 		// OPTIONAL (Gap 4): render a spinner while a lazy on-demand variant fetch is in flight.
 		loading?: boolean;
+		// quick-261121-canon (golden record): the canonical record's ONE default variant
+		// (pin > official > auto) — badged in the list so the user sees which version
+		// every surface renders; every other variant lives ONLY in this modal.
+		defaultUid?: string | null;
+		// The record's pinned variant uid (the user's override of the default).
+		pinnedUid?: string | null;
+		// When provided, each row carries a pin toggle: pin this variant as the
+		// song's default (record-level — applies on every surface), or unpin it.
+		onpinvariant?: (t: Track) => void;
 		// WR-02: the overlay-stack / history key for THIS instance. Defaults to 'versionpicker'
 		// for back-compat, but co-mounted hosts (a page's own picker + the one inside the
 		// TrackMenu it also mounts) MUST pass DISTINCT ids so a stray concurrent open pushes/pops
@@ -158,22 +171,39 @@
 		{:else}
 			{#each shown as v (v.uid)}
 				{@const vt = variantTag(v.title)}
-				<button class="mi" onclick={() => pick(v)} use:tapBounce>
-					<span class="ver-meta">
-						<span class="ver-title">
-							<span class="ver-name" use:marquee><span class="marquee-inner">{names.dnTitle(v.title, v.artist)}</span></span>
+				<div class="ver-row">
+					<button class="mi" onclick={() => pick(v)} use:tapBounce>
+						<span class="ver-meta">
+							<span class="ver-title">
+								<span class="ver-name" use:marquee><span class="marquee-inner">{names.dnTitle(v.title, v.artist)}</span></span>
+							</span>
+							<!-- quick-261006-tag: the source pill lives in the TAG ROW with the version
+							     tag — never in the title line, where it stole width from the song name.
+							     The row always renders (the source pill is unconditional); the version
+							     tag joins it only when the title carries one. -->
+							<span class="tag-row">
+								<span class="src">{sourceLabel(v)}</span>
+								{#if vt}<span class="ver-tag">{tagLabel(vt)}</span>{/if}
+								<!-- quick-261121-canon: the golden record's badges — which variant is
+								     the ONE default every surface renders, and the user's pin. -->
+								{#if v.uid === defaultUid}<span class="ver-tag is-default">{t('versions.default')}</span>{/if}
+								{#if v.uid === pinnedUid}<span class="ver-tag is-pinned">{t('versions.pinned')}</span>{/if}
+							</span>
+							<span class="ver-sub">{versionSub(v)}</span>
 						</span>
-						<!-- quick-261006-tag: the source pill lives in the TAG ROW with the version
-						     tag — never in the title line, where it stole width from the song name.
-						     The row always renders (the source pill is unconditional); the version
-						     tag joins it only when the title carries one. -->
-						<span class="tag-row">
-							<span class="src">{sourceLabel(v)}</span>
-							{#if vt}<span class="ver-tag">{tagLabel(vt)}</span>{/if}
-						</span>
-						<span class="ver-sub">{versionSub(v)}</span>
-					</span>
-				</button>
+					</button>
+					{#if onpinvariant}
+						<button
+							class="pin-btn"
+							class:is-pinned={v.uid === pinnedUid}
+							aria-label={v.uid === pinnedUid ? t('versions.unpinVariant') : t('versions.pinVariant')}
+							aria-pressed={v.uid === pinnedUid}
+							onclick={() => onpinvariant(v)}
+						>
+							<Pin size={16} />
+						</button>
+					{/if}
+				</div>
 			{/each}
 		{/if}
 	</div>
@@ -201,6 +231,19 @@
 		border-radius: 10px; cursor: pointer; text-align: start;
 	}
 	.mi:hover { background: var(--color-surface); }
+	/* quick-261121-canon: the row wrapper carries the variant pin toggle beside the
+	   play button (the toggle is a sibling, never nested inside the play button). */
+	.ver-row { display: flex; align-items: stretch; gap: 4px; }
+	.ver-row .mi { flex: 1; width: auto; min-width: 0; }
+	.pin-btn {
+		flex: none; width: 40px; display: flex; align-items: center; justify-content: center;
+		background: none; border: none; border-radius: 10px; cursor: pointer;
+		color: var(--color-text-muted);
+	}
+	.pin-btn:hover { background: var(--color-surface); }
+	.pin-btn.is-pinned { color: var(--color-accent, var(--color-text)); }
+	.ver-tag.is-default { color: var(--color-accent, inherit); font-weight: 600; }
+	.ver-tag.is-pinned { font-weight: 600; }
 	.ver-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 	/* Title row: the name gets the full width — the source pill was evicted to .tag-row
 	   (quick-261006-tag) so long titles never lose space to it. */

@@ -22,6 +22,7 @@ import { hasHttpsScheme } from './url-safety';
 import {
 	getTrackRecord,
 	recordTrackCoverCandidates,
+	recordTrackVariant,
 	type TrackRecord
 } from './track-record';
 
@@ -56,6 +57,11 @@ export async function resolveTrackRecord(
 	const rec = candidates.length
 		? recordTrackCoverCandidates(a, t, candidates, { album: hint?.album ?? null, uid: hint?.uid })
 		: getTrackRecord(a, t);
+	// Golden record: the hint instance IS one of the song's variants — it lives
+	// inside the record as a selectable source (never as a duplicate row).
+	if (hint?.uid) {
+		recordTrackVariant(a, t, { uid: hint.uid, source: hint.source, title: hint.title });
+	}
 	// Write-through: the AUTO chosen value feeds the shared name layer (un-migrated surfaces
 	// read the same truth). Pin/crowd chosen values stay in their own families by design.
 	if (rec && rec.cover.chosen && !rec.cover.pin) {

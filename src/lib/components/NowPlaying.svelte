@@ -18,6 +18,7 @@
 	// Gap 4 (26-10): the LAZY on-demand cross-source variant fetch (26-08) fed to the per-row
 	// version picker — fired ONLY on a trigger tap, never on list render (T-26-10-02).
 	import { fetchVariants } from '$lib/services/variants';
+	import { registerRecordVariants, readDefaultVariantUid, readVariantPin, pinRecordVariant } from '$lib/stores/records.svelte';
 	// quick-261102-qtruth / quick-261102-srcpill: the quality + source tags derive through
 	// the ONE shared module (services/display-quality) so this page can never disagree
 	// with the Track detail sheet about the same playing track again.
@@ -222,6 +223,9 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		if (gen !== versionGen || ac.signal.aborted) return;
 		pickerVersions = list;
 		pickerLoading = false;
+		// quick-261121-canon: enumerated variants join the song's canonical record
+		// (golden record — variants live inside the record; surfaces render one).
+		registerRecordVariants(track, list);
 	}
 	function closeVersionPicker() {
 		pickerOpen = false;
@@ -1613,6 +1617,9 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		overlayId="versionpicker-page"
 		onclose={closeVersionPicker}
 		onpick={(v) => player.tapPlay(v)}
+		defaultUid={pickerTarget ? readDefaultVariantUid(pickerTarget) : null}
+		pinnedUid={pickerTarget ? readVariantPin(pickerTarget) : null}
+		onpinvariant={(v) => { if (pickerTarget) pinRecordVariant(pickerTarget, readVariantPin(pickerTarget) === v.uid ? null : v.uid); }}
 	/>
 </div>
 

@@ -80,7 +80,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	// quick-260809-3uo: the share card now carries the cover the user is looking at — read from the
 	// SAME shared reactive cache every other surface reads, plus the retained iTunes id.
 	import { readCoverByUidOrName, readChosenCover } from '$lib/stores/cover-version.svelte';
-	import { pinRecordCover, pinRecordLyrics, unpinRecordLyrics, refreshTrackRecord } from '$lib/stores/records.svelte';
+	import { pinRecordCover, pinRecordLyrics, unpinRecordLyrics, refreshTrackRecord, registerRecordVariants, readDefaultVariantUid, readVariantPin, pinRecordVariant } from '$lib/stores/records.svelte';
 	// Phase 40 D-15: the crowd-shared cover vote — sent ONLY from the picker tap below.
 	import { coverPickKeys, submitCoverPick } from '$lib/services/cover-pick-shared';
 	// quick-260915-w4f: the ENUMERATE-ALL cover collector. Imported for the picker only — it runs
@@ -797,6 +797,10 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		if (gen !== versionGen || ac.signal.aborted) return; // superseded / cancelled
 		versionsList = list;
 		versionsLoading = false;
+		// quick-261121-canon: every enumerated variant joins the song's canonical
+		// record — the modal is the ONLY place variants are enumerated, and the
+		// record is where they live (golden record: variants inside, one render out).
+		if (track) registerRecordVariants(track, list);
 	}
 	function closeVersions() {
 		versionsOpen = false;
@@ -2210,6 +2214,9 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	overlayId="versionpicker-menu"
 	onclose={closeVersions}
 	onpick={(v) => { player.tapPlay(v); close(); }} // quick-261103-tapsplice (Hector 2026-11-03): a version pick is a song tap — queue + history survive
+	defaultUid={track ? readDefaultVariantUid(track) : null}
+	pinnedUid={track ? readVariantPin(track) : null}
+	onpinvariant={(v) => { if (track) pinRecordVariant(track, readVariantPin(track) === v.uid ? null : v.uid); }}
 />
 
 <!-- quick-260919-1eh: the metadata editor. Mounted OUTSIDE the {#if open && track} menu block, like

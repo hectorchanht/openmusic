@@ -14,6 +14,10 @@ import {
 	pinTrackLyrics,
 	markTrackDownloaded,
 	recordTrackCoverCandidates,
+	recordTrackVariant,
+	pinTrackVariant,
+	getVariantPin,
+	getDefaultVariantUid,
 	getTrackRecord,
 	getTrackChosenCover,
 	bustTrackRecord
@@ -174,4 +178,36 @@ export function carryRecordWithDownload(track: Track, resolvedCover?: string | n
 export function readTrackRecord(artist: string, title: string) {
 	recordVersion();
 	return getTrackRecord(artist, title);
+}
+
+// --- Golden-record variants (Hector 2026-11-21): the sources modal's seams. ---
+
+/**
+ * Register a batch of provider variants inside the song's record — called when
+ * the sources modal (VersionPicker) enumerates them, so the record accumulates
+ * EVERY known variant as a selectable source while surfaces keep rendering one.
+ */
+export function registerRecordVariants(track: Track, variants: Track[]): void {
+	for (const v of variants) {
+		if (v?.uid) recordTrackVariant(track.artist, track.title, { uid: v.uid, source: v.source, title: v.title });
+	}
+	bumpRecords();
+}
+
+/** The record's default-variant uid (pin > official > auto) — reactive read. */
+export function readDefaultVariantUid(track: Track): string | null {
+	recordVersion();
+	return getDefaultVariantUid(track.artist, track.title);
+}
+
+/** The user's pinned variant uid for the song — reactive read. */
+export function readVariantPin(track: Track): string | null {
+	recordVersion();
+	return getVariantPin(track.artist, track.title);
+}
+
+/** Pin (or unpin, with null) the song's default-play variant at the record level. */
+export function pinRecordVariant(track: Track, uid: string | null): void {
+	pinTrackVariant(track.artist, track.title, uid);
+	bumpRecords();
 }
