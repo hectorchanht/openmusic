@@ -78,8 +78,13 @@ describe('LyricsSettingsSheet — translation pickers keep their geometry', () =
 	it('both translation controls render in the sheet with their full option sets', () => {
 		expect(sheet).toContain('options={langOptions}');
 		expect(sheet).toContain('options={modeOptions}');
-		// the language list: off + auto + 17 endonyms
-		expect(sheet.match(/\{ v: '(off|auto|zh-Hant|zh-Hans|en|ja|ko|es|fr|de|pt|it|ru|tr|ar|hi|id|vi|th)', label:/g)).toHaveLength(19);
+		// the language list: off + auto + 17 endonyms (scoped to the `langs`
+		// declaration — quick-261121-trfix added a second endonym list, `sources`)
+		const langsBlock = sheet.slice(
+			sheet.indexOf('const langs'),
+			sheet.indexOf('];', sheet.indexOf('const langs'))
+		);
+		expect(langsBlock.match(/\{ v: '(off|auto|zh-Hant|zh-Hans|en|ja|ko|es|fr|de|pt|it|ru|tr|ar|hi|id|vi|th)', label:/g)).toHaveLength(19);
 		// the mode control: both display modes, nothing else
 		expect(sheet).toContain("{ v: 'replace' as TranslateMode");
 		expect(sheet).toContain("{ v: 'below' as TranslateMode");
@@ -92,5 +97,40 @@ describe('LyricsSettingsSheet — translation pickers keep their geometry', () =
 
 	it('the scrolling sheet never compresses a child', () => {
 		expect(sheet).toMatch(/\.sheet > :global\(\*\) \{ flex: none; \}/);
+	});
+});
+
+// quick-261121-trfix — the skip-whitelist UI restoration (brief pin 7) + the
+// sheet-side force refresh. The lsheet move dropped the skip control's only UI
+// while the setting + pane consumption survived; these pins hold the restored
+// wiring: the sheet writes the SAME settings.lyricsSkip field the pane's
+// translate effect reads, with the full SourceLang list.
+describe('LyricsSettingsSheet — skip whitelist + force refresh (quick-261121-trfix)', () => {
+	it('the sheet hosts a skip control writing settings.lyricsSkip (the field the pane reads)', () => {
+		expect(sheet).toContain(
+			'settings.lyricsSkip = cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v]'
+		);
+		expect(sheet).toContain('settings.save()');
+		expect(sheet).toContain("t('settings.skipLanguages')");
+		expect(sheet).toContain('settings.lyricsSkip.includes(s.v)');
+		// the full 17-tag SourceLang list, endonym labels literal
+		const sourcesBlock = sheet.slice(
+			sheet.indexOf('const sources'),
+			sheet.indexOf('];', sheet.indexOf('const sources'))
+		);
+		expect(
+			sourcesBlock.match(/\{ v: '(zh-Hant|zh-Hans|en|ja|ko|es|fr|de|pt|it|ru|tr|ar|hi|id|vi|th)', label:/g)
+		).toHaveLength(17);
+		// …and the pane consumes that same field (the other end of the seam):
+		expect(pane).toContain('const skip = settings.lyricsSkip;');
+	});
+
+	it('the sheet sends the force-refresh request for the current track + effective target', () => {
+		expect(sheet).toContain(
+			'lyricsTranslation.requestRetranslate(track.uid, effectiveTarget(settings.lyricsLang))'
+		);
+		expect(sheet).toContain("t('lyricsSettings.retranslate')");
+		// gated on translation being ON (the mode picker's own gate pattern):
+		expect(sheet).toContain("settings.lyricsLang === 'off'");
 	});
 });
