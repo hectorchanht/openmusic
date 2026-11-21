@@ -191,6 +191,18 @@
 <div class="cm-pane">
 	{#if composing}
 		<div class="composer">
+			<!-- quick-261120-cpost (Hector 2026-11-20): Post sits at the TOP of the composer,
+			     above the name field — the on-screen keyboard covers the lower composer, and
+			     the submit must stay visible and tappable while it is open. Same button,
+			     same disabled logic; only its place moved. -->
+			<div class="topbar">
+				<button
+					class="post"
+					disabled={!text.trim() || posting || !comments.key || !token || comments.unavailable}
+					onclick={submit}
+					use:tapBounce>{t('comments.post')}</button
+				>
+			</div>
 			<input
 				maxlength="24"
 				bind:value={name}
@@ -199,31 +211,29 @@
 				autocomplete="nickname"
 				disabled={comments.unavailable}
 			/>
-			<textarea
-				maxlength={TEXT_MAX}
-				bind:value={text}
-				placeholder={t('comments.textPlaceholder')}
-				aria-label={t('comments.textPlaceholder')}
-				rows="3"
-				disabled={comments.unavailable}
-			></textarea>
+			<div class="ta-wrap">
+				<textarea
+					maxlength={TEXT_MAX}
+					bind:value={text}
+					placeholder={t('comments.textPlaceholder')}
+					aria-label={t('comments.textPlaceholder')}
+					rows="3"
+					disabled={comments.unavailable}
+				></textarea>
+				<!-- quick-261120-ccount (Hector 2026-11-20): the remaining count lives INSIDE
+				     the input, bottom-right, so the limit reads as part of the box itself.
+				     text.length, not code points: it counts what maxlength counts, so the
+				     number reaches 0 exactly when the textarea stops accepting input. -->
+				<span class="count">{t('comments.remaining', { n: TEXT_MAX - text.length })}</span>
+			</div>
 			{#if bridgeSrc}
 				<iframe class="ts-bridge" bind:this={bridgeEl} src={bridgeSrc} title="Cloudflare Turnstile" onload={hello}></iframe>
 			{:else if !native}
 				<div class="ts" bind:this={tsEl}></div>
 			{/if}
 			<div class="bar">
-				<!-- text.length, not code points: it counts what maxlength counts, so the number
-				     reaches 0 exactly when the textarea stops accepting input. -->
-				<span class="muted">{t('comments.remaining', { n: TEXT_MAX - text.length })}</span>
 				<span class="actions">
 					<button class="cancel" onclick={close} use:tapBounce>{t('comments.cancel')}</button>
-					<button
-						class="post"
-						disabled={!text.trim() || posting || !comments.key || !token || comments.unavailable}
-						onclick={submit}
-						use:tapBounce>{t('comments.post')}</button
-					>
 				</span>
 			</div>
 			{#if err}<p class="err">{t(errKey(err))}</p>{/if}
@@ -278,7 +288,14 @@
 	textarea { resize: vertical; }
 	input:disabled,
 	textarea:disabled { opacity: 0.5; }
-	.bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+	.bar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+	/* quick-261120-cpost: the Post row at the composer's head, right-aligned like the bar it left. */
+	.topbar { display: flex; justify-content: flex-end; }
+	/* quick-261120-ccount: the counter inside the textarea's bottom-right corner. The wrap is
+	   the positioned anchor; the textarea's extra bottom padding keeps text out of its corner. */
+	.ta-wrap { position: relative; }
+	.ta-wrap textarea { padding-bottom: 24px; display: block; }
+	.count { position: absolute; right: 8px; bottom: 6px; color: var(--color-text-muted); font-size: 0.75rem; pointer-events: none; }
 	.post {
 		background: var(--color-primary);
 		color: var(--color-on-primary); /* quick-261102-rrb */
