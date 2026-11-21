@@ -1,4 +1,4 @@
-// canon-migration.svelte.ts — the "Re-download to Canon" run state
+// canon-migration.svelte.ts — the ManyToCanon migration run state ("Re-download to Canon")
 // (quick-261121-canon, Hector 2026-11-21). Mirrors heal.svelte.ts exactly: a run
 // over dozens of songs takes minutes and the user WILL navigate while it runs,
 // so the job state lives in a store, not on the Library page. Transient only —

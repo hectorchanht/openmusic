@@ -9,7 +9,8 @@ import {
 import { recordTrackCoverCandidates, markTrackDownloaded, bustTrackRecord } from './track-record';
 import { makeUid, type Track } from '$lib/sources/types';
 
-// canon-migration (quick-261121-canon, Hector 2026-11-21 02:21 CST) — pins:
+// canon-migration (quick-261121-canon, Hector 2026-11-21 02:21 CST) — the
+// ManyToCanon migration, pinned:
 //   DETECTION: pre-Canon = the song's record is not flagged downloaded.
 //   VERIFY-THEN-REPLACE: a failed re-download restores the old blob byte-for-
 //   byte and clears the unavailable mark; only a saved payload upgrades.

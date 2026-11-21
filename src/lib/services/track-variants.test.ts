@@ -10,7 +10,8 @@ import {
 	bustTrackRecord
 } from './track-record';
 
-// track-variants (quick-261121-canon, Hector 2026-11-21 02:06 CST) — entity
+// track-variants (quick-261121-canon, Hector 2026-11-21 02:06 CST) — ManyToCanon:
+// entity
 // resolution → GOLDEN RECORD. Pins the two product rules:
 //   (1) ONE RENDER — duplicate-source tracks collapse to one row per record;
 //       every variant lives INSIDE the record as a selectable source.

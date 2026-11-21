@@ -1,4 +1,4 @@
-// artist-record — the ONE canonical record per artist (quick-261121-canon, brief §2.3).
+// artist-record — ManyToCanon’s artist side. — the ONE canonical record per artist (quick-261121-canon, brief §2.3).
 //
 // Doctrine: singleton + shared + unified. Before this module an artist's image lived in three
 // disconnected pipelines (search page-local, home backfill, artist-page hero) with three

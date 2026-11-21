@@ -1,4 +1,4 @@
-// track-resolve — THE one TrackRecord resolver (quick-261121-canon, brief §2.2).
+// track-resolve — ManyToCanon’s ONE track resolver. — THE one TrackRecord resolver (quick-261121-canon, brief §2.2).
 //
 // Merges every existing cover feeder for a song into its canonical record, all through the
 // feeders' own identity gates (resolveCoverForTrack's chain already runs isCoverOf on every

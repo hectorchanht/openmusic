@@ -1,4 +1,4 @@
-// record-persist — the FOREVER local persistence for canonical records (quick-261121-canon).
+// record-persist — ManyToCanon’s forever-persistence layer. — the FOREVER local persistence for canonical records (quick-261121-canon).
 //
 // Hector 2026-11-21: "these will cache forever and offline ok." A resolved canonical record
 // (cover / title / artist / lyrics ref) is not a cache entry — it is the app's long-term memory

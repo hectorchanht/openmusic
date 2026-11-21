@@ -1,5 +1,5 @@
-// records (reactive) — the reactive wrapper for the canonical record stores
-// (quick-261121-canon, brief §2.2–§2.5). Same "wrap, don't rewrite" split as
+// records (reactive) — ManyToCanon's reactive wrapper for the canonical record
+// stores (quick-261121-canon, brief §2.2–§2.5). Same "wrap, don't rewrite" split as
 // cover-version.svelte.ts: the pure stores stay node-testable; this module adds the ONE
 // global record-version signal and the sanctioned write seams (pin / refresh / download)
 // that bump every affected signal so all mounted surfaces repaint from the new record.

@@ -1,4 +1,6 @@
 // track-record — the ONE canonical record per song (quick-261121-canon, brief §2.2).
+// ManyToCanon (visual lockup "Many → Canon") is the Dawn brand term for this
+// canonical convergence system: many providers → one golden record.
 //
 // Doctrine: singleton + shared + unified. Before this module a song existed as up to ~16
 // unrelated per-source Track instances, and its cover/title/artist/lyrics diverged per

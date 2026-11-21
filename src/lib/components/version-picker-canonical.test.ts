@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 // version-picker-canonical (quick-261121-canon, Hector 2026-11-21 02:07 CST) —
+// ManyToCanon’s presentation gate.
 // STRUCTURAL gate for the golden-record presentation rule: "many to many to the
 // best one, and from this best one". Dawn has many providers producing many
 // variants, but the user FACES only ONE best version; ALL variants are available

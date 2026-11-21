@@ -1,4 +1,5 @@
-// canon-migration — "Re-download to Canon" (quick-261121-canon, Hector 2026-11-21
+// canon-migration — the ManyToCanon migration ("Re-download to Canon",
+// quick-261121-canon, Hector 2026-11-21
 // 02:21 CST: "After Canon is done we have to let user re-download their songs to
 // Canon"). Downloads made before the canonical system live under the old
 // per-source regime (divergent covers/metadata). This module is the migration

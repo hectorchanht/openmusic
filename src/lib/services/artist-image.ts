@@ -1,4 +1,4 @@
-// artist-image — THE one artist-image resolver (quick-261121-canon, brief §2.3 / Phase 1).
+// artist-image — ManyToCanon’s ONE artist-image resolver. — THE one artist-image resolver (quick-261121-canon, brief §2.3 / Phase 1).
 //
 // Before this module, artist images ran through three disconnected pipelines and the search
 // pipeline's only Deezer leg (deezerArtistCover) looked at track-search hit #1's artist
