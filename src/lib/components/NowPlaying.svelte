@@ -5,7 +5,7 @@
 	import { fly, fade } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
 	import { cubicOut } from 'svelte/easing';
 	import { goto } from '$app/navigation';
-	import { ChevronDown, MoreVertical, Heart, Clapperboard, Info, SkipBack, SkipForward, Play, Pause, Moon, ListMusic, MicVocal, MessageCircle, Sparkles, VolumeX, Volume1, Volume2 } from '@lucide/svelte';
+	import { ChevronDown, MoreVertical, Heart, Clapperboard, Info, SkipBack, SkipForward, Play, Pause, Moon, ListMusic, MicVocal, MessageCircle, Sparkles, VolumeX, Volume1, Volume2, SlidersHorizontal } from '@lucide/svelte';
 	import { player, fmtTime } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -67,6 +67,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	import { splitArtists } from '$lib/util/artist-split';
 	import { resolveArtistNames } from '$lib/services/artist-names';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
+	import LyricsSettingsSheet from '$lib/components/LyricsSettingsSheet.svelte';
 	import VersionPicker from '$lib/components/VersionPicker.svelte';
 	import Nowbar from '$lib/components/Nowbar.svelte';
 	// quick-260919-np3: the three sheet panes. CLAUDE.md flags this file as a ~2000-line re-render
@@ -185,6 +186,8 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	// shared context menu for current track + long-pressed queue/related rows
 	let menuTrack = $state<Track | null>(null);
 	let menuOpen = $state(false);
+	// quick-261120-lsheet: the lyrics settings sheet (lyrics tab's sliders button).
+	let lyricsSheetOpen = $state(false);
 	function openMenu(t: Track | null) {
 		menuTrack = t;
 		menuOpen = !!t;
@@ -1468,7 +1471,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 			<div class="subnav heads" role="group"
 				onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
 				<button aria-hidden="true" tabindex="-1" title={t('nowplaying.upNext')}><ListMusic size={20} /></button>
-				<button aria-hidden="true" tabindex="-1" title={t('nowplaying.lyrics')}><MicVocal size={20} /></button>
+				<span class="head-cell"><button aria-hidden="true" tabindex="-1" title={t('nowplaying.lyrics')}><MicVocal size={20} /></button><button class="lyr-set" aria-label={t('lyricsSettings.title')} title={t('lyricsSettings.title')} onclick={() => (lyricsSheetOpen = true)} use:tapBounce><SlidersHorizontal size={20} /></button></span>
 				<span class="pair">
 					<!-- quick-261102-s5t: the active column was class-only (visual); aria-pressed exposes it. -->
 					<button data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} aria-pressed={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
@@ -1492,6 +1495,9 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 					{#if canAbout}
 						<button data-tab="about" aria-label={t('nowplaying.about')} title={t('nowplaying.about')} class:active={tab === 'about'} aria-pressed={tab === 'about'} onclick={() => selectTab('about')} use:tapBounce><Info size={20} /></button>
 					{/if}
+					{#if tab === 'lyrics' || tab === 'queue'}
+						<button class="lyr-set" aria-label={t('lyricsSettings.title')} title={t('lyricsSettings.title')} onclick={() => (lyricsSheetOpen = true)} use:tapBounce><SlidersHorizontal size={20} /></button>
+					{/if}
 				</span>
 			</div>
 		{:else}
@@ -1505,6 +1511,9 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 				<button role="tab" id="np-tab-related" aria-selected={tab === 'related'} tabindex={tab === 'related' ? 0 : -1} data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
 				{#if canAbout}
 					<button role="tab" id="np-tab-about" aria-selected={tab === 'about'} tabindex={tab === 'about' ? 0 : -1} data-tab="about" aria-label={t('nowplaying.about')} title={t('nowplaying.about')} class:active={tab === 'about'} onclick={() => selectTab('about')} use:tapBounce><Info size={20} /></button>
+				{/if}
+				{#if tab === 'lyrics'}
+					<button class="lyr-set" aria-label={t('lyricsSettings.title')} title={t('lyricsSettings.title')} onclick={() => (lyricsSheetOpen = true)} use:tapBounce><SlidersHorizontal size={20} /></button>
 				{/if}
 			</div>
 		{/if}
@@ -1578,6 +1587,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	</div>
 
 	<TrackMenu track={menuTrack} open={menuOpen} onclose={() => (menuOpen = false)} />
+	<LyricsSettingsSheet track={player.current} open={lyricsSheetOpen} onclose={() => (lyricsSheetOpen = false)} />
 
 	<!-- Gap 4 (26-10): ONE VersionPicker mount driven by the per-row trigger. `loading` is bound to the
 	     in-flight fetchVariants state so the sheet opens instantly with a spinner; onpick plays the chosen
@@ -1875,6 +1885,11 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	.grip:active { cursor: grabbing; }
 	.handle { width: 44px; height: 5px; border-radius: 999px; background: var(--color-text-muted); opacity: 0.6; margin-top: 8px; }
 	.subnav { display: flex; justify-content: space-around; padding-bottom: 6px; touch-action: none; user-select: none; -webkit-user-select: none; }
+	/* quick-261120-lsheet: the lyrics-settings button — a plain subnav button (the grip's
+	   WR-02 plain-button path), inheriting the 44px .subnav button geometry. In the wide
+	   heads grid it sits beside the inert lyrics heading, over the lyrics column. */
+	.subnav .head-cell { display: flex; align-items: center; justify-content: center; gap: 2px; }
+	.subnav button.lyr-set { color: var(--color-text-muted); }
 	.subnav button { position: relative; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; color: var(--color-text-muted); font-size: 0.8125rem; min-height: 44px; padding: 8px 12px; /* quick-261102-t5k: 40 -> 44 */ cursor: pointer; border-bottom: 2px solid transparent; }
 	.subnav button.active { color: var(--color-text); border-bottom-color: var(--color-primary); }
 	.subnav .count { position: absolute; top: 2px; inset-inline-end: 0; line-height: 1.2; padding: 1px 6px; border-radius: 999px; background: var(--color-surface); color: var(--color-text-muted); font-size: 0.6875rem; font-variant-numeric: tabular-nums; }

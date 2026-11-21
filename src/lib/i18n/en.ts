@@ -999,6 +999,15 @@ const en = {
 	"lyricsEditor.back": "Back",
 	"lyricsEditor.confirmHint": "Saved on this device for this song.",
 	"lyricsEditor.linesCount": "{count} lines",
+	"lyricsSettings.title": "Lyrics settings",
+	"lyricsSettings.source": "Lyrics source",
+	"lyricsSettings.translation": "Translation",
+	"lyricsSettings.display": "Lines shown",
+	"lyricsSettings.sync": "Timing sync",
+	"lyricsSettings.dedupe": "If the translation matches the original, show one line only",
+	"lyricsSettings.autoSource": "Automatic (upstream)",
+	"lyricsSettings.yourVersion": "Your pinned version",
+	"lyricsSettings.perLineHint": "Per-line timing: use “Add / edit your own lyrics” above.",
 } as const;
 
 export default en;

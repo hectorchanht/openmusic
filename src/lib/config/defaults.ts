@@ -161,7 +161,11 @@ export const TRANSLATION_DEFAULTS = {
 	 *  parens-translations render alongside the parent line. */
 	lyricsHideParenTranslation: false,
 	/** Hide the parens-derived lines themselves (skip rendering them). Default OFF. */
-	lyricsHideParenLines: false
+	lyricsHideParenLines: false,
+	/** quick-261120-lsheet (Hector 2026-11-20): when a generated translation comes back
+	 *  IDENTICAL to the original line, show ONE line instead of the doubled pair in
+	 *  below mode. Default ON (his call — identical doubling reads as a bug). */
+	lyricsDedupeIdentical: true
 } as const;
 
 // ---- Playback --------------------------------------------------------------------------

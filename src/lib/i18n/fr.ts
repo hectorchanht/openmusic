@@ -951,6 +951,15 @@ const fr: Dict = {
 	"lyricsEditor.back": "Retour",
 	"lyricsEditor.confirmHint": "Enregistré sur cet appareil pour cette chanson.",
 	"lyricsEditor.linesCount": "{count} lignes",
+	"lyricsSettings.title": "Réglages des paroles",
+	"lyricsSettings.source": "Source des paroles",
+	"lyricsSettings.translation": "Traduction",
+	"lyricsSettings.display": "Lignes affichées",
+	"lyricsSettings.sync": "Synchronisation",
+	"lyricsSettings.dedupe": "Si la traduction est identique à l'original, n'afficher qu'une ligne",
+	"lyricsSettings.autoSource": "Automatique",
+	"lyricsSettings.yourVersion": "Votre version épinglée",
+	"lyricsSettings.perLineHint": "Timing ligne par ligne : utilisez « Ajouter / modifier vos paroles » ci-dessus.",
 };
 
 export default fr;

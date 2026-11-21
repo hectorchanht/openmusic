@@ -983,6 +983,15 @@ const zhHans: Dict = {
 	"lyricsEditor.back": "返回",
 	"lyricsEditor.confirmHint": "会保存在这台设备上，属于这首歌。",
 	"lyricsEditor.linesCount": "{count} 行",
+	"lyricsSettings.title": "歌词设置",
+	"lyricsSettings.source": "歌词来源",
+	"lyricsSettings.translation": "翻译",
+	"lyricsSettings.display": "显示行",
+	"lyricsSettings.sync": "同步",
+	"lyricsSettings.dedupe": "与原文相同时只显示一行",
+	"lyricsSettings.autoSource": "自动（上游来源）",
+	"lyricsSettings.yourVersion": "你固定的版本",
+	"lyricsSettings.perLineHint": "逐行时间：用上面“新增/编辑你的歌词”。",
 };
 
 export default zhHans;

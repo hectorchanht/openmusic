@@ -217,6 +217,8 @@ class Settings {
 	 *  the parent line shows; the parenthesised content is dropped from the rendered list.
 	 *  Independent of lyricsHideParenTranslation — combine for "show plain English-only". */
 	lyricsHideParenLines = $state<boolean>(TRANSLATION_DEFAULTS.lyricsHideParenLines);
+	/** quick-261120-lsheet: identical-translation dedupe (see TRANSLATION_DEFAULTS). */
+	lyricsDedupeIdentical = $state<boolean>(TRANSLATION_DEFAULTS.lyricsDedupeIdentical);
 
 	// --- appearance / per-part sizing (quick-260607-fnp) -----------------------------------
 	// Percent scales (100 = today's size). Applied app-wide as CSS custom properties in
@@ -486,6 +488,10 @@ class Settings {
 					typeof v.lyricsHideParenLines === 'boolean'
 						? v.lyricsHideParenLines
 						: TRANSLATION_DEFAULTS.lyricsHideParenLines;
+				this.lyricsDedupeIdentical =
+					typeof v.lyricsDedupeIdentical === 'boolean'
+						? v.lyricsDedupeIdentical
+						: TRANSLATION_DEFAULTS.lyricsDedupeIdentical;
 				this.defaultQuality = (v.defaultQuality as DefaultQuality) ?? PLAYBACK_DEFAULTS.defaultQuality;
 				this.downloadQuality = (v.downloadQuality as DefaultQuality) ?? PLAYBACK_DEFAULTS.downloadQuality;
 				this.defaultSource = (v.defaultSource as DefaultSource) ?? PLAYBACK_DEFAULTS.defaultSource;
@@ -690,6 +696,7 @@ class Settings {
 					zhScript: this.zhScript,
 					lyricsHideParenTranslation: this.lyricsHideParenTranslation,
 					lyricsHideParenLines: this.lyricsHideParenLines,
+					lyricsDedupeIdentical: this.lyricsDedupeIdentical,
 					defaultQuality: this.defaultQuality,
 					downloadQuality: this.downloadQuality,
 					defaultSource: this.defaultSource,
@@ -845,6 +852,7 @@ class Settings {
 		this.zhScript = d.zhScript; // quick-260919-2jo / quick-260925-vtg — back to TRANSLATION_DEFAULTS.zhScript ('zh-Hant')
 		this.lyricsHideParenTranslation = d.lyricsHideParenTranslation;
 		this.lyricsHideParenLines = d.lyricsHideParenLines;
+		this.lyricsDedupeIdentical = d.lyricsDedupeIdentical;
 		this.save();
 	}
 

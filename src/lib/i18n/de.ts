@@ -951,6 +951,15 @@ const de: Dict = {
 	"lyricsEditor.back": "Zurück",
 	"lyricsEditor.confirmHint": "Wird auf diesem Gerät für diesen Song gespeichert.",
 	"lyricsEditor.linesCount": "{count} Zeilen",
+	"lyricsSettings.title": "Songtext-Einstellungen",
+	"lyricsSettings.source": "Songtext-Quelle",
+	"lyricsSettings.translation": "Übersetzung",
+	"lyricsSettings.display": "Angezeigte Zeilen",
+	"lyricsSettings.sync": "Synchronisierung",
+	"lyricsSettings.dedupe": "Wenn die Übersetzung dem Original entspricht, nur eine Zeile anzeigen",
+	"lyricsSettings.autoSource": "Automatisch",
+	"lyricsSettings.yourVersion": "Deine angeheftete Version",
+	"lyricsSettings.perLineHint": "Zeilen-Timing: oben über „Eigenen Songtext hinzufügen / bearbeiten“.",
 };
 
 export default de;

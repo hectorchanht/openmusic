@@ -951,6 +951,15 @@ const th: Dict = {
 	"lyricsEditor.back": "กลับ",
 	"lyricsEditor.confirmHint": "บันทึกในอุปกรณ์นี้สำหรับเพลงนี้",
 	"lyricsEditor.linesCount": "{count} บรรทัด",
+	"lyricsSettings.title": "ตั้งค่าคำร้อง",
+	"lyricsSettings.source": "ที่มาของคำร้อง",
+	"lyricsSettings.translation": "คำแปล",
+	"lyricsSettings.display": "บรรทัดที่แสดง",
+	"lyricsSettings.sync": "การซิงค์",
+	"lyricsSettings.dedupe": "หากคำแปลเหมือนต้นฉบับ ให้แสดงเพียงบรรทัดเดียว",
+	"lyricsSettings.autoSource": "อัตโนมัติ",
+	"lyricsSettings.yourVersion": "เวอร์ชันที่คุณปักหมุด",
+	"lyricsSettings.perLineHint": "เวลาทีละบรรทัด: ใช้ “เพิ่ม / แก้ไขคำร้องของคุณ” ด้านบน",
 };
 
 export default th;

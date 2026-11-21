@@ -951,6 +951,15 @@ const pt: Dict = {
 	"lyricsEditor.back": "Voltar",
 	"lyricsEditor.confirmHint": "Salvo neste dispositivo para esta música.",
 	"lyricsEditor.linesCount": "{count} linhas",
+	"lyricsSettings.title": "Definições das letras",
+	"lyricsSettings.source": "Fonte da letra",
+	"lyricsSettings.translation": "Tradução",
+	"lyricsSettings.display": "Linhas exibidas",
+	"lyricsSettings.sync": "Sincronização",
+	"lyricsSettings.dedupe": "Se a tradução for igual ao original, mostrar apenas uma linha",
+	"lyricsSettings.autoSource": "Automático",
+	"lyricsSettings.yourVersion": "A tua versão fixada",
+	"lyricsSettings.perLineHint": "Tempo por linha: usa «Adicionar / editar a tua letra» acima.",
 };
 
 export default pt;

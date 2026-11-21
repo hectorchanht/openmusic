@@ -983,6 +983,15 @@ const zhHant: Dict = {
 	"lyricsEditor.back": "返回",
 	"lyricsEditor.confirmHint": "會儲存在這部裝置，屬於這首歌。",
 	"lyricsEditor.linesCount": "{count} 行",
+	"lyricsSettings.title": "歌詞設定",
+	"lyricsSettings.source": "歌詞來源",
+	"lyricsSettings.translation": "翻譯",
+	"lyricsSettings.display": "顯示行",
+	"lyricsSettings.sync": "同步",
+	"lyricsSettings.dedupe": "與原文相同時只顯示一行",
+	"lyricsSettings.autoSource": "自動（上游來源）",
+	"lyricsSettings.yourVersion": "你釘選的版本",
+	"lyricsSettings.perLineHint": "逐行時間：用上面「新增／編輯你的歌詞」。",
 };
 
 export default zhHant;

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { lyricsTranslation, publishedLineFor, type PublishedTranslation } from './lyrics-translation.svelte';
+import { lyricsTranslation, publishedLineFor, translationDuplicatesOriginal, type PublishedTranslation } from './lyrics-translation.svelte';
 
 // quick-261116-lyrux (Fix 2): the publication seam between NpLyrics (publisher) and
 // the Nowbar (reader). The reader decision is pure; the store is a plain snapshot.
@@ -52,5 +52,23 @@ describe('lyricsTranslation store', () => {
 		pending[0] = true;
 		expect(lyricsTranslation.lines[0]).toBe('a');
 		expect(lyricsTranslation.pending[0]).toBe(false);
+	});
+});
+
+describe('translationDuplicatesOriginal (quick-261120-lsheet)', () => {
+	it('identical text duplicates', () => {
+		expect(translationDuplicatesOriginal('hello world', 'hello world')).toBe(true);
+	});
+	it('surrounding whitespace is ignored', () => {
+		expect(translationDuplicatesOriginal('  hello ', 'hello')).toBe(true);
+	});
+	it('different text does not duplicate', () => {
+		expect(translationDuplicatesOriginal('你好', 'hello')).toBe(false);
+	});
+	it('empty sides never duplicate', () => {
+		expect(translationDuplicatesOriginal('', '')).toBe(false);
+		expect(translationDuplicatesOriginal('hello', '')).toBe(false);
+		expect(translationDuplicatesOriginal('', 'hello')).toBe(false);
+		expect(translationDuplicatesOriginal('   ', '   ')).toBe(false);
 	});
 });

@@ -951,6 +951,15 @@ const vi: Dict = {
 	"lyricsEditor.back": "Quay lại",
 	"lyricsEditor.confirmHint": "Lưu trên thiết bị này cho bài hát này.",
 	"lyricsEditor.linesCount": "{count} dòng",
+	"lyricsSettings.title": "Cài đặt lời bài hát",
+	"lyricsSettings.source": "Nguồn lời",
+	"lyricsSettings.translation": "Bản dịch",
+	"lyricsSettings.display": "Dòng hiển thị",
+	"lyricsSettings.sync": "Đồng bộ",
+	"lyricsSettings.dedupe": "Nếu bản dịch giống bản gốc, chỉ hiển thị một dòng",
+	"lyricsSettings.autoSource": "Tự động",
+	"lyricsSettings.yourVersion": "Phiên bản bạn đã ghim",
+	"lyricsSettings.perLineHint": "Thời gian từng dòng: dùng “Thêm / sửa lời của bạn” ở trên.",
 };
 
 export default vi;

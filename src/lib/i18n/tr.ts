@@ -951,6 +951,15 @@ const tr: Dict = {
 	"lyricsEditor.back": "Geri",
 	"lyricsEditor.confirmHint": "Bu şarkı için bu cihazda saklanır.",
 	"lyricsEditor.linesCount": "{count} satır",
+	"lyricsSettings.title": "Şarkı sözü ayarları",
+	"lyricsSettings.source": "Şarkı sözü kaynağı",
+	"lyricsSettings.translation": "Çeviri",
+	"lyricsSettings.display": "Gösterilen satırlar",
+	"lyricsSettings.sync": "Senkronizasyon",
+	"lyricsSettings.dedupe": "Çeviri orijinalle aynıysa tek satır göster",
+	"lyricsSettings.autoSource": "Otomatik",
+	"lyricsSettings.yourVersion": "Sabitlediğin sürüm",
+	"lyricsSettings.perLineHint": "Satır satır zamanlama: yukarıdaki “Kendi şarkı sözünü ekle / düzenle”yi kullan.",
 };
 
 export default tr;

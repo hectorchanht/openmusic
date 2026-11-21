@@ -951,6 +951,15 @@ const it: Dict = {
 	"lyricsEditor.back": "Indietro",
 	"lyricsEditor.confirmHint": "Salvato su questo dispositivo per questo brano.",
 	"lyricsEditor.linesCount": "{count} righe",
+	"lyricsSettings.title": "Impostazioni testi",
+	"lyricsSettings.source": "Fonte del testo",
+	"lyricsSettings.translation": "Traduzione",
+	"lyricsSettings.display": "Righe mostrate",
+	"lyricsSettings.sync": "Sincronizzazione",
+	"lyricsSettings.dedupe": "Se la traduzione coincide con l'originale, mostra una sola riga",
+	"lyricsSettings.autoSource": "Automatico",
+	"lyricsSettings.yourVersion": "La tua versione fissata",
+	"lyricsSettings.perLineHint": "Tempi per riga: usa «Aggiungi / modifica il tuo testo» sopra.",
 };
 
 export default it;

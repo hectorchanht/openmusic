@@ -75,3 +75,17 @@ export function publishedLineFor(
 	const v = pub.lines[fullIdx];
 	return v === undefined ? null : v;
 }
+
+/**
+ * quick-261120-lsheet (Hector 2026-11-20): is this "translation" just the original
+ * again? True when both sides are non-empty and equal after trimming — the case the
+ * lyricsDedupeIdentical setting (default ON) collapses to a single line in below
+ * mode. Covers both lines the pipeline SKIPPED (already in the target language, so
+ * the slot holds the original by construction) and lines MT returned unchanged.
+ * Pure; the pane's render is the only caller.
+ */
+export function translationDuplicatesOriginal(original: string, translated: string): boolean {
+	const o = original.trim();
+	const tr = translated.trim();
+	return o !== '' && tr !== '' && o === tr;
+}

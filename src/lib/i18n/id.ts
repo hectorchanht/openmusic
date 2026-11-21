@@ -951,6 +951,15 @@ const id: Dict = {
 	"lyricsEditor.back": "Kembali",
 	"lyricsEditor.confirmHint": "Disimpan di perangkat ini untuk lagu ini.",
 	"lyricsEditor.linesCount": "{count} baris",
+	"lyricsSettings.title": "Pengaturan lirik",
+	"lyricsSettings.source": "Sumber lirik",
+	"lyricsSettings.translation": "Terjemahan",
+	"lyricsSettings.display": "Baris yang ditampilkan",
+	"lyricsSettings.sync": "Sinkronisasi",
+	"lyricsSettings.dedupe": "Jika terjemahan sama dengan aslinya, tampilkan satu baris saja",
+	"lyricsSettings.autoSource": "Otomatis",
+	"lyricsSettings.yourVersion": "Versi sematan Anda",
+	"lyricsSettings.perLineHint": "Waktu per baris: gunakan “Tambah / edit lirik Anda” di atas.",
 };
 
 export default id;

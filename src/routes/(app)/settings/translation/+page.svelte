@@ -1,12 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { ChevronDown, Languages, Replace, RotateCcw } from '@lucide/svelte';
+	import { Languages, RotateCcw } from '@lucide/svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
-	import SettingToggle from '$lib/components/SettingToggle.svelte';
 	import SettingPicker from '$lib/components/SettingPicker.svelte';
 	import SettingHint from '$lib/components/SettingHint.svelte';
-	import { settings, type LyricsLang, type SourceLang, type TranslateMode, type ZhScriptSetting } from '$lib/stores/settings.svelte';
+	import { settings, type LyricsLang, type SourceLang, type ZhScriptSetting } from '$lib/stores/settings.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type TranslationKey } from '$lib/i18n';
 	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
@@ -16,7 +15,7 @@
 	// User call 2026-10-06: the reset button opens an in-app confirm modal (not the
 	// native window.confirm).
 	let resetOpen = $state(false);
-	// quick-261020-lyr6: active tab for TRANSLATION TARGETS (all | lyrics | artist | title | bio).
+	// quick-261020-lyr6: active tab for TRANSLATION TARGETS (all | artist | title | bio).
 	let tabState = $state<'all' | PartKey>('all');
 
 	// `off` + 'auto' are chrome (label resolved in template via t()); language endonyms literal.
@@ -63,27 +62,24 @@
 		{ v: 'vi', label: 'Tiếng Việt' },
 		{ v: 'th', label: 'ไทย' }
 	];
-	const modes: { v: TranslateMode; key: string }[] = [
-		{ v: 'replace', key: 'settings.optReplace' },
-		{ v: 'below', key: 'settings.optShowBelow' }
-	];
 
 	// quick-260919-hm2: 'bio' joins the per-part model. It used to be its own hand-rolled section
 	// with its own option array and its own setter, purely because it is the one part with no
 	// skip-language list — which the `skip` flag on `parts` below now expresses in one boolean.
 	// bioLang's declared type is `'auto' | LyricsLang`, and LyricsLang ALREADY contains 'auto'
 	// (see the ju0 note on the union), so the two are the same type and the map below is exact.
-	type PartKey = 'artist' | 'title' | 'lyrics' | 'bio';
+	// quick-261120-lsheet: 'lyrics' left this page — its controls live ONLY in the
+	// Now Playing lyrics settings sheet now (one function, one home). The store
+	// fields are unchanged; this page simply no longer exposes them.
+	type PartKey = 'artist' | 'title' | 'bio';
 	const TARGET: Record<PartKey, () => LyricsLang> = {
 		artist: () => settings.artistLang,
 		title: () => settings.titleLang,
-		lyrics: () => settings.lyricsLang,
 		bio: () => settings.bioLang
 	};
 	const SKIP: Record<PartKey, () => SourceLang[]> = {
 		artist: () => settings.artistSkip,
 		title: () => settings.titleSkip,
-		lyrics: () => settings.lyricsSkip,
 		// Bio has no skip whitelist — names.dnBio() passes `[]` literally. Kept in the map so the
 		// record stays total; the `skip: false` flag on `parts` is what hides the UI.
 		bio: () => []
@@ -92,8 +88,7 @@
 	function setTarget(part: PartKey, v: LyricsLang) {
 		if (part === 'artist') settings.artistLang = v;
 		else if (part === 'title') settings.titleLang = v;
-		else if (part === 'bio') settings.bioLang = v;
-		else settings.lyricsLang = v;
+		else settings.bioLang = v;
 		settings.save();
 	}
 
@@ -110,17 +105,17 @@
 	// Off opens this page and finds both facts intact. Mixed is a display state only; the four
 	// parts collapse to one value exactly when the user taps a chip here, never before.
 	//
-	// SCOPE: these are the four parts the page has always exposed. `settings.lastfmLang` is NOT
+	// SCOPE: these are the parts this page exposes (lyrics moved to the NP sheet,
+	// quick-261120-lsheet). `settings.lastfmLang` is NOT
 	// swept in — despite looking like a sibling field, it targets Last.fm TAG chips (names.dnLastfm
 	// → TagChips), has no control on this page, and "apply to all" must not silently change a
 	// setting the user cannot see.
-	const PART_KEYS = ['lyrics', 'artist', 'title', 'bio'] as const;
+	const PART_KEYS = ['artist', 'title', 'bio'] as const;
 	const sharedTarget = $derived.by<LyricsLang | null>(() => {
-		const first = TARGET.lyrics();
+		const first = TARGET.artist();
 		return PART_KEYS.every((k) => TARGET[k]() === first) ? first : null;
 	});
 	function applyAll(v: LyricsLang) {
-		settings.lyricsLang = v;
 		settings.artistLang = v;
 		settings.titleLang = v;
 		settings.bioLang = v;
@@ -138,10 +133,8 @@
 		const next = cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v];
 		if (part === 'artist') settings.artistSkip = next;
 		else if (part === 'title') settings.titleSkip = next;
-		else settings.lyricsSkip = next;
 		settings.save();
 	}
-	function setMode(v: TranslateMode) { settings.translateMode = v; settings.save(); }
 	// quick-260919-2jo: the Chinese SCRIPT lock. Endonyms are LITERAL here, exactly like `langs`
 	// and `sources` above — a script's own name is the same in every UI language, so the pills
 	// need no dictionary entry and only the heading + note are translated (2 new keys, not 5).
@@ -159,7 +152,6 @@
 	// other three, so the four accordions are chip-for-chip identical (Off, Auto, then endonyms).
 	// `skip` marks which parts have a source-language whitelist — bio does not.
 	const parts: { key: PartKey; headingKey: TranslationKey; noteKey: TranslationKey; skip: boolean }[] = [
-		{ key: 'lyrics', headingKey: 'settings.lyricsTranslation', noteKey: 'settings.translateLyricsNote', skip: true },
 		{ key: 'artist', headingKey: 'settings.translateArtist', noteKey: 'settings.translateArtistNote', skip: true },
 		{ key: 'title', headingKey: 'settings.translateTitle', noteKey: 'settings.translateTitleNote', skip: true },
 		{ key: 'bio', headingKey: 'settings.translateLastfm', noteKey: 'settings.translateLastfmNote', skip: false }
@@ -171,7 +163,6 @@
 	const zhOptions = $derived(
 		ZH_SCRIPTS.map((z) => ({ v: z.v, label: z.v === 'off' ? t('settings.optOff') : z.label }))
 	);
-	const modeOptions = $derived(modes.map((m) => ({ v: m.v, label: t(m.key as TranslationKey) })));
 
 </script>
 
@@ -192,61 +183,7 @@
 	onconfirm={() => settings.resetTranslation()}
 	onclose={() => (resetOpen = false)}
 />
-
-<!-- quick-260919-ebi (F3): the translate-mode mocks use NEUTRAL BLOCK TEXT, not a real bilingual
-     pair, and that is a deliberate call. Any real sample would have to pick an original language
-     and a target language — which is itself a translation problem, and would need 15 versions of
-     the mock to stay honest in every UI language. Dots stand for the original line, dashes for
-     its translation, so the SHAPE (one line replaced vs two lines stacked) is the whole message
-     and nothing needs translating. -->
-{#snippet modeReplace()}
-	<span class="mock-chrome" style:justify-content="center">
-		<span class="mock-col" style:gap="6px">
-			{#each [0, 1, 2] as r (r)}
-				<span class="mock-text dim">&#8212; &#8212; &#8212;</span>
-			{/each}
-		</span>
-	</span>
-{/snippet}
-{#snippet modeBelow()}
-	<span class="mock-chrome" style:justify-content="center">
-		<span class="mock-col" style:gap="6px">
-			{#each [0, 1] as r (r)}
-				<span class="mock-col" style:gap="1px">
-					<span class="mock-text">&#8226;&#8226;&#8226; &#8226;&#8226;&#8226;</span>
-					<span class="mock-text dim">&#8212; &#8212; &#8212;</span>
-				</span>
-			{/each}
-		</span>
-	</span>
-{/snippet}
 <!-- quick-261020-lyr10 (user): visual previews for the Hide toggles. -->
-{#snippet hideLinesShow()}
-	<span class="mock-chrome" style:justify-content="center">
-		<span class="mock-col" style:gap="4px">
-			<span class="mock-text">Already folding it for you</span>
-			<span class="mock-text dim">早已為你準備好一切</span>
-		</span>
-	</span>
-{/snippet}
-{#snippet hideLinesHide()}
-	<span class="mock-chrome" style:justify-content="center">
-		<span class="mock-col" style:gap="4px">
-			<span class="mock-text">Already folding it for you</span>
-			<span class="mock-text strike">早已為你準備好一切</span>
-		</span>
-	</span>
-{/snippet}
-{#snippet hideParenShow()}
-	<span class="mock-chrome" style:justify-content="center">
-		<span class="mock-text">Already folding it for you <span class="mock-text dim">(早已為你準備好一切)</span></span>
-	</span>
-{/snippet}
-{#snippet hideParenHide()}
-	<span class="mock-chrome" style:justify-content="center">
-		<span class="mock-text">Already folding it for you <span class="mock-text strike">(早已為你準備好一切)</span></span>
-	</span>
-{/snippet}
 
 <!-- 0. Chinese script lock (quick-260919-2jo) — sits ABOVE everything else because it governs the
      names and titles the sections below then translate: the lock is applied LAST and has the last
@@ -259,10 +196,10 @@
 
 <hr class="div" />
 
-<!-- 1. Lyrics translate mode — how translated lyrics display (replace vs show below). -->
-<!-- 2. TRANSLATION TARGETS (quick-261020-lyr6, user): the MAIN translation control.
+<!-- 1. TRANSLATION TARGETS (quick-261020-lyr6, user): the MAIN translation control.
      Compacted from 5 stacked accordions into TABS — one tab bar, content below.
-     Tabs: All | Lyrics | Artist | Title | Bio. -->
+     Tabs: All | Artist | Title | Bio. Lyrics is NOT here any more (quick-261120-lsheet):
+     its target, display mode and line toggles live in the Now Playing lyrics sheet. -->
 <section>
 	<h2><Languages size={15} /> {t('settings.translateTargets')}</h2>
 
@@ -304,59 +241,6 @@
 			{/if}
 		{/if}
 	</div>
-</section>
-
-<!-- quick-261020-lyr8 (user): LYRICS TRANSLATE MODE sits BELOW the TRANSLATION TARGETS
-     section (tied to the Lyrics translation tab). Shows only when Lyrics target is ON. -->
-{#if settings.lyricsLang !== 'off'}
-<hr class="div" />
-
-<section>
-	<h2><Replace size={15} /> {t('settings.lyricsTranslateMode')}<SettingHint label={t('settings.lyricsTranslateMode')} text={t('settings.translateModeNote')} /></h2>
-	<SettingPicker
-		variant="preview"
-		label={t('settings.lyricsTranslateMode')}
-		options={[
-			{ ...modeOptions[0], preview: modeReplace },
-			{ ...modeOptions[1], preview: modeBelow }
-		]}
-		value={settings.translateMode}
-		onpick={setMode}
-	/>
-</section>
-{/if}
-
-<!-- quick-261020-lyr9 (user): the two Hide parenthesised toggles are ALWAYS visible,
-     not gated on Lyrics translation.
-     quick-261020-lyr10 (user): visual pickers with mockup previews, better names. -->
-<hr class="div" />
-
-<section>
-	<h2><Languages size={15} /> {t('settings.embeddedTranslations')}</h2>
-	<SettingPicker
-		variant="preview"
-		label={t('settings.embeddedTranslations')}
-		options={[
-			{ v: 'show', label: t('settings.optShow'), preview: hideLinesShow },
-			{ v: 'hide', label: t('settings.optHide'), preview: hideLinesHide }
-		]}
-		value={settings.lyricsHideParenLines ? 'hide' : 'show'}
-		onpick={(v) => { settings.lyricsHideParenLines = v === 'hide'; settings.save(); }}
-	/>
-	<p class="muted">{t('settings.embeddedTranslationsNote')}</p>
-
-	<h2 style="margin-top: 16px"><Languages size={15} /> {t('settings.inlineTranslations')}</h2>
-	<SettingPicker
-		variant="preview"
-		label={t('settings.inlineTranslations')}
-		options={[
-			{ v: 'show', label: t('settings.optShow'), preview: hideParenShow },
-			{ v: 'hide', label: t('settings.optHide'), preview: hideParenHide }
-		]}
-		value={settings.lyricsHideParenTranslation ? 'hide' : 'show'}
-		onpick={(v) => { settings.lyricsHideParenTranslation = v === 'hide'; settings.save(); }}
-	/>
-	<p class="muted">{t('settings.inlineTranslationsNote')}</p>
 </section>
 
 <hr class="div" />

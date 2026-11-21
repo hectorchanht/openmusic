@@ -27,7 +27,7 @@
 	import { shouldTranslate } from '$lib/i18n/detect';
 	import { reorderPairs, splitParenLines, serializeLRC, lineSeekFraction, activeLineAt, lyricAnchorMetrics, formatLyricOffset, LYRIC_OFFSET_MAX, type LyricLine } from '$lib/services/lrc';
 	// quick-261116-lyrux (Fix 2): the publication seam the Nowbar reads for replace mode.
-	import { lyricsTranslation } from '$lib/stores/lyrics-translation.svelte';
+	import { lyricsTranslation, translationDuplicatesOriginal } from '$lib/stores/lyrics-translation.svelte';
 	// quick-260919-2jo: the Chinese script lock for lyric text. `parseLyrics` replaces `parseLRC`
 	// (the ORIGINAL lines); `lockLyricLines` covers the translation column, which is a SECOND source
 	// of source-derived text produced after parse time.
@@ -655,7 +655,9 @@
 						{#if showTr && !hideTrForLine}
 							{#if trPending[i]}
 								<span class="tr tr-pending" aria-hidden="true"><span class="sk tr-skbar" style="--skw:{skeletonWidthPct(l.text)}%"></span></span>
-							{:else}
+							{:else if !(settings.lyricsDedupeIdentical && translationDuplicatesOriginal(l.text, trLines[i] ?? ''))}
+								<!-- quick-261120-lsheet: dedupe ON (default) — a "translation" identical
+								     to the original is not rendered as a second line below it. -->
 								<span class="tr" class:active={l.time === activeTime && activeTime >= 0}>{trLines[i]}</span>
 							{/if}
 						{/if}

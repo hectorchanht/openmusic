@@ -951,6 +951,15 @@ const hi: Dict = {
 	"lyricsEditor.back": "वापस",
 	"lyricsEditor.confirmHint": "इस गाने के लिए इस डिवाइस पर सहेजा जाएगा।",
 	"lyricsEditor.linesCount": "{count} पंक्तियाँ",
+	"lyricsSettings.title": "गीत सेटिंग्स",
+	"lyricsSettings.source": "गीत स्रोत",
+	"lyricsSettings.translation": "अनुवाद",
+	"lyricsSettings.display": "दिखाई गई पंक्तियाँ",
+	"lyricsSettings.sync": "सिंक",
+	"lyricsSettings.dedupe": "यदि अनुवाद मूल जैसा हो, तो केवल एक पंक्ति दिखाएँ",
+	"lyricsSettings.autoSource": "स्वचालित",
+	"lyricsSettings.yourVersion": "आपका पिन किया संस्करण",
+	"lyricsSettings.perLineHint": "प्रति-पंक्ति समय: ऊपर “अपने गीत जोड़ें / संपादित करें” का उपयोग करें।",
 };
 
 export default hi;

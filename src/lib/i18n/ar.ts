@@ -951,6 +951,15 @@ const ar: Dict = {
 	"lyricsEditor.back": "رجوع",
 	"lyricsEditor.confirmHint": "يُحفظ على هذا الجهاز لهذه الأغنية.",
 	"lyricsEditor.linesCount": "{count} سطر",
+	"lyricsSettings.title": "إعدادات كلمات الأغاني",
+	"lyricsSettings.source": "مصدر الكلمات",
+	"lyricsSettings.translation": "الترجمة",
+	"lyricsSettings.display": "الأسطر المعروضة",
+	"lyricsSettings.sync": "المزامنة",
+	"lyricsSettings.dedupe": "إذا تطابقت الترجمة مع الأصل، اعرض سطرًا واحدًا فقط",
+	"lyricsSettings.autoSource": "تلقائي",
+	"lyricsSettings.yourVersion": "النسخة المثبتة",
+	"lyricsSettings.perLineHint": "توقيت كل سطر: استخدم «إضافة / تعديل كلماتك» أعلاه.",
 };
 
 export default ar;

@@ -951,6 +951,15 @@ const ru: Dict = {
 	"lyricsEditor.back": "Назад",
 	"lyricsEditor.confirmHint": "Сохраняется на этом устройстве для этой песни.",
 	"lyricsEditor.linesCount": "Строк: {count}",
+	"lyricsSettings.title": "Настройки текста",
+	"lyricsSettings.source": "Источник текста",
+	"lyricsSettings.translation": "Перевод",
+	"lyricsSettings.display": "Отображаемые строки",
+	"lyricsSettings.sync": "Синхронизация",
+	"lyricsSettings.dedupe": "Если перевод совпадает с оригиналом, показывать одну строку",
+	"lyricsSettings.autoSource": "Автоматически",
+	"lyricsSettings.yourVersion": "Ваша закреплённая версия",
+	"lyricsSettings.perLineHint": "Время по строкам — через «Добавить / изменить свой текст» выше.",
 };
 
 export default ru;
