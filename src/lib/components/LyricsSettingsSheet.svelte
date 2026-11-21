@@ -272,6 +272,11 @@
 	/* Sheet family idiom — see LyricsEditor.svelte / TrackMenu .menu (same tokens). */
 	.scrim { position: fixed; inset: 0; z-index: 90; background: rgb(0 0 0 / 0.45); border: none; cursor: pointer; }
 	.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 91; max-height: 86dvh; overflow-y: auto; background: var(--color-bg); border-radius: var(--radius-sheet) var(--radius-sheet) 0 0; box-shadow: var(--ui-sheet-shadow); padding: 10px 14px calc(14px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; }
+	/* quick-261120-segfix: this sheet is a SCROLLING flex column — its children keep
+	   their geometry and the column scrolls. Without this, flex shrink compressed the
+	   two SettingPicker rows to clipped strips (their overflow-x:auto zeroes their
+	   automatic minimum size) while min-height siblings rendered fine. */
+	.sheet > :global(*) { flex: none; }
 	@media (min-width: 640px) { .sheet { left: 50%; right: auto; width: min(560px, calc(100vw - 32px)); transform: translateX(-50%); border-radius: var(--radius-sheet); bottom: 16px; } }
 	.sheet-head { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 0.95rem; min-height: 32px; }
 	.sheet-head .x { margin-left: auto; }
