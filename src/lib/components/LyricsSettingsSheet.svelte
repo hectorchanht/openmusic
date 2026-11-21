@@ -269,6 +269,14 @@
 				checked={settings.lyricsHideParenTranslation}
 				onchange={() => { settings.lyricsHideParenTranslation = !settings.lyricsHideParenTranslation; settings.save(); }}
 			/>
+			<!-- quick-261120-furi: furigana — ruby readings over kanji in Japanese
+			     lyrics (local engine, services/furigana). Inert for lines without
+			     kana, so it needs no per-song gating here. -->
+			<SettingToggle
+				label={t('lyricsSettings.furigana')}
+				checked={settings.lyricsFurigana}
+				onchange={() => { settings.lyricsFurigana = !settings.lyricsFurigana; settings.save(); }}
+			/>
 
 			<h3 class="grp">{t('lyricsSettings.sync')}</h3>
 			<div class="offset-row">

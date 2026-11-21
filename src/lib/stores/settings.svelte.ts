@@ -219,6 +219,8 @@ class Settings {
 	lyricsHideParenLines = $state<boolean>(TRANSLATION_DEFAULTS.lyricsHideParenLines);
 	/** quick-261120-lsheet: identical-translation dedupe (see TRANSLATION_DEFAULTS). */
 	lyricsDedupeIdentical = $state<boolean>(TRANSLATION_DEFAULTS.lyricsDedupeIdentical);
+	/** quick-261120-furi: furigana ruby readings in Japanese lyrics (see TRANSLATION_DEFAULTS). */
+	lyricsFurigana = $state<boolean>(TRANSLATION_DEFAULTS.lyricsFurigana);
 
 	// --- appearance / per-part sizing (quick-260607-fnp) -----------------------------------
 	// Percent scales (100 = today's size). Applied app-wide as CSS custom properties in
@@ -492,6 +494,8 @@ class Settings {
 					typeof v.lyricsDedupeIdentical === 'boolean'
 						? v.lyricsDedupeIdentical
 						: TRANSLATION_DEFAULTS.lyricsDedupeIdentical;
+				this.lyricsFurigana =
+					typeof v.lyricsFurigana === 'boolean' ? v.lyricsFurigana : TRANSLATION_DEFAULTS.lyricsFurigana;
 				this.defaultQuality = (v.defaultQuality as DefaultQuality) ?? PLAYBACK_DEFAULTS.defaultQuality;
 				this.downloadQuality = (v.downloadQuality as DefaultQuality) ?? PLAYBACK_DEFAULTS.downloadQuality;
 				this.defaultSource = (v.defaultSource as DefaultSource) ?? PLAYBACK_DEFAULTS.defaultSource;
@@ -697,6 +701,7 @@ class Settings {
 					lyricsHideParenTranslation: this.lyricsHideParenTranslation,
 					lyricsHideParenLines: this.lyricsHideParenLines,
 					lyricsDedupeIdentical: this.lyricsDedupeIdentical,
+					lyricsFurigana: this.lyricsFurigana,
 					defaultQuality: this.defaultQuality,
 					downloadQuality: this.downloadQuality,
 					defaultSource: this.defaultSource,
@@ -853,6 +858,7 @@ class Settings {
 		this.lyricsHideParenTranslation = d.lyricsHideParenTranslation;
 		this.lyricsHideParenLines = d.lyricsHideParenLines;
 		this.lyricsDedupeIdentical = d.lyricsDedupeIdentical;
+		this.lyricsFurigana = d.lyricsFurigana;
 		this.save();
 	}
 

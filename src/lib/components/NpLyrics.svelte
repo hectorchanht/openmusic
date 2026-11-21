@@ -48,7 +48,11 @@
 		lyricSyncOpen,
 		setLyricSyncOpen
 	} from '$lib/stores/lyric-offset.svelte';
-	import { X } from '@lucide/svelte';
+	import { Check, X } from '@lucide/svelte';
+	// quick-261120-furi: furigana — the local finite-table readings engine
+	// (services/furigana) + the user's per-song reading pins (Addendum 6).
+	import { annotateLine, ensureFuriganaTables, hasKana, type FuriganaTables } from '$lib/services/furigana';
+	import { applyFuriganaPins, pinReading, type PinnedFuriganaSpan } from '$lib/stores/furigana-pins.svelte';
 	import { holdStep, pointerHoldEvent, HOLD_IDLE, type HoldEvent, type HoldState } from '$lib/services/lyric-hold';
 
 	// quick-260919-np3: the lyrics pane, lifted OUT of NowPlaying.svelte verbatim. The ONLY semantic
@@ -609,6 +613,49 @@
 	// fills on the spot — the editor is wrong if Hector can't go from this empty state to
 	// singing along in one sitting (brief §8, dogfood #1).
 	let editorOpen = $state(false);
+
+	// ---- furigana (quick-261120-furi, spec Addenda 3–6) ----
+	// Ruby readings over kanji, from the LOCAL engine (zero network). The tables
+	// are ~700KB of JSON in their own chunk, loaded ONLY when the toggle is on
+	// and a kana-bearing line is actually on screen. Annotation is a $derived
+	// over the SAME `lines` array the pane renders; the user's reading pins are
+	// applied on top (applyFuriganaPins — the pin wins, Addendum 6). Toggle OFF,
+	// tables not yet loaded, or a line with no kana → the template renders the
+	// plain `{l.text}` exactly as before this feature existed.
+	let furiTables = $state<FuriganaTables | null>(null);
+	let furiLoadStarted = false;
+	$effect(() => {
+		if (!settings.lyricsFurigana || furiTables || furiLoadStarted) return;
+		if (!lines.some((l) => hasKana(l.text))) return;
+		furiLoadStarted = true;
+		ensureFuriganaTables()
+			.then((tb) => {
+				furiTables = tb;
+			})
+			.catch(() => {
+				furiLoadStarted = false; // a later toggle/track change may retry
+			});
+	});
+	const furiLines = $derived.by<PinnedFuriganaSpan[][] | null>(() => {
+		const tb = furiTables;
+		if (!settings.lyricsFurigana || !tb) return null;
+		return lines.map((l) =>
+			hasKana(l.text) ? applyFuriganaPins(player.current?.uid ?? '', l.text, annotateLine(l.text, tb)) : []
+		);
+	});
+	// The variant chooser: which word, in which line, is being re-read. A word
+	// tap must NOT seek — the enclosing <p> seeks on click — so the opener
+	// stopPropagation()s (see the template).
+	let furiPick = $state<{ line: string; span: PinnedFuriganaSpan } | null>(null);
+	function openFuriChooser(e: MouseEvent, lineText: string, span: PinnedFuriganaSpan) {
+		e.stopPropagation();
+		furiPick = { line: lineText, span };
+	}
+	function chooseReading(reading: string) {
+		const uid = player.current?.uid;
+		if (uid && furiPick) pinReading(uid, furiPick.line, furiPick.span.surface, reading);
+		furiPick = null;
+	}
 </script>
 
 {#if lines.length}
@@ -642,6 +689,7 @@
 			{@const hideForReplace = settings.translateMode === 'replace' && !isTr && lines.some((o, j) => j !== i && o.time === l.time && (o.fromParen || o.isTranslation))}
 			{#if !isHiddenParen && !hideForReplace}
 				{@const hideTrForLine = isTr && settings.lyricsHideParenTranslation}
+				{@const furi = furiLines?.[i]}
 				<!-- D-01: every lyric line is a tap target that seeks to its timestamp. The line stays a
 				     semantic <p> so the anchor $effect's `querySelectorAll('p')[idx]` scroll-centering, the
 				     `.lyrics p` centring/active/paren CSS, and the activeTime↔translated[i] index alignment
@@ -655,6 +703,14 @@
 				<p data-i={i} class:active={l.time === activeTime && activeTime >= 0} class:paren={l.fromParen} onclick={() => seekToLine(l)} onkeydown={(e) => seekToLineKey(e, l)} role="button" tabindex={i === focusIdx ? 0 : -1}>
 					{#if showTr && settings.translateMode === 'replace' && !hideTrForLine}
 						{trLines[i]}{#if trPending[i]}<span class="tr-spin motion-always" aria-hidden="true"></span>{/if}
+					{:else if furi?.some((s) => s.chosen)}
+						<!-- quick-261120-furi: annotated line — each read word is a ruby
+						     span; tapping it opens the variant chooser (and does NOT
+						     seek: openFuriChooser stopPropagation()s). Unread spans
+						     (kana runs) render as plain text. -->
+						{#each furi as span}
+							{#if span.chosen}<button type="button" class="fw" tabindex="-1" onclick={(e) => openFuriChooser(e, l.text, span)} aria-label="{span.surface} — {span.chosen}"><ruby>{span.surface}<rt class:pinned={span.pinned} class:est={span.estimated && !span.pinned}>{span.chosen}</rt></ruby></button>{:else}{span.surface}{/if}
+						{/each}
 					{:else}
 						{l.text}
 						{#if showTr && !hideTrForLine}
@@ -672,6 +728,28 @@
 		{/each}
 	</div>
 {:else if lyricsPending}<LoadingState label={t('common.loading')} lines={6} />{:else}<div class="empty-wrap"><p class="empty">{t('nowplaying.noLyrics')}</p>{#if player.current?.uid}<button type="button" class="add-lyrics" onclick={() => (editorOpen = true)} use:tapBounce>{t('nowplaying.addLyrics')}</button>{/if}</div>{/if}
+
+<!-- quick-261120-furi: the reading-variant chooser (Addendum 6 — WHY NOT ALL:
+     every plausible reading is listed; the tap pins it for this song). Sheet
+     idiom copied from LyricsSettingsSheet (scrim + sheet tokens). -->
+{#if furiPick}
+	<button class="furi-scrim" aria-label={t('menu.close')} onclick={() => (furiPick = null)}></button>
+	<div class="furi-sheet" role="dialog" aria-modal="true" aria-label={t('lyrics.furiganaChoose')}>
+		<div class="furi-head">
+			<span class="furi-word">{furiPick.span.surface}</span>
+			<span class="furi-title">{t('lyrics.furiganaChoose')}</span>
+			{#if furiPick.span.estimated}<span class="furi-est">{t('lyrics.furiganaEstimated')}</span>{/if}
+			<button type="button" class="furi-x" aria-label={t('menu.close')} onclick={() => (furiPick = null)} use:tapBounce><X size={16} /></button>
+		</div>
+		{#each furiPick.span.variants as v (v)}
+			<button type="button" class="furi-opt" class:on={v === furiPick.span.chosen} onclick={() => chooseReading(v)} use:tapBounce>
+				<span>{v}</span>
+				{#if v === furiPick.span.chosen}<Check size={16} />{/if}
+			</button>
+		{/each}
+		<p class="furi-hint">{t('lyrics.furiganaHint')}</p>
+	</div>
+{/if}
 
 <LyricsEditor track={player.current} open={editorOpen} onclose={() => (editorOpen = false)} />
 
@@ -737,4 +815,28 @@
 	/* quick-260926-mzn: "Synced by listeners", inline beside the readout it qualifies. */
 	.sync .shared { font-size: 0.625rem; opacity: 0.7; }
 	.sync .close { min-width: 44px; min-height: 24px; /* quick-261102-t5k: 24 -> 44 wide, like its siblings */ padding: 2px 4px; border: none; display: inline-flex; align-items: center; }
+	/* quick-261120-furi: furigana — the read word is a bare button (inherits the
+	   line's type entirely; only the ruby + rt are new geometry). rt is muted by
+	   default, full-strength on the active line like .tr, dimmer still when the
+	   reading is an ESTIMATED fallback, and accent when the user PINNED it —
+	   three quiet states, no clutter (Dawn Apple Design). */
+	.lyrics .fw { background: none; border: none; padding: 0 1px; margin: 0; font: inherit; color: inherit; cursor: pointer; }
+	.lyrics ruby { ruby-position: over; }
+	.lyrics rt { font-size: 0.52em; font-weight: 400; color: var(--color-text-muted); letter-spacing: 0.02em; transition: color 0.2s ease; }
+	.lyrics p.active rt { color: var(--color-text); }
+	.lyrics rt.est { opacity: 0.55; }
+	.lyrics rt.pinned { color: var(--color-primary); opacity: 1; }
+	/* The variant chooser — the LyricsSettingsSheet sheet idiom at pane scope. */
+	.furi-scrim { position: fixed; inset: 0; z-index: 92; background: rgb(0 0 0 / 0.45); border: none; cursor: pointer; }
+	.furi-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 93; max-height: 70dvh; overflow-y: auto; background: var(--color-bg); border-radius: var(--radius-sheet) var(--radius-sheet) 0 0; box-shadow: var(--ui-sheet-shadow); padding: 10px 14px calc(14px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; }
+	@media (min-width: 640px) { .furi-sheet { left: 50%; right: auto; width: min(420px, calc(100vw - 32px)); transform: translateX(-50%); border-radius: var(--radius-sheet); bottom: 16px; } }
+	.furi-head { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+	.furi-word { font-size: 1.05rem; font-weight: 600; }
+	.furi-title { color: var(--color-text-muted); font-size: 0.85rem; }
+	.furi-est { color: var(--color-text-muted); font-size: 0.7rem; border: 1px solid var(--color-border); border-radius: 999px; padding: 1px 7px; }
+	.furi-x { margin-left: auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: none; border-radius: 50%; background: var(--color-surface); color: var(--color-text); cursor: pointer; flex: none; }
+	.furi-opt { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); color: var(--color-text); font-size: 1rem; cursor: pointer; text-align: start; }
+	.furi-opt.on { border-color: var(--color-primary); }
+	.furi-opt :global(svg) { color: var(--color-primary); flex: none; }
+	.furi-hint { color: var(--color-text-muted); font-size: 0.75rem; line-height: 1.4; margin: 0; }
 </style>

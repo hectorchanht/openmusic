@@ -165,7 +165,12 @@ export const TRANSLATION_DEFAULTS = {
 	/** quick-261120-lsheet (Hector 2026-11-20): when a generated translation comes back
 	 *  IDENTICAL to the original line, show ONE line instead of the doubled pair in
 	 *  below mode. Default ON (his call — identical doubling reads as a bug). */
-	lyricsDedupeIdentical: true
+	lyricsDedupeIdentical: true,
+	/** quick-261120-furi (Hector 2026-11-20): furigana — ruby readings above kanji
+	 *  in Japanese lyrics, from the local finite-table engine (services/furigana).
+	 *  Default OFF (his spec: a user-selectable option); lines without kana are
+	 *  never annotated, so the toggle is inert outside Japanese lyrics. */
+	lyricsFurigana: false
 } as const;
 
 // ---- Playback --------------------------------------------------------------------------
