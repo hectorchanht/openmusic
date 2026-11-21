@@ -45,6 +45,8 @@ import {
 	removeCrowdCoverByName
 } from '$lib/services/cover-cache';
 import { hasHttpsScheme } from '$lib/services/url-safety';
+import { getArtistChosen } from '$lib/services/artist-record';
+import { getTrackCoverPin } from '$lib/services/track-record';
 
 // Module-scoped reactive counter. Held in a small object because top-level `$state` reassignment must be
 // on a `$state` rune target; callers CALL coverVersion() inside a $derived/template to take the dependency
@@ -132,7 +134,10 @@ export function readCoverByUidOrName(uid: string, artist: string, title: string)
  */
 export function readChosenCover(uid: string, artist: string, title: string): string | null {
 	coverVersion(); // reactive dependency — recompute when a pin or crowd pick lands
-	return getPinnedCover(uid) ?? getCrowdCover(uid, artist, title);
+	// quick-261121-canon: the RECORD pin leads — a cover pinned for the SONG (any instance)
+	// is the user's canonical choice, and getTrackCoverPin also migrates a legacy per-uid
+	// pin into the record on first read, so an old correction becomes song-wide from here.
+	return getTrackCoverPin(artist, title, uid) ?? getPinnedCover(uid) ?? getCrowdCover(uid, artist, title);
 }
 
 /**
@@ -207,7 +212,11 @@ export function unpinCover(uid: string): void {
 /** Reactive read of an ARTIST-only cover. Depends on coverVersion(). */
 export function readArtistCover(artist: string): string | null {
 	coverVersion();
-	return getCachedArtistCover(artist);
+	// quick-261121-canon: the canonical ArtistRecord leads — its pin outranks everything and
+	// its chosen image persists forever (the shared cache below it expires at 14 days, so the
+	// record is also the offline fallback). The cache stays as the next rung for artists the
+	// record has never seen (e.g. a backfill write that predates the record layer).
+	return getArtistChosen(artist) ?? getCachedArtistCover(artist);
 }
 
 /**
