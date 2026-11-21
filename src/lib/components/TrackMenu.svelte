@@ -72,8 +72,9 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	// quick-260919-3j1: the app-wide SERIALIZER in front of retagOne — the ONE tag-write path
 	// (verify-before-write, and a `device:` uid refused as its first statement). Never retagOne
 	// directly: two concurrent wasm passes over a 27 MB FLAC on a phone is an OOM.
-	import { syncFileTags } from '$lib/services/file-tag-sync';
-	import type { RetagEntry } from '$lib/services/retag';
+	// quick-261120-gsync: the gesture file-tag writer is ONE shared service now
+	// (services/gesture-tag-sync) — this menu and the lyrics settings sheet both call it.
+	import { writeTagsForGesture } from '$lib/services/gesture-tag-sync';
 	import { browser } from '$app/environment';
 	import { songShareUrl, encodePathSegment } from '$lib/services/share';
 	// quick-260809-3uo: the share card now carries the cover the user is looking at — read from the
@@ -840,105 +841,9 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		// FILE. The pin above is what makes the choice permanent IN THE APP; a pin lives in
 		// localStorage keyed by uid, so it is invisible to the phone's own music app, to any other
 		// player, and to the file itself.
-		writeTagsForGesture({ cover: url });
+		writeTagsForGesture(track, { cover: url }, { knownBlobPresent: blobPresent, onFailure: () => toast.show(t('toast.tagsFailed')) });
 		closeCoverPicker();
 		close();
-	}
-
-	// quick-260919-3j1 — THE ONE ENTRY BUILDER the two pin gestures share, so they cannot drift apart.
-	// A component-local function over `track` / `names` / `player`, deliberately NOT a new module:
-	// the one thing it must never become is a second copy of the Settings sweep's construction.
-	//
-	// D-7: `names.dnTitle` / `dnArtist` / `zhLock` is a VERBATIM copy of that sweep's entry
-	// (settings/downloads/+page.svelte). `library.applyMetadata` persists an editor edit into
-	// library.downloads, so `dnTitle(track.title, track.artist)` reproduces the user's OWN edit, not the catalog
-	// string — a cover pin cannot clobber a manual metadata edit.
-	//
-	// NO `filename`: the sticky base recorded by quick-260919-3j1's blob-store index is what keeps a
-	// user-typed file name from being reverted by a rewrite that knows nothing about it.
-	//
-	// `lyrics` is the SAME expression the <MetadataEditor> mount at the bottom of this file uses, so
-	// a cover pin can never blank the lyrics the app is currently showing.
-	//
-	// quick-261114-fsync: `targetUid` is the DOWNLOAD's uid, which may be a TWIN — the song was
-	// downloaded under another source's uid than the one this menu was opened on. When it is a
-	// twin, the entry's uid AND its name fields come from the DOWNLOAD record (the file being
-	// rewritten is that record's file, and its own strings are the ones an editor edit would have
-	// persisted there), and the default `lyrics` reads the record first so the rewrite preserves
-	// the file's own lyrics before falling back to the menu track's read.
-	function fileSyncEntry(overrides: Partial<RetagEntry>, targetUid: string): RetagEntry | null {
-		if (!track?.uid) return null;
-		const rec = targetUid !== track.uid ? library.downloads.find((d) => d.uid === targetUid) : undefined;
-		const meta = rec ?? track;
-		return {
-			uid: targetUid,
-			title: names.dnTitle(meta.title, meta.artist),
-			artist: names.dnArtist(meta.artist),
-			album: names.zhLock(meta.album),
-			cover: activeCover,
-			lyrics:
-				(rec ? readLyrics(rec) : undefined) ??
-				readLyrics(track && player.current?.uid === track.uid ? player.current : track) ??
-				undefined,
-			...overrides
-		};
-	}
-
-	// quick-260919-3j1 (D-1) — THE REWRITE TRIGGER, AND THE LINE NOTHING AUTOMATIC MAY CROSS.
-	//
-	// This fires on an EXPLICIT TAP only: a cover pin or a lyric pin, one song, one wasm pass —
-	// identical in cost and shape to the metadata editor's Save that already ships. An automatic
-	// cover resolve, `cover-backfill`, `adoptCover` or `healCover` must NEVER reach this line.
-	// `healCover` alone can fire PER RENDER on a flaky image; rewriting a 27 MB FLAC's tags there
-	// would be catastrophic. The pin already makes the user's choice permanent in the app without
-	// touching the file, which is why no automatic path needs this at all.
-	//
-	// Gate on `blobPresent === true`, never `!== false`: it starts `null` and is filled by the menu's
-	// own open-effect, so `!== false` would fire a rewrite for a song this app has no copy of.
-	//
-	// quick-261114-fsync: the gate above decides the EXACT-uid case only. The write TARGET is
-	// `library.downloadUidFor(track)` — a song downloaded under another source's uid has its file
-	// under the TWIN uid, where `blobPresent` (probed for THIS menu's uid) says nothing. A twin
-	// target is therefore verified directly (`blobStore.has(target)`) inside the async body below;
-	// no target at all (not downloaded under any uid) means no write, exactly as before.
-	//
-	// quick-260919-ejm (D-6) — `isDevice` STAYS, and it is now a DELIBERATE BOUNDARY, not an echo of
-	// a `retagOne` guard that has been lifted. Do not "fix" this by symmetry with the Edit-metadata
-	// row above. A user-file rewrite happens from exactly TWO explicit gestures — Edit metadata ->
-	// Save, and the confirmed Settings -> Downloads sweep — and a one-tap cover or lyric pin is
-	// neither: silently rewriting 27 MB of someone's own FLAC as a side effect of tapping a
-	// thumbnail is not what was authorised. The pin already makes the choice permanent IN THE APP
-	// for an imported file, which is the whole user-visible benefit, with none of the risk.
-	//
-	// FIRE-AND-FORGET: the pin has already repainted every surface, so the file write must never
-	// block the sheet closing. Success needs no toast (`toast.coverPinned` / `toast.lyricsPinned`
-	// already said it); only a real failure speaks, through the existing `toast.tagsFailed`.
-	//
-	// THE HONEST CEILING: pinning while OFFLINE still writes the text tags, but the ART cannot be
-	// fetched — `resolveArtworkDataUrl` fails, `tagAudioBlob` then simply runs no picture setter, so
-	// the file's existing art survives untouched. The Settings -> Downloads sweep repairs it later,
-	// because that sweep now reads the pin (the other half of this task).
-	function writeTagsForGesture(overrides: Partial<RetagEntry>) {
-		// quick-260919-ejm (D-6): the menu's own track being a device import still ends this here —
-		// and so does a DEVICE target (downloadUidFor never resolves a catalog track to a device
-		// file, but the boundary is stated, not inherited).
-		if (isDevice || !track?.uid) return;
-		const target = library.downloadUidFor(track);
-		if (!target || isDeviceUid(target)) return;
-		const trackUid = track.uid;
-		// Fire-and-forget, as before — the twin branch just needs one awaited probe first, so the
-		// body is an async IIFE rather than a straight-line call.
-		void (async () => {
-			if (target === trackUid) {
-				if (blobPresent !== true) return; // the exact-uid gate, unchanged
-			} else if (!(await blobStore.has(target).catch(() => false))) {
-				return; // the twin record exists but its blob is gone — nothing to write into
-			}
-			const entry = fileSyncEntry(overrides, target);
-			if (!entry) return;
-			const r = await syncFileTags(entry);
-			if (r !== 'tagged' && r !== 'device-skipped') toast.show(t('toast.tagsFailed'));
-		})();
 	}
 
 	// quick-260919-1we (D-6): opening the sheet IS the reloader. Nothing caches a resolved LRC
@@ -991,7 +896,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		// invisible to the phone's music app, to any other player, and to the file itself. The whole
 		// point of F3 is that the downloaded file is SELF-SUFFICIENT. Same explicit-tap-only gate as
 		// pickCover; see writeTagsForGesture.
-		writeTagsForGesture({ lyrics: lrc });
+		writeTagsForGesture(track, { lyrics: lrc }, { knownBlobPresent: blobPresent, onFailure: () => toast.show(t('toast.tagsFailed')) });
 		closeLyricsPicker();
 		close();
 	}
@@ -1008,7 +913,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		// file — the Settings -> Downloads sweep cannot either; the file keeps its embedded LRC
 		// until a non-empty lyric set is written over it.
 		const fallback = readLyrics(player.current?.uid === track.uid ? player.current : track);
-		if (fallback) writeTagsForGesture({ lyrics: fallback });
+		if (fallback) writeTagsForGesture(track, { lyrics: fallback }, { knownBlobPresent: blobPresent, onFailure: () => toast.show(t('toast.tagsFailed')) });
 		toast.show(t('menu.lyricsAuto'));
 		closeLyricsPicker();
 		close();

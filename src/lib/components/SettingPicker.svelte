@@ -99,6 +99,12 @@
 	   flex:none + nowrap. `max-width: 100%` bounds the inline-flex box to its container. */
 	.seg {
 		display: inline-flex;
+		/* quick-261120-segfix: a segmented control NEVER compresses inside a flex parent.
+		   Its overflow-x:auto zeroes its automatic minimum size, so a height-capped flex
+		   column (the LyricsSettingsSheet .sheet) crushed it to a clipped strip while every
+		   sibling with a min-height or visible overflow survived. The control owns its
+		   geometry (NO STRETCH); a host that cannot fit it must scroll, not squeeze it. */
+		flex-shrink: 0;
 		max-width: 100%;
 		overflow-x: auto;
 		scrollbar-width: none;
