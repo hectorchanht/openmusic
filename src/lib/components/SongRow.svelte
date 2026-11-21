@@ -50,13 +50,12 @@
 	// so displaces its own rim by ~1px instead of its width. `.opt` deliberately has none, exactly
 	// as CompactRow's trailing ⋮ does not.
 	//
-	// D-2 — WIDTH: THE TITLE GIVES. Every control here is fixed-width (art 44, each inline
-	// action 36, the menu 28 — quick-261006-smb) and `.meta` is the only flexible box, so it absorbs 100% of the
-	// squeeze. quick-261020-norank: the rank column (18px) is GONE — Hector: no page shows song
-	// numbering, the number's width belongs to the title/artist. There is deliberately NO `index`
-	// prop any more, so a future surface cannot re-add numbers by passing one. At 360px with both buttons on, `.meta` gets ~130px — which a CJK title overruns. That
-	// is exactly what use:marquee exists for, so the two lines SCROLL rather than sit clipped.
-	// Nothing else shrinks, nothing wraps, no responsive hiding, no row-height change.
+	// D-2 — WIDTH (SUPERSEDED by D-8, quick-261121-row3): the two-line row made `.meta` absorb
+	// 100% of the squeeze (art 44, each inline action 36, the menu 28 — quick-261006-smb) and
+	// answered the overrun with use:marquee. Hector replaced that bargain wholesale; see D-8.
+	// The one piece that survives intact: quick-261020-norank — the rank column (18px) is GONE
+	// (no page shows song numbering; the number's width belongs to the title/artist) and there
+	// is deliberately NO `index` prop, so a future surface cannot re-add numbers by passing one.
 	//
 	// D-7 — THE 24+-ROW BUDGET, which every future edit here has to keep:
 	//   * an action that is OFF renders NO node (no hidden placeholder, no visibility trick);
@@ -68,12 +67,46 @@
 	//   * each inline button reads library.isLiked / isDownloaded — the SAME reads RowBadges
 	//     performed on these rows before, and `hideLiked`/`hideDownloaded` below removes the
 	//     badge's copy, so the net subscription count per row is UNCHANGED.
+	//
+	// D-8 — FINAL: THE ROW STACKS, NOTHING SQUEEZES (quick-261121-row3; Hector's layout, settled
+	// 2026-11-21 after three iterations — brief: openmusic-songrow/brief.md). The row is THREE
+	// fixed lines beside a 64px cover:
+	//   line 1 — the TITLE alone. Nobody competes, not even the ⋮: the title is the most
+	//     important AND the longest string in the row, so it owns the whole meta column (~240px
+	//     at 360px, vs the ~130px marquee box the D-2 bargain gave it).
+	//   line 2 — the ARTIST + the ⋮ at the right. Artist names are usually shorter, so this is
+	//     the line that can afford to host one button; the name still gets ~200px — the
+	//     three-artist string 玖壹壹 · 高爾宣 OSN · 派偉俊， which the old shared subtitle cut
+	//     inside its second artist, now fits whole.
+	//   line 3 — the ALBUM as plain text at the left + the passive badges + the inline
+	//     Like/Download at the right. The `.album-tag` pill is DEMOTED to text: it was always a
+	//     passive span, and it can never eat the artist again — they are never on the same line.
+	// NO MARQUEE in lists any more: every line ellipsises. A frozen glance at a bounce-scrolling
+	// row reads a mid-scroll fragment ("…LUES Live)"), which is noise, not information; marquee
+	// survives only where a line owns the full width (Now Playing). NO STRETCH: the row is a
+	// fixed 96px (padding 10 + lines 24/20/24 + gaps 4/4 + padding 10) for short titles and
+	// five-artist rows alike, and `contain-intrinsic-size` carries the same 96 so virtualised
+	// lists do not jump.
+	// HIT TARGETS: every control's hit box is ≥44×44 again — the 36px / 28px boxes D-2 shipped
+	// violated Hector's 44px rule. The VISIBLE boxes stay compact (36 wide, line height) and a
+	// ::after expands the hit area invisibly. Three 44px bands cannot tile 96px, so the
+	// expansions overlap BY DESIGN and the seam is assigned, not accidental: the ⋮'s expansion
+	// is bottom-aligned to its line (it reaches UP into line 1's empty right end, never down),
+	// the line-3 expansions are centred (their bottoms land exactly on the row's bottom edge),
+	// and the menu carries the higher z-index — in the one contested strip (the download
+	// column, ~6px) the menu wins, because a control whose own glyph area is partly dead is
+	// the D-6 swallowed-tap bug again, while Download loses only expansion, never its box.
+	// THE ALBUM ECHO IS DROPPED: album == title renders NO line-3 text (quick-261010-sar2's
+	// suppression, previously only on the smartArtist tag, now uniform — line 3 repeating
+	// line 1 verbatim is noise on every surface).
+	// THE COVER stays inside the --cover-scale system at a 64px base (64px belongs to this
+	// tall row only; CompactRow keeps its 40px base), capped at the 76px content box so a
+	// 150% cover setting cannot push the fixed row open.
 	import { Heart, MoreVertical, GripVertical } from '@lucide/svelte';
 	import type { Track } from '$lib/sources/types';
 	import { longpress } from '$lib/actions/longpress';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { lazyCover } from '$lib/actions/lazyCover';
-	import { marquee } from '$lib/actions/marquee';
 	import { swipeAction, type SwipeActionOpts } from '$lib/actions/swipeAction';
 	import { pickRowCover } from '$lib/services/row-cover';
 	import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
@@ -131,7 +164,9 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		 *  stay OUT of the offline blob / native public folder — 29-CONTEXT Open Q2); everything
 		 *  else takes the default. */
 		persist?: boolean;
-		/** Second line. Default `names.dnArtist(track.album || track.artist)`. */
+		/** D-8: line 2 (the ARTIST line) verbatim, when a host needs to own that line's text.
+		 *  Default: the smartArtist pipeline on smart surfaces, else `names.dnArtist(track.artist)`.
+		 *  The album is line 3's business now and never rides this prop. */
 		subtitle?: string;
 		/** quick-261010-sar: SMART artist subtitle (opt-in per surface). When true, the second
 		 *  line shows the track's ARTIST — resolved through the same smart pipeline as the Now
@@ -211,23 +246,29 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 			? ''
 			: (smartNames ?? splitArtists(track.artist ?? '')).map((n) => names.dnArtist(n)).join(' · ')
 	);
-	// quick-261010-sar2: the album TAG after the smart artist name ("artist · [album]"). Only on
-	// smartArtist rows — the ones whose subtitle IS the artist. Skipped when the album is blank
-	// or is the single itself (album == title), where it would just echo the first line.
-	// quick-261014-notag: showAlbumTag=false (search page) suppresses it outright.
-	const albumTag = $derived.by(() => {
-		if (!smartArtist || !showAlbumTag) return '';
+	// D-8 (quick-261121-row3): line 2 is the ARTIST line. The host's `subtitle` prop owns it
+	// verbatim when passed; smartArtist surfaces get the smart pipeline (smartSub); every other
+	// surface gets the plain artist derivation. Pre-FINAL this row's second line was the
+	// album-first `sub` — the album moved to line 3, and the artist (the string Hector's
+	// folding complaint was about) was promoted to a line of its own.
+	const artistLine = $derived(
+		subtitle ?? (smartArtist ? smartSub : names.dnArtist(track.artist))
+	);
+	// D-8: line 3's album text — the old `.album-tag` pill DEMOTED to plain text (it was always
+	// a passive span; the pill styling only made metadata read as a second artist name).
+	// quick-261010-sar2's gates carry over and are now uniform: a blank album renders no text,
+	// and album == title (the single echoing line 1) renders no text, on smart and plain rows
+	// alike. quick-261014-notag: showAlbumTag=false (search page) suppresses it on smartArtist
+	// rows, exactly as it suppressed the tag. quick-261102-tlo: an ALBUM name goes through the
+	// title derivation, never the artist translator — smart rows keep the tag's exact
+	// dnTitle(a) call, plain rows keep sub's exact dnTitle(album, artist) call.
+	const albumText = $derived.by(() => {
+		if (smartArtist && !showAlbumTag) return '';
 		const a = (track.album ?? '').trim();
 		if (!a) return '';
 		if (a.toLowerCase() === (track.title ?? '').trim().toLowerCase()) return '';
-		return names.dnTitle(a);
+		return smartArtist ? names.dnTitle(a) : names.dnTitle(track.album, track.artist);
 	});
-	// quick-261102-tlo (DECISIONS.md §8): an ALBUM name goes through the title derivation, never the artist
-	// translator (was dnArtist(track.album || track.artist)).
-	const sub = $derived(
-		subtitle ??
-			(smartArtist ? smartSub : track.album ? names.dnTitle(track.album, track.artist) : names.dnArtist(track.artist))
-	);
 	// quick-261024-vid1: the MV tag — ytmusic rows are watchable unless a past resolve
 	// proved otherwise (videoAvailability) or the user disabled videos in Settings.
 	const mvTag = $derived(
@@ -422,7 +463,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	     its aria-label is the row's whole readable content, since the visuals below are inert. -->
 	<button
 		class="hit"
-		aria-label={`${names.dnTitle(track.title, track.artist)} — ${sub}${albumTag ? ` · ${albumTag}` : ''}`}
+		aria-label={`${names.dnTitle(track.title, track.artist)} — ${artistLine}${albumText ? ` · ${albumText}` : ''}`}
 		use:longpress
 		onlongpress={openRowMenu}
 		oncontextmenu={openRowMenu}
@@ -437,62 +478,72 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		<CoverArt src={art} />
 	</span>
 	<span class="meta">
-		<span class="r-title" use:marquee><span class="marquee-inner">{names.dnTitle(track.title, track.artist)}</span></span>
-		<span class="r-sub" use:marquee><span class="marquee-inner">{sub}{#if albumTag}<span class="album-tag">{albumTag}</span>{/if}{#if mvTag}<span class="mv-tag">MV</span>{/if}</span></span>
-	</span>
-	<!-- D-5: the passive badge stands down for whichever state this row draws a live control for. -->
-	<RowBadges uid={actUid} track={real ?? track} hideLiked={acts.includes('like')} hideDownloaded={acts.includes('download')} />
-	{#each acts as a (a)}
-		{#if a === 'like'}
-			<button
-				class="ract"
-				class:on={liked}
-				aria-pressed={liked}
-				aria-busy={likeBusy}
-				aria-label={t(liked ? 'menu.liked' : 'menu.like')}
-				title={t(liked ? 'menu.liked' : 'menu.like')}
-				use:tapBounce
-				onclick={toggleLike}
-			>
-				{#if likeBusy}
-					<!-- A stub resolve takes SECONDS (searchAll fan-out), and a tap with no visible
-					     change reads as a swallowed click. The shared indeterminate ring — the same one
-					     the Download button one slot over spins — wraps the heart without changing the
-					     36px box, so nothing shifts under the finger. -->
-					<DownloadRing><Heart size={18} fill="none" /></DownloadRing>
-				{:else}
-					<Heart size={18} fill={liked ? 'currentColor' : 'none'} />
-				{/if}
-			</button>
-		{:else if a === 'download'}
-			<!-- No `probe`, ever: this is a list row (see D-7 / DownloadControl's own contract).
-			     A stub row hands DownloadControl `track={null}` + the resolver, which is the contract
-			     it already serves the album page's own control with — and NOT the stub itself, whose
-			     truthy synthetic uid would make it try to download an unresolvable song. Once either
-			     button has resolved, the real Track goes down instead and the resolve is not repeated. -->
-			<DownloadControl
-				track={real ?? (resolve ? null : track)}
-				resolve={resolve ? runResolve : null}
-				{persist}
-			/>
-		{/if}
-	{/each}
-	<!-- D-5: the passive badge stands down for whichever state this row draws a live control for.
-	     quick-261006-smb: the trailing ⋮ is icon-only chrome, so it carries the slim `.menu`
-	     variant (28px hit box, 8px back to `.meta`) instead of the full 36px `.ract`.
-	     quick-261010-sar: hidden when the user switches it off in Settings → Appearance → Song
-	     rows (settings.showRowMenu) — long-press / right-click still opens the menu. -->
-	{#if settings.showRowMenu}
-		{@const showDlRing = !acts.includes('download') && track?.uid && library.downloading.has(track.uid)}
-		{@const dlFrac = track?.uid ? library.downloadProgress[track.uid] : undefined}
-		<button class="ract menu" aria-label={t('menu.options')} aria-busy={!!showDlRing} onclick={onrequestmenu}>
-			{#if showDlRing}
-				<DownloadRing value={dlFrac}><MoreVertical size={18} /></DownloadRing>
-			{:else}
-				<MoreVertical size={18} />
+		<!-- D-8 line 1: the title ALONE — no control may share this line (the title-uncontested
+		     pin in songrow-final.test.ts). -->
+		<span class="line l1"><span class="txt r-title">{names.dnTitle(track.title, track.artist)}</span></span>
+		<!-- D-8 line 2: the artist + the ⋮ at the right. quick-261010-sar: the ⋮ hides when the
+		     user switches it off in Settings → Appearance → Song rows (settings.showRowMenu) —
+		     long-press / right-click still opens the menu. The download-ring state rides the ⋮
+		     as it did when the ⋮ trailed the row: it stands in for a Download control this row
+		     does not draw. -->
+		<span class="line l2">
+			<span class="txt r-artist">{artistLine}</span>
+			{#if settings.showRowMenu}
+				{@const showDlRing = !acts.includes('download') && track?.uid && library.downloading.has(track.uid)}
+				{@const dlFrac = track?.uid ? library.downloadProgress[track.uid] : undefined}
+				<button class="ract menu" aria-label={t('menu.options')} aria-busy={!!showDlRing} onclick={onrequestmenu}>
+					{#if showDlRing}
+						<DownloadRing value={dlFrac}><MoreVertical size={18} /></DownloadRing>
+					{:else}
+						<MoreVertical size={18} />
+					{/if}
+				</button>
 			{/if}
-		</button>
-	{/if}
+		</span>
+		<!-- D-8 line 3: the album as plain text + the passive badges + the inline actions.
+		     D-5: the passive badge stands down for whichever state this row draws a live
+		     control for. -->
+		<span class="line l3">
+			<span class="txt r-album">{albumText}</span>
+			{#if mvTag}<span class="mv-tag">MV</span>{/if}
+			<RowBadges uid={actUid} track={real ?? track} hideLiked={acts.includes('like')} hideDownloaded={acts.includes('download')} />
+			{#each acts as a (a)}
+				{#if a === 'like'}
+					<button
+						class="ract"
+						class:on={liked}
+						aria-pressed={liked}
+						aria-busy={likeBusy}
+						aria-label={t(liked ? 'menu.liked' : 'menu.like')}
+						title={t(liked ? 'menu.liked' : 'menu.like')}
+						use:tapBounce
+						onclick={toggleLike}
+					>
+						{#if likeBusy}
+							<!-- A stub resolve takes SECONDS (searchAll fan-out), and a tap with no visible
+							     change reads as a swallowed click. The shared indeterminate ring — the same one
+							     the Download button one slot over spins — wraps the heart without changing the
+							     button's box, so nothing shifts under the finger. -->
+							<DownloadRing><Heart size={18} fill="none" /></DownloadRing>
+						{:else}
+							<Heart size={18} fill={liked ? 'currentColor' : 'none'} />
+						{/if}
+					</button>
+				{:else if a === 'download'}
+					<!-- No `probe`, ever: this is a list row (see D-7 / DownloadControl's own contract).
+					     A stub row hands DownloadControl `track={null}` + the resolver, which is the contract
+					     it already serves the album page's own control with — and NOT the stub itself, whose
+					     truthy synthetic uid would make it try to download an unresolvable song. Once either
+					     button has resolved, the real Track goes down instead and the resolve is not repeated. -->
+					<DownloadControl
+						track={real ?? (resolve ? null : track)}
+						resolve={resolve ? runResolve : null}
+						{persist}
+					/>
+				{/if}
+			{/each}
+		</span>
+	</span>
 </div>
 
 <style>
@@ -501,17 +552,19 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		display: flex;
 		align-items: center;
 		gap: 12px;
-		min-height: 44px;
-		padding: 6px;
+		/* D-8: the fixed FINAL height — 2×10px padding + the 76px three-line column. Content
+		   never stretches it (NO STRETCH): a longer string ellipsises inside its own line. */
+		height: 96px;
+		padding: 10px 6px;
 		/* quick-261116-perf: rendering virtualization for long document-scroll lists
 		   (Library / Search / Charts / Album / Artist all render this row). Off-screen
 		   rows skip layout+paint; `auto` makes the browser remember each row's real
-		   height after first render, and 56px is the true default height (44px cover +
-		   2×6px padding) so first-pass scroll geometry does not shift. The row stays in
-		   the DOM, so lazyCover's IntersectionObserver, longpress and find-in-page are
+		   height after first render, and 96px is the row's true fixed height (D-8) so
+		   first-pass scroll geometry does not shift. The row stays in the DOM, so
+		   lazyCover's IntersectionObserver, longpress and find-in-page are
 		   unaffected — near-viewport rows render ahead of visibility. */
 		content-visibility: auto;
-		contain-intrinsic-size: auto 56px;
+		contain-intrinsic-size: auto 96px;
 		border-radius: 8px;
 		transition: background 0.12s ease;
 		/* quick-260910-k45, generalised: OPAQUE, not transparent. Every migrated surface wraps this
@@ -539,7 +592,8 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	   is what the compound selector below does — the same precedence the library page expressed as
 	   `.row.edit-row.is-active` before it moved here. */
 	.srow.is-danger .r-title,
-	.srow.is-danger .r-sub {
+	.srow.is-danger .r-artist,
+	.srow.is-danger .r-album {
 		color: var(--color-danger-text);
 	}
 	.srow.is-danger.is-active {
@@ -577,58 +631,78 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		color: var(--color-text-muted);
 	}
 	.art {
-		/* quick-260618-goe: the row tile scales with the Cover size setting, like CompactRow's. */
-		width: calc(44px * var(--cover-scale, 1));
-		height: calc(44px * var(--cover-scale, 1));
-		border-radius: 6px;
+		/* quick-260618-goe: the row tile scales with the Cover size setting, like CompactRow's.
+		   D-8: the base is 64px in this tall row, capped at the 76px content box — a 150%
+		   cover setting (COVER_SCALE_MAX) must not push the fixed 96px row open. */
+		width: min(calc(64px * var(--cover-scale, 1)), 76px);
+		height: min(calc(64px * var(--cover-scale, 1)), 76px);
+		border-radius: 8px;
 		overflow: hidden;
 		background-color: var(--color-surface-2);
 		flex: none;
 	}
-	/* D-2: the ONLY flexible box, so it absorbs the whole squeeze — by design. */
+	/* D-8: the meta column is the row's only flexible box, but it no longer absorbs a squeeze —
+	   it STACKS. Three fixed lines (24/20/24) distributed over a fixed 76px column; each line
+	   is its own flex row whose text box ellipsises and whose controls (lines 2 and 3 only)
+	   are fixed-width. */
 	.meta {
 		flex: 1;
 		min-width: 0;
+		height: 76px;
 		display: flex;
 		flex-direction: column;
+		justify-content: space-between;
+	}
+	.line {
+		display: flex;
+		align-items: center;
+		min-width: 0;
+	}
+	.l1 {
+		height: 24px;
+	}
+	.l2 {
+		height: 20px;
+		gap: 4px;
+	}
+	.l3 {
+		height: 24px;
 		gap: 2px;
 	}
-	/* min-width:0 + overflow:hidden so use:marquee measures a REAL overflow and scrolls it. */
-	.r-title {
+	/* The one text box per line: flexes to whatever the line's controls leave, clips, and
+	   ellipsises. NO marquee in lists (D-8) — a list row is read at a frozen glance. */
+	.txt {
+		flex: 1;
 		min-width: 0;
 		overflow: hidden;
 		white-space: nowrap;
+		text-overflow: ellipsis;
+	}
+	.r-title {
 		font-size: calc(0.875rem * var(--fs-title, 1));
 		font-weight: 600;
 		line-height: 1.3;
 	}
-	.r-sub {
-		min-width: 0;
-		overflow: hidden;
-		white-space: nowrap;
+	/* The artist reads a step brighter than the album: title > artist > album is the FINAL
+	   layout's information order, carried by tone as well as position. */
+	.r-artist {
+		font-size: calc(0.75rem * var(--fs-artist, 1));
+		font-weight: 400;
+		line-height: 1.3;
+		color: color-mix(in srgb, var(--color-text) 80%, var(--color-text-muted));
+	}
+	.r-album {
 		font-size: calc(0.75rem * var(--fs-artist, 1));
 		font-weight: 400;
 		line-height: 1.3;
 		color: var(--color-text-muted);
 	}
-	/* quick-261010-sar2: the album tag after the smart artist name. A real pill, not text, so a
-	   noisy album ("COMPOSITION", "原創") reads as metadata, never as a second artist name. */
-	.album-tag {
-		display: inline-block;
-		margin-inline-start: 6px;
-		padding: 0 7px;
-		border: 1px solid var(--color-border);
-		border-radius: 999px;
-		font-size: 0.85em;
-		line-height: 1.5;
-		white-space: nowrap;
-		vertical-align: 1px;
-	}
-	/* quick-261024-vid1: the MV tag — same pill family as .album-tag (it was accent-tinted to read
-	   as "watchable" until quick-261102-s5t, below). */
+	/* quick-261024-vid1: the MV tag — a pill on line 3, after the album text (it was
+	   accent-tinted to read as "watchable" until quick-261102-s5t, below). D-8: a flex item
+	   in .l3 now, so the line's gap spaces it and it never ellipsises away with the album. */
 	.mv-tag {
+		flex: none;
 		display: inline-block;
-		margin-inline-start: 6px;
 		padding: 0 6px;
 		/* quick-261102-s5t: --color-accent is undefined (always the red fallback = a second accent);
 		   a passive tag is not "live/on/go", so it takes the muted pill tokens. */
@@ -640,16 +714,18 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		letter-spacing: 0.04em;
 		line-height: 1.5;
 		white-space: nowrap;
-		vertical-align: 1px;
 	}
-	/* The inline actions keep their pointer events (they are siblings of .hit, not children, so
-	   tapping one never fires the row's click — no stopPropagation needed). 36px, not
-	   DownloadControl's own 40, so TWO of them still cost less than one ⋮. */
+	/* D-8: the inline actions now live INSIDE .meta's lines, and .meta's visuals are
+	   pointer-events:none — so a control re-arms its own events here, and position:relative
+	   keeps it painted above the stretched .hit (tapping one still never fires the row's
+	   click — no stopPropagation needed, as when they were .hit's siblings). The VISIBLE box
+	   is line-height so the fixed geometry never moves; the hit area is expanded separately,
+	   below. */
 	.ract {
 		position: relative;
 		flex: none;
 		width: 36px;
-		height: 36px;
+		height: 24px;
 		display: grid;
 		place-items: center;
 		padding: 0;
@@ -658,24 +734,50 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		border-radius: var(--radius-full);
 		color: var(--color-text-muted);
 		cursor: pointer;
+		pointer-events: auto;
 	}
 	.ract.on {
 		color: var(--color-primary);
 	}
-	/* quick-261006-smb: the trailing ⋮ is icon-only chrome (no label needed), so its hit box is
-	   slimmed to 28px — still ≥ the WCAG 2.2 target-size minimum of 24px — handing 8px back to
-	   `.meta`, the row's only flexible box (D-2), so long titles truncate less on 360px rows.
-	   Height stays 36px for touch comfort; the 18px icon stays centred via grid. */
+	/* D-8: ≥44×44 hit areas by invisible expansion (Hector's 44px rule; the pre-FINAL 36px /
+	   28px boxes violated it). The expansion is a centred ::after on every row control. The
+	   ⋮ overrides its anchor below; the seam between the two expansions is assigned in D-8. */
+	.ract::after,
+	.srow :global(.dc)::after {
+		content: '';
+		position: absolute;
+		left: 50%;
+		top: 50%;
+		width: 44px;
+		height: 44px;
+		transform: translate(-50%, -50%);
+	}
+	/* The ⋮ sits on line 2 (20px tall, 36 wide — quick-261006-smb's 28px slimming is retired:
+	   width is no longer taken from the title, which owns line 1 outright). Its hit expansion
+	   is anchored to the button's BOTTOM, so the extra reach goes UP into line 1's empty
+	   right end and never down into line 3's controls; z-index 2 wins the one contested
+	   strip against line 3 (see D-8). */
 	.ract.menu {
-		width: 28px;
+		width: 36px;
+		height: 20px;
+		z-index: 2;
+	}
+	.ract.menu::after {
+		top: auto;
+		bottom: 0;
+		transform: translateX(-50%);
 	}
 	/* DownloadControl owns its own markup (it swaps between a <button> and three <span> states),
-	   so its 40x40 default is re-sized to the 36px row action from here. `position: relative` is
-	   what lifts it above the stretched .hit — without it the download tap would land on play. */
+	   so its 40x40 default is re-sized to the row action from here: a 32×32 visible box,
+	   centred in the 24px line (its overflow is transparent; DownloadRing sizes off the
+	   glyph, not this box, so the ring stays round). `position: relative` is what lifts it
+	   above the stretched .hit — without it the download tap would land on play — and
+	   pointer-events:auto re-arms it inside .meta, like .ract above. */
 	.srow :global(.dc) {
 		position: relative;
-		width: 36px;
-		height: 36px;
+		width: 32px;
+		height: 32px;
+		pointer-events: auto;
 	}
 	@media (hover: hover) {
 		.ract:hover {
