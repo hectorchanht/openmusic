@@ -4,7 +4,7 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { Heart, ListMusic, Download, Trash2, Play, Clock, Pencil, Check, Users, ListEnd, ListStart, Shuffle, Ellipsis, X, Radio, CircleAlert } from '@lucide/svelte';
+	import { Heart, ListMusic, Download, Trash2, Play, Clock, Pencil, Check, Users, ListEnd, ListStart, Shuffle, Ellipsis, X, Radio, CircleAlert, Sparkles } from '@lucide/svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { history } from '$lib/stores/history.svelte';
 	import { player } from '$lib/stores/player.svelte';
@@ -20,6 +20,10 @@
 	import { overlays } from '$lib/stores/overlays.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { healDownloads } from '$lib/stores/heal.svelte';
+	import { canonMigration } from '$lib/stores/canon-migration.svelte';
+	import { estimateSizeBytes } from '$lib/services/canon-migration';
+	import { formatBytes } from '$lib/services/download-probe';
+	import { recordVersion } from '$lib/stores/records.svelte';
 	import { tick as hapticTick } from '$lib/util/haptics';
 	import SongRow from '$lib/components/SongRow.svelte';
 	import SwipeReveal from '$lib/components/SwipeReveal.svelte';
@@ -329,6 +333,36 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 		const r = await healDownloads.healAll(failedDownloads);
 		if (r) toast.show(t('toast.healed', { saved: r.saved, total: r.total }));
 	}
+
+	// quick-261121-canon: the PRE-CANON downloads — songs downloaded before the
+	// canonical system existed, whose records are not flagged downloaded yet.
+	// recordVersion() is read so the list re-derives the moment a download
+	// carries its record (or a migration run lands one).
+	const preCanonDownloads = $derived.by(() => {
+		void recordVersion();
+		return canonMigration.preCanon(library.downloads);
+	});
+	// The total size of the current copies — shown BEFORE the user starts
+	// (Hector's spec: show total size before starting; never a silent run).
+	let canonSizeBytes = $state(0);
+	$effect(() => {
+		const list = preCanonDownloads;
+		if (!list.length) {
+			canonSizeBytes = 0;
+			return;
+		}
+		let live = true;
+		void estimateSizeBytes(list).then((n) => {
+			if (live) canonSizeBytes = n;
+		});
+		return () => {
+			live = false;
+		};
+	});
+	async function migrateToCanon() {
+		const r = await canonMigration.migrateAll(preCanonDownloads);
+		if (r) toast.show(t('toast.canonMigrated', { saved: r.saved, total: r.total }));
+	}
 	const historyList = $derived(dedupeShelfList(history.entries) as Track[]);
 	const playlistLists = $derived(
 		new Map(library.playlists.map((p) => [p.id, dedupeShelfList(p.tracks)] as const))
@@ -583,6 +617,18 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 				<CircleAlert size={18} />
 				<span class="heal-label">{healDownloads.job ? t('heal.progress', { n: healDownloads.job.done, total: healDownloads.job.total }) : t('heal.failedCount', { n: failedDownloads.length })}</span>
 				<button class="heal-btn" disabled={healDownloads.job !== null} onclick={healAllFailed} use:tapBounce>{t('heal.all')}</button>
+			</div>
+		{/if}
+		<!-- quick-261121-canon: Re-download to Canon — pre-Canon downloads re-based
+		     on their golden records (canonical cover/title/lyrics + official-first
+		     default variant), verify-then-replace so a failed upgrade keeps the
+		     old copy, and uid-keyed user data (likes, plays, pins, playlists)
+		     untouched. User-initiated ONLY, with count + total size up front. -->
+		{#if preCanonDownloads.length > 0 || canonMigration.job}
+			<div class="heal-bar">
+				<Sparkles size={18} />
+				<span class="heal-label">{canonMigration.job ? t('canon.progress', { n: canonMigration.job.done, total: canonMigration.job.total }) : t('canon.preCount', { n: preCanonDownloads.length, size: formatBytes(canonSizeBytes) ?? '0 B' })}</span>
+				<button class="heal-btn" disabled={canonMigration.job !== null} onclick={migrateToCanon} use:tapBounce>{t('canon.redownload')}</button>
 			</div>
 		{/if}
 		<ul class="list">
