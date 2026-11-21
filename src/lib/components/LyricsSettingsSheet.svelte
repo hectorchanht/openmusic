@@ -33,6 +33,9 @@
 	import { combinedSignal } from '$lib/services/abort-signal';
 	import { parseLyrics } from '$lib/stores/lyric-script.svelte';
 	import { readLyrics, pinLyrics, unpinLyrics } from '$lib/stores/lyric-pins.svelte';
+	import { player } from '$lib/stores/player.svelte';
+	// quick-261120-gsync: the ONE shared gesture file-tag writer (TrackMenu calls it too).
+	import { writeTagsForGesture } from '$lib/services/gesture-tag-sync';
 	import {
 		getEffectiveLyricOffset,
 		setLyricOffset,
@@ -130,12 +133,16 @@
 	}
 	function useAutomatic() {
 		if (!track?.uid) return;
-		// Unpin only. NOTE: the track menu's reset also re-syncs the downloaded
-		// FILE through its local writeTagsForGesture (device/blob gates live in
-		// TrackMenu); the app-side read falls back immediately either way, and
-		// the Settings → Downloads sweep reconciles files. Extracting that
-		// writer into a shared service is the follow-up, not this change.
 		unpinLyrics(track.uid);
+		// quick-261120-gsync: FULLY the track menu's reset now — the unpin also re-syncs
+		// the downloaded FILE through the ONE shared gesture writer, with the post-unpin
+		// fallback read (the track's own lrc). When the fallback is EMPTY there is no
+		// write at all: the codec has no clear verb (an absent/empty `lyrics` field means
+		// "leave the file's lyrics alone", retag.ts D-4), so the file keeps its embedded
+		// LRC until a non-empty lyric set is written over it. The service probes the
+		// blob itself — this sheet never probed one on open.
+		const fallback = readLyrics(player.current?.uid === track.uid ? player.current : track);
+		if (fallback) writeTagsForGesture(track, { lyrics: fallback }, { onFailure: () => toast.show(t('toast.tagsFailed')) });
 		toast.show(t('menu.lyricsAuto'));
 		level = 'main';
 	}
