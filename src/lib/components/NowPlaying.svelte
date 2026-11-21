@@ -5,7 +5,7 @@
 	import { fly, fade } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
 	import { cubicOut } from 'svelte/easing';
 	import { goto } from '$app/navigation';
-	import { ChevronDown, MoreVertical, Heart, Clapperboard, Info, SkipBack, SkipForward, Play, Pause, Moon, ListMusic, MicVocal, MessageCircle, Sparkles, VolumeX, Volume1, Volume2, SlidersHorizontal } from '@lucide/svelte';
+	import { ChevronDown, MoreVertical, Heart, Clapperboard, Info, SkipBack, SkipForward, Play, Pause, Moon, ListMusic, MicVocal, MessageCircle, Sparkles, VolumeX, Volume1, Volume2, SlidersHorizontal, Gamepad2 } from '@lucide/svelte';
 	import { player, fmtTime } from '$lib/stores/player.svelte';
 	import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -78,6 +78,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	// resolved-cover map, the sheet state, and the two shared overlay openers).
 	import NpUpNext from '$lib/components/NpUpNext.svelte';
 	import NpLyrics from '$lib/components/NpLyrics.svelte';
+	import NpGame from '$lib/components/NpGame.svelte';
 	import NpRelated from '$lib/components/NpRelated.svelte';
 	// quick-260926-nsz: per-song comments — the 3rd tab on a phone, and the Comments | Related
 	// toggle of the third column at >=1280px.
@@ -91,7 +92,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	// >=1280px, where the column is mounted while sheetState stays 'closed'.
 	import { upNextPaneOpen } from '$lib/services/upnext-scroll';
 
-	type Tab = 'queue' | 'lyrics' | 'comments' | 'related' | 'about';
+	type Tab = 'queue' | 'lyrics' | 'comments' | 'related' | 'about' | 'game';
 	let tab = $state<Tab>('lyrics');
 	// quick-260926-qat: PLAIN field (nothing renders it). Snapshot at mount so a request raised while
 	// this component was unmounted (menu opened from the Nowbar / a list row) is not replayed on the
@@ -1031,7 +1032,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	// tabindex on the selected tab), Left/Right step (mirrored under RTL), Home/End jump. Selecting on
 	// arrow ("automatic activation") matches a tap: selectTab also opens the sheet from closed.
 	// transport-keys already yields arrows to role="tab", so prev/next never double-fires here.
-	const TAB_ORDER: Tab[] = ['queue', 'lyrics', 'comments', 'related', 'about'];
+	const TAB_ORDER: Tab[] = ['queue', 'lyrics', 'game', 'comments', 'related', 'about'];
 	function tabKey(e: KeyboardEvent) {
 		const list = TAB_ORDER.filter((x) => x !== 'about' || canAbout);
 		const i = list.indexOf(tab);
@@ -1422,6 +1423,9 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		     resolve + a HEAD on every render of the now-playing view, and a format/size readout is not
 		     what was asked for here. -->
 		<span class="t-dl"><DownloadControl track={player.current} size={20}/></span>
+		<!-- quick-261121-beat: the game button — a shortcut to the game tab (selectTab also
+		     opens the sheet from closed), not a second mode (brief §3.1, ONE PATH). -->
+		<button class="t" aria-label={t('nowplaying.game')} title={t('nowplaying.game')} onclick={() => selectTab('game')} use:tapBounce><Gamepad2 size={20} /></button>
 	</div>
 	</div>
 
@@ -1475,7 +1479,8 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 				<span class="pair">
 					<!-- quick-261102-s5t: the active column was class-only (visual); aria-pressed exposes it. -->
 					<button data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} aria-pressed={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
-					<button data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab !== 'comments' && tab !== 'about'} aria-pressed={tab !== 'comments' && tab !== 'about'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
+					<button data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab !== 'comments' && tab !== 'about' && tab !== 'game'} aria-pressed={tab !== 'comments' && tab !== 'about' && tab !== 'game'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
+					<button data-tab="game" aria-label={t('nowplaying.game')} title={t('nowplaying.game')} class:active={tab === 'game'} aria-pressed={tab === 'game'} onclick={() => selectTab('game')} use:tapBounce><Gamepad2 size={20} /></button>
 					{#if canAbout}
 						<button data-tab="about" aria-label={t('nowplaying.about')} title={t('nowplaying.about')} class:active={tab === 'about'} aria-pressed={tab === 'about'} onclick={() => selectTab('about')} use:tapBounce><Info size={20} /></button>
 					{/if}
@@ -1490,6 +1495,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 				<button aria-hidden="true" tabindex="-1" title={t('nowplaying.upNext')}><ListMusic size={20} /></button>
 				<span class="pair">
 					<button data-tab="lyrics" aria-label={t('nowplaying.lyrics')} title={t('nowplaying.lyrics')} class:active={tab === 'lyrics' || tab === 'queue'} aria-pressed={tab === 'lyrics' || tab === 'queue'} onclick={() => selectTab('lyrics')} use:tapBounce><MicVocal size={20} /></button>
+					<button data-tab="game" aria-label={t('nowplaying.game')} title={t('nowplaying.game')} class:active={tab === 'game'} aria-pressed={tab === 'game'} onclick={() => selectTab('game')} use:tapBounce><Gamepad2 size={20} /></button>
 					<button data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} aria-pressed={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
 					<button data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab === 'related'} aria-pressed={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
 					{#if canAbout}
@@ -1507,6 +1513,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 				onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp}>
 				<button role="tab" id="np-tab-queue" aria-selected={tab === 'queue'} tabindex={tab === 'queue' ? 0 : -1} data-tab="queue" aria-label={t('nowplaying.upNext')} title={t('nowplaying.upNext')} class:active={tab === 'queue'} onclick={() => selectTab('queue')} use:tapBounce><ListMusic size={20} /></button>
 				<button role="tab" id="np-tab-lyrics" aria-selected={tab === 'lyrics'} tabindex={tab === 'lyrics' ? 0 : -1} data-tab="lyrics" aria-label={t('nowplaying.lyrics')} title={t('nowplaying.lyrics')} class:active={tab === 'lyrics'} onclick={() => selectTab('lyrics')} use:tapBounce><MicVocal size={20} /></button>
+				<button role="tab" id="np-tab-game" aria-selected={tab === 'game'} tabindex={tab === 'game' ? 0 : -1} data-tab="game" aria-label={t('nowplaying.game')} title={t('nowplaying.game')} class:active={tab === 'game'} onclick={() => selectTab('game')} use:tapBounce><Gamepad2 size={20} /></button>
 				<button role="tab" id="np-tab-comments" aria-selected={tab === 'comments'} tabindex={tab === 'comments' ? 0 : -1} data-tab="comments" aria-label={t('nowplaying.comments')} title={t('nowplaying.comments')} class:active={tab === 'comments'} onclick={() => selectTab('comments')} use:tapBounce><MessageCircle size={20} />{#if commentBadge}<span class="count">{commentBadge}</span>{/if}</button>
 				<button role="tab" id="np-tab-related" aria-selected={tab === 'related'} tabindex={tab === 'related' ? 0 : -1} data-tab="related" aria-label={t('nowplaying.related')} title={t('nowplaying.related')} class:active={tab === 'related'} onclick={() => selectTab('related')} use:tapBounce><Sparkles size={20} /></button>
 				{#if canAbout}
@@ -1549,6 +1556,10 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		{#snippet aboutPane()}
 			<NpAbout />
 		{/snippet}
+		{#snippet gamePane()}
+			<!-- quick-261121-beat: Song Beat — the game's results card exits back to lyrics. -->
+			<NpGame onExit={() => selectTab('lyrics')} />
+		{/snippet}
 
 		{#if wide}
 			<!-- >=1280px: Up Next | Lyrics | Related, all three at once. `grid-template-columns:
@@ -1563,7 +1574,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 				<div class="panel">{@render lyricsPane()}</div>
 				<!-- quick-260926-nsz: toggling unmounts NpRelated (one searchAll on toggle-back, the
 				     same cost as switching tabs on a phone — accepted). -->
-				<div class="panel">{#if tab === 'comments'}{@render commentsPane()}{:else if tab === 'about' && canAbout}{@render aboutPane()}{:else}{@render relatedPane()}{/if}</div>
+				<div class="panel">{#if tab === 'comments'}{@render commentsPane()}{:else if tab === 'game'}{@render gamePane()}{:else if tab === 'about' && canAbout}{@render aboutPane()}{:else}{@render relatedPane()}{/if}</div>
 			</div>
 		{:else if mid}
 			<div class="cols two">
@@ -1571,6 +1582,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 				<div class="panel">
 					{#if tab === 'comments'}{@render commentsPane()}
 					{:else if tab === 'related'}{@render relatedPane()}
+					{:else if tab === 'game'}{@render gamePane()}
 					{:else if tab === 'about' && canAbout}{@render aboutPane()}
 					{:else}{@render lyricsPane()}{/if}
 				</div>
@@ -1579,6 +1591,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 			<div class="panel" role="tabpanel" aria-labelledby={`np-tab-${tab}`}>
 				{#if tab === 'queue'}{@render upNextPane()}
 				{:else if tab === 'lyrics'}{@render lyricsPane()}
+				{:else if tab === 'game'}{@render gamePane()}
 				{:else if tab === 'comments'}{@render commentsPane()}
 				{:else if tab === 'about' && canAbout}{@render aboutPane()}
 				{:else}{@render relatedPane()}{/if}
