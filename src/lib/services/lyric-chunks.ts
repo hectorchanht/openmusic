@@ -29,29 +29,6 @@ export function chunkRanges(count: number, size: number): Array<{ start: number;
 	return ranges;
 }
 
-/**
- * Return a NEW array equal to `base` with one chunk's outputs applied:
- * `out[j]` lands at `positions[chunkStart + j]`, where `positions` is the
- * send-position → line-index map (NpLyrics' sendIdx). An output slot that is
- * `undefined` (short/misaligned reply) keeps the base value — the original
- * line — so a partial chunk can never blank a lyric. `base` is never mutated
- * (the component reassigns the result to its $state for reactivity).
- */
-export function applyChunkResult(
-	base: readonly string[],
-	positions: readonly number[],
-	chunkStart: number,
-	out: readonly string[]
-): string[] {
-	const next = base.slice();
-	for (let j = 0; j < out.length; j++) {
-		const pos = positions[chunkStart + j];
-		if (pos === undefined) break;
-		if (out[j] !== undefined) next[pos] = out[j];
-	}
-	return next;
-}
-
 // quick-261116-lyrux (Fix 1): per-line PENDING state, aligned to the FULL lines array.
 // A position is pending from the moment its chunk is fired until that chunk SETTLES
 // (genuine result, soft-fail echo, or hard failure — all three end the wait; only a
@@ -69,23 +46,78 @@ export function initialPending(lineCount: number, positions: readonly number[]):
 	return pending;
 }
 
+// quick-261120-maxsave (spec Addendum 2 — repeat lines are translated ONCE,
+// client-side too): a chorus block repeated 3–4× used to occupy 3–4 slots of
+// the send list and of every chunk's payload. The component now collapses the
+// send list to UNIQUE texts before chunking, and each settled unique result
+// fans back out to every occurrence. Exact string identity — the same key
+// discipline as the server's sha256(line) line-KV; punctuation/whitespace
+// variants stay distinct lines (no extra normalisation).
+
+/** Collapse `texts` to unique entries in first-appearance order, plus a map
+ * from each original index to its unique index. */
+export function dedupeSendList(texts: readonly string[]): { unique: string[]; uniqOf: number[] } {
+	const seen = new Map<string, number>();
+	const unique: string[] = [];
+	const uniqOf = texts.map((t) => {
+		let u = seen.get(t);
+		if (u === undefined) {
+			u = unique.length;
+			seen.set(t, u);
+			unique.push(t);
+		}
+		return u;
+	});
+	return { unique, uniqOf };
+}
+
 /**
- * Return a NEW pending array with one settled chunk's positions cleared:
- * `positions[chunkStart .. chunkEnd)` mapped through the send-position → line-index
- * map. Positions outside the chunk stay as they were, so concurrent chunks settling
- * out of order can never clear each other's lines. `pending` is never mutated.
+ * Return a NEW array equal to `base` with one settled UNIQUE chunk's outputs
+ * applied to EVERY line position that sent that unique line: `out[j]` belongs
+ * to unique index `chunkStart + j`, and each send position `s` with
+ * `uniqOf[s] === chunkStart + j` lands at line index `positions[s]`. An output
+ * slot that is `undefined` keeps the base value — the original line — so a
+ * partial chunk can never blank a lyric.
  */
-export function clearChunkPending(
+export function applyUniqueChunkResult(
+	base: readonly string[],
+	positions: readonly number[],
+	uniqOf: readonly number[],
+	chunkStart: number,
+	out: readonly string[]
+): string[] {
+	const next = base.slice();
+	for (let j = 0; j < out.length; j++) {
+		if (out[j] === undefined) continue;
+		const uniqIdx = chunkStart + j;
+		for (let s = 0; s < uniqOf.length; s++) {
+			if (uniqOf[s] !== uniqIdx) continue;
+			const pos = positions[s];
+			if (pos !== undefined) next[pos] = out[j];
+		}
+	}
+	return next;
+}
+
+/**
+ * Return a NEW pending array with one settled UNIQUE chunk's line positions
+ * cleared — every occurrence of each unique line in [chunkStart, chunkEnd),
+ * mirroring applyUniqueChunkResult's fan-out. Occurrences outside the settled
+ * chunk's unique range stay pending, so concurrent chunks can never clear
+ * each other's lines.
+ */
+export function clearUniqueChunkPending(
 	pending: readonly boolean[],
 	positions: readonly number[],
+	uniqOf: readonly number[],
 	chunkStart: number,
 	chunkEnd: number
 ): boolean[] {
 	const next = pending.slice();
-	for (let j = chunkStart; j < chunkEnd; j++) {
-		const pos = positions[j];
-		if (pos === undefined) break;
-		if (pos >= 0 && pos < next.length) next[pos] = false;
+	for (let s = 0; s < uniqOf.length; s++) {
+		if (uniqOf[s] < chunkStart || uniqOf[s] >= chunkEnd) continue;
+		const pos = positions[s];
+		if (pos !== undefined && pos >= 0 && pos < next.length) next[pos] = false;
 	}
 	return next;
 }

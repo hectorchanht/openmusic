@@ -390,4 +390,77 @@ describe('/api/translate provider cascade', () => {
 		expect(fetchMock).not.toHaveBeenCalled(); // served entirely from line-KV
 		expect(store.size).toBeGreaterThan(0);
 	});
+
+	// quick-261120-maxsave (spec Addendum 2 — repeat lines are translated ONCE):
+	// a Workers-AI mock that records every input text and tags PER LINE (the
+	// newline-batch shape workersAiBatch consumes), so a test can count how many
+	// times a given line's text entered the cascade.
+	function recordingAi(inputs: string[]) {
+		return {
+			run: async (_model: string, input: { text: string }) => {
+				inputs.push(input.text);
+				const parts = input.text.split('\n').map((l) => l + TAG.ai);
+				return { translated_text: parts.join('\n'), usage: { neurons: 1 } };
+			}
+		};
+	}
+
+	it('dedupe: a 4×-repeated NEW line enters the cascade once, lands at all 4 positions, one line-KV put', async () => {
+		wire({ google: 'translate' }); // must never be reached — AI answers first
+		const aiInputs: string[] = [];
+		const { kv, puts } = mockKv(); // line gets all miss (see mockKv: batch keys only)
+		const lines = ['Chorus hook', 'Verse one', 'Chorus hook', 'Chorus hook', 'Chorus hook'];
+		const res = await callPost(lines, 'zh-Hant', { AI: recordingAi(aiInputs), TRANSLATE_CACHE: kv });
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		// Alignment contract unchanged: 5 aligned results, identical at every repeat.
+		expect(body.translated).toEqual([
+			'Chorus hook' + TAG.ai,
+			'Verse one' + TAG.ai,
+			'Chorus hook' + TAG.ai,
+			'Chorus hook' + TAG.ai,
+			'Chorus hook' + TAG.ai
+		]);
+		expect(body.flags).toEqual([true, true, true, true, true]);
+		// Exactly ONE cascade entry carried the hook (one AI batch, hook counted once).
+		expect(aiInputs).toHaveLength(1);
+		expect(aiInputs.join('\n').split('Chorus hook')).toHaveLength(2); // 1 occurrence
+		expect(fetchedProviders()).toEqual([]);
+		// ONE per-line KV put for the repeated line (plus one for the verse line).
+		const linePuts = puts.filter((p) => p.key.startsWith('translate-line:v3:'));
+		expect(linePuts).toHaveLength(2);
+		expect(new Set(linePuts.map((p) => p.key)).size).toBe(2);
+		const hookPut = linePuts.find((p) => p.value === 'Chorus hook' + TAG.ai);
+		expect(hookPut?.key).toMatch(/^translate-line:v3:zh-Hant:[0-9a-f]{64}$/);
+	});
+
+	it('dedupe: duplicates collapse even without KV (the whole-batch computeAll path)', async () => {
+		wire({ google: 'translate' });
+		const aiInputs: string[] = [];
+		const res = await callPost(['Same line', 'Same line', 'Same line'], 'zh-Hant', {
+			AI: recordingAi(aiInputs)
+		});
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated).toEqual([
+			'Same line' + TAG.ai,
+			'Same line' + TAG.ai,
+			'Same line' + TAG.ai
+		]);
+		expect(body.flags).toEqual([true, true, true]);
+		// The seam computed the unique line once — a single one-line cascade call.
+		expect(aiInputs).toEqual(['Same line']);
+	});
+
+	it('dedupe: blank lines pass through untouched and stay aligned among duplicates', async () => {
+		wire({ google: 'translate' });
+		const aiInputs: string[] = [];
+		const { kv } = mockKv();
+		const res = await callPost(['Hook', '', 'Hook'], 'zh-Hant', {
+			AI: recordingAi(aiInputs),
+			TRANSLATE_CACHE: kv
+		});
+		const body = (await res.json()) as { translated: string[]; flags: boolean[] };
+		expect(body.translated).toEqual(['Hook' + TAG.ai, '', 'Hook' + TAG.ai]);
+		expect(body.flags).toEqual([true, false, true]);
+		expect(aiInputs).toEqual(['Hook']); // the blank never entered the cascade
+	});
 });

@@ -23,7 +23,7 @@
 	import { translateLinesEx } from '$lib/services/translate';
 	// quick-261116-kvprog: pure chunk arithmetic for the progressive translation below.
 	// quick-261116-lyrux: + the per-line pending arithmetic (Fix 1) and skeleton widths.
-	import { chunkRanges, applyChunkResult, initialPending, clearChunkPending, skeletonWidthPct, LYRICS_CHUNK_SIZE, LYRICS_CHUNK_CONCURRENCY } from '$lib/services/lyric-chunks';
+	import { chunkRanges, dedupeSendList, applyUniqueChunkResult, initialPending, clearUniqueChunkPending, skeletonWidthPct, LYRICS_CHUNK_SIZE, LYRICS_CHUNK_CONCURRENCY } from '$lib/services/lyric-chunks';
 	import { shouldTranslate } from '$lib/i18n/detect';
 	import { reorderPairs, splitParenLines, serializeLRC, lineSeekFraction, activeLineAt, lyricAnchorMetrics, formatLyricOffset, LYRIC_OFFSET_MAX, type LyricLine } from '$lib/services/lrc';
 	// quick-261116-lyrux (Fix 2): the publication seam the Nowbar reads for replace mode.
@@ -459,6 +459,11 @@
 				sendText.push(lines[i].text);
 			}
 		}
+		// quick-261120-maxsave (spec Addendum 2): collapse the send list to UNIQUE
+		// texts before chunking — a chorus line repeated 3–4× is translated ONCE
+		// and its settled result fans back out to every occurrence
+		// (applyUniqueChunkResult / clearUniqueChunkPending keyed by uniqOf).
+		const { unique: uniqText, uniqOf } = dedupeSendList(sendText);
 		const stitch = (out: string[]) => lines.map((l, i) => {
 			const pos = sendIdx.indexOf(i);
 			return pos === -1 ? l.text : (out[pos] ?? l.text);
@@ -512,7 +517,7 @@
 		// Each chunk is its OWN translateLinesEx call, so translateLinesEx's mem/localStorage
 		// cache absorbs it individually: a revisit replays finished chunks instantly even
 		// when the song as a whole never completed.
-		const ranges = chunkRanges(sendText.length, LYRICS_CHUNK_SIZE);
+		const ranges = chunkRanges(uniqText.length, LYRICS_CHUNK_SIZE);
 		let nextRange = 0;
 		let settledRanges = 0;
 		let allComplete = true;
@@ -526,17 +531,17 @@
 					// (previously the whole line took the offline path and the English
 					// stayed English). `skip` is this run's lyricsSkip snapshot, honoured
 					// per segment inside the pipeline.
-					const res = await translateLinesEx(sendText.slice(range.start, range.end), lang, { segments: true, skip });
+					const res = await translateLinesEx(uniqText.slice(range.start, range.end), lang, { segments: true, skip });
 					if (trKey !== key) stale = true; // a newer song/lang/skip owns the pane now
 					else {
 						// An incomplete chunk still renders its genuinely-translated lines
 						// (its echoes ARE the originals, already in place) — it just keeps
 						// the song out of trCache below.
 						if (!res.complete) allComplete = false;
-						translated = applyChunkResult(translated, sendIdx, range.start, res.out);
+						translated = applyUniqueChunkResult(translated, sendIdx, uniqOf, range.start, res.out);
 						// quick-261116-lyrux (Fix 1): this chunk has SETTLED — its lines
 						// leave the pending set (skeleton/spinner off) whatever it returned.
-						trPending = clearChunkPending(trPending, sendIdx, range.start, range.end);
+						trPending = clearUniqueChunkPending(trPending, sendIdx, uniqOf, range.start, range.end);
 					}
 				} catch {
 					// Deliberate change from the old whole-batch .catch (which blanked the
@@ -546,7 +551,7 @@
 					if (trKey !== key) stale = true;
 					else {
 						allComplete = false;
-						trPending = clearChunkPending(trPending, sendIdx, range.start, range.end);
+						trPending = clearUniqueChunkPending(trPending, sendIdx, uniqOf, range.start, range.end);
 					}
 				}
 				if (stale) return;

@@ -59,6 +59,9 @@
 // permanent like the batch entries): a batch resolves its known lines from line-KV and
 // only the missing lines enter the cascade. The batch edge+KV entries stay as L1 for
 // identical-batch repeats; only genuinely-translated lines are ever written per-line.
+// quick-261120-maxsave (spec Addendum 2): within one request, duplicate lines are
+// collapsed to uniques BEFORE the cascade (computeAll) and the line-KV layer groups
+// misses by line hash — a repeated line is translated once and written per-line once.
 import type { RequestHandler } from './$types';
 import type { Env } from '$lib/proxy/proxy-types';
 import { edgeCache, ownOriginCacheKey } from '$lib/proxy/edge-cache';
@@ -533,7 +536,9 @@ const lineKvKey = (appTo: string, hash: string) =>
 // aligned LineResults. Extracted verbatim from POST (quick-261116-lyrux) so the
 // line-KV layer can run the SAME machinery over just the missing subset; every
 // failure mode collapses to per-line originals exactly as the inline code did.
-async function computeAll(ls: string[], appTo: string, env: Env | undefined): Promise<LineResult[]> {
+// This is the machinery proper — callers go through computeAll (below), which
+// collapses duplicate lines first; nothing else calls computeEach directly.
+async function computeEach(ls: string[], appTo: string, env: Env | undefined): Promise<LineResult[]> {
 	// Single line: no batching needed, no alignment risk.
 	if (ls.length === 1) {
 		const t = await cascade(ls[0], appTo, env);
@@ -551,6 +556,42 @@ async function computeAll(ls: string[], appTo: string, env: Env | undefined): Pr
 	} catch {
 		return ls.map((l) => ({ text: l, translated: false }));
 	}
+}
+
+// quick-261120-maxsave (spec Addendum 2 — repeat lines are translated ONCE):
+// lyrics repeat heavily (a chorus block ×3–4 ≈ 30–45% of a typical song), and
+// every duplicate used to re-enter the provider cascade per occurrence — the
+// sentinel-joined batch made the provider translate the same chorus line once
+// per occurrence, and the line-KV layer wrote it once per occurrence. This is
+// the ONE entry point over computeEach (the seam — every caller benefits): it
+// collapses the request to UNIQUE lines by exact string identity (the same key
+// discipline as the per-line KV's sha256(line) — NO extra normalisation, so
+// punctuation/whitespace variants stay distinct), computes each unique line
+// once, and scatters the result back to every original position, so
+// out.length === ls.length always. Blank lines never enter the machinery
+// (nothing to translate — they pass through as untranslated originals).
+async function computeAll(ls: string[], appTo: string, env: Env | undefined): Promise<LineResult[]> {
+	const uniqIdx = new Map<string, number>();
+	const uniq: string[] = [];
+	const back: number[] = []; // per input position: index into uniq, or -1 for a blank pass-through
+	for (const l of ls) {
+		if (!l) {
+			back.push(-1);
+			continue;
+		}
+		let u = uniqIdx.get(l);
+		if (u === undefined) {
+			u = uniq.length;
+			uniqIdx.set(l, u);
+			uniq.push(l);
+		}
+		back.push(u);
+	}
+	if (!uniq.length) return ls.map((l) => ({ text: l, translated: false }));
+	const uRes = await computeEach(uniq, appTo, env);
+	return ls.map((l, i) =>
+		back[i] === -1 ? { text: l, translated: false } : (uRes[back[i]] ?? { text: l, translated: false })
+	);
 }
 
 export const POST: RequestHandler = async ({ request, platform }) => {
@@ -694,16 +735,29 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 				return { text: l, translated: false };
 			});
 			if (missIdx.length) {
+				// quick-261120-maxsave (spec Addendum 2): group the misses by line
+				// hash — a repeated chorus line is ONE miss: computed once (via the
+				// deduping computeAll over the unique miss lines), written to
+				// line-KV exactly once, and scattered to every occurrence position.
+				const missGroups = new Map<string, number[]>(); // line hash → original positions
+				for (const i of missIdx) {
+					const g = missGroups.get(hashes[i]);
+					if (g) g.push(i);
+					else missGroups.set(hashes[i], [i]);
+				}
+				const groupList = [...missGroups.values()];
 				const sub = await computeAll(
-					missIdx.map((i) => lines[i]),
+					groupList.map((g) => lines[g[0]]),
 					appTo,
 					env
 				);
 				const writes: Promise<void>[] = [];
-				missIdx.forEach((orig, j) => {
-					merged[orig] = sub[j];
+				groupList.forEach((positions, j) => {
+					for (const orig of positions) merged[orig] = sub[j];
 					// Only GENUINE lines are written (never an echo) — permanent, no TTL.
-					if (sub[j].translated && sub[j].text) writes.push(kv.put(keys[orig], sub[j].text));
+					// ONE put per unique line, however many times the song repeats it.
+					if (sub[j].translated && sub[j].text)
+						writes.push(kv.put(keys[positions[0]], sub[j].text));
 				});
 				if (writes.length) {
 					const done = Promise.allSettled(writes).then(() => undefined);
