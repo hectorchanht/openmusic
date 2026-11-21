@@ -2328,6 +2328,18 @@ class Player {
 			: null;
 	}
 
+	/**
+	 * quick-261121-beat: the per-frame playback clock for the Song Beat game loop (ported
+	 * from the tapalong lineage, where Tap-Along's guide loop uses it). `currentTime`
+	 * ($state) only updates on `timeupdate` (~4Hz) — far too coarse to judge a tap against
+	 * a ±70ms PERFECT window — so the loop reads the audio element directly through here.
+	 * Falls back to the $state value before attach / with no element. Read-only: never
+	 * seeks, never syncs.
+	 */
+	liveTime(): number {
+		return this.audio ? this.audio.currentTime || 0 : this.currentTime;
+	}
+
 	/** Push the current finite, in-range position to the OS media UI (guarded, MS-04). */
 	private syncPosition(el: HTMLAudioElement) {
 		const ms = this.ms;

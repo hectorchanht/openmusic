@@ -43,6 +43,53 @@ function kickNativeLoad(): void {
 	})();
 }
 
+// quick-261121-beat: Tap-Along / Song Beat instrument patterns (ported from the tapalong
+// lineage for the Song Beat game — the pattern SHAPES and intensity scaling live in
+// services/tapalong.ts, the ONE pure source; this module is only the effectful shell).
+// Same contract as tick(): NEVER throws, silent no-op where `navigator.vibrate` is absent
+// (iOS Safari), and silenced by the same setHapticsEnabled() settings seam. A UI commit
+// (tick, D-17) must never feel like a drum hit and vice versa, so the families never share
+// a call path.
+import { GUIDE_PATTERN, PAD_PATTERNS, scalePattern, type PadId } from '$lib/services/tapalong';
+
+function firePattern(pattern: readonly number[]): void {
+	if (!enabled) return;
+	try {
+		navigator.vibrate?.(pattern.length === 1 ? pattern[0] : [...pattern]);
+	} catch {
+		/* unsupported / blocked — silently no-op */
+	}
+}
+
+function padPattern(pad: PadId, intensityScale: number, velocity: number): void {
+	firePattern(scalePattern(PAD_PATTERNS[pad], intensityScale, velocity));
+}
+
+/** Kick — one deep thump. `intensityScale` from INTENSITY_SCALES, `velocity` 0.55–1 by tap position. */
+export function kick(intensityScale = 1, velocity = 1): void {
+	padPattern('kick', intensityScale, velocity);
+}
+
+/** Snare — a crack: short, gap, medium. */
+export function snare(intensityScale = 1, velocity = 1): void {
+	padPattern('snare', intensityScale, velocity);
+}
+
+/** Pluck — a struck string: firm, short ring, tail. */
+export function pluck(intensityScale = 1, velocity = 1): void {
+	padPattern('pluck', intensityScale, velocity);
+}
+
+/** Shaker — a shaken shimmer of small pulses. */
+export function shaker(intensityScale = 1, velocity = 1): void {
+	padPattern('shaker', intensityScale, velocity);
+}
+
+/** Guide pulse — the barely-there phrase heartbeat (not scaled: it must stay subtle). */
+export function guidePulse(): void {
+	firePattern(GUIDE_PATTERN);
+}
+
 /** Fire a light commit-tier haptic where supported; no-op (never throws) where it is not. */
 export function tick(): void {
 	if (!enabled) return;
