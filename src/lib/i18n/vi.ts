@@ -522,6 +522,7 @@ const vi: Dict = {
 	"menu.sleepTimer": "Hẹn giờ tắt",
 	"menu.autoplay": "Tự động phát",
 	"menu.preparing": "Đang chuẩn bị…",
+	"menu.refreshCover": "Làm mới bìa & thông tin",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) ---
 	"versions.title": "Phát từ nguồn",
@@ -529,6 +530,10 @@ const vi: Dict = {
 	"versions.unknownQuality": "chất lượng không xác định",
 	"versions.open": "Chọn nguồn",
 	"versions.loading": "Đang tìm phiên bản…",
+	"versions.default": "Mặc định",
+	"versions.pinned": "Đã ghim",
+	"versions.pinVariant": "Ghim phiên bản này làm mặc định",
+	"versions.unpinVariant": "Bỏ ghim phiên bản này",
 	"menu.versions": "Phát từ nguồn",
 	"menu.changeCover": "Đổi ảnh bìa",
 	"menu.fixLyrics": "Sửa lời bài hát",

@@ -522,6 +522,7 @@ const ar: Dict = {
 	"menu.sleepTimer": "مؤقت النوم",
 	"menu.autoplay": "تشغيل تلقائي",
 	"menu.preparing": "جارٍ التحضير…",
+	"menu.refreshCover": "تحديث الغلاف والمعلومات",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) ---
 	"versions.title": "التشغيل من مصدر",
@@ -529,6 +530,10 @@ const ar: Dict = {
 	"versions.unknownQuality": "جودة غير معروفة",
 	"versions.open": "اختر المصدر",
 	"versions.loading": "جارٍ البحث عن النسخ…",
+	"versions.default": "الافتراضي",
+	"versions.pinned": "مثبت",
+	"versions.pinVariant": "تثبيت هذا الإصدار كافتراضي",
+	"versions.unpinVariant": "إلغاء تثبيت هذا الإصدار",
 	"menu.versions": "التشغيل من مصدر",
 	"menu.changeCover": "تغيير الغلاف",
 	"menu.fixLyrics": "إصلاح الكلمات",

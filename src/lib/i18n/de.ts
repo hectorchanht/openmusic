@@ -522,6 +522,7 @@ const de: Dict = {
 	"menu.sleepTimer": "Sleep-Timer",
 	"menu.autoplay": "Autoplay",
 	"menu.preparing": "Wird vorbereitet…",
+	"menu.refreshCover": "Cover & Infos aktualisieren",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) ---
 	"versions.title": "Von Quelle abspielen",
@@ -529,6 +530,10 @@ const de: Dict = {
 	"versions.unknownQuality": "unbekannte Qualität",
 	"versions.open": "Quelle wählen",
 	"versions.loading": "Versionen werden gesucht…",
+	"versions.default": "Standard",
+	"versions.pinned": "Angeheftet",
+	"versions.pinVariant": "Diese Version als Standard anheften",
+	"versions.unpinVariant": "Version lösen",
 	"menu.versions": "Von Quelle abspielen",
 	"menu.changeCover": "Cover ändern",
 	"menu.fixLyrics": "Songtext korrigieren",

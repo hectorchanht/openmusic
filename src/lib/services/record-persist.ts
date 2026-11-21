@@ -40,6 +40,17 @@ function isQuotaError(e: unknown): boolean {
 	return err.name === 'QuotaExceededError' || err.name === 'NSExceededError' || err.code === 22;
 }
 
+/** Test seam registry: every store's memo-clear, so a harness that clears the
+ * backing Storage object in place (no `storage` event, same identity) can
+ * still reset the memos — mirroring how cover-cache behaves when a harness
+ * swaps in a fresh Storage object per test. */
+const memoResets: Array<() => void> = [];
+
+/** Test seam: drop every forever-store memo (the on-disk data is untouched). */
+export function __resetAllForeverStoresForTest(): void {
+	for (const reset of memoResets) reset();
+}
+
 export function createForeverStore<T>(
 	storageKey: string,
 	opts: {
@@ -50,6 +61,7 @@ export function createForeverStore<T>(
 	}
 ): ForeverStore<T> {
 	let memo: { store: Storage; rec: Record<string, T> } | null = null;
+	memoResets.push(() => (memo = null));
 	if (typeof window !== 'undefined') {
 		window.addEventListener('storage', (e) => {
 			if (e.key === null || e.key === storageKey) memo = null; // null key = other tab cleared all

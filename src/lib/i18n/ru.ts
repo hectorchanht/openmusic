@@ -522,6 +522,7 @@ const ru: Dict = {
 	"menu.sleepTimer": "Таймер сна",
 	"menu.autoplay": "Автовоспроизведение",
 	"menu.preparing": "Подготовка…",
+	"menu.refreshCover": "Обновить обложку и данные",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) ---
 	"versions.title": "Воспроизвести из источника",
@@ -529,6 +530,10 @@ const ru: Dict = {
 	"versions.unknownQuality": "неизвестное качество",
 	"versions.open": "Выбрать источник",
 	"versions.loading": "Поиск версий…",
+	"versions.default": "По умолчанию",
+	"versions.pinned": "Закреплена",
+	"versions.pinVariant": "Закрепить эту версию по умолчанию",
+	"versions.unpinVariant": "Открепить эту версию",
 	"menu.versions": "Воспроизвести из источника",
 	"menu.changeCover": "Изменить обложку",
 	"menu.fixLyrics": "Исправить текст",

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 import { matchKey } from '$lib/services/dedupe';
+import { __resetAllForeverStoresForTest } from '$lib/services/record-persist';
 
 // FIX-A: player.playStub is the optimistic resolve-on-tap path. A discovery tile is a
 // Last.fm {artist,title} stub (NOT a Track), so it must be resolved via resolveStub
@@ -360,6 +361,11 @@ beforeEach(() => {
 	mockResolve.mockReset();
 	mockEnsure.mockReset();
 	memStore.clear();
+	// quick-261121-canon: the canonical record stores memoise per Storage identity
+	// (cover-cache pattern) — an in-place memStore.clear() fires no storage event,
+	// so drop the memos too or one test's records (e.g. an adopted pin) leak into
+	// the next test's world.
+	__resetAllForeverStoresForTest();
 	player.queue = [];
 	// play() touches the real <audio>/Media Session — stub it so playStub's success handoff
 	// is observable (current set) without a DOM. We assert play() is CALLED with the track.

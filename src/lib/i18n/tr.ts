@@ -522,6 +522,7 @@ const tr: Dict = {
 	"menu.sleepTimer": "Uyku zamanlayıcısı",
 	"menu.autoplay": "Otomatik oynatma",
 	"menu.preparing": "Hazırlanıyor…",
+	"menu.refreshCover": "Kapağı ve bilgileri yenile",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) ---
 	"versions.title": "Kaynaktan çal",
@@ -529,6 +530,10 @@ const tr: Dict = {
 	"versions.unknownQuality": "bilinmeyen kalite",
 	"versions.open": "Kaynak seç",
 	"versions.loading": "Sürümler aranıyor…",
+	"versions.default": "Varsayılan",
+	"versions.pinned": "Sabitlendi",
+	"versions.pinVariant": "Bu sürümü varsayılan sabitle",
+	"versions.unpinVariant": "Bu sürümün sabitlemesini kaldır",
 	"menu.versions": "Kaynaktan çal",
 	"menu.changeCover": "Kapağı değiştir",
 	"menu.fixLyrics": "Şarkı sözlerini düzelt",

@@ -522,6 +522,7 @@ const id: Dict = {
 	"menu.sleepTimer": "Timer tidur",
 	"menu.autoplay": "Putar otomatis",
 	"menu.preparing": "Menyiapkan…",
+	"menu.refreshCover": "Segarkan sampul & info",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) ---
 	"versions.title": "Putar dari sumber",
@@ -529,6 +530,10 @@ const id: Dict = {
 	"versions.unknownQuality": "kualitas tidak diketahui",
 	"versions.open": "Pilih sumber",
 	"versions.loading": "Mencari versi…",
+	"versions.default": "Default",
+	"versions.pinned": "Disematkan",
+	"versions.pinVariant": "Sematkan versi ini sebagai default",
+	"versions.unpinVariant": "Lepas sematan versi ini",
 	"menu.versions": "Putar dari sumber",
 	"menu.changeCover": "Ubah sampul",
 	"menu.fixLyrics": "Perbaiki lirik",

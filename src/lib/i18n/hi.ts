@@ -522,6 +522,7 @@ const hi: Dict = {
 	"menu.sleepTimer": "स्लीप टाइमर",
 	"menu.autoplay": "ऑटोप्ले",
 	"menu.preparing": "तैयार किया जा रहा है…",
+	"menu.refreshCover": "कवर और जानकारी रीफ़्रेश करें",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) ---
 	"versions.title": "स्रोत से चलाएँ",
@@ -529,6 +530,10 @@ const hi: Dict = {
 	"versions.unknownQuality": "अज्ञात गुणवत्ता",
 	"versions.open": "स्रोत चुनें",
 	"versions.loading": "संस्करण खोजे जा रहे हैं…",
+	"versions.default": "डिफ़ॉल्ट",
+	"versions.pinned": "पिन किया गया",
+	"versions.pinVariant": "इस संस्करण को डिफ़ॉल्ट पिन करें",
+	"versions.unpinVariant": "इस संस्करण को अनपिन करें",
 	"menu.versions": "स्रोत से चलाएँ",
 	"menu.changeCover": "कवर बदलें",
 	"menu.fixLyrics": "बोल ठीक करें",

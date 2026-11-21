@@ -522,6 +522,7 @@ const th: Dict = {
 	"menu.sleepTimer": "ตั้งเวลาปิด",
 	"menu.autoplay": "เล่นอัตโนมัติ",
 	"menu.preparing": "กำลังเตรียม…",
+	"menu.refreshCover": "รีเฟรชปกและข้อมูล",
 
 	// --- version picker (Phase 26-04, VERSIONS-01) ---
 	"versions.title": "เล่นจากแหล่งที่มา",
@@ -529,6 +530,10 @@ const th: Dict = {
 	"versions.unknownQuality": "ไม่ทราบคุณภาพ",
 	"versions.open": "เลือกแหล่งที่มา",
 	"versions.loading": "กำลังค้นหาเวอร์ชัน…",
+	"versions.default": "ค่าเริ่มต้น",
+	"versions.pinned": "ปักหมุดแล้ว",
+	"versions.pinVariant": "ปักหมุดเวอร์ชันนี้เป็นค่าเริ่มต้น",
+	"versions.unpinVariant": "เลิกปักหมุดเวอร์ชันนี้",
 	"menu.versions": "เล่นจากแหล่งที่มา",
 	"menu.changeCover": "เปลี่ยนปก",
 	"menu.fixLyrics": "แก้ไขเนื้อเพลง",
