@@ -13,7 +13,9 @@
           here is always machine-generated.
        2. 翻譯 Translation — settings.lyricsLang + settings.translateMode (the
           existing store fields, unchanged semantics) + the dedupe toggle
-          (settings.lyricsDedupeIdentical, default ON).
+          (settings.lyricsDedupeIdentical, default ON) + the skip-whitelist
+          chips (settings.lyricsSkip — restored by quick-261121-trfix after the
+          lsheet move dropped its only UI) + the force re-translate action.
        3. 顯示行 Lines shown — the two paren toggles.
        4. 同步 Timing — the lyric-offset fixer at the spec's ±0.1s step, writing
           the existing shared offset store; per-line timing routes to the editor.
@@ -23,9 +25,10 @@
      and save() immediately, exactly as the old Settings page did. -->
 <script lang="ts">
 	import { fly } from 'svelte/transition';
-	import { Check, ChevronLeft, ChevronRight, Mic2, Pencil, Sparkles, X } from '@lucide/svelte';
+	import { Check, ChevronLeft, ChevronRight, Mic2, Pencil, RefreshCw, Sparkles, X } from '@lucide/svelte';
 	import { t } from '$lib/i18n';
-	import { settings, type LyricsLang, type TranslateMode } from '$lib/stores/settings.svelte';
+	import { settings, effectiveTarget, type LyricsLang, type SourceLang, type TranslateMode } from '$lib/stores/settings.svelte';
+	import { lyricsTranslation } from '$lib/stores/lyrics-translation.svelte';
 	import { SOURCES } from '$lib/sources/registry';
 	import { names } from '$lib/stores/names.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -96,6 +99,50 @@
 		{ v: 'replace' as TranslateMode, label: t('settings.optReplace') },
 		{ v: 'below' as TranslateMode, label: t('settings.optShowBelow') }
 	]);
+
+	// quick-261121-trfix: the SKIP-WHITELIST sources — the Settings translation
+	// page's list verbatim (the 17 SourceLang tags; endonym labels are literal,
+	// no dictionary entries). The control itself was LOST when the lyrics
+	// controls moved into this sheet (quick-261120-lsheet moved lang/mode/dedupe
+	// but not skip), leaving settings.lyricsSkip unreachable from the UI. This
+	// restores its home — same store field, same toggle semantics as the page's
+	// artist/title skip rows, no new setting, no migration.
+	const sources: { v: SourceLang; label: string }[] = [
+		{ v: 'zh-Hant', label: '繁體中文' },
+		{ v: 'zh-Hans', label: '简体中文' },
+		{ v: 'en', label: 'English' },
+		{ v: 'ja', label: '日本語' },
+		{ v: 'ko', label: '한국어' },
+		{ v: 'es', label: 'Español' },
+		{ v: 'fr', label: 'Français' },
+		{ v: 'de', label: 'Deutsch' },
+		{ v: 'pt', label: 'Português' },
+		{ v: 'it', label: 'Italiano' },
+		{ v: 'ru', label: 'Русский' },
+		{ v: 'tr', label: 'Türkçe' },
+		{ v: 'ar', label: 'العربية' },
+		{ v: 'hi', label: 'हिन्दी' },
+		{ v: 'id', label: 'Bahasa Indonesia' },
+		{ v: 'vi', label: 'Tiếng Việt' },
+		{ v: 'th', label: 'ไทย' }
+	];
+	function toggleLyricsSkip(v: SourceLang) {
+		const cur = settings.lyricsSkip;
+		settings.lyricsSkip = cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v];
+		settings.save();
+	}
+
+	// quick-261121-trfix (Hector 2026-11-21): FORCE REFRESH at the point of use.
+	// Sends the store request for THIS track + the current EFFECTIVE target; the
+	// pane's translate effect consumes it, busts that song+target's client
+	// translation caches and re-runs — one song, one language, never a bulk
+	// re-translate. This explicit action is the sanctioned exception to the
+	// no-re-translate-on-switch rule.
+	function retranslate() {
+		if (!track?.uid || settings.lyricsLang === 'off') return;
+		lyricsTranslation.requestRetranslate(track.uid, effectiveTarget(settings.lyricsLang));
+		toast.show(t('lyricsSettings.retranslateStarted'));
+	}
 
 	// --- source level ------------------------------------------------------------
 	let level = $state<'main' | 'source'>('main');
@@ -257,6 +304,21 @@
 				checked={settings.lyricsDedupeIdentical}
 				onchange={() => { settings.lyricsDedupeIdentical = !settings.lyricsDedupeIdentical; settings.save(); }}
 			/>
+			{#if settings.lyricsLang !== 'off'}
+				<!-- quick-261121-trfix: the restored skip-whitelist control (see the
+				     script note) + the force-refresh action, both in the Translation
+				     group where they are used. -->
+				<div class="skip">
+					<p class="sublabel">{t('settings.skipLanguages')}</p>
+					<div class="chips">
+						{#each sources as s (s.v)}
+							<button class="chip skipchip" class:on={settings.lyricsSkip.includes(s.v)} onclick={() => toggleLyricsSkip(s.v)} use:tapBounce>{s.label}</button>
+						{/each}
+					</div>
+					<p class="hint">{t('settings.skipLanguagesNote')}</p>
+				</div>
+				<MenuActionButton icon={RefreshCw} onclick={retranslate}>{t('lyricsSettings.retranslate')}</MenuActionButton>
+			{/if}
 
 			<h3 class="grp">{t('lyricsSettings.display')}</h3>
 			<SettingToggle
@@ -318,6 +380,13 @@
 	.lyr-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.85rem; }
 	.lyr-cur { display: inline-flex; align-items: center; gap: 4px; color: var(--color-primary); font-size: 0.8rem; }
 	.lyr-body { max-height: 7.5em; overflow-y: auto; white-space: pre-line; font-size: 0.8rem; line-height: 1.5; color: var(--color-text-muted); }
+	/* quick-261121-trfix: skip-whitelist chips — the Settings translation page's
+	   chip idiom, restated in the sheet's own styles (scoped CSS does not travel). */
+	.sublabel { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin: 4px 0 8px; }
+	.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+	.chip { background: var(--color-surface-2); border: 1px solid var(--color-border); color: var(--color-text); padding: 8px 14px; border-radius: 999px; font-size: 0.8125rem; cursor: pointer; min-height: 36px; }
+	.skipchip.on { background: var(--color-surface); color: var(--color-primary); border-color: var(--color-primary); }
+	.skip .hint { margin-top: 8px; }
 	.offset-row { display: flex; align-items: center; justify-content: center; gap: 8px; }
 	.offset-row button { min-height: 44px; padding: 6px 14px; border: 1px solid var(--color-border); border-radius: var(--radius-full); background: var(--color-surface); color: var(--color-text); cursor: pointer; font-variant-numeric: tabular-nums; }
 	.offset-row .readout { min-width: 84px; font-weight: 600; }
