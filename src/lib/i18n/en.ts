@@ -643,6 +643,7 @@ const en = {
 	"tags.cancel": "Cancel",
 	"tags.saving": "Saving…",
 	"menu.coverPickerNone": "No covers found",
+	"menu.refreshCover": "Refresh cover & info",
 	"menu.downloadFrom": "Download from…",
 	"menu.downloadHoldHint": "Hold to choose source and format",
 	"menu.downloadUnavailable": "Unavailable",

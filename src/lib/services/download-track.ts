@@ -34,6 +34,7 @@ import { readLyrics } from '$lib/stores/lyric-pins.svelte';
 import { library } from '$lib/stores/library.svelte';
 import { player } from '$lib/stores/player.svelte';
 import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
+import { carryRecordWithDownload } from '$lib/stores/records.svelte';
 import { settings, type DefaultQuality } from '$lib/stores/settings.svelte';
 import { names } from '$lib/stores/names.svelte';
 import { ensureTrackDetails } from '$lib/services/catalog';
@@ -216,7 +217,12 @@ export async function downloadTrack(track: Track, opts?: DownloadOpts): Promise<
 	// explicit donor REPLACE under this track's own identity (quick-260916-0d9).
 	if (!opts?.audioFrom) {
 		const other = library.otherDownloadOf(track);
-		if (other && (await blobStore.has(other.uid))) return 'saved';
+		if (other && (await blobStore.has(other.uid))) {
+			// quick-261121-canon: the song IS downloaded (under a sibling uid) — its canonical
+			// record carries that fact too, so offline surfaces render from the record.
+			carryRecordWithDownload(track, readCoverByUidOrName(track.uid, track.artist, track.title) ?? track.cover);
+			return 'saved';
+		}
 	}
 	// DL-STATE-01: bracket the per-uid spinner. beginDownload BEFORE the first await; endDownload in
 	// the `finally` so EVERY exit (saved / no-audio / failed / any throw) clears the spinner exactly once.
@@ -251,6 +257,13 @@ export async function downloadTrack(track: Track, opts?: DownloadOpts): Promise<
 		if (library.isDownloaded(track.uid)) {
 			if (res === 'saved') library.clearUnavailable(track.uid);
 			else library.markUnavailable(track.uid);
+		}
+		// quick-261121-canon: a saved download CARRIES its canonical record (Hector
+		// 2026-11-21) — the record is flagged downloaded (eviction-protected, forever) and
+		// seeded with the cover this download resolved, so offline play shows the same
+		// cover/lyrics as online, rendered from the record with zero network.
+		if (res === 'saved') {
+			carryRecordWithDownload(track, readCoverByUidOrName(track.uid, track.artist, track.title) ?? track.cover);
 		}
 		// DL-STATE-01: clear the per-uid spinner on every exit path.
 		library.endDownload(track.uid);

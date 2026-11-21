@@ -24,6 +24,7 @@
 	import { shuffle } from '$lib/services/shuffle';
 	import { downloadAlbum as downloadAlbumTracks } from '$lib/services/download-album';
 	import { downloadLabel } from '$lib/services/download-label';
+	import { readRecordCover } from '$lib/stores/records.svelte';
 	// quick-261023-bulklock: bulk ZIP downloads are a supporter perk.
 	import { isSupporter } from '$lib/config/sponsored';
 	import { support } from '$lib/stores/support.svelte';
@@ -122,7 +123,12 @@
 
 	// Prefer the best-quality enrichment cover (Deezer hi-res > Last.fm art, via the merge).
 	// The stub tracklist carries no source cover, so this is the only hero art source.
-	const heroImg = $derived(merged.cover ?? null);
+	// quick-261121-canon: the first track's canonical RECORD is the next rung — a record
+	// resolved once (played / downloaded / pinned) carries this album's art forever, so the
+	// hero still paints offline after the enrichment caches have expired.
+	const heroImg = $derived(
+		merged.cover ?? (tracks.length ? readRecordCover(tracks[0].artist, tracks[0].title) : null)
+	);
 	// Format Deezer total duration (seconds) → "M:SS" or "H:MM:SS" for the album info row.
 	function fmtDuration(sec: number): string {
 		const h = Math.floor(sec / 3600);

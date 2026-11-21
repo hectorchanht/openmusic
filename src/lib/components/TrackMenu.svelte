@@ -79,7 +79,8 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	import { songShareUrl, encodePathSegment } from '$lib/services/share';
 	// quick-260809-3uo: the share card now carries the cover the user is looking at — read from the
 	// SAME shared reactive cache every other surface reads, plus the retained iTunes id.
-	import { readCoverByUidOrName, readChosenCover, pinCover } from '$lib/stores/cover-version.svelte';
+	import { readCoverByUidOrName, readChosenCover } from '$lib/stores/cover-version.svelte';
+	import { pinRecordCover, pinRecordLyrics, unpinRecordLyrics, refreshTrackRecord } from '$lib/stores/records.svelte';
 	// Phase 40 D-15: the crowd-shared cover vote — sent ONLY from the picker tap below.
 	import { coverPickKeys, submitCoverPick } from '$lib/services/cover-pick-shared';
 	// quick-260915-w4f: the ENUMERATE-ALL cover collector. Imported for the picker only — it runs
@@ -91,7 +92,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	// quick-260919-1we: the lyrics picker's ENUMERATE-ALL collector + the pin read/write pair. Same
 	// posture as the cover picker one line up — the parallel walk fires ONLY on the Fix-lyrics tap
 	// (T-1we-03), never on menu open. `readLyrics` is D-4's single read (pin → track.lrc → null).
-	import { readLyrics, pinLyrics, unpinLyrics } from '$lib/stores/lyric-pins.svelte';
+	import { readLyrics } from '$lib/stores/lyric-pins.svelte';
 	// quick-261021-menu7: lyric-offset imports moved to LyricsTimingToggle.svelte (shared component).
 	import { parseLyrics } from '$lib/stores/lyric-script.svelte';
 	import { combinedSignal } from '$lib/services/abort-signal';
@@ -824,13 +825,27 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		coverOpen = false;
 		coverAc?.abort();
 	}
+	// quick-261121-canon: point-of-use FORCE REFRESH (standing rule — the user can see when a
+	// cover is wrong, so the fix lives where the cover is used). Busts EXACTLY this song's
+	// canonical record + cache entries and re-runs the one resolver, then re-walks the
+	// candidate grid so the sheet shows the fresh set. Narrow by construction.
+	let coverRefreshing = $state(false);
+	async function refreshCover() {
+		if (!track?.uid || coverRefreshing) return;
+		coverRefreshing = true;
+		await refreshTrackRecord(track).catch(() => null);
+		coverRefreshing = false;
+		void openCoverPicker();
+	}
 	// Pin the tapped candidate. pinCover persists it (own key, no TTL/LRU — Q3) and bumps the shared
 	// reactive signal, so every list row repaints. player.adoptCover is a no-op unless this song is
 	// CURRENT; when it is, it is what repaints the NowPlaying hero, the Nowbar and the OS media card
 	// instantly — it is already the ONE promotion seam, and Task 2 taught it to accept a pin (Q5).
 	function pickCover(url: string) {
 		if (!track?.uid) return;
-		pinCover(track.uid, url);
+		// quick-261121-canon: pin at the RECORD level (every instance of the song, every
+		// surface) — pinRecordCover dual-writes the legacy per-uid pin for un-migrated readers.
+		pinRecordCover(track, url);
 		player.adoptCover(track.uid, url);
 		// Phase 40 D-15: this explicit tap is the ONLY place a cover vote leaves the device — auto-resolved
 		// covers never vote. Fire-and-forget (never awaited, never toasted: submitCoverPick swallows every
@@ -888,7 +903,9 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	// repaint on the spot with no replay and no `player.current` surgery.
 	function pickLyrics(lrc: string) {
 		if (!track?.uid) return;
-		pinLyrics(track.uid, lrc);
+		// quick-261121-canon: the pin is recorded against the SONG's record too, so it now
+		// serves every instance of the song at read time (readLyrics' record rung).
+		pinRecordLyrics(track, lrc);
 		toast.show(t('toast.lyricsPinned'));
 		// quick-260919-3j1 (F3): and into the FILE, when this app holds an offline copy. The pin above
 		// stays the in-app mechanism (it bumps the shared signal and every lyrics surface repaints
@@ -904,7 +921,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	// toast text rather than minting a sixth key for one sentence.
 	function resetLyrics() {
 		if (!track?.uid) return;
-		unpinLyrics(track.uid);
+		unpinRecordLyrics(track);
 		// quick-261114-fsync: the unpin used to leave the FILE still carrying the pinned LRC — the
 		// app fell back, the file did not. Re-sync the fallback lyrics (the post-unpin read: the
 		// track's own lrc) through the same gesture writer. When the fallback is EMPTY there is no
@@ -2075,6 +2092,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 				{/each}
 			</div>
 		{/if}
+		<MenuActionButton icon={RotateCcw} onclick={refreshCover}>{t('menu.refreshCover')}</MenuActionButton>
 	</div>
 {/if}
 

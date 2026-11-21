@@ -12,6 +12,7 @@
 
 import type { Track } from '$lib/sources/types';
 import { getPinnedLyrics, setPinnedLyrics, removePinnedLyrics } from '$lib/services/lyric-pins';
+import { getTrackRecord } from '$lib/services/track-record';
 
 // Module-scoped reactive counter, held in a small object because top-level `$state` reassignment must
 // be on a `$state` rune target. Callers CALL lyricVersion() inside a $derived/template to take the
@@ -69,7 +70,19 @@ export function bumpLyricVersion(): void {
  */
 export function readLyrics(track: Track | null | undefined): string | null {
 	lyricVersion(); // reactive dependency — recompute when any pin lands
-	return getPinnedLyrics(track?.uid ?? '') ?? track?.lrc ?? null;
+	if (!track) return null;
+	const own = getPinnedLyrics(track.uid ?? '');
+	if (own) return own;
+	// quick-261121-canon: the RECORD-level lyric pin — when the user pinned lyrics while
+	// holding ANOTHER instance of this song, the record names that instance's uid, and its
+	// pinned text serves THIS instance too (pin once, fixed everywhere). The per-uid store
+	// still holds the text itself (D-2); the record is only the per-song pointer.
+	const rec = getTrackRecord(track.artist ?? '', track.title ?? '');
+	if (rec?.lyrics.pinUid && rec.lyrics.pinUid !== track.uid) {
+		const viaRecord = getPinnedLyrics(rec.lyrics.pinUid);
+		if (viaRecord) return viaRecord;
+	}
+	return track.lrc ?? null;
 }
 
 /** The ONLY sanctioned pin WRITER: persist the user's choice and bump so every reader repaints. */

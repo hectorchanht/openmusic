@@ -106,6 +106,7 @@ import {
 	writeCrowdCover,
 	removeCrowdCover
 } from '$lib/stores/cover-version.svelte';
+import { getTrackChosenCover } from '$lib/services/track-record';
 // quick-260704-3ov: the pure serialize/parse codec was extracted out of this god-object into
 // a colocated, node-tested module (the "runes store thinly wraps a pure helper" precedent).
 import { readLyrics } from '$lib/stores/lyric-pins.svelte';
@@ -595,7 +596,12 @@ class Player {
 		const cur = this.current;
 		if (!cur) return rc;
 		if (rc && !hasHttpsScheme(rc) && isRenderableCover(rc)) return rc; // embedded data: cover
-		return readCoverByUidOrName(cur.uid, cur.artist, cur.title) ?? rc;
+		// quick-261121-canon: the canonical TrackRecord is the rung between the shared cache
+		// and resolvedCover — a record resolved once (or carried by a download) renders here
+		// FOREVER, offline included, even after the cover-cache's 14-day TTL lapses.
+		// resolvedCover is now only the optimistic seed / final fallback: a VIEW of the
+		// record's truth, no longer a second truth of its own (brief Phase 3 convergence).
+		return readCoverByUidOrName(cur.uid, cur.artist, cur.title) ?? getTrackChosenCover(cur.artist, cur.title) ?? rc;
 	}
 
 	/** quick-261116-dtap: read-only Never-Stop state for the double-tap discovery service

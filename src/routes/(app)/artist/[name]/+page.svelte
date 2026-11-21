@@ -26,7 +26,10 @@
 	import TagChips from '$lib/components/TagChips.svelte';
 	import { enrichArtist, type EnrichResult } from '$lib/services/lastfm';
 	import { getSimilarArtists } from '$lib/services/similar';
-	import { deezerArtistCover, deezerArtistWithFallbacks, type DeezerArtistInfo } from '$lib/services/deezer';
+	import { deezerArtistWithFallbacks, type DeezerArtistInfo } from '$lib/services/deezer';
+	import { resolveArtistImage } from '$lib/services/artist-image';
+	import { recordArtistImage, getArtistPin } from '$lib/services/artist-record';
+	import { readRecordArtistImage } from '$lib/stores/records.svelte';
 	import { fullestDisplayName, creditSegments, pickHeroCover } from '$lib/services/artist-display';
 	import { readCoverByUidOrName } from '$lib/stores/cover-version.svelte';
 	import { isCoverUrlDead } from '$lib/services/dead-cover-urls';
@@ -280,7 +283,25 @@
 	// Prefer the best-quality enrichment image (Deezer hi-res > Last.fm art, via the merge)
 	// ONLY when present; otherwise keep the derived cover so a real hero NEVER regresses to a
 	// placeholder (ENRICH-02/D-15 override D-03).
-	const heroImg = $derived(merged.image ?? hero);
+	// quick-261121-canon: the canonical ArtistRecord joins the ladder — a user PIN outranks
+	// even the fresh enrichment (user intent is canonical), and the record's chosen image
+	// (resolved once, kept forever) outranks the track-cover fallback, so the hero paints
+	// the artist's real photo offline instead of regressing to an album cover.
+	const recordPinImg = $derived(getArtistPin(name));
+	const recordImg = $derived(readRecordArtistImage(name));
+	const heroImg = $derived(recordPinImg ?? merged.image ?? recordImg ?? hero);
+
+	// quick-261121-canon: whatever the enrichment merge resolves is RECORDED into the
+	// canonical record (the forever layer), so this page's pipeline feeds every other
+	// surface — search tiles and home included — instead of keeping its own copy.
+	let recordedImgFor = '';
+	$effect(() => {
+		const img = merged.image;
+		if (img && name && recordedImgFor !== `${name}|${img}`) {
+			recordedImgFor = `${name}|${img}`;
+			recordArtistImage(name, img, 'enrichment');
+		}
+	});
 
 	$effect(() => {
 		const n = name;
@@ -437,8 +458,11 @@
 						const lf = await enrichArtist(nm).catch(() => null);
 						const lfImg = lf?.lastfmArt ?? null;
 						if (lfImg) return { name: nm, image: lfImg };
-						// Fall back to Deezer only when LF has no picture for this artist.
-						const dz = await deezerArtistCover(nm).catch(() => null);
+						// Fall back to THE one artist-image resolver when LF has no picture
+						// (quick-261121-canon: record/shared-cache first, then Deezer artist
+						// search + gate-passing hit scan — strictly stronger than the old
+						// deezerArtistCover-only leg, and it records the result for everyone).
+						const dz = await resolveArtistImage(nm).catch(() => null);
 						return { name: nm, image: dz };
 					});
 					if (relatedFor === n) related = withCovers;

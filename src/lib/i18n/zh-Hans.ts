@@ -578,6 +578,7 @@ const zhHans: Dict = {
 	"tags.cancel": "取消",
 	"tags.saving": "正在保存…",
 	"menu.coverPickerNone": "找不到封面",
+	"menu.refreshCover": "重新整理封面与信息",
 	"menu.downloadFrom": "从来源下载…",
 	"menu.downloadHoldHint": "长按选择来源与格式",
 	"menu.downloadUnavailable": "无法获取",
