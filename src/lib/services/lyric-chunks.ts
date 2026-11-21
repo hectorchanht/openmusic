@@ -100,6 +100,35 @@ export function applyUniqueChunkResult(
 }
 
 /**
+ * quick-261121-trfix: the GENUINE-flag twin of applyUniqueChunkResult. A settled
+ * chunk's per-unique-line `flags` (true = the server genuinely translated that
+ * line, false = it fell back to the original / echo) fan back out to EVERY line
+ * position that sent that unique line, so the pane can tell a real translation
+ * from an echo at render time. Positions the chunk does not cover keep their
+ * base value — the component seeds the base with false for sent positions and
+ * false for pass-through positions (a skipped line's slot holds its original by
+ * construction; it is not a genuine translation either).
+ */
+export function applyUniqueChunkFlags(
+	base: readonly boolean[],
+	positions: readonly number[],
+	uniqOf: readonly number[],
+	chunkStart: number,
+	flags: readonly boolean[]
+): boolean[] {
+	const next = base.slice();
+	for (let j = 0; j < flags.length; j++) {
+		const uniqIdx = chunkStart + j;
+		for (let s = 0; s < uniqOf.length; s++) {
+			if (uniqOf[s] !== uniqIdx) continue;
+			const pos = positions[s];
+			if (pos !== undefined && pos >= 0 && pos < next.length) next[pos] = Boolean(flags[j]);
+		}
+	}
+	return next;
+}
+
+/**
  * Return a NEW pending array with one settled UNIQUE chunk's line positions
  * cleared — every occurrence of each unique line in [chunkStart, chunkEnd),
  * mirroring applyUniqueChunkResult's fan-out. Occurrences outside the settled

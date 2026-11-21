@@ -72,3 +72,35 @@ describe('translationDuplicatesOriginal (quick-261120-lsheet)', () => {
 		expect(translationDuplicatesOriginal('   ', '   ')).toBe(false);
 	});
 });
+
+// quick-261121-trfix: the FORCE-REFRESH request channel (sheet / pane → the
+// pane's translate effect). One song, one target; a fresh seq per tap so a
+// repeated request can never be mistaken for the previous one.
+describe('requestRetranslate', () => {
+	beforeEach(() => {
+		lyricsTranslation.clear();
+		lyricsTranslation.retranslateUid = '';
+		lyricsTranslation.retranslateLang = '';
+		lyricsTranslation.retranslateSeq = 0;
+	});
+	it('records the (uid, lang) target and bumps the sequence on every tap', () => {
+		lyricsTranslation.requestRetranslate('kuwo:1', 'fr');
+		expect(lyricsTranslation.retranslateUid).toBe('kuwo:1');
+		expect(lyricsTranslation.retranslateLang).toBe('fr');
+		expect(lyricsTranslation.retranslateSeq).toBe(1);
+		lyricsTranslation.requestRetranslate('kuwo:1', 'fr');
+		expect(lyricsTranslation.retranslateSeq).toBe(2);
+	});
+	it('ignores an empty uid or an off/empty target', () => {
+		lyricsTranslation.requestRetranslate('', 'fr');
+		lyricsTranslation.requestRetranslate('kuwo:1', 'off');
+		lyricsTranslation.requestRetranslate('kuwo:1', '');
+		expect(lyricsTranslation.retranslateSeq).toBe(0);
+	});
+	it('clear() (the snapshot reset) leaves a pending request intact', () => {
+		lyricsTranslation.requestRetranslate('kuwo:1', 'fr');
+		lyricsTranslation.clear();
+		expect(lyricsTranslation.retranslateSeq).toBe(1);
+		expect(lyricsTranslation.retranslateUid).toBe('kuwo:1');
+	});
+});

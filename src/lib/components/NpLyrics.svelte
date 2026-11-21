@@ -20,11 +20,12 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { player } from '$lib/stores/player.svelte';
 	import { t } from '$lib/i18n';
-	import { translateLinesEx } from '$lib/services/translate';
+	import { translateLinesEx, peekLineTranslation, bustLyricsTranslation } from '$lib/services/translate';
 	// quick-261116-kvprog: pure chunk arithmetic for the progressive translation below.
 	// quick-261116-lyrux: + the per-line pending arithmetic (Fix 1) and skeleton widths.
-	import { chunkRanges, dedupeSendList, applyUniqueChunkResult, initialPending, clearUniqueChunkPending, skeletonWidthPct, LYRICS_CHUNK_SIZE, LYRICS_CHUNK_CONCURRENCY } from '$lib/services/lyric-chunks';
-	import { shouldTranslate } from '$lib/i18n/detect';
+	// quick-261121-trfix: + applyUniqueChunkFlags (the genuine-flag stitch).
+	import { chunkRanges, dedupeSendList, applyUniqueChunkResult, applyUniqueChunkFlags, initialPending, clearUniqueChunkPending, skeletonWidthPct, LYRICS_CHUNK_SIZE, LYRICS_CHUNK_CONCURRENCY } from '$lib/services/lyric-chunks';
+	import { shouldTranslate, majorityLang } from '$lib/i18n/detect';
 	import { reorderPairs, splitParenLines, serializeLRC, lineSeekFraction, activeLineAt, lyricAnchorMetrics, formatLyricOffset, LYRIC_OFFSET_MAX, type LyricLine } from '$lib/services/lrc';
 	// quick-261116-lyrux (Fix 2): the publication seam the Nowbar reads for replace mode.
 	import { lyricsTranslation, translationDuplicatesOriginal } from '$lib/stores/lyrics-translation.svelte';
@@ -398,6 +399,31 @@
 	// replace-mode inline spinner in the template, and is published with the
 	// translation (Fix 2) so the Nowbar never serves a placeholder as a translation.
 	let trPending = $state<boolean[]>([]);
+	// quick-261121-trfix: per-line GENUINE flags aligned to `lines` — true only
+	// where the slot holds a real translation (a settled chunk flagged the line
+	// genuine, or the line cache seeded it). A SENT line that settled with flag
+	// false is an ECHO: its slot holds the original, and the template must never
+	// present it as a translation (below mode renders no .tr span for it at all).
+	let trGenuine = $state<boolean[]>([]);
+	// quick-261121-trfix: which positions the current run actually SENT to the
+	// pipeline, aligned to `lines`. Pass-through positions (per-line skip /
+	// already in the target) hold their original by construction — they are
+	// neither genuine nor echoes.
+	let trSent = $state<boolean[]>([]);
+	// quick-261121-trfix: the last run settled with NO genuine line at all — the
+	// pane shows the quiet unavailable/retry row instead of a fake translation.
+	let trUnavailable = $state(false);
+	// quick-261121-trfix: the last force-refresh request this instance consumed
+	// (stores/lyrics-translation.svelte.ts requestRetranslate). Plain let — it is
+	// compared inside the effect, never rendered.
+	let lastRetranslateSeq = 0;
+	// quick-261121-trfix: run GENERATION. The pre-trfix staleness guard compared
+	// only the run key — sufficient while a key could never re-enter (the
+	// trKey===key early return), but a force run deliberately re-enters the SAME
+	// key, and the skip gate can supersede an in-flight run under the same key
+	// too. Every new run (and the gate) bumps the generation; a worker whose
+	// captured generation is no longer current is stale, whatever the key says.
+	let trRunGen = 0;
 	// The effective target of the CURRENT run, for the Fix 2 publish + Fix 3 file
 	// sync. PLAIN let (not $state): written only by the translate effect below, read
 	// by the publish effect after `translated` changes — a lang change always comes
@@ -417,6 +443,19 @@
 		// snapshot at effect time) — the Fix 3 LRC rebuild must use these, not whatever
 		// the derived holds when the last chunk lands.
 		const srcLines = lines;
+		// quick-261121-trfix: a FORCE-REFRESH request for THIS track + target (sent
+		// through the store by the Lyrics settings sheet or the pane's own retry /
+		// re-translate rows) turns this pass into a force run even when the key is
+		// unchanged: the pane freeze is dropped, the line-cache seed is skipped,
+		// and each chunk busts its client caches before re-calling the pipeline.
+		// Reading retranslateSeq here is what re-runs this effect when a request
+		// lands; a request for another track/target is ignored, never consumed.
+		const rtSeq = lyricsTranslation.retranslateSeq;
+		const forceRun =
+			rtSeq !== lastRetranslateSeq &&
+			lyricsTranslation.retranslateUid === (t?.uid ?? '') &&
+			lyricsTranslation.retranslateLang === lang;
+		if (forceRun) lastRetranslateSeq = rtSeq;
 		// quick-260919-np3: `tab !== 'lyrics'` dropped — the mount is that gate now (see above).
 		if (rawLang === 'off' || !n || !t) {
 			// quick-260618-fiz Fix 1: flipping INTO a no-translate state (lyricsLang → 'off', leaving
@@ -426,6 +465,9 @@
 			if (translated.length) translated = [];
 			if (translating) translating = false;
 			if (trPending.length) trPending = [];
+			if (trGenuine.length) trGenuine = [];
+			if (trSent.length) trSent = [];
+			trUnavailable = false;
 			trKey = '';
 			return;
 		}
@@ -435,26 +477,28 @@
 		// showTr/translateMode (below/replace) render unchanged. Include skip in the key so
 		// toggling the whitelist re-runs the effect.
 		const key = `${t.uid}:${lang}:${n}:${skip.slice().sort().join(',')}`;
-		if (trKey === key) return;
-		// quick-260625-pzs-03: serve a previously-COMPLETED translation for this exact key from the
-		// module-scoped cache BEFORE any reset/fetch. On a tab blur→focus or component remount the
-		// per-instance `trKey` was reset to '' so this same track's effect re-runs; the cache hit
-		// re-renders the finished translation synchronously — no untranslated flash, no /api/translate
-		// round-trip. Only complete renders ever land in trCache (populated below), so a soft-fail
-		// echo is never served as final.
-		const cached = trCache.get(key);
-		if (cached) {
+		if (trKey === key && !forceRun) return;
+		// quick-261121-trfix (Hector 2026-11-21 00:48): WHOLE-SONG SKIP PRE-GATE —
+		// ahead of the cache serve and ahead of ANY fetch. When the song's majority
+		// source language (detectLang over the parsed lines; the track stores no
+		// language) is on the user's skip list, translation never runs for this
+		// song at all: zero translateLinesEx calls, originals only in both modes.
+		// A mixed song (no majority) falls through to the per-line whitelist below.
+		const songLang = majorityLang(srcLines.map((l) => l.text));
+		if (songLang !== null && skip.includes(songLang)) {
+			trRunGen++; // supersede any in-flight run for this key (see trRunGen)
 			trKey = key;
-			translated = cached;
+			if (translated.length) translated = [];
 			translating = false;
 			trPending = [];
-			// quick-261116-lyrux (Fix 3): a cache hit is still a COMPLETED translation —
-			// offer it to the downloaded file too (the player's per-(uid, lang) session
-			// cap + already-tagged check make the replay a no-op when it already landed).
-			player.syncTranslatedLyricsToFile(t.uid, lang, serializeLRC(srcLines, cached));
+			trGenuine = [];
+			trSent = [];
+			trUnavailable = false;
+			// Publish nothing for a gated song — drop any stale snapshot so the
+			// Nowbar cannot serve a previous run's column for this track.
+			lyricsTranslation.clear();
 			return;
 		}
-		trKey = key;
 		const sendIdx: number[] = [];
 		const sendText: string[] = [];
 		for (let i = 0; i < lines.length; i++) {
@@ -463,6 +507,38 @@
 				sendText.push(lines[i].text);
 			}
 		}
+		const sendSet = new Set(sendIdx);
+		if (forceRun) {
+			// The user rejected this song+target's cached translation: drop the
+			// pane-level freeze for the key; the workers bust the service-level
+			// caches (batch / line / segment) chunk by chunk below.
+			trCache.delete(key);
+		} else {
+			// quick-260625-pzs-03: serve a previously-COMPLETED translation for this exact key from the
+			// module-scoped cache BEFORE any reset/fetch. On a tab blur→focus or component remount the
+			// per-instance `trKey` was reset to '' so this same track's effect re-runs; the cache hit
+			// re-renders the finished translation synchronously — no untranslated flash, no /api/translate
+			// round-trip. Only complete renders ever land in trCache (populated below), so a soft-fail
+			// echo is never served as final.
+			const cached = trCache.get(key);
+			if (cached) {
+				trKey = key;
+				translated = cached;
+				translating = false;
+				trPending = [];
+				// quick-261121-trfix: a frozen render is COMPLETE, so every sent
+				// line in it is genuine (pass-through positions are neither).
+				trSent = lines.map((_, i) => sendSet.has(i));
+				trGenuine = lines.map((_, i) => sendSet.has(i));
+				trUnavailable = false;
+				// quick-261116-lyrux (Fix 3): a cache hit is still a COMPLETED translation —
+				// offer it to the downloaded file too (the player's per-(uid, lang) session
+				// cap + already-tagged check make the replay a no-op when it already landed).
+				player.syncTranslatedLyricsToFile(t.uid, lang, serializeLRC(srcLines, cached));
+				return;
+			}
+		}
+		trKey = key;
 		// quick-261120-maxsave (spec Addendum 2): collapse the send list to UNIQUE
 		// texts before chunking — a chorus line repeated 3–4× is translated ONCE
 		// and its settled result fans back out to every occurrence
@@ -487,6 +563,11 @@
 			translated = stitched;
 			translating = false;
 			trPending = [];
+			// quick-261121-trfix: nothing was sent, so nothing is genuine and
+			// nothing echoed — the aligned originals are the intended render.
+			trSent = new Array<boolean>(n).fill(false);
+			trGenuine = new Array<boolean>(n).fill(false);
+			trUnavailable = false;
 			return;
 		}
 		// WR-09: invalidate the PREVIOUS track's output immediately. The render gate is a pure
@@ -513,14 +594,58 @@
 		// template renders a SKELETON in a pending line's translation slot (below) or a
 		// small inline spinner after its text (replace). Settled slots — genuine, echoed
 		// or failed — render exactly as before.
-		translated = stitch([]);
+		// quick-261121-trfix: CACHE-FIRST SEED (Hector's switch rule — a switch is
+		// display/cache only, never a re-translation). The placeholder array is no
+		// longer published blind: every sent line the LINE CACHE already holds
+		// starts SETTLED — its cached translation in the slot, genuine, not
+		// pending — so switching language or skip never placeholder-resets a line
+		// that was already translated, and only genuinely-new lines show the
+		// pending skeleton/spinner. When EVERY sent line is cached the switch
+		// completes synchronously with zero fetches, freezing + file-syncing
+		// exactly like a finished run. A FORCE run skips the seed — distrusting
+		// this cache is its whole point.
+		const slots0 = stitch([]);
+		const genuine0 = new Array<boolean>(n).fill(false);
+		const pending0 = initialPending(n, sendIdx);
+		if (!forceRun) {
+			let seeded = 0;
+			for (let s = 0; s < sendIdx.length; s++) {
+				const hit = peekLineTranslation(sendText[s], lang);
+				if (hit === null) continue;
+				slots0[sendIdx[s]] = hit;
+				genuine0[sendIdx[s]] = true;
+				pending0[sendIdx[s]] = false;
+				seeded++;
+			}
+			if (seeded === sendIdx.length) {
+				translated = slots0;
+				trGenuine = genuine0;
+				trPending = pending0;
+				trSent = lines.map((_, i) => sendSet.has(i));
+				trUnavailable = false;
+				translating = false;
+				if (slots0.length === lines.length) {
+					trCache.set(key, slots0);
+					player.syncTranslatedLyricsToFile(t.uid, lang, serializeLRC(srcLines, slots0));
+				}
+				return;
+			}
+		}
+		translated = slots0;
+		trGenuine = genuine0;
+		trPending = pending0;
+		trSent = lines.map((_, i) => sendSet.has(i));
+		trUnavailable = false;
 		translating = true;
-		trPending = initialPending(n, sendIdx);
 		// Split the send-list into ORDERED chunks and fire them with bounded concurrency,
 		// chunk 0 first (the lines at the top of the song — what the user reads first).
 		// Each chunk is its OWN translateLinesEx call, so translateLinesEx's mem/localStorage
 		// cache absorbs it individually: a revisit replays finished chunks instantly even
 		// when the song as a whole never completed.
+		// quick-261121-trfix: this run's generation — captured by the workers so a
+		// superseded run (a force re-entry under the same key, a gate landing
+		// mid-flight) can never write into the current run's arrays.
+		const runGen = ++trRunGen;
 		const ranges = chunkRanges(uniqText.length, LYRICS_CHUNK_SIZE);
 		let nextRange = 0;
 		let settledRanges = 0;
@@ -535,14 +660,25 @@
 					// (previously the whole line took the offline path and the English
 					// stayed English). `skip` is this run's lyricsSkip snapshot, honoured
 					// per segment inside the pipeline.
-					const res = await translateLinesEx(uniqText.slice(range.start, range.end), lang, { segments: true, skip });
-					if (trKey !== key) stale = true; // a newer song/lang/skip owns the pane now
+					const chunkLines = uniqText.slice(range.start, range.end);
+					// quick-261121-trfix: a FORCE run busts this chunk's client caches
+					// (the batch entry + per-line + per-segment entries for exactly
+					// these lines and this target) immediately before the call, so
+					// the pipeline genuinely re-derives what the user rejected.
+					// Normal runs never bust anything.
+					if (forceRun) bustLyricsTranslation(chunkLines, lang, { segments: true, skip });
+					const res = await translateLinesEx(chunkLines, lang, { segments: true, skip });
+					if (trKey !== key || runGen !== trRunGen) stale = true; // a newer song/lang/skip (or a force re-entry) owns the pane now
 					else {
-						// An incomplete chunk still renders its genuinely-translated lines
-						// (its echoes ARE the originals, already in place) — it just keeps
-						// the song out of trCache below.
+						// An incomplete chunk still surfaces its genuinely-translated
+						// lines — it just keeps the song out of trCache below. Its echo
+						// lines keep the original in the slot (replace mode shows the
+						// original, as it must), but the flags stitch right below marks
+						// them non-genuine so below mode never renders the echo AS a
+						// translation (quick-261121-trfix).
 						if (!res.complete) allComplete = false;
 						translated = applyUniqueChunkResult(translated, sendIdx, uniqOf, range.start, res.out);
+						trGenuine = applyUniqueChunkFlags(trGenuine, sendIdx, uniqOf, range.start, res.flags);
 						// quick-261116-lyrux (Fix 1): this chunk has SETTLED — its lines
 						// leave the pending set (skeleton/spinner off) whatever it returned.
 						trPending = clearUniqueChunkPending(trPending, sendIdx, uniqOf, range.start, range.end);
@@ -552,7 +688,7 @@
 					// pane to []): a hard-failed chunk leaves its slots at the originals
 					// and marks the song incomplete — strictly more useful, never frozen.
 					// quick-261116-lyrux: a hard failure is still a settle — clear pending.
-					if (trKey !== key) stale = true;
+					if (trKey !== key || runGen !== trRunGen) stale = true;
 					else {
 						allComplete = false;
 						trPending = clearUniqueChunkPending(trPending, sendIdx, uniqOf, range.start, range.end);
@@ -562,6 +698,11 @@
 				settledRanges++;
 				if (settledRanges === ranges.length) {
 					translating = false;
+					// quick-261121-trfix: NO genuine line at all means the whole run
+					// settled as an echo — raise the unavailable/retry row instead of
+					// letting the pane pose as translated. (A PARTIAL echo just loses
+					// its per-line .tr spans; the row is for the total case.)
+					trUnavailable = sendIdx.length > 0 && !sendIdx.some((pos) => trGenuine[pos]);
 					// quick-260625-pzs-03 / T-pzs-01, unchanged rule at song level: FREEZE
 					// only a fully-translated render — EVERY chunk must have completed,
 					// so an echoed chunk is never frozen as final.
@@ -600,9 +741,24 @@
 		const uid = player.current?.uid ?? '';
 		const ls = trLines;
 		const pend = trPending;
+		const genuine = trGenuine;
+		const sent = trSent;
 		if (!uid || !ls.length || ls.length !== lines.length) return;
-		lyricsTranslation.publish(uid, trLang, ls, pend);
+		// quick-261121-trfix: a settled ECHO line (sent, no longer pending, not
+		// genuine) holds its ORIGINAL in the slot — publish it as blocked (the
+		// store's pending flag is its "not a translation" signal) so the Nowbar's
+		// replace mode never serves the original AS the translation.
+		const blocked = pend.map((p, i) => p || (sent[i] === true && genuine[i] !== true));
+		lyricsTranslation.publish(uid, trLang, ls, blocked);
 	});
+	// quick-261121-trfix: the pane-side force refresh — the same store request
+	// the Lyrics settings sheet sends, consumed by the translate effect above
+	// because the (uid, effective target) pair matches this pane's current run.
+	function forceRetranslate() {
+		const uid = player.current?.uid;
+		if (!uid) return;
+		lyricsTranslation.requestRetranslate(uid, effectiveTarget(settings.lyricsLang));
+	}
 	// quick-261102-t5k: every line was its own tab stop, so Tab had to cross the whole lyric to leave
 	// the pane. Roving tabindex: only the active line (or the first, before the song starts) is
 	// tabbable; Up/Down in seekToLineKey reach the rest. A line hidden by lyricsHideParenLines has no
@@ -678,7 +834,19 @@
 		<input class="slider" type="range" min={-sliderRange} max={sliderRange} step="0.1" value={lyricOffset} aria-label={t('menu.lyricsTiming')} oninput={(e) => slideOffset(e.currentTarget.valueAsNumber)} />
 	</div>
 	{/if}
-	{#if translating}<p class="tr-hint">{t('nowplaying.translating')}</p>{/if}
+	{#if translating}
+		<p class="tr-hint">{t('nowplaying.translating')}</p>
+	{:else if trUnavailable}
+		<!-- quick-261121-trfix: the run settled with NO genuine line (whole-song
+		     echo) — say so plainly, and make the row itself the retry: one tap
+		     force-runs this song + target again. -->
+		<button type="button" class="tr-retry" onclick={forceRetranslate} use:tapBounce>{t('nowplaying.translationUnavailable')}</button>
+	{:else if showTr && trSent.some(Boolean)}
+		<!-- quick-261121-trfix (Hector 2026-11-21): force refresh AT THE POINT OF
+		     USE — while a translation is on screen, one tap busts this song +
+		     target's client caches and re-translates this song only. -->
+		<button type="button" class="tr-refresh" onclick={forceRetranslate} use:tapBounce>{t('lyricsSettings.retranslate')}</button>
+	{/if}
 	<div class="lyrics" role="group" aria-label={t('nowplaying.lyrics')} bind:this={lyricsEl} onpointerdown={lyricsPointerDown} ontouchstart={lyricsTouch} ontouchend={lyricsTouch} ontouchcancel={lyricsTouch} onwheel={() => dispatch({ type: 'wheel' })}>
 		{#each lines as l, i (i)}
 			{@const isHiddenParen = (l.fromParen || l.isTranslation) && settings.lyricsHideParenLines}
@@ -716,6 +884,12 @@
 						{#if showTr && !hideTrForLine}
 							{#if trPending[i]}
 								<span class="tr tr-pending" aria-hidden="true"><span class="sk tr-skbar" style="--skw:{skeletonWidthPct(l.text)}%"></span></span>
+							{:else if trSent[i] && !trGenuine[i]}
+								<!-- quick-261121-trfix: a settled ECHO — the slot holds the
+								     original, which is NOT a translation. Render nothing:
+								     never the duplicate-original line an echo used to show
+								     below itself (dedupe on OR off). Pass-through lines
+								     (not sent) are unaffected — they keep the dedupe rule. -->
 							{:else if !(settings.lyricsDedupeIdentical && translationDuplicatesOriginal(l.text, trLines[i] ?? ''))}
 								<!-- quick-261120-lsheet: dedupe ON (default) — a "translation" identical
 								     to the original is not rendered as a second line below it. -->
@@ -794,6 +968,11 @@
 	/* quick-261102-s5t: muted, not the accent — a status line is not "live/on/go", and Tiffany
 	   small text on the light floor was ~2:1. */
 	.tr-hint { text-align: center; font-size: 0.6875rem; color: var(--color-text-muted); margin: 0 0 6px; }
+	/* quick-261121-trfix: the unavailable/retry + force-refresh rows — the same
+	   quiet status typography as .tr-hint, as real buttons (centred block, a
+	   comfortable tap height). The retry row underlines: it is the one action. */
+	.tr-retry, .tr-refresh { display: block; margin: 0 auto 6px; background: none; border: none; padding: 4px 10px; min-height: 28px; font-size: 0.6875rem; color: var(--color-text-muted); text-align: center; cursor: pointer; }
+	.tr-retry { text-decoration: underline; text-underline-offset: 3px; }
 	.empty { color: var(--color-text-muted); font-size: 0.875rem; text-align: center; padding: 24px; }
 	/* quick-261120-ugcb2: the No-lyrics state carries the Add-lyrics CTA under the line —
 	   a centred primary pill, the pane's one action. */

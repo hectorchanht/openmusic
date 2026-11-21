@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 // Import ONLY the PURE exports (no $state / browser) — these run under the node
 // Vitest project, mirroring i18n.test.ts.
-import { detectLang, shouldTranslate } from './detect';
+import { detectLang, shouldTranslate, majorityLang } from './detect';
 
 describe('detectLang', () => {
 	it('classifies Hiragana as ja', () => {
@@ -90,5 +90,38 @@ describe('shouldTranslate', () => {
 		expect(shouldTranslate('简体', 'zh-Hant', [])).toBe(true);
 		expect(shouldTranslate('Taylor Swift', 'zh-Hant', [])).toBe(true);
 		expect(shouldTranslate('こんにちは', 'en', ['ko'])).toBe(true);
+	});
+});
+
+// quick-261121-trfix: the whole-song skip pre-gate's detection source. The gate
+// may only fire on an UNAMBIGUOUS majority — a mixed song must keep per-line
+// rules, so plurality-short-of-half and top ties both answer null.
+describe('majorityLang', () => {
+	it('returns the language of a homogeneous song', () => {
+		expect(majorityLang(['感覺沉默的溫暖', '認識你之後的', '六百五十天'])).toBe('zh-Hant');
+		expect(majorityLang(['hello world', 'another line', 'third one'])).toBe('en');
+		expect(majorityLang(['こんにちは', 'さようなら', 'ありがとう'])).toBe('ja');
+	});
+
+	it('ignores blank lines entirely', () => {
+		expect(majorityLang(['', '  ', '感覺沉默的溫暖', '認識你之後的'])).toBe('zh-Hant');
+		expect(majorityLang(['', '   '])).toBeNull();
+		expect(majorityLang([])).toBeNull();
+	});
+
+	it('a bare majority (half or more, strictly top) still names the song language', () => {
+		// 2 zh of 4 non-blank lines: exactly half, strictly ahead of en (1) and ja (1).
+		expect(majorityLang(['感覺沉默的溫暖', '認識你之後的', 'hello world', 'こんにちは'])).toBe('zh-Hant');
+	});
+
+	it('a plurality short of half is NOT a song language (mixed song)', () => {
+		// zh 2 of 5 — strictly the largest bloc but under half: no gate may fire.
+		expect(
+			majorityLang(['感覺沉默的溫暖', '認識你之後的', 'hello world', 'こんにちは', '안녕'])
+		).toBeNull();
+	});
+
+	it('a tie at the top is NOT a song language', () => {
+		expect(majorityLang(['感覺沉默的溫暖', '認識你之後的', 'hello world', 'another line'])).toBeNull();
 	});
 });

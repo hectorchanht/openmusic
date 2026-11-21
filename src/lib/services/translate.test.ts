@@ -502,3 +502,111 @@ describe('translateLinesEx — line-level cache (quick-261116-lyrux)', () => {
 		expect(lineKeys().length).toBe(0); // not line-cached — kvz heal semantics preserved
 	});
 });
+
+// quick-261121-trfix — PEEK (the pane's cache-first switch seed) + BUST (the
+// force-refresh). Hector's rules under test: a switch reads cache and fetches
+// NOTHING for already-cached lines; the explicit re-translate action busts
+// EXACTLY the current song + target — other songs and other targets keep
+// their caches.
+describe('translate — peek + force-refresh bust (quick-261121-trfix)', () => {
+	const lineKeys = () => lsKeys().filter((k) => k.startsWith('openmusic:line-tr:v3:'));
+	const batchKeys = (to: string) =>
+		lsKeys().filter((k) => k.startsWith(`openmusic:lyrics-tr:v3:${to}:`));
+
+	/** The API stub translates whatever it is sent, prefixing each line. */
+	function wirePrefixApi() {
+		fetchMock.mockImplementation(async (_url: unknown, init: { body: string }) => {
+			const body = JSON.parse(init.body) as { lines: string[] };
+			return jsonRes({
+				translated: body.lines.map((l) => '譯:' + l),
+				flags: body.lines.map(() => true)
+			});
+		});
+	}
+
+	it('peek serves a genuinely translated line synchronously; unknown lines and other targets miss', async () => {
+		const { translateLinesEx, peekLineTranslation } = await import('./translate');
+		wirePrefixApi();
+		await translateLinesEx(['사랑해', '너를 원해'], 'zh-Hant');
+		expect(peekLineTranslation('사랑해', 'zh-Hant')).toBe('譯:사랑해');
+		expect(peekLineTranslation('너를 원해', 'zh-Hant')).toBe('譯:너를 원해');
+		expect(peekLineTranslation('모르는 줄', 'zh-Hant')).toBeNull();
+		expect(peekLineTranslation('사랑해', 'fr')).toBeNull(); // different target, different cache
+		expect(peekLineTranslation('', 'zh-Hant')).toBeNull();
+		expect(peekLineTranslation('사랑해', 'off')).toBeNull();
+	});
+
+	it('an echoed line can never be peeked (it was never stored)', async () => {
+		const { translateLinesEx, peekLineTranslation } = await import('./translate');
+		fetchMock.mockResolvedValue(jsonRes({ translated: ['さくら'], flags: [false] }));
+		const r = await translateLinesEx(['さくら'], 'zh-Hant');
+		expect(r.complete).toBe(false);
+		expect(peekLineTranslation('さくら', 'zh-Hant')).toBeNull();
+	});
+
+	it('a switch whose lines are all cached performs ZERO fetches (cache-only switch)', async () => {
+		const { translateLinesEx } = await import('./translate');
+		wirePrefixApi();
+		await translateLinesEx(['사랑해', '너를 원해'], 'zh-Hant');
+		fetchMock.mockClear();
+		// A re-composed batch (new order → new batch key, so no batch-layer serve):
+		// every line resolves from the line cache and the API is never touched.
+		const r = await translateLinesEx(['너를 원해', '사랑해'], 'zh-Hant');
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(r.out).toEqual(['譯:너를 원해', '譯:사랑해']);
+		expect(r.flags).toEqual([true, true]);
+		expect(r.complete).toBe(true);
+	});
+
+	it('bust forces exactly the busted song+target to re-derive; other targets and songs survive', async () => {
+		const { translateLinesEx, peekLineTranslation, bustLyricsTranslation } = await import('./translate');
+		wirePrefixApi();
+		const song = ['사랑해', '너를 원해'];
+		await translateLinesEx(song, 'zh-Hant');
+		await translateLinesEx(song, 'fr'); // same lines, another target
+		await translateLinesEx(['다른 노래'], 'zh-Hant'); // another song, same target
+		expect(batchKeys('zh-Hant').length).toBe(2);
+		expect(batchKeys('fr').length).toBe(1);
+
+		bustLyricsTranslation(song, 'zh-Hant');
+
+		// The busted song+target: batch entry AND per-line entries are gone.
+		expect(batchKeys('zh-Hant').length).toBe(1); // only the other song's batch remains
+		expect(peekLineTranslation('사랑해', 'zh-Hant')).toBeNull();
+		expect(peekLineTranslation('너를 원해', 'zh-Hant')).toBeNull();
+		// Everything else is untouched.
+		expect(batchKeys('fr').length).toBe(1);
+		expect(peekLineTranslation('사랑해', 'fr')).toBe('譯:사랑해');
+		expect(peekLineTranslation('다른 노래', 'zh-Hant')).toBe('譯:다른 노래');
+		expect(lineKeys().length).toBe(3); // fr×2 + the other song×1
+
+		// And the busted pair genuinely re-fetches on the next run — both lines.
+		fetchMock.mockClear();
+		const r = await translateLinesEx(song, 'zh-Hant');
+		expect(fetchMock.mock.calls.length).toBe(1);
+		const sent = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body).lines;
+		expect(sent).toEqual(song);
+		expect(r.complete).toBe(true);
+	});
+
+	it('bust under segment opts also drops the per-segment line entries of mixed lines', async () => {
+		const { translateLinesEx, peekLineTranslation, bustLyricsTranslation } = await import('./translate');
+		wirePrefixApi();
+		await translateLinesEx(['我爱你 love you'], 'zh-Hant', { segments: true, skip: [] });
+		expect(fetchMock.mock.calls.length).toBe(1); // the 'love you' segment
+		expect(peekLineTranslation('love you', 'zh-Hant')).toBe('譯:love you'); // segment entry exists
+
+		bustLyricsTranslation(['我爱你 love you'], 'zh-Hant', { segments: true, skip: [] });
+
+		// Both layers for this line are gone: its batch entry AND the segment's
+		// per-line entry — so re-running the line pays for the segment again.
+		expect(peekLineTranslation('love you', 'zh-Hant')).toBeNull();
+		fetchMock.mockClear();
+		const r = await translateLinesEx(['我爱你 love you'], 'zh-Hant', { segments: true, skip: [] });
+		expect(fetchMock.mock.calls.length).toBe(1);
+		const sent = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body).lines;
+		expect(sent).toEqual(['love you']);
+		expect(r.out).toEqual(['我愛你 譯:love you']);
+		expect(r.complete).toBe(true);
+	});
+});
