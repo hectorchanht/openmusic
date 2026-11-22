@@ -11,6 +11,22 @@
 	import { pinLyrics } from '$lib/stores/lyric-pins.svelte';
 	import { songKey } from '$lib/services/dedupe';
 	import { activeLineAt, lineSeekFraction } from '$lib/services/lrc';
+	import { scrollBehavior } from '$lib/motion';
+	import {
+		nextFollow,
+		followScrollTarget,
+		classifyPlayhead,
+		type FollowEvent,
+		type PlayheadSample
+	} from '$lib/services/lyrics-editor-follow';
+	import {
+		getInputDraft,
+		setInputDraft,
+		clearInputDraft,
+		lyricsDraftKey,
+		encodeLyricsDraft,
+		decodeLyricsDraft
+	} from '$lib/services/input-drafts';
 	import {
 		splitPastedText,
 		looksLikeLrc,
@@ -74,8 +90,18 @@
 		step = 'edit';
 		title = track.title ?? '';
 		artist = track.artist ?? '';
-		rawText = initialLrc ?? '';
-		if (initialLrc) {
+		// quick-261122-rules (GOLD auto-cache rule): an unsaved working draft for this track wins
+		// over the seed — a stray scrim tap / drag-close / reload must never cost the paste.
+		const draft = decodeLyricsDraft(getInputDraft(lyricsDraftKey(track.uid)));
+		// A fresh open always starts FOLLOWING (nextFollow 'open'); set directly, not via follow(),
+		// so this seed effect never subscribes to the playhead.
+		following = nextFollow(following, 'open');
+		lastScrolled = -1;
+		rawText = draft ? draft.raw : (initialLrc ?? '');
+		if (draft) {
+			lines = draft.lrc ? editorLinesFromLrc(draft.lrc, duration) : [];
+			estimated = draft.estimated && lines.length > 0;
+		} else if (initialLrc) {
 			lines = editorLinesFromLrc(initialLrc, duration);
 			estimated = false;
 		} else {
@@ -87,9 +113,79 @@
 		if (!open) seededFor = '';
 	});
 
+	// quick-261122-rules (GOLD: all user input is auto-cached; comment-drafts is the reference):
+	// the working state is written on EVERY change — paste, keystroke, line text edit, import,
+	// nudge / drag / stamp — and cleared only by Save. Close keeps it.
+	function persistDraft() {
+		if (!track?.uid) return;
+		setInputDraft(
+			lyricsDraftKey(track.uid),
+			encodeLyricsDraft({ raw: rawText, lrc: lines.length ? serializeEditorLines(lines) : '', estimated })
+		);
+	}
+
+	// STANDING RULE (Hector 2026-11-21, quick-261122-rules): follow the playing line UNLESS the
+	// user is editing; editing suspends until the playback position is re-engaged (decisions in
+	// services/lyrics-editor-follow.ts, guarded by lyrics-editor-follow.test.ts). Plain fields —
+	// the render never reads them (the internal-guard convention).
+	let following = true;
+	let lastScrolled = -1;
+	let linesEl = $state<HTMLElement | null>(null);
+	function follow(ev: FollowEvent) {
+		const was = following;
+		following = nextFollow(following, ev);
+		if (following && !was) {
+			lastScrolled = -1;
+			scrollToActive();
+		}
+	}
+	function scrollToActive() {
+		const target = followScrollTarget(following, preview.idx, lastScrolled, lines.length);
+		if (target === null || !linesEl) return;
+		const row = linesEl.children[target] as HTMLElement | undefined;
+		if (!row) return;
+		lastScrolled = target;
+		// Scroll the bounded .lines list only (never scrollIntoView — it yanks every ancestor,
+		// the NpLyrics anchor lesson) and centre the active row in it.
+		linesEl.scrollTo({
+			top: row.offsetTop - linesEl.clientHeight / 2 + row.clientHeight / 2,
+			behavior: scrollBehavior()
+		});
+	}
+	$effect(() => {
+		void preview.idx;
+		if (!open || step !== 'edit') return;
+		scrollToActive();
+	});
+	// Re-engagement from OUTSIDE the editor too (lock-screen / Nowbar seek, pressing play).
+	let lastSample: PlayheadSample | null = null;
+	$effect(() => {
+		const cur: PlayheadSample = {
+			t: player.currentTime,
+			wall: performance.now(),
+			playing: player.playing
+		};
+		if (!open || !isCurrent) {
+			lastSample = null;
+			return;
+		}
+		const ev = classifyPlayhead(lastSample, cur);
+		lastSample = cur;
+		if (ev) follow(ev);
+	});
+	function onEditorFocusIn(e: FocusEvent) {
+		const el = e.target as HTMLElement | null;
+		if (el && el.matches('input, textarea')) follow('focus');
+	}
+
 	// The paste is the product: every keystroke re-derives the lines. LRC text keeps its real
 	// timestamps; plain text is estimated on the spot. No button, no mode switch, no work asked.
 	function onRawInput() {
+		follow('edit');
+		deriveLines();
+		persistDraft();
+	}
+	function deriveLines() {
 		if (!rawText.trim()) {
 			lines = [];
 			estimated = false;
@@ -115,9 +211,11 @@
 	}
 
 	// Any hand adjustment promotes the draft out of the Estimated class (brief §2.2).
-	function adjust(i: number, next: EditorLine) {
+	function adjust(i: number, next: EditorLine, ev: FollowEvent = 'edit') {
 		lines = lines.map((l, j) => (j === i ? next : l));
 		estimated = false;
+		follow(ev);
+		persistDraft();
 	}
 
 	// Timeline drag: pointer x → time across the track's duration; the segment moves whole,
@@ -141,7 +239,7 @@
 
 	function stamp(i: number) {
 		if (!isCurrent) return;
-		adjust(i, stampEditorLine(lines[i], player.currentTime, duration));
+		adjust(i, stampEditorLine(lines[i], player.currentTime, duration), 'stamp');
 	}
 
 	// Live preview: the line being sung right now (this editor's draft, the real pane's maths —
@@ -155,6 +253,7 @@
 		if (!isCurrent) return;
 		const frac = lineSeekFraction(l.start, player.duration, 0);
 		if (frac !== null) player.seekFraction(frac);
+		follow('seek');
 	}
 
 	function fmt(sec: number): string {
@@ -167,6 +266,7 @@
 	function save() {
 		if (!track?.uid || !lines.length) return;
 		pinLyrics(track.uid, serializeEditorLines(lines));
+		clearInputDraft(lyricsDraftKey(track.uid)); // the draft's ONE deliberate ending
 		toast.show(t('toast.lyricsPinned'));
 		onsaved?.();
 		onclose();
@@ -175,7 +275,7 @@
 
 {#if open && track}
 	<button class="scrim" aria-label={t('menu.close')} onclick={onclose}></button>
-	<div class="sheet" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose }} use:focusTrap>
+	<div class="sheet" transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose }} use:focusTrap onfocusin={onEditorFocusIn}>
 		<div class="head row">
 			<span>{t('lyricsEditor.title')}</span>
 			<button class="x" aria-label={t('menu.close')} onclick={onclose} use:tapBounce><X size={18} /></button>
@@ -197,10 +297,10 @@
 				{#if estimated}<span class="badge">{t('lyricsEditor.estimated')}</span>{/if}
 			</div>
 
-			<div class="lines">
+			<div class="lines" bind:this={linesEl}>
 				{#each lines as l, i (i)}
 					<div class="line" class:active={i === preview.idx}>
-						<input class="txt" bind:value={lines[i].text} aria-label={l.text} />
+						<input class="txt" bind:value={lines[i].text} oninput={(e) => { lines[i].text = e.currentTarget.value; follow('edit'); persistDraft(); }} aria-label={l.text} />
 						{#if duration > 0}
 							<div class="tl">
 								<div
@@ -273,7 +373,7 @@
 	.file { display: none; }
 	.count { color: var(--color-text-muted); font-size: 0.75rem; }
 	.badge { color: var(--color-primary); font-size: 0.75rem; border: 1px solid var(--color-primary); border-radius: 999px; padding: 1px 8px; }
-	.lines { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; padding: 2px; }
+	.lines { position: relative; display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; padding: 2px; }
 	.line { background: var(--color-surface); border: 1px solid transparent; border-radius: 10px; padding: 6px 8px; }
 	.line.active { border-color: var(--color-primary); }
 	.txt { width: 100%; box-sizing: border-box; background: none; border: none; color: var(--color-text); font: inherit; font-size: 0.875rem; padding: 2px 0; }

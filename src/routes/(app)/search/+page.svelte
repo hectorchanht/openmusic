@@ -5,6 +5,9 @@
 	import { prewarmTrack } from '$lib/services/prewarm';
 	import { dedupeBest } from '$lib/services/dedupe';
 	import { rankPool } from '$lib/services/song-variant';
+	import { pinOwned } from '$lib/services/search-pin';
+	import { getInputDraft, setInputDraft, SEARCH_DRAFT } from '$lib/services/input-drafts';
+	import { library } from '$lib/stores/library.svelte';
 	import { scoreMatch } from '$lib/services/score-match';
 	import { computeSetContext, tokenizeQuery } from '$lib/services/score-context';
 	// quick-260910-qwt: the shared row cover read (resolved → track.cover → the shared cache).
@@ -55,6 +58,15 @@
 	let menuOpen = $state(false);
 
 	let q = $state('');
+	// quick-261122-rules (GOLD: all user input is auto-cached): the box's text is persisted on
+	// EVERY change (typed or programmatic — a tapped suggestion / history entry is the box's text
+	// too), so a reload or tab-return never loses unsubmitted typing. Read ONCE at init, BEFORE the
+	// persist effect's first run writes the initial '' over it. Emptying the box (X or backspace)
+	// is the deliberate ending and clears the slot.
+	const savedSearchDraft = getInputDraft(SEARCH_DRAFT);
+	$effect(() => {
+		setInputDraft(SEARCH_DRAFT, q);
+	});
 	let queryInputEl = $state<HTMLInputElement | null>(null);
 	let results = $state<Track[]>([]);
 	// SRCH-02 / COVER-02 cover resolution (the per-row lazyCover + the shared pickRowCover read
@@ -153,7 +165,14 @@
 		// try/catch is needed — a failure degrades silently to no suggestions.
 		void deezerSearchTopN(kw, SUGGEST_CAP, sig).then((hits: DeezerHit[]) => {
 			if (sig.aborted || kw !== q.trim()) return; // stale-query / aborted guard
-			suggestions = deriveSuggestions(hits, kw);
+			// quick-261122-rules: the pin rule on the typeahead's SONG rows too (artist/album rows
+			// carry no downloaded/liked signal and keep their place). stubTrack is the zero-network
+			// name → library-entry read the album/shelf rows already use.
+			suggestions = pinOwned(deriveSuggestions(hits, kw), (s) => {
+				if (s.kind !== 'song') return false;
+				const lib = library.stubTrack(s.artist ?? '', s.title);
+				return !!lib && isOwnedSong(lib);
+			});
 		});
 	}, 300);
 
@@ -409,7 +428,15 @@
 	function rankList(rows: Track[], query: string): Track[] {
 		const ctx = computeSetContext(rows, query);
 		const qObj = { artist: query, title: query };
-		return rankPool(rows, query, { score: (c) => scoreMatch(qObj, c, ctx) });
+		// STANDING RULE (Hector 2026-11-21, quick-261122-rules): downloaded / liked songs pin to the
+		// TOP of the results. Applied HERE — the one funnel every commit path (each streamed partial,
+		// the final merge, loadMore) runs through — so the pin holds from the first paint on. Song-
+		// level identity (likedUidFor / downloadUidFor), so another source's copy of an owned song
+		// pins too. Guarded by search-pin.test.ts + search-pin-wiring.test.ts.
+		return pinOwned(rankPool(rows, query, { score: (c) => scoreMatch(qObj, c, ctx) }), isOwnedSong);
+	}
+	function isOwnedSong(t: Track): boolean {
+		return library.isLikedTrack(t) || library.downloadUidFor(t) !== null;
 	}
 
 	// 31-D-03 PRE-WARM (trigger 1 of the phase's two; trigger 2 is TrackMenu open). Speculatively
@@ -587,13 +614,17 @@
 		// so the afterNavigate hook below owns that case; this mount run stays the only owner of the first entry.
 		const init = initialSearch(location.search, searchSession);
 		if (init.action === 'restore') {
-			q = searchSession.q;
+			// quick-261122-rules: newer unsubmitted typing beats the settled query in the box (the
+			// results below still name committedQ, exactly as before the tab switch).
+			q = savedSearchDraft || searchSession.q;
 			// quick-260927-dz0: a tab-return to bare /search restores the session without run(), so
 			// put its ?q= back here too — the address bar names the query on screen and a reload
 			// re-runs it. On a matching ?q= link this re-writes the same value (harmless).
 			committedQ = searchSession.q;
 			syncTabUrl('q', searchSession.q, '');
-			results = searchSession.results;
+			// quick-261122-rules: re-pin on tab-return — a song liked/downloaded since the search
+			// ran must sit on top of the restored list too (rank order otherwise untouched).
+			results = pinOwned(searchSession.results, isOwnedSong);
 			page = searchSession.page;
 			hasMore = searchSession.hasMore;
 			searched = searchSession.searched;
@@ -611,6 +642,10 @@
 			// like the suggestion call sites; a non-empty q keeps D-17 below from stealing focus.
 			q = init.q;
 			run();
+		} else if (savedSearchDraft) {
+			// quick-261122-rules: a bare /search with no session (reload, cold start) gets the
+			// unsubmitted text back in the box — not run, the user had not submitted it.
+			q = savedSearchDraft;
 		}
 		// RHX-01 / SRCH-03: mount-time-only focus on an EMPTY query so the mobile keyboard
 		// rises. Evaluated AFTER the hasPrior restore above — a restored prior query makes `q`
