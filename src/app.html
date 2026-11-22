@@ -29,7 +29,13 @@
 		     NOTE: never write the literal SvelteKit head token (percent + sveltekit.head + percent)
 		     anywhere in this file except the single real placeholder above — the head is substituted
 		     with a first-occurrence string replace, so a stray token (even in a comment) above the
-		     real one steals the head payload and leaks the real placeholder as visible text. -->
+		     real one steals the head payload and leaks the real placeholder as visible text.
+		     quick-261122-pageog: the block between the om:site-fallback markers is rewritten by
+		     src/hooks.server.ts (src/lib/proxy/head-fallback.ts). It is DROPPED on an SSR entity
+		     route that already emitted per-page OG above (no duplicate <title>/canonical/og:*), and on
+		     shell pages its og:url/og:image are rebased onto the request origin. Keep both markers
+		     byte-exact. -->
+	<!--om:site-fallback-->
 	<title>OpenMusic — music streaming for earth</title>
 	<meta name="description"
 		content="Search and stream music for world. Synced lyrics, translation, playlists, library — a fast mobile-first web player." />
@@ -50,6 +56,7 @@
 	<script type="application/ld+json">
 	{"@context":"https://schema.org","@type":"WebApplication","name":"OpenMusic","url":"https://openmusic.lol/","applicationCategory":"MultimediaApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Search and stream music for world. Synced lyrics, translation, playlists, library — a fast mobile-first web player."}
 	</script>
+	<!--/om:site-fallback-->
 </head>
 
 <body data-sveltekit-preload-data="hover">

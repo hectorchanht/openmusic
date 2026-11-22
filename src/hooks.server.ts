@@ -15,6 +15,7 @@
 //  - Non-/api/* paths pass through untouched (no CORS headers added to page/app routes).
 import type { Handle } from '@sveltejs/kit';
 import { corsHeaders } from '$lib/proxy/http';
+import { rewriteSiteFallback } from '$lib/proxy/head-fallback';
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const { pathname } = event.url;
@@ -37,5 +38,11 @@ export const handle: Handle = async ({ event, resolve }) => {
 		return response;
 	}
 
-	return resolve(event);
+	// quick-261122-pageog: page HTML only — drop app.html's static SEO fallback on SSR entity pages
+	// that already emitted per-page OG, and rebase its og:url/og:image onto the request origin on
+	// shell pages (see $lib/proxy/head-fallback.ts). The native build has no server hook — the
+	// markers are inert comments there.
+	return resolve(event, {
+		transformPageChunk: ({ html }) => rewriteSiteFallback(html, event.url.origin)
+	});
 };
