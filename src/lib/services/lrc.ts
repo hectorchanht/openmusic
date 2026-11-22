@@ -115,9 +115,43 @@ export function lineEndAt(lines: readonly LyricLine[], i: number, durationSec = 
 	const l = lines[i];
 	if (!l) return 0;
 	if (typeof l.end === 'number' && Number.isFinite(l.end) && l.end > l.time) return l.end;
-	const next = lines[i + 1];
-	if (next) return next.time;
+	// quick-261122-ugcb1: the next STRICTLY-LATER line, not lines[i+1] — a same-timestamp sibling
+	// (original + its translation, splitParenLines' clauses; the activeLineAt GROUP CONTRACT) is
+	// the same moment of the song, so ending the line at its sibling's start would give it zero
+	// length and the Nowbar underline would sit at 100% for the whole line.
+	for (let j = i + 1; j < lines.length; j++) {
+		if (lines[j].time > l.time) return lines[j].time;
+	}
 	return Number.isFinite(durationSec) && durationSec > l.time ? durationSec : l.time;
+}
+
+/**
+ * quick-261122-ugcb1 — THE Nowbar underline maths (brief §2.6): progress through the line being
+ * sung, `(clock − start) / (end − start)` clamped to [0, 1], where `clock = now − offsetSec` (the
+ * LYRIC_OFFSET_MAX sign convention) and `end` comes from lineEndAt (explicit §2.4 end, else the
+ * legacy next-line implication). The active line is activeLineAt's group anchor; when any sibling
+ * of the group carries an explicit end, the group ends at the LATEST of them (one moment, one end).
+ *
+ * `idx` −1 (before the first line / no lines) → frac 0. A zero-length line (end ≤ start, e.g. the
+ * last line with an unknown duration) reports 1: there is nothing left to sing in it.
+ */
+export function lineProgressAt(
+	lines: LyricLine[],
+	now: number,
+	offsetSec = 0,
+	durationSec = 0
+): { idx: number; frac: number; start: number; end: number } {
+	const { idx, time } = activeLineAt(lines, now, offsetSec);
+	if (idx < 0) return { idx, frac: 0, start: 0, end: 0 };
+	let end = lineEndAt(lines, idx, durationSec);
+	for (let j = idx + 1; j < lines.length && lines[j].time === time; j++) {
+		const e = lines[j].end;
+		if (typeof e === 'number' && Number.isFinite(e) && e > end) end = e;
+	}
+	const clock = now - offsetSec;
+	const span = end - time;
+	const frac = span > 0 ? Math.min(1, Math.max(0, (clock - time) / span)) : 1;
+	return { idx, frac, start: time, end };
 }
 
 /**
@@ -333,9 +367,12 @@ export function splitParenLines(lines: LyricLine[]): LyricLine[] {
 			continue;
 		}
 
-		out.push({ time: line.time, text: stripped });
+		// quick-261122-ugcb1: the §2.4 explicit end survives the split (the clauses are the same
+		// moment of the song, so they share the parent's window).
+		const endOf = line.end !== undefined ? { end: line.end } : {};
+		out.push({ time: line.time, text: stripped, ...endOf });
 		for (const inner of splitOut) {
-			out.push({ time: line.time, text: inner, fromParen: true });
+			out.push({ time: line.time, text: inner, fromParen: true, ...endOf });
 		}
 	}
 	return out;

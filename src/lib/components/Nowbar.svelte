@@ -52,7 +52,7 @@
     // NowPlaying pane shows, including a user's Fix-lyrics pick (D-4).
     // quick-260919-2jo: `parseLyrics`, NOT the raw `parseLRC` — the one lyric seam that applies the
     // Chinese script lock (and repaints live when it is flipped). Same signature, same output shape.
-    import { activeLineAt, type LyricLine } from "$lib/services/lrc";
+    import { activeLineAt, lineProgressAt, type LyricLine } from "$lib/services/lrc";
     import { parseLyrics } from "$lib/stores/lyric-script.svelte";
     import { readLyrics } from "$lib/stores/lyric-pins.svelte";
     import { splitParenLines, reorderPairs } from "$lib/services/lrc";
@@ -178,12 +178,59 @@
         if (uid && src) ensureSharedLyricOffset(uid, src);
     });
 
+    // quick-261122-ugcb1: the displayed line's index, lifted out of lyricText so the underline loop
+    // below can tell whether the per-frame clock has already crossed into the NEXT line before the
+    // ~4Hz timeupdate swaps the text (it then holds the old line's underline at full instead of
+    // flashing the new line's progress under the old words).
+    const shownIdx = $derived(
+        lyricsRow && !player.error ? activeLineAt(lyricLines, player.currentTime, lyricOffset).idx : -1,
+    );
+
+    // quick-261122-ugcb1 — THE NOWBAR UNDERLINE (UGC lyrics B1, brief §2.6). ONE underline under the
+    // lyric line, growing left→right in real time: width = progress through the line
+    // (now − start) / (end − start), lineProgressAt in lrc.ts (explicit §2.4 end, legacy fallback =
+    // next line's start). Its speed silently tells the listener how long the line is and when it
+    // ends — and makes a wrong end-time instantly FELT, so every listener is a timing-quality sensor
+    // for the editor's drag-fix loop. Deliberately SIMPLE (Hector 2026-11-20 20:31, two surfaces):
+    // no per-character sweep here, ever — that is the NowPlaying pane's job (B4).
+    //
+    // Glide: a requestAnimationFrame loop reads the AUDIO ELEMENT's clock (player.liveTime(), the
+    // Song Beat per-frame seam) and writes `transform` straight onto the element — no $state on the
+    // per-frame path, so nothing reactive re-renders at 60Hz. The loop only runs while playing; a
+    // paused bar paints once (re-painted when a seek moves currentTime).
+    let ulineEl = $state<HTMLElement | null>(null);
+    $effect(() => {
+        const el = ulineEl;
+        if (!el || !lyricsRow) return;
+        const lines = lyricLines;
+        const off = lyricOffset;
+        const dur = player.duration;
+        const paint = () => {
+            const p = lineProgressAt(lines, player.liveTime(), off, dur);
+            const shown = shownIdx;
+            const frac = p.idx > shown ? 1 : p.idx < shown ? 0 : p.frac;
+            el.style.transform = `scaleX(${frac})`;
+        };
+        if (!player.playing) {
+            void player.currentTime;
+            paint();
+            return;
+        }
+        let raf = 0;
+        const loop = () => {
+            paint();
+            raf = requestAnimationFrame(loop);
+        };
+        raf = requestAnimationFrame(loop);
+        return () => cancelAnimationFrame(raf);
+    });
+
     const lyricText = $derived.by(() => {
         if (!lyricsRow) return "";
         // A playback error must never be hidden behind a lyric. When there IS an error the Nowbar is
         // not the surface to show the song's poetry on, so the artist+error branch takes the row back.
         if (player.error) return "";
-        const { idx } = activeLineAt(lyricLines, player.currentTime, lyricOffset);
+        const idx = shownIdx;
         if (idx < 0) return "";
         const original = lyricLines[idx].text;
         // quick-261116-lyrux (Fix 2): REPLACE mode means the generated translation
@@ -467,7 +514,11 @@
                         {:else if lyricsRow}
                             {#if lyricText}
                                 {#key lyricText}
-                                    <span class="np-lyric" in:fade={{ duration: xfadeMs }}>{lyricText}</span>
+                                    <span class="np-lyric" in:fade={{ duration: xfadeMs }}>{lyricText}<span
+                                        class="np-uline"
+                                        aria-hidden="true"
+                                        bind:this={ulineEl}
+                                    ></span></span>
                                 {/key}
                             {/if}
                         {:else}
@@ -760,13 +811,34 @@
        Without this the empty row would collapse to 0 and the title would slide down. */
     /* .np-lyricrow {
     } */
+    /* quick-261122-ugcb1: the underline rides the lyric's own box (inline-block so its width is
+       the TEXT's width, not the row's), 1.5px, primary colour, scaled from the left. transform-only:
+       the rAF loop never triggers layout. overflow stays VISIBLE on the inline-block: an
+       overflow:hidden inline-block takes its bottom edge as the baseline and would lift the line;
+       the old overflow/ellipsis pair was inert on the former inline span anyway (the .np-artist row
+       + marquee own clipping and overflow motion). */
+    .np-lyric {
+        position: relative;
+        display: inline-block;
+    }
+    .np-uline {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 1.5px;
+        border-radius: 1px;
+        background: var(--color-primary);
+        transform: scaleX(0);
+        transform-origin: left center;
+        pointer-events: none;
+    }
     .np-lyric {
         font-size: 0.6875rem;
         color: var(--color-text);
         opacity: 0.9;
         white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        overflow: visible;
     }
     .err {
         color: var(--color-danger-text);
