@@ -8,7 +8,12 @@ import {
 } from '$lib/services/transport-keys';
 
 const NOTHING: TransportKeyTarget = { tag: '', role: '', editable: false };
-const el = (tag: string, role = '', editable = false): TransportKeyTarget => ({ tag, role, editable });
+const el = (tag: string, role = '', editable = false, inputType = ''): TransportKeyTarget => ({
+	tag,
+	role,
+	editable,
+	inputType
+});
 
 const SPACE = { key: ' ', code: 'Space' };
 const LEFT = { key: 'ArrowLeft' };
@@ -45,11 +50,27 @@ describe('transportAction — the three transport keys', () => {
 });
 
 describe('invariant 1 — typing is never hijacked', () => {
-	it('yields Space and arrows to real form controls', () => {
-		for (const tag of ['INPUT', 'TEXTAREA', 'SELECT']) {
-			expect(transportAction(SPACE, el(tag))).toBeNull();
-			expect(transportAction(LEFT, el(tag))).toBeNull();
-			expect(transportAction(RIGHT, el(tag))).toBeNull();
+	it('yields Space and arrows to text-entry form controls', () => {
+		// A typeless <input> IS a text input (inputType ''), as are the typed-text types.
+		for (const target of [
+			el('INPUT'),
+			el('INPUT', '', false, 'text'),
+			el('INPUT', '', false, 'search'),
+			el('INPUT', '', false, 'password'),
+			el('TEXTAREA'),
+			el('SELECT')
+		]) {
+			expect(transportAction(SPACE, target)).toBeNull();
+			expect(transportAction(LEFT, target)).toBeNull();
+			expect(transportAction(RIGHT, target)).toBeNull();
+		}
+	});
+
+	it('a non-text input (range/checkbox/radio) keeps its arrows but NOT Space', () => {
+		for (const type of ['range', 'checkbox', 'radio']) {
+			expect(transportAction(LEFT, el('INPUT', '', false, type))).toBeNull();
+			expect(transportAction(RIGHT, el('INPUT', '', false, type))).toBeNull();
+			expect(transportAction(SPACE, el('INPUT', '', false, type))).toBe('toggle');
 		}
 	});
 
@@ -67,17 +88,33 @@ describe('invariant 1 — typing is never hijacked', () => {
 	});
 });
 
-describe('invariant 2 — Space still activates a focused control (WR-08)', () => {
-	it('yields Space to buttons and button-ish roles', () => {
-		expect(transportAction(SPACE, el('BUTTON'))).toBeNull();
-		expect(transportAction(SPACE, el('SUMMARY'))).toBeNull();
-		for (const role of ['button', 'checkbox', 'switch', 'radio', 'menuitem', 'option', 'tab', 'slider']) {
-			expect(transportAction(SPACE, el('DIV', role))).toBeNull();
+describe('invariant 2 — Space ALWAYS toggles play/pause (Hector 2026-11-22, supersedes WR-08)', () => {
+	it('toggles on buttons and every button-ish role — focus never changes Space', () => {
+		expect(transportAction(SPACE, el('BUTTON'))).toBe('toggle');
+		expect(transportAction(SPACE, el('SUMMARY'))).toBe('toggle');
+		for (const role of [
+			'button',
+			'checkbox',
+			'switch',
+			'radio',
+			'menuitem',
+			'menuitemcheckbox',
+			'menuitemradio',
+			'option',
+			'tab',
+			'slider'
+		]) {
+			expect(transportAction(SPACE, el('DIV', role))).toBe('toggle');
 		}
 	});
 
-	it('still toggles on a focused link — a link activates on Enter, not Space', () => {
+	it('toggles on a focused link too — same key, same meaning everywhere', () => {
 		expect(transportAction(SPACE, el('A'))).toBe('toggle');
+	});
+
+	it('Shift+Space toggles too — a modifier must not change Space either', () => {
+		expect(transportAction({ ...SPACE, shiftKey: true }, el('BUTTON'))).toBe('toggle');
+		expect(transportAction({ ...SPACE, shiftKey: true }, NOTHING)).toBe('toggle');
 	});
 
 	it('a focused BUTTON keeps prev/next on the arrows (a button has no arrow contract)', () => {
@@ -87,7 +124,8 @@ describe('invariant 2 — Space still activates a focused control (WR-08)', () =
 });
 
 describe('invariant 3 — the +-5s seek slider keeps its arrows', () => {
-	it('yields arrows to role="slider" (the `.scrubber`) but not Space-as-transport rules', () => {
+	it('yields arrows to role="slider" (the `.scrubber`) — its Space is still play/pause', () => {
+		expect(transportAction(SPACE, el('DIV', 'slider'))).toBe('toggle');
 		expect(transportAction(LEFT, el('DIV', 'slider'))).toBeNull();
 		expect(transportAction(RIGHT, el('DIV', 'slider'))).toBeNull();
 	});

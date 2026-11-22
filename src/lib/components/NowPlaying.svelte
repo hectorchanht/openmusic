@@ -615,8 +615,9 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	// That move also RESOLVED this file's long-standing double meaning for the arrow keys: `seekKey`
 	// on the `.scrubber` (role="slider", above) nudges +-5s and is UNCHANGED, while prev/next is the
 	// document-level fallback. The old window listener target-guarded only its Space branch, so with
-	// the scrubber focused an ArrowRight ran BOTH (+5s AND next()); transportAction now yields arrows
-	// to role="slider" on the same "the focused control wins" principle WR-08 already applied to Space.
+	// the scrubber focused an ArrowRight ran BOTH (+5s AND next()); transportAction still yields
+	// ARROWS to role="slider" ("the focused control wins" for arrows only) — Space is the opposite
+	// rule since Hector 2026-11-22: it always toggles play/pause regardless of focus.
 
 	// ---- NP top drag-down to collapse ----
 	// Wrapping container (.np-top) carries the drag, so a downward swipe ANYWHERE on the
@@ -1016,17 +1017,20 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		if (e.type === 'longpress') hapticTick();
 		openMenu(player.current);
 	}
-	// Keyboard parity for the cover's role="button" (Enter/Space) — mirrors the grip's gripKey idiom
-	// and satisfies the a11y click-needs-keydown rule. Inherits the closed→toggle / half→no-op behavior.
+	// Keyboard parity for the cover's role="button" is ENTER ONLY — mirrors the grip's gripKey
+	// idiom and satisfies the a11y click-needs-keydown rule. Space is deliberately NOT handled
+	// here: Space always means play/pause app-wide (Hector 2026-11-22, transport-keys invariant
+	// 2), so a Space handler on any control would give Space a second, focus-dependent meaning.
+	// Inherits the closed→toggle / half→no-op behavior.
 	function tapCoverKey(e: KeyboardEvent) {
-		if (e.key !== 'Enter' && e.key !== ' ') return;
+		if (e.key !== 'Enter') return;
 		e.preventDefault();
 		tapCoverCollapse();
 	}
 
-	/** Grip keyboard step (Enter/Space): mirrors the TAP single-step. */
+	/** Grip keyboard step (Enter only — Space is play/pause, see tapCoverKey): mirrors the TAP single-step. */
 	function gripKey(e: KeyboardEvent) {
-		if (e.key !== 'Enter' && e.key !== ' ') return;
+		if (e.key !== 'Enter') return;
 		e.preventDefault();
 		sheetState = sheetState === 'closed' ? 'half' : sheetState === 'full' ? 'half' : 'closed';
 	}

@@ -21,13 +21,17 @@
 // fallback.
 //
 // THE THREE INVARIANTS, and what enforces each:
-//   1. Never hijack typing. Gated on the EVENT TARGET being editable, never on a global
-//      "is an input focused" flag — a recorded incident has a mobile dropdown vanishing because it
-//      was gated on an `inputFocused` flag that Android Chrome dropped mid-type. The target is a
-//      property of the event itself, so it cannot go stale.
-//   2. Never break Space-activates-a-focused-control (WR-08). Space on a <button>/role="button" is
-//      the platform convention and the focusTrap deliberately parks focus on NowPlaying controls;
-//      only an UNFOCUSED-control Space toggles playback.
+//   1. Never hijack typing. Gated on the EVENT TARGET being a text-entry surface, never on a
+//      global "is an input focused" flag — a recorded incident has a mobile dropdown vanishing
+//      because it was gated on an `inputFocused` flag that Android Chrome dropped mid-type. The
+//      target is a property of the event itself, so it cannot go stale.
+//   2. Space ALWAYS toggles play/pause (Hector 2026-11-22, superseding WR-08). The old WR-08
+//      rule yielded Space to any focused <button>/role="button", so Space's meaning depended on
+//      whatever happened to hold focus — play/pause on the bare page, re-clicking Like/Next/a
+//      settings toggle after any tap. Focus must never change what Space means: outside text
+//      entry (invariant 1), EVERY Space is play/pause. Focused controls keep Enter as their
+//      activation key, and the shell swallows the Space keyup so the native button activation
+//      (which fires on keyup) cannot ALSO click the focused control — one press, one toggle.
 //   3. Never fight the +-5s seek. Arrows on a slider/spinbutton belong to that widget.
 // Plus: a chord (Cmd/Ctrl/Alt) is always the browser's — Cmd+ArrowLeft is Back on macOS — and an
 // auto-repeat is dropped so a held ArrowRight cannot machine-gun next().
@@ -56,6 +60,13 @@ export type TransportKeyTarget = {
 	role: string;
 	/** `HTMLElement.isContentEditable`. */
 	editable: boolean;
+	/**
+	 * Lowercased `type` attribute for an `<input>` target ('' when absent — a typeless input IS
+	 * a text input), '' for every other tag. This is what separates a text field (Space is a
+	 * character, invariant 1) from a range/checkbox/radio input (Space is play/pause,
+	 * invariant 2, while its arrows stay its own).
+	 */
+	inputType?: string;
 };
 
 /**
@@ -116,29 +127,29 @@ export function seekTargetFraction(
 	return (currentTime + delta) / duration;
 }
 
-/** Natively editable form controls — Space/arrows are theirs unconditionally. */
-const EDITABLE_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
-/** ARIA widgets that take free text; same treatment as a real <input>. */
-const EDITABLE_ROLES = new Set(['textbox', 'searchbox', 'combobox', 'spinbutton']);
-
 /**
- * Elements/roles for which Space is an ACTIVATION, not a scroll (WR-08). `<a href>` is
- * deliberately absent: a link activates on Enter, not Space, so a focused nav link keeps letting
- * Space reach playback.
+ * Input types whose field takes typed characters — Space is a character there (invariant 1).
+ * '' is in the set because a typeless `<input>` defaults to type="text". Every OTHER input
+ * type (range, checkbox, radio, file, button, …) takes no typed space: Space on it is
+ * play/pause like everywhere else, while its ARROWS stay its own (see the arrow branches).
  */
-const SPACE_TAGS = new Set(['BUTTON', 'SUMMARY']);
-const SPACE_ROLES = new Set([
-	'button',
-	'checkbox',
-	'switch',
-	'radio',
-	'menuitem',
-	'menuitemcheckbox',
-	'menuitemradio',
-	'option',
-	'tab',
-	'slider'
+const TEXT_INPUT_TYPES = new Set([
+	'',
+	'text',
+	'search',
+	'email',
+	'password',
+	'url',
+	'tel',
+	'number',
+	'date',
+	'month',
+	'week',
+	'time',
+	'datetime-local'
 ]);
+/** ARIA widgets that take free text; same treatment as a text <input>. */
+const EDITABLE_ROLES = new Set(['textbox', 'searchbox', 'combobox', 'spinbutton']);
 
 /**
  * Roles whose own keyboard contract is "arrows move me" — the seek scrubber (role="slider") is the
@@ -160,8 +171,17 @@ const ARROW_ROLES = new Set([
 	'grid'
 ]);
 
-function isEditable(t: TransportKeyTarget): boolean {
-	return t.editable || EDITABLE_TAGS.has(t.tag) || EDITABLE_ROLES.has(t.role);
+/**
+ * Invariant 1's test: is this target a surface where keys are TEXT (or a text-like form
+ * value)? Textarea/contenteditable/text-roles unconditionally; a `<select>` because Space is
+ * its open gesture and its value is chosen text; an `<input>` only when its type takes typed
+ * characters. A range/checkbox/radio input is NOT text entry — but it still keeps its arrows,
+ * which the arrow branches guard separately on the raw tag.
+ */
+function isTextEntry(t: TransportKeyTarget): boolean {
+	if (t.editable || t.tag === 'TEXTAREA' || t.tag === 'SELECT') return true;
+	if (t.tag === 'INPUT') return TEXT_INPUT_TYPES.has((t.inputType ?? '').toLowerCase());
+	return EDITABLE_ROLES.has(t.role);
 }
 
 /**
@@ -179,9 +199,9 @@ export function transportAction(
 	// An IME composition owns every key until it commits.
 	if (e.isComposing) return null;
 	// A chord is the browser's (Cmd+Left = Back, Ctrl+Space = IME toggle, ...). Shift is NOT listed:
-	// Shift+Space is "page up" in a scroller, which is still not a transport key we claim — and
-	// since quick-260919-keys, Shift+Left/Right IS ours (the +-5s seek), which only works because
-	// Shift was never dropped here.
+	// Shift+Space toggles like plain Space (invariant 2 — Shift must not change its meaning
+	// either), and since quick-260919-keys Shift+Left/Right IS ours (the +-5s seek), which only
+	// works because Shift was never dropped here.
 	if (e.ctrlKey || e.metaKey || e.altKey) return null;
 	// Auto-repeat: one press, one action. A held ArrowRight must not walk the queue.
 	if (e.repeat) return null;
@@ -195,19 +215,23 @@ export function transportAction(
 		return ctx.overlayOpen ? 'close-overlay' : null;
 	}
 
-	// Invariant 1 — typing always wins, decided from the event's own target.
-	if (isEditable(target)) return null;
+	// Invariant 1 — text entry always wins, decided from the event's own target.
+	if (isTextEntry(target)) return null;
 
 	if (e.key === ' ' || e.code === 'Space') {
-		// Invariant 2 (WR-08) — a focused control that activates on Space keeps it.
-		if (SPACE_TAGS.has(target.tag) || SPACE_ROLES.has(target.role)) return null;
+		// Invariant 2 (Hector 2026-11-22) — Space toggles playback on EVERY other target:
+		// a focused button, tab, menuitem, slider, range/checkbox input — focus never changes
+		// its meaning. The shell's keyup swallow stops the focused control's native Space
+		// activation from firing alongside this toggle.
 		return 'toggle';
 	}
 	if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
 		// Invariant 3 — arrows on a slider are that slider's own (the +-5s seek on `.scrubber`).
 		// Checked BEFORE the Shift split on purpose: a focused scrubber keeps BOTH its plain and its
 		// shifted arrows, so Shift+Right there runs the scrubber's seek once, never seek-twice.
-		if (ARROW_ROLES.has(target.role)) return null;
+		// A non-text <input> (range) keeps its arrows on the same principle — text inputs already
+		// returned above.
+		if (ARROW_ROLES.has(target.role) || target.tag === 'INPUT') return null;
 		// quick-260919-keys: Shift turns prev/next into the +-5s seek. The two cannot collide
 		// because this is the same branch — one arrow press resolves to exactly one of them.
 		if (e.shiftKey) return e.key === 'ArrowLeft' ? 'seek-back' : 'seek-fwd';
@@ -220,7 +244,7 @@ export function transportAction(
 	// list). Shift+Up is left alone too — it extends a selection, and volume keys were declined.
 	if (e.key === 'ArrowUp') {
 		if (e.shiftKey) return null;
-		if (ARROW_ROLES.has(target.role)) return null;
+		if (ARROW_ROLES.has(target.role) || target.tag === 'INPUT') return null;
 		if (ctx.overlayOpen || !ctx.atScrollTop) return null;
 		return 'open-now-playing';
 	}
@@ -248,6 +272,7 @@ export function describeTarget(el: EventTarget | null): TransportKeyTarget {
 	return {
 		tag: el.tagName,
 		role: (el.getAttribute('role') ?? '').toLowerCase(),
-		editable: el instanceof HTMLElement && el.isContentEditable
+		editable: el instanceof HTMLElement && el.isContentEditable,
+		inputType: el.tagName === 'INPUT' ? (el.getAttribute('type') ?? '').toLowerCase() : ''
 	};
 }

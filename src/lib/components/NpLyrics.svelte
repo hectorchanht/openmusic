@@ -248,8 +248,10 @@
 		const uid = player.current?.uid;
 		if (uid) resetLyricOffset(uid);
 	}
-	// Keyboard parity for the tappable lyric line (Enter/Space) — mirrors the cover's tapCoverKey
-	// and the grip's gripKey idiom, satisfying the a11y click-needs-keydown rule.
+	// Keyboard parity for the tappable lyric line is ENTER ONLY (plus Up/Down walking below) —
+	// mirrors the cover's tapCoverKey and the grip's gripKey idiom, satisfying the a11y
+	// click-needs-keydown rule. Space is NOT handled here: Space always means play/pause
+	// app-wide (Hector 2026-11-22, transport-keys invariant 2).
 	function seekToLineKey(e: KeyboardEvent, line: LyricLine) {
 		// quick-261102-t5k: Up/Down walk the lines (the group is ONE tab stop now, see `focusIdx`).
 		if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -262,7 +264,7 @@
 			}
 			return;
 		}
-		if (e.key !== 'Enter' && e.key !== ' ') return;
+		if (e.key !== 'Enter') return;
 		e.preventDefault();
 		seekToLine(line);
 	}
@@ -862,7 +864,7 @@
 				     semantic <p> so the anchor $effect's `querySelectorAll('p')[idx]` scroll-centering, the
 				     `.lyrics p` centring/active/paren CSS, and the activeTime↔translated[i] index alignment
 				     are ALL untouched (swapping to <button> would break the anchor lookup the plan forbids
-				     editing). onkeydown gives Enter/Space parity (seekToLineKey); role="button"+tabindex make
+				     editing). onkeydown gives Enter parity (seekToLineKey; Space = play/pause app-wide); role="button"+tabindex make
 				     it a focusable control. A <p> cannot legally carry an interactive role/tabindex per ARIA,
 				     so the three resulting advisories are silenced at element scope only. -->
 				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->

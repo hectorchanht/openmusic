@@ -394,6 +394,21 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 		};
 		window.addEventListener('keydown', onTransportKey);
 
+		// Hector 2026-11-22 — Space ALWAYS means play/pause, so the shell must also swallow the
+		// Space KEYUP on any target the mapping claims. A focused <button>/checkbox activates on
+		// keyup (not keydown): without this, one Space on a focused control would toggle playback
+		// on keydown AND natively click that control on keyup — a double action whose visible
+		// result depended on which control held focus (the exact inconsistency being fixed).
+		// Capture phase + preventDefault cancels the native activation before it dispatches a
+		// click; text-entry targets return null from the mapping and keep their keyup untouched.
+		const onSpaceKeyUp = (e: KeyboardEvent) => {
+			if (e.key !== ' ' && e.code !== 'Space') return;
+			if (transportAction(e, describeTarget(e.target)) !== 'toggle') return;
+			e.preventDefault();
+			e.stopPropagation();
+		};
+		window.addEventListener('keyup', onSpaceKeyUp, true);
+
 		// quick-260926-hze: cover the cold-load 'enter' case whatever the relative timing of the
 		// initial afterNavigate callback and settings.load(); idempotent (a second call finds
 		// locked === here and writes nothing).
@@ -404,6 +419,7 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 			teardownOnline();
 			teardownSwUpdate();
 			window.removeEventListener('keydown', onTransportKey);
+			window.removeEventListener('keyup', onSpaceKeyUp, true);
 		};
 	});
 
