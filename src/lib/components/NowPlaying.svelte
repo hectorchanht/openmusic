@@ -714,6 +714,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		gripMoved = e.clientY - startY; // continue from the slop already travelled (no jump on commit)
 		gripStartTab = null;
 		gripStartPlainButton = false;
+		gripStartPlainEl = null;
 		if (snapTimer) clearTimeout(snapTimer);
 		gripVel.reset();
 		gripVel.sample(e.clientY, e.timeStamp);
@@ -790,6 +791,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 	let gripMoved = $state(0);
 	let gripStartTab: Tab | null = null; // gesture-transient: the subnav tab the gesture started on (null = grip/empty)
 	let gripStartPlainButton = false; // gesture-transient: started on a subnav button WITHOUT data-tab (e.g. Clear) — WR-02
+	let gripStartPlainEl: HTMLElement | null = null; // gesture-transient: that plain button itself — gripUp clicks it directly (quick-261122-lyrset)
 	let closedOffset = 300; // distance from full-top to closed/peek-top (measured at drag start)
 	let halfOffset = $state(150); // distance from full-top to half-open-top; reactive so the resting-half transform updates when re-measured
 	let snapTimer: ReturnType<typeof setTimeout> | null = null;
@@ -876,7 +878,11 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		// grip toggle (Clear used to also snap the sheet to a different state).
 		const btn = (e.target as HTMLElement).closest('.subnav button[data-tab]') as HTMLElement | null;
 		gripStartTab = btn ? (btn.dataset.tab as Tab) : null;
-		gripStartPlainButton = !btn && !!(e.target as HTMLElement).closest('.subnav button');
+		// quick-261122-lyrset: keep the plain button ELEMENT, not just the flag — gripDown's
+		// setPointerCapture (below) retargets the trailing click to this container, so the
+		// button's own onclick never fires from a pointer tap; gripUp must click it directly.
+		gripStartPlainEl = !btn ? ((e.target as HTMLElement).closest('.subnav button') as HTMLElement | null) : null;
+		gripStartPlainButton = !!gripStartPlainEl;
 		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 		if (snapTimer) clearTimeout(snapTimer);
 		gripVel.reset();
@@ -915,7 +921,20 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 			if (gripStartPlainButton) {
 				// WR-02: tap on a non-tab subnav button (e.g. Clear queue) — its own onclick
 				// acts alone; the generic grip toggle must NOT also change the sheet state.
+				// quick-261122-lyrset (Hector 2026-11-22: the lyrics-settings sliders button
+				// opened NOTHING on a pointer tap, keyboard Enter worked): WR-02 assumed the
+				// trailing click reaches the button, but gripDown's setPointerCapture retargets
+				// that click to the subnav container — the button's onclick NEVER fired, so
+				// every plain subnav button was pointer-dead. Mirror the data-tab branch:
+				// invoke the action directly here, then arm the suppressor so a trailing
+				// click that DOES reach the button in some browser cannot double-fire it.
+				// Order matters: click() dispatches synchronously through the window, so it
+				// must run BEFORE the capture-phase suppressor is armed.
+				const el = gripStartPlainEl;
 				gripStartPlainButton = false;
+				gripStartPlainEl = null;
+				el?.click();
+				armGripClickSuppressor();
 				return;
 			}
 			// Tap on the grip handle / empty nav area → generic single step:
@@ -929,6 +948,7 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		}
 		gripStartTab = null;
 		gripStartPlainButton = false;
+		gripStartPlainEl = null;
 		let target: SheetState;
 		// FLICK → a fast pointer velocity steps ONE state in the flick direction, regardless
 		// of how far the finger travelled (down = toward closed, up = toward full), clamped at

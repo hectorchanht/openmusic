@@ -134,3 +134,37 @@ describe('LyricsSettingsSheet — skip whitelist + force refresh (quick-261121-t
 		expect(sheet).toContain("settings.lyricsLang === 'off'");
 	});
 });
+
+// quick-261122-lyrset — Hector 2026-11-22: tapping the lyrics-settings sliders
+// button opened NOTHING (keyboard Enter worked). Root cause: the subnav row is
+// the sheet's grip surface — gripDown setPointerCaptures on the container, which
+// retargets the trailing click to the container, so a PLAIN subnav button (no
+// data-tab; the lyrics-settings button is the live one) never received its
+// onclick. WR-02's plain-button branch in gripUp just returned, assuming the
+// click would land. These pins hold the repaired seam: gripDown remembers the
+// element, gripUp clicks it directly BEFORE arming the trailing-click
+// suppressor (the synthetic click dispatches through the window, so arming
+// first would swallow the very click that opens the sheet).
+describe('NowPlaying subnav — plain buttons survive the grip capture (quick-261122-lyrset)', () => {
+	it('gripDown remembers the plain subnav button element, not just a flag', () => {
+		expect(np).toContain('let gripStartPlainEl: HTMLElement | null = null;');
+		expect(np).toContain("gripStartPlainEl = !btn ? ((e.target as HTMLElement).closest('.subnav button') as HTMLElement | null) : null;");
+		expect(np).toContain('gripStartPlainButton = !!gripStartPlainEl;');
+	});
+
+	it('gripUp clicks the remembered button directly, then arms the suppressor', () => {
+		const branch = np.slice(np.indexOf('if (gripStartPlainButton) {'), np.indexOf('if (gripStartPlainButton) {') + 1600);
+		const clickIdx = branch.indexOf('el?.click();');
+		const armIdx = branch.indexOf('armGripClickSuppressor();');
+		expect(clickIdx).toBeGreaterThan(-1);
+		expect(armIdx).toBeGreaterThan(clickIdx);
+		expect(branch).toContain('const el = gripStartPlainEl;');
+		expect(branch).toContain('gripStartPlainEl = null;');
+	});
+
+	it('the drag path discards the remembered button without clicking it', () => {
+		const dragReset = np.slice(np.indexOf('gripStartPlainEl = null;\n\t\tlet target: SheetState;') - 80, np.indexOf('let target: SheetState;'));
+		expect(dragReset).toContain('gripStartPlainEl = null;');
+		expect(dragReset).not.toContain('el?.click()');
+	});
+});
