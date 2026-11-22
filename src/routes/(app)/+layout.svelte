@@ -21,6 +21,7 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 	import { deviceImport } from '$lib/stores/device-import.svelte';
 	import { retagQueue } from '$lib/stores/retag-queue.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
+	import { trackSessionStart } from '$lib/analytics';
 	import { t, ensureLocale, type TranslationKey } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	// quick-261022-spring: iOS-style rubber-band overscroll on the window scroller (Android /
@@ -255,6 +256,10 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 	onMount(() => {
 		library.load();
 		settings.load();
+		// quick-261122-pseudo: one session_start per app boot — retention is DERIVED from the
+		// pseudo_id's active days, never a separate tracking mechanism. No-op until
+		// PSEUDO_ANALYTICS_LIVE; fire-and-forget.
+		trackSessionStart();
 
 		// quick-261102-libnav: data-sveltekit-preload-data="hover" only starts fetching a tab's
 		// route chunk on touchstart, so the FIRST tap on Library/Search waited on a network round

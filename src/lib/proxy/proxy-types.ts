@@ -62,6 +62,13 @@ export interface Env {
 	// used only from curl on the maintainer's laptop. Absent ⇒ reads disabled (same fail-closed
 	// posture as DIAG_UPLOAD_TOKEN).
 	DIAG_READ_TOKEN?: string;
+	// quick-261122-pseudo: OPTIONAL bearer token for GET /api/analytics/report (the pseudonymous
+	// analytics dashboard feed). Maintainer-only, `wrangler pages secret put`, never a var. Absent ⇒
+	// the report is unreadable (fail-closed via bearerMatches).
+	ANALYTICS_READ_TOKEN?: string;
+	// ANALYTICS (2026-10-10 / quick-261122-pseudo): D1 `openmusic-analytics` — metric_counters
+	// (anonymous totals) + pseudo_events (random resettable pseudo_id; no IP / account / UA columns).
+	ANALYTICS_DB?: D1Database;
 	// quick-260926-nsz: OPTIONAL Cloudflare Turnstile secret for POST /api/comments. Set with
 	// `wrangler pages secret put TurnstileSecret`, NEVER as a `var` (vars are public config). Only
 	// ever sent in the siteverify form body — never logged or echoed. Absent ⇒ posting answers 503

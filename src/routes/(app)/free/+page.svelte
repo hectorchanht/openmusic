@@ -22,6 +22,7 @@
 	import { settings } from '$lib/stores/settings.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t, type TranslationKey } from '$lib/i18n';
+	import { PSEUDO_ANALYTICS_LIVE } from '$lib/config/pseudo-analytics';
 	import { shareOrigin } from '$lib/services/share';
 	import { DAWN_GATEWAY_URL, OPENMUSIC_REPO_URL, whatsappShareUrl } from '$lib/services/free-page';
 
@@ -175,7 +176,9 @@
 	</section>
 
 	<p class="promise" data-section="data">
-		<ShieldCheck size={16} /> <span>{t('free.dataPromise')}</span>
+		<!-- quick-261122-pseudo: the promise flips to the pseudonymous wording in the SAME deploy
+		     that turns collection on (PSEUDO_ANALYTICS_LIVE) — promise-first, never collection-first. -->
+		<ShieldCheck size={16} /> <span>{t(PSEUDO_ANALYTICS_LIVE ? 'free.dataPromisePseudo' : 'free.dataPromise')}</span>
 	</p>
 </article>
 

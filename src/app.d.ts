@@ -24,6 +24,8 @@ declare global {
 				// Server-only bearer tokens — `wrangler pages secret put`, never a VITE_ var.
 				DIAG_UPLOAD_TOKEN?: string;
 				DIAG_READ_TOKEN?: string;
+				// quick-261122-pseudo: bearer for GET /api/analytics/report (fail-closed).
+				ANALYTICS_READ_TOKEN?: string;
 				// ANALYTICS (2026-10-10): anonymous play-count store — D1 binding
 				// `openmusic-analytics`, wired in wrangler.jsonc d1_databases. The
 				// endpoint degrades to { ok:false } when absent (local dev / tests).

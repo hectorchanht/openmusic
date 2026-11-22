@@ -149,7 +149,7 @@ import type { SourceId, Track } from '$lib/sources/types';
 import { loadRetriesFor } from '$lib/sources/registry';
 // ANALYTICS: anonymous play-count ping on first real audio output — fire-and-forget,
 // no PII, no IP stored server-side.
-import { trackPlayStart } from '$lib/analytics';
+import { trackPlayStart, trackPlayFailure, trackLyricsMissing } from '$lib/analytics';
 // quick-261010-posthog: third-party product analytics (PostHog); complements
 // the D1 ping above. Aliased — `track` alone is too easy to misread.
 import { track as trackPosthog } from '$lib/posthog';
@@ -1821,6 +1821,32 @@ class Player {
 	 *  moment a new initial-load src is set. Distinguishes initial-load stall (D-13) from a
 	 *  mid-track buffer-dry (D-14). Plain field — internal watchdog state, not reactive. */
 	private hasPlayedSinceSrc = false;
+	/** quick-261122-pseudo: pending lyrics_missing probe (plain field — the UI never reads it). */
+	private lyricsProbeTimer: ReturnType<typeof setTimeout> | null = null;
+	/** Delay after the first audible output before a play counts as "no lyrics existed":
+	 *  long enough for the background lyric backfill (backfillLyrics) to land. */
+	private static LYRICS_PROBE_MS = 30_000;
+
+	/**
+	 * quick-261122-pseudo: arm the one-shot lyrics_missing probe for `uid`. Fires only when the
+	 * SAME track is still current after LYRICS_PROBE_MS and readLyrics (pin → track.lrc — the
+	 * exact read the lyrics pane uses) still has nothing. A track skipped before then never
+	 * reports; a backfill still in flight gets one more window. Analytics only — never touches
+	 * playback state, and the ping itself is a no-op until PSEUDO_ANALYTICS_LIVE.
+	 */
+	private armLyricsProbe(uid: string, retried = false) {
+		if (this.lyricsProbeTimer) clearTimeout(this.lyricsProbeTimer);
+		this.lyricsProbeTimer = setTimeout(() => {
+			this.lyricsProbeTimer = null;
+			const cur = this.current;
+			if (!cur || cur.uid !== uid) return;
+			if (this.lyricsFetching) {
+				if (!retried) this.armLyricsProbe(uid, true);
+				return;
+			}
+			if (!readLyrics(cur)) trackLyricsMissing(cur);
+		}, Player.LYRICS_PROBE_MS);
+	}
 
 	/** HTMLMediaElement.HAVE_CURRENT_DATA (readyState >= 2) — bytes for the current position are
 	 *  present. Used to distinguish "loaded but paused (autoplay-policy rejected)" from a genuine
@@ -3032,6 +3058,8 @@ class Player {
 			this.hasPlayedSinceSrc = true;
 			if (firstAudiblePlay && this.current) {
 				trackPlayStart(this.current);
+				// quick-261122-pseudo: lyrics_missing probe (UGC lyrics demand queue).
+				this.armLyricsProbe(this.current.uid);
 				// quick-261010-posthog: exactly one PostHog `track_played` per real
 				// audio output — same signal as the D1 ping above, song_id/source
 				// only, no PII. analytics.ts stays untouched.
@@ -6411,6 +6439,9 @@ class Player {
 			this.persist();
 		}
 		this.consecutiveFailures++;
+		// quick-261122-pseudo: play_failure (song + source + failure stage) feeds the traffic
+		// conductor's health ledger. Fire-and-forget; no-op until PSEUDO_ANALYTICS_LIVE.
+		trackPlayFailure(failed, reason);
 		// SIMPLIFY (debug-midplay-stall-background): a track that failed ALL sources is SKIPPED, not
 		// stopped — so do NOT set this.error='toast.playbackStopped' here. Setting it made the sticky
 		// "playback stopped - couldn't load songs" toast appear on every skip; when a region-lock storm

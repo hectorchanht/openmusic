@@ -54,6 +54,13 @@
 	// in openmusic-accounts) are no longer read or written; their historical
 	// rows remain untouched pending Hector's decision. Same wrangler.jsonc
 	// pattern as the DIAG R2 binding above — applied by `wrangler pages deploy`.
+	// PSEUDONYMOUS (quick-261122-pseudo; Hector's ruling 2026-11-20): the same
+	// database also holds pseudo_events — a random, user-resettable pseudo_id
+	// per event (POST /api/analytics/event), with NO IP / account / UA columns,
+	// read in aggregate only by GET /api/analytics/report (ANALYTICS_READ_TOKEN
+	// secret). DDL: PSEUDO_EVENTS_DDL in $lib/services/pseudo-events. Collection
+	// is OFF until PSEUDO_ANALYTICS_LIVE ($lib/config/pseudo-analytics) flips
+	// together with the promise copy. metric_counters keeps running unchanged.
 	"d1_databases": [
 		{
 			"binding": "ANALYTICS_DB",

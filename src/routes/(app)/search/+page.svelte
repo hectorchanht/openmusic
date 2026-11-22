@@ -2,6 +2,7 @@
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { afterNavigate, goto } from '$app/navigation';
 	import { searchAll } from '$lib/services/catalog';
+	import { trackSearchMiss } from '$lib/analytics';
 	import { prewarmTrack } from '$lib/services/prewarm';
 	import { dedupeBest } from '$lib/services/dedupe';
 	import { rankPool } from '$lib/services/song-variant';
@@ -537,6 +538,9 @@
 			// so THIS settle is the TERMINAL RANKING EVENT (31-D-03, quick-260809-cyk): the single
 			// place the settled top row is known. Same supersede guard as above.
 			if (!myAc.signal.aborted && kw === q.trim()) {
+				// quick-261122-pseudo: a settled ZERO-result search is a search_miss (the 包羅萬有
+				// gap list). A thrown/aborted search never reports — only a genuine empty answer.
+				if (results.length === 0) trackSearchMiss(kw);
 				const top = results[0];
 				if (top && top.uid !== lastPrewarmedUid) {
 					lastPrewarmedUid = top.uid;
