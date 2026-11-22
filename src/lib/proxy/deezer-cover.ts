@@ -126,6 +126,19 @@ function pickAlbumCover(album: DzAlbum | undefined, prefer: 'xl' | 'big'): strin
 		: (album.cover_xl ?? album.cover_big ?? album.cover_medium ?? null);
 }
 
+/**
+ * Pick the artist picture variant — same `prefer` contract as pickAlbumCover.
+ * quick-261122-ogartbig: this branch used to be `picture_xl ?? picture_big` UNCONDITIONALLY,
+ * so `/api/og?type=artist` streamed ~200 KB where the song/album cards stream ~72 KB.
+ * `'xl'` (default, every client caller) stays byte-identical.
+ */
+function pickArtistPicture(artist: DzArtist | undefined, prefer: 'xl' | 'big'): string | null {
+	if (!artist) return null;
+	return prefer === 'big'
+		? (artist.picture_big ?? artist.picture_xl ?? null)
+		: (artist.picture_xl ?? artist.picture_big ?? null);
+}
+
 /** Normalize one Deezer hit to the client-facing shape. */
 function reshapeHit(it: DzResult | undefined, prefer: 'xl' | 'big' = 'xl'): DeezerHit | null {
 	if (!it || it.id === undefined || it.id === null) return null;
@@ -142,7 +155,7 @@ function reshapeHit(it: DzResult | undefined, prefer: 'xl' | 'big' = 'xl'): Deez
 		album: it.album?.title ?? '',
 		cover: safeDeezerImageUrl(rawCover),
 		preview: safeDeezerPreviewUrl(it.preview),
-		artistPicture: safeDeezerImageUrl(it.artist?.picture_xl ?? it.artist?.picture_big ?? null)
+		artistPicture: safeDeezerImageUrl(pickArtistPicture(it.artist, prefer))
 	};
 }
 
@@ -164,7 +177,7 @@ export function reshapeDeezerSearch(
 	const body = (data ?? {}) as DeezerSearchResponse;
 	const arr = Array.isArray(body.data) ? body.data : [];
 	const top = arr[0];
-	const rawPicture = top?.artist?.picture_xl ?? top?.artist?.picture_big ?? null;
+	const rawPicture = pickArtistPicture(top?.artist, prefer);
 	const base: DeezerCover = {
 		cover: safeDeezerImageUrl(pickAlbumCover(top?.album, prefer)),
 		artistPicture: safeDeezerImageUrl(rawPicture)

@@ -106,9 +106,19 @@ describe('reshapeDeezerSearch', () => {
 		expect(reshapeDeezerSearch({ data: [{ album: { cover_xl: COVER_XL } }] }, 1, 'big').cover).toBe(COVER_XL);
 	});
 
-	it('picks artistPicture picture_xl ?? picture_big regardless of `prefer`', () => {
-		expect(reshapeDeezerSearch({ data: [full] }, 1, 'big').artistPicture).toBe(PIC_XL);
+	it("prefer 'xl' (default) picks artistPicture picture_xl ?? picture_big — the client tile order", () => {
+		expect(reshapeDeezerSearch({ data: [full] }, 1).artistPicture).toBe(PIC_XL);
 		expect(reshapeDeezerSearch({ data: [{ artist: { picture_big: PIC_BIG } }] }, 1).artistPicture).toBe(PIC_BIG);
+	});
+
+	it("prefer 'big' picks artistPicture picture_big first — /api/og artist tier (quick-261122-ogartbig)", () => {
+		// Was picture_xl unconditionally: ~200 KB vs ~73 KB on the artist OG card.
+		expect(reshapeDeezerSearch({ data: [full] }, 1, 'big').artistPicture).toBe(PIC_BIG);
+		// falls back to xl when big is absent
+		expect(reshapeDeezerSearch({ data: [{ artist: { picture_xl: PIC_XL } }] }, 1, 'big').artistPicture).toBe(PIC_XL);
+		// the per-hit picture honours `prefer` too (og-cover reads `results`)
+		const hits = reshapeDeezerSearch({ data: [{ id: 1, title: 'A', ...full }, { id: 2, title: 'B', ...full }] }, 5, 'big').results ?? [];
+		expect(hits.map((h) => h.artistPicture)).toEqual([PIC_BIG, PIC_BIG]);
 	});
 
 	it('returns the empty sentinel for a no-match { data: [], total: 0 }', () => {
