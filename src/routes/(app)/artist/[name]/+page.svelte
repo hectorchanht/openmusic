@@ -9,7 +9,8 @@
 	import { searchAll } from '$lib/services/catalog';
 	import { dedupeBest, rankByArtistExactness } from '$lib/services/dedupe';
 	import { settings } from '$lib/stores/settings.svelte';
-	import { entityCardUrl } from '$lib/services/share';
+	import { entityCardUrl, decodePathSegment } from '$lib/services/share';
+	import { artistLookupCandidates, resolveArtistLookupKey } from '$lib/services/artist-lookup-key';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
@@ -57,7 +58,31 @@
 	// is the FOURTH double-decode site; RESEARCH §A.3 listed only three, but the loader fix alone left
 	// the route 500ing here. The literal param stays the RESOLUTION key (CONTEXT: `dn`/the card are
 	// display-only), so no lookup behavior changes — only the crash goes away.
-	const name = $derived(page.params.name ?? '');
+	const param = $derived(page.params.name ?? '');
+	// quick-261122-artisthyphen / ART-HYPHEN-01: the RESOLUTION key is no longer always the raw
+	// param. A carrier-free share writes spaces as '-' (`/artist/Post-Malone`), and the live probe
+	// showed Last.fm treats "Post-Malone" as a separate junk entity — so an AMBIGUOUS param (hyphen,
+	// no whitespace) probes both spellings and keeps the one Last.fm knows, defaulting to the raw
+	// literal (keeps `Jay-Z` + its favourite/record keys intact). Unambiguous params resolve
+	// synchronously, exactly as before. While an ambiguous probe is in flight `name` is '' — every
+	// fetch effect already skips on an empty name, so nothing fires against the wrong key; the
+	// header shows the decoded form meanwhile (same string the card shows). Rationale + probe data:
+	// services/artist-lookup-key.ts.
+	let resolvedKey = $state<{ param: string; key: string } | null>(null);
+	const name = $derived(
+		artistLookupCandidates(param) === null
+			? param
+			: resolvedKey?.param === param
+				? resolvedKey.key
+				: ''
+	);
+	$effect(() => {
+		const p = param;
+		if (artistLookupCandidates(p) === null || resolvedKey?.param === p) return;
+		void resolveArtistLookupKey(p, async (n) => (await enrichArtist(n)).listeners).then((key) => {
+			if (page.params.name === p) resolvedKey = { param: p, key }; // race guard
+		});
+	});
 
 	let songs = $state<Track[]>([]);
 	let loading = $state(true);
@@ -128,7 +153,7 @@
 	const displayArtist = $derived(
 		mbCanonical || Object.keys(mbNames).length
 			? pickLocaleName(mbNames, mbCanonical, settings.artistLang, name)
-			: name
+			: name || decodePathSegment(param) // ART-HYPHEN-01: decoded form while the key probe runs
 	);
 
 	// quick-261010-exact: exact-artist-first hit-song ranking. `songs` stays the LOADED list

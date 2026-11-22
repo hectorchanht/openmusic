@@ -34,9 +34,13 @@ export const load: PageLoad = ({ params, url }) => {
 	// decodePathSegment does NOT decode; it only reverses OG-PATH-01's '-'-for-space transform.
 	//
 	// KNOWN LOSSY EDGE, LOCKED (CONTEXT / RESEARCH §B.8): every '-' becomes a space, so a genuinely
-	// hyphenated name (`Jay-Z`) also reads as `Jay Z`. Accepted because matchKey's norm() strips all
-	// punctuation AND whitespace, making resolution byte-identical either way — and because the
-	// in-app nav emits the %20 form, which decodes to exactly the same string.
+	// hyphenated name (`Jay-Z`) also reads as `Jay Z`. Accepted for the CARD only — the in-app nav
+	// emits the %20 form, which decodes to exactly the same string.
+	// quick-261122-artisthyphen / ART-HYPHEN-01: the old claim here that "matchKey's norm() makes
+	// resolution byte-identical either way" was wrong for the artist page — that's a TRACK-matching
+	// path. The live probe showed Last.fm is hyphen-significant ("Post-Malone" = a junk 14-listener
+	// entity), so +page.svelte picks its RESOLUTION key via services/artist-lookup-key.ts instead of
+	// using this decoded string or the raw param blindly.
 	const name = decodePathSegment(params.name ?? '');
 	// quick-260723-ry1: cover carrier (https-gated by buildOg) + zhs→zht display override. `dn` is
 	// display-only — resolution below still keys off the literal `name`.
