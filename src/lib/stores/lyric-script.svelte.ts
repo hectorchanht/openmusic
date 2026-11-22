@@ -33,6 +33,7 @@
 
 import { parseLRC, type LyricLine } from '$lib/services/lrc';
 import { names } from '$lib/stores/names.svelte';
+import { reflowCharText } from '$lib/services/lyric-chars';
 
 /**
  * Parse LRC text into display lines with the Chinese script lock applied — the drop-in replacement
@@ -50,7 +51,12 @@ import { names } from '$lib/stores/names.svelte';
 export function parseLyrics(txt: string | null | undefined): LyricLine[] {
 	return parseLRC(txt ?? '').map((l) => {
 		const text = names.zhLock(l.text);
-		return text === l.text ? l : { ...l, text };
+		if (text === l.text) return l;
+		// quick-261122-ugcb4: hand-set character spans follow the re-scripted text (same grapheme
+		// count → same timing per character); a mismatch drops them to the pre-allocation.
+		const chars = l.chars ? reflowCharText(l.chars, text) : null;
+		const { chars: _old, ...rest } = l;
+		return chars ? { ...rest, text, chars } : { ...rest, text };
 	});
 }
 

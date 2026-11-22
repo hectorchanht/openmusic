@@ -4,6 +4,8 @@
 // The legacy neteaseQualityToTag / kuwoQualityToTag helpers are intentionally NOT
 // ported (marked 暂时保留不再使用 / "kept but unused" in the monolith).
 
+import { parseCharStamps, serializeCharSpans, charSpansFor, explicitCharsMatch, type CharSpan } from './lyric-chars';
+
 export interface LyricLine {
 	time: number;
 	text: string;
@@ -23,6 +25,11 @@ export interface LyricLine {
 	 *  start tag (`[start][end]text`). Absent = legacy: resolve via lineEndAt. Per-character
 	 *  spans (the B4 character layer) will live INSIDE this [time, end] window. */
 	end?: number;
+	/** quick-261122-ugcb4 (B4 character layer, brief §2.4): HAND-SET per-character spans, parsed
+	 *  from enhanced-LRC `<mm:ss.xx>` stamps in the line body (lyric-chars.ts has the format).
+	 *  Absent = the deterministic equal-share pre-allocation (charSpansFor) — never blank. `text`
+	 *  is always the stamp-free display text. */
+	chars?: CharSpan[];
 }
 
 export interface QualityInfo {
@@ -64,8 +71,13 @@ export function parseLRC(txt: string): LyricLine[] {
 				rest = rest.slice(m2[0].length);
 			}
 		}
-		const text = rest.trim();
-		if (text) out.push(end !== undefined ? { time, text, end } : { time, text });
+		// quick-261122-ugcb4: enhanced-LRC character stamps are timing data, never display text.
+		const cs = parseCharStamps(rest);
+		const text = cs ? cs.text : rest.trim();
+		if (!text) continue;
+		const parsed: LyricLine = end !== undefined ? { time, text, end } : { time, text };
+		if (cs && cs.chars.length) parsed.chars = cs.chars;
+		out.push(parsed);
 	}
 	out.sort((a, b) => a.time - b.time);
 	return out;
@@ -99,7 +111,13 @@ export function serializeLRC(lines: readonly LyricLine[], texts?: readonly strin
 		const e = lines[i].end;
 		const endTag =
 			typeof e === 'number' && Number.isFinite(e) && e > t ? lrcStamp(e) : '';
-		out.push(`${lrcStamp(t)}${endTag}${text}`);
+		// quick-261122-ugcb4: hand-set character spans ride as enhanced-LRC stamps — only when the
+		// line's own text is being written (a substituted translation text has no such timing).
+		const body =
+			explicitCharsMatch(lines[i]) && text === lines[i].text.trim()
+				? serializeCharSpans(charSpansFor(lines[i], lineEndAt(lines, i)), lineEndAt(lines, i))
+				: text;
+		out.push(`${lrcStamp(t)}${endTag}${body}`);
 	}
 	return out.join('\n');
 }

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { fly } from 'svelte/transition';
-	import { X, Clock } from '@lucide/svelte';
+	import { X, Clock, Type } from '@lucide/svelte';
 	import type { Track } from '$lib/sources/types';
 	import { t } from '$lib/i18n';
 	import { player } from '$lib/stores/player.svelte';
@@ -44,6 +44,7 @@
 		stampEditorLine,
 		type EditorLine
 	} from '$lib/services/lyrics-editor';
+	import { charSpansFor, charFillAt, nudgeCharStart, setCharStart, type TimedChar } from '$lib/services/lyric-chars';
 
 	// quick-261120-ugcb2 — THE LyricsEditor (UGC lyrics Phase 1, brief §2.1–2.2): the ONE shared
 	// editor behind the No-lyrics "Add lyrics" CTA and the Fix-lyrics picker's "Write / upload
@@ -242,6 +243,31 @@
 		dragState = null;
 	}
 
+	// quick-261122-ugcb4 — THE CHARACTER LAYER (B4, brief §2.4). Every line's characters are
+	// ALREADY timed before the user looks: an equal share of the line's window each, in singing
+	// order (charSpansFor's pre-allocation — estimate-first, recursively). Opening a line's
+	// Characters row only lets the user adjust (改一改) a character's start at the one 0.1s
+	// granularity — nudge or stamp at the playhead; the shared boundary with the previous
+	// character moves with it. The first character is anchored to the line's own start.
+	let charsOpen = $state(-1);
+	let charSel = $state(1);
+	function spansOf(l: EditorLine): TimedChar[] {
+		return charSpansFor({ text: l.text, time: l.start, chars: l.chars }, l.end);
+	}
+	function toggleChars(i: number) {
+		charsOpen = charsOpen === i ? -1 : i;
+		charSel = 1;
+	}
+	function charAdjust(i: number, fn: (spans: TimedChar[], l: EditorLine) => TimedChar[]) {
+		const l = lines[i];
+		if (!l) return;
+		adjust(i, { ...l, chars: fn(spansOf(l), l) });
+	}
+	function charsEven(i: number) {
+		const l = lines[i];
+		if (l) adjust(i, { start: l.start, end: l.end, text: l.text });
+	}
+
 	function stamp(i: number) {
 		if (!isCurrent) return;
 		adjust(i, stampEditorLine(lines[i], player.currentTime, duration), 'stamp');
@@ -408,7 +434,37 @@
 							{#if isCurrent}
 								<button type="button" class="nb stamp" onclick={() => stamp(i)} use:tapBounce><Clock size={12} /> {t('lyricsEditor.stamp')}</button>
 							{/if}
+							<button type="button" class="nb" class:on={charsOpen === i} aria-expanded={charsOpen === i} onclick={() => toggleChars(i)} use:tapBounce><Type size={12} /> {t('lyricsEditor.chars')}</button>
 						</div>
+						{#if charsOpen === i}
+							{@const spans = spansOf(l)}
+							<div class="chars" role="group" aria-label={t('lyricsEditor.chars')}>
+								{#each spans as c, ci (ci)}
+									<button
+										type="button"
+										class="chip"
+										class:sel={charSel === ci}
+										style="--p:{isCurrent ? charFillAt(c, player.currentTime) : 0}"
+										onclick={() => (charSel = ci)}
+										aria-pressed={charSel === ci}
+										><span class="cg">{c.text}</span><span class="ct">{fmt(c.start)}</span></button
+									>
+								{/each}
+							</div>
+							<div class="times">
+								<span class="lab">{t('lyricsEditor.charStart')}</span>
+								<button type="button" class="nb" disabled={charSel < 1} onclick={() => charAdjust(i, (sp, ln) => nudgeCharStart(sp, charSel, -0.1, ln.start, ln.end))} use:tapBounce>−0.1</button>
+								<span class="tm">{fmt(spans[charSel]?.start ?? l.start)}</span>
+								<button type="button" class="nb" disabled={charSel < 1} onclick={() => charAdjust(i, (sp, ln) => nudgeCharStart(sp, charSel, 0.1, ln.start, ln.end))} use:tapBounce>+0.1</button>
+								{#if isCurrent}
+									<button type="button" class="nb stamp" disabled={charSel < 1} onclick={() => charAdjust(i, (sp, ln) => setCharStart(sp, charSel, Math.round(player.currentTime * 10) / 10, ln.start, ln.end))} use:tapBounce><Clock size={12} /> {t('lyricsEditor.stamp')}</button>
+								{/if}
+								{#if l.chars}
+									<button type="button" class="nb" onclick={() => charsEven(i)} use:tapBounce>{t('lyricsEditor.charsEven')}</button>
+								{/if}
+							</div>
+							{#if !l.chars}<p class="hint">{t('lyricsEditor.charsHint')}</p>{/if}
+						{/if}
 					</div>
 				{/each}
 			</div>
@@ -486,6 +542,15 @@
 	.row2 .primary { margin-top: 0; }
 	.grow { flex: 1; }
 	.primary:disabled { opacity: 0.55; cursor: default; }
+	/* quick-261122-ugcb4: character chips. The chip's own fill previews the per-character sweep
+	   (sung share in primary), so a nudge is SEEN against the playing song. */
+	.nb.on { border-color: var(--color-primary); color: var(--color-primary); }
+	.nb:disabled { opacity: 0.4; cursor: default; }
+	.chars { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 0 4px; }
+	.chip { display: inline-flex; flex-direction: column; align-items: center; min-width: 36px; min-height: 44px; padding: 3px 5px; border-radius: 8px; border: 1px solid var(--color-border); color: var(--color-text); font: inherit; cursor: pointer; background: linear-gradient(90deg, color-mix(in srgb, var(--color-primary) 28%, transparent) calc(var(--p, 0) * 100%), var(--color-bg) calc(var(--p, 0) * 100%)); }
+	.chip.sel { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary) inset; }
+	.cg { font-size: 1rem; line-height: 1.2; white-space: pre; }
+	.ct { font-size: 0.625rem; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 	.share { display: flex; align-items: center; gap: 8px; padding: 8px 2px 0; font-size: 0.8125rem; color: var(--color-text); }
 	.share input { width: 18px; height: 18px; accent-color: var(--color-primary); }
 	.err { color: var(--color-danger-text); font-size: 0.75rem; margin: 6px 2px 0; }

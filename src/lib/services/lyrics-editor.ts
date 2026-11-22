@@ -11,12 +11,24 @@
 // promotes the draft out of it.
 
 import { parseLRC, serializeLRC, lineEndAt, type LyricLine } from './lrc';
+import { charSpansFor, explicitCharsMatch, retimeChars, type TimedChar } from './lyric-chars';
 
 /** One editable lyric line: explicit START and END (brief §2.4 line layer). */
 export interface EditorLine {
 	start: number;
 	end: number;
 	text: string;
+	/** quick-261122-ugcb4: HAND-SET character spans (B4). Absent = pre-allocated (equal share of
+	 *  [start, end], derived by charSpansFor — never stored, never blank). */
+	chars?: TimedChar[];
+}
+
+/** quick-261122-ugcb4: carry hand-set character spans onto a line's NEW window (drag / nudge /
+ *  stamp / clamp), re-timed linearly so each character keeps its share. No spans → nothing to do. */
+function carryChars(prev: EditorLine, next: EditorLine): EditorLine {
+	if (!prev.chars?.length) return next;
+	if (prev.start === next.start && prev.end === next.end) return { ...next, chars: prev.chars };
+	return { ...next, chars: retimeChars(prev.chars, prev, next) };
 }
 
 /**
@@ -73,16 +85,23 @@ export function estimateLines(texts: readonly string[], durationSec: number): Ed
  */
 export function editorLinesFromLrc(lrc: string, durationSec = 0): EditorLine[] {
 	const parsed = parseLRC(lrc ?? '');
-	return parsed.map((l, i) => ({
-		start: l.time,
-		end: lineEndAt(parsed, i, durationSec),
-		text: l.text
-	}));
+	return parsed.map((l, i) => {
+		const end = lineEndAt(parsed, i, durationSec);
+		const line: EditorLine = { start: l.time, end, text: l.text };
+		// quick-261122-ugcb4: hand-set character spans survive import / re-edit.
+		if (explicitCharsMatch(l)) line.chars = charSpansFor(l, end);
+		return line;
+	});
 }
 
 /** Editor lines → LyricLine[] for serializeLRC / the render pipeline (start→time, end kept). */
 export function editorLinesToLyricLines(lines: readonly EditorLine[]): LyricLine[] {
-	return lines.map((l) => ({ time: l.start, text: l.text, end: l.end }));
+	return lines.map((l) => {
+		const out: LyricLine = { time: l.start, text: l.text, end: l.end };
+		// quick-261122-ugcb4: only spans that still match the (possibly edited) text are kept.
+		if (l.chars?.length && explicitCharsMatch(l)) out.chars = l.chars;
+		return out;
+	});
 }
 
 /** The saved form: LRC text with explicit ends (the [start][end] double-tag serializeLRC form). */
@@ -100,9 +119,9 @@ export function clampEditorLine(line: EditorLine, durationSec = 0): EditorLine {
 	if (end < start + 0.1) end = snapTenth(start + 0.1);
 	if (Number.isFinite(durationSec) && durationSec > 0) {
 		end = Math.min(end, snapTenth(durationSec));
-		if (end < start + 0.1) return { start: Math.max(0, snapTenth(end - 0.1)), end, text: line.text };
+		if (end < start + 0.1) return carryChars(line, { start: Math.max(0, snapTenth(end - 0.1)), end, text: line.text });
 	}
-	return { start, end, text: line.text };
+	return carryChars(line, { start, end, text: line.text });
 }
 
 /** Nudge one boundary by delta (the ±0.1s buttons pass ±0.1). */
@@ -112,10 +131,13 @@ export function nudgeEditorLine(
 	delta: number,
 	durationSec = 0
 ): EditorLine {
-	return clampEditorLine(
-		which === 'start' ? { ...line, start: line.start + delta } : { ...line, end: line.end + delta },
+	const bare = { start: line.start, end: line.end, text: line.text };
+	const next = clampEditorLine(
+		which === 'start' ? { ...bare, start: line.start + delta } : { ...bare, end: line.end + delta },
 		durationSec
 	);
+	// quick-261122-ugcb4: hand-set character spans re-time from the ORIGINAL window.
+	return carryChars(line, next);
 }
 
 /** Drag the whole line: both boundaries move together, length preserved — the drag clamps
@@ -127,7 +149,7 @@ export function moveEditorLine(line: EditorLine, delta: number, durationSec = 0)
 		start = Math.min(start, snapTenth(Math.max(0, durationSec - len)));
 	}
 	start = Math.max(0, start);
-	return clampEditorLine({ start, end: snapTenth(start + len), text: line.text }, durationSec);
+	return clampEditorLine(carryChars(line, { start, end: snapTenth(start + len), text: line.text }), durationSec);
 }
 
 /**
@@ -137,7 +159,7 @@ export function moveEditorLine(line: EditorLine, delta: number, durationSec = 0)
 export function stampEditorLine(line: EditorLine, atSec: number, durationSec = 0): EditorLine {
 	const len = Math.max(0.1, line.end - line.start);
 	const start = snapTenth(atSec);
-	return clampEditorLine({ start, end: snapTenth(start + len), text: line.text }, durationSec);
+	return clampEditorLine(carryChars(line, { start, end: snapTenth(start + len), text: line.text }), durationSec);
 }
 
 /**

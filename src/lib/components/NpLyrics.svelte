@@ -26,7 +26,8 @@
 	// quick-261121-trfix: + applyUniqueChunkFlags (the genuine-flag stitch).
 	import { chunkRanges, dedupeSendList, applyUniqueChunkResult, applyUniqueChunkFlags, initialPending, clearUniqueChunkPending, skeletonWidthPct, LYRICS_CHUNK_SIZE, LYRICS_CHUNK_CONCURRENCY } from '$lib/services/lyric-chunks';
 	import { shouldTranslate, majorityLang } from '$lib/i18n/detect';
-	import { reorderPairs, splitParenLines, serializeLRC, lineSeekFraction, activeLineAt, lyricAnchorMetrics, formatLyricOffset, LYRIC_OFFSET_MAX, type LyricLine } from '$lib/services/lrc';
+	import { reorderPairs, splitParenLines, serializeLRC, lineSeekFraction, activeLineAt, lineEndAt, lyricAnchorMetrics, formatLyricOffset, LYRIC_OFFSET_MAX, type LyricLine } from '$lib/services/lrc';
+	import { charSpansFor, charFillAt, type TimedChar } from '$lib/services/lyric-chars';
 	// quick-261116-lyrux (Fix 2): the publication seam the Nowbar reads for replace mode.
 	import { lyricsTranslation, translationDuplicatesOriginal } from '$lib/stores/lyrics-translation.svelte';
 	// quick-260919-2jo: the Chinese script lock for lyric text. `parseLyrics` replaces `parseLRC`
@@ -130,7 +131,56 @@
 	const active = $derived(activeLineAt(lines, player.currentTime, lyricOffset));
 	const activeLine = $derived(active.idx);
 	const activeTime = $derived(active.time);
+	// quick-261122-ugcb4 — THE PER-CHARACTER HIGHLIGHT (B4, brief §2.4 + the two-surfaces rule,
+	// Hector 2026-11-20 20:31): the NowPlaying pane shows EXACTLY which character is being sung —
+	// the exquisite surface (the Nowbar keeps its one simple underline). Every sung line of the
+	// active group renders per-character spans from charSpansFor: the user's hand-set timings when
+	// the line carries them, else the equal-share PRE-ALLOCATION — so every lyric, upstream or
+	// community, sweeps character by character from day one. Translation lines are not sung and
+	// keep the plain line treatment.
+	//
+	// Cost discipline: this map changes per LINE (activeTime), never per tick; the per-frame fill
+	// is written straight onto the spans' `--p` by the rAF loop below (the Nowbar underline idiom),
+	// so nothing reactive runs at 60Hz and only the active line's handful of spans are touched.
+	const activeChars = $derived.by(() => {
+		const m = new Map<number, TimedChar[]>();
+		if (activeTime < 0) return m;
+		for (let i = 0; i < lines.length; i++) {
+			const l = lines[i];
+			if (l.time !== activeTime || l.fromParen || l.isTranslation) continue;
+			m.set(i, charSpansFor(l, lineEndAt(lines, i, player.duration)));
+		}
+		return m;
+	});
 	let lyricsEl = $state<HTMLElement | null>(null);
+	$effect(() => {
+		const root = lyricsEl;
+		if (!root || activeChars.size === 0) return;
+		const off = lyricOffset;
+		void activeChars; // re-collect the span nodes when the active line changes
+		let els: HTMLElement[] = [];
+		let raf = 0;
+		const paint = () => {
+			if (!els.length || !els[0].isConnected) els = Array.from(root.querySelectorAll<HTMLElement>('.ch'));
+			const clock = player.liveTime() - off;
+			for (const el of els) {
+				const st = Number(el.dataset.s);
+				const en = Number(el.dataset.e);
+				el.style.setProperty('--p', String(charFillAt({ text: '', start: st, end: en }, clock)));
+			}
+		};
+		if (!player.playing) {
+			void player.currentTime;
+			queueMicrotask(paint);
+			return;
+		}
+		const loop = () => {
+			paint();
+			raf = requestAnimationFrame(loop);
+		};
+		raf = requestAnimationFrame(loop);
+		return () => cancelAnimationFrame(raf);
+	});
 	let autoScroll = $state(true);
 	// quick-260920-n6j: last padding written to `.lyrics`, as the exact CSS strings. Plain `let`s, not
 	// $state — nothing reactive reads them; they only stop the anchor pass from rewriting an unchanged
@@ -887,7 +937,8 @@
 							{#if span.chosen}<button type="button" class="fw" tabindex="-1" onclick={(e) => openFuriChooser(e, l.text, span)} aria-label="{span.surface} — {span.chosen}"><ruby>{span.surface}<rt class:pinned={span.pinned} class:est={span.estimated && !span.pinned}>{span.chosen}</rt></ruby></button>{:else}{span.surface}{/if}
 						{/each}
 					{:else}
-						{l.text}
+						{@const chs = activeChars.get(i)}
+						{#if chs && chs.length}<span class="chs" aria-label={l.text}>{#each chs as c, ci (ci)}<span class="ch" aria-hidden="true" data-s={c.start} data-e={c.end}>{c.text}</span>{/each}</span>{:else}{l.text}{/if}
 						{#if showTr && !hideTrForLine}
 							{#if trPending[i]}
 								<span class="tr tr-pending" aria-hidden="true"><span class="sk tr-skbar" style="--skw:{skeletonWidthPct(l.text)}%"></span></span>
@@ -947,6 +998,25 @@
 	.lyrics { text-align: center; line-height: 1.3; }
 	.lyrics p { font-size: calc(1rem * var(--fs-lyrics, 1)); color: var(--color-text-muted); transition: color 0.2s ease, text-shadow 0.2s ease, transform 0.2s ease; margin: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
 	.lyrics p.active { color: var(--color-text); text-shadow: 0 0 0.5px currentColor, 0 0 0.5px currentColor; }
+	/* quick-261122-ugcb4 — the per-character sweep. Each character is a text-clipped gradient:
+	   the sung share in full text colour, the rest in the muted ink, with a soft 0.12em feather at
+	   the sweep edge so the fill glides THROUGH a character rather than snapping per glyph. --p is
+	   written per frame by the rAF loop (0 = not yet, 1 = sung). Paint-only: no filter / shadow on
+	   the per-frame path (a per-glyph filter repaint is a phone-GPU cost the sweep does not need). */
+	.lyrics .chs { display: inline; }
+	.lyrics .ch {
+		--p: 0;
+		background-image: linear-gradient(
+			90deg,
+			var(--color-text) calc(var(--p) * 100% - 0.12em),
+			color-mix(in srgb, var(--color-text) 42%, transparent) calc(var(--p) * 100% + 0.12em)
+		);
+		-webkit-background-clip: text;
+		background-clip: text;
+		color: transparent;
+		-webkit-text-fill-color: transparent;
+		white-space: pre-wrap;
+	}
 	/* paren-derived sibling line — slightly smaller / lower contrast than the parent so the
 	   reader can tell "this is the embedded-translation part" at a glance. */
 	.lyrics p.paren { font-size: calc(0.9rem * var(--fs-lyrics, 1)); opacity: 0.85; }
