@@ -22,6 +22,7 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 	import { retagQueue } from '$lib/stores/retag-queue.svelte';
 	import { toast } from '$lib/stores/toast.svelte';
 	import { trackSessionStart } from '$lib/analytics';
+	import { communityLyrics } from '$lib/stores/community-lyrics.svelte';
 	import { t, ensureLocale, type TranslationKey } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	// quick-261022-spring: iOS-style rubber-band overscroll on the window scroller (Android /
@@ -169,6 +170,18 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 	// the auth store already healed; this only keeps the sheet's store in step.
 	$effect(() => {
 		if (auth.supporter) support.isSupporter = true;
+	});
+
+	// quick-261122-ugcb3 (UGC lyrics B3, brief §4): the community rung of the lyric read. When the
+	// playing track's upstream walk has SETTLED with no lyric (not loading, no backfill in flight,
+	// no track.lrc), fetch the song's community versions once — readLyrics then serves the
+	// canonical (most-pinned) one on every surface. One edge-cached GET per song per session
+	// (ensure is idempotent), never for a track that has upstream lyrics. Cross-store wiring lives
+	// here (the tipbind precedent) so the community store stays a leaf.
+	$effect(() => {
+		const c = player.current;
+		if (!c?.uid || c.lrc || player.loading || player.lyricsFetching) return;
+		untrack(() => void communityLyrics.ensure(c));
 	});
 
 	// quick-261102-w2q (impeccable audit, WCAG 3.1.1): <html> was frozen at lang="en" with no `dir`,

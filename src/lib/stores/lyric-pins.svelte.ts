@@ -13,6 +13,7 @@
 import type { Track } from '$lib/sources/types';
 import { getPinnedLyrics, setPinnedLyrics, removePinnedLyrics } from '$lib/services/lyric-pins';
 import { getTrackRecord } from '$lib/services/track-record';
+import { communityLyrics } from '$lib/stores/community-lyrics.svelte';
 
 // Module-scoped reactive counter, held in a small object because top-level `$state` reassignment must
 // be on a `$state` rune target. Callers CALL lyricVersion() inside a $derived/template to take the
@@ -54,7 +55,7 @@ export function bumpLyricVersion(): void {
 }
 
 /**
- * THE lyrics read for every surface. Read order is **pin → track.lrc → null**, one definition, three
+ * THE lyrics read for every surface. Read order is **pin → track.lrc → community → null**, one definition, three
  * call sites (NowPlaying's pane, the Nowbar line, TrackMenu's tick + retag prop).
  *
  * D-4 — the pin is applied at READ time, never by mutating `player.current`. player.svelte.ts has
@@ -82,7 +83,27 @@ export function readLyrics(track: Track | null | undefined): string | null {
 		const viaRecord = getPinnedLyrics(rec.lyrics.pinUid);
 		if (viaRecord) return viaRecord;
 	}
-	return track.lrc ?? null;
+	if (track.lrc) return track.lrc;
+	// quick-261122-ugcb3 (UGC B3, brief §4): the THIRD rung — the community's canonical
+	// (most-pinned) version, when the song's versions have been fetched. Upstream always wins
+	// where it exists (it joins the picker as a labelled candidate instead); community fills
+	// the no-lyrics case. Reactive: communityLyrics.entries is $state, so a fetch landing
+	// repaints every surface exactly like a pin write.
+	return communityLyrics.canonicalLrc(track.uid) ?? track.lrc ?? null;
+}
+
+/**
+ * quick-261122-ugcb3: does the user hold a lyric PIN for this track (own uid or via the song
+ * record)? The pickers used `readLyrics(track) !== track.lrc` as "a pin exists"; with the
+ * community rung that inference is false for a no-upstream song showing a community lyric, so
+ * the question now has its own answer here, next to the read it mirrors.
+ */
+export function hasLyricPin(track: Track | null | undefined): boolean {
+	lyricVersion();
+	if (!track?.uid) return false;
+	if (getPinnedLyrics(track.uid)) return true;
+	const rec = getTrackRecord(track.artist ?? '', track.title ?? '');
+	return !!(rec?.lyrics.pinUid && rec.lyrics.pinUid !== track.uid && getPinnedLyrics(rec.lyrics.pinUid));
 }
 
 /** The ONLY sanctioned pin WRITER: persist the user's choice and bump so every reader repaints. */

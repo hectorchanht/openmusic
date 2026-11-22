@@ -51,6 +51,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	// owns its own overlay lifecycle under a DISTINCT overlayId.
 	import MetadataEditor from '$lib/components/MetadataEditor.svelte';
 	import LyricsEditor from '$lib/components/LyricsEditor.svelte';
+	import CommunityLyricsList from '$lib/components/CommunityLyricsList.svelte';
 	// quick-260919-vrq: the app's ONLY boolean-control idiom (a real <button role="switch"
 	// aria-checked>). No `type="checkbox"` exists anywhere in src, so the Remove-download confirm
 	// borrows this rather than hand-rolling one.
@@ -94,7 +95,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	// quick-260919-1we: the lyrics picker's ENUMERATE-ALL collector + the pin read/write pair. Same
 	// posture as the cover picker one line up — the parallel walk fires ONLY on the Fix-lyrics tap
 	// (T-1we-03), never on menu open. `readLyrics` is D-4's single read (pin → track.lrc → null).
-	import { readLyrics } from '$lib/stores/lyric-pins.svelte';
+	import { readLyrics, hasLyricPin } from '$lib/stores/lyric-pins.svelte';
 	// quick-261021-menu7: lyric-offset imports moved to LyricsTimingToggle.svelte (shared component).
 	import { parseLyrics } from '$lib/stores/lyric-script.svelte';
 	import { combinedSignal } from '$lib/services/abort-signal';
@@ -903,6 +904,13 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		closeLyricsPicker();
 		close();
 		lyricsEditorOpen = true;
+	}
+	// quick-261122-ugcb3: fork-to-edit on a community version — the editor opens seeded with
+	// that version instead of the current read; cleared on editor close.
+	let lyricsForkLrc = $state<string | null>(null);
+	function forkLyricsEditor(lrc: string) {
+		lyricsForkLrc = lrc;
+		openLyricsEditor();
 	}
 	// Pin the tapped LRC. D-4: NO player call is needed — pinLyrics bumps the shared reactive signal
 	// and every lyrics surface reads through readLyrics(), so the NowPlaying pane and the Nowbar line
@@ -2145,9 +2153,12 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 				</div>
 			{/each}
 		{/if}
-		<!-- D-6: Use-automatic is shown ONLY when a pin exists. `readLyrics` leads with the pin and falls
-		     back to track.lrc, so "the read differs from the track's own lrc" IS "a pin exists". -->
-		{#if pinnedNow !== (track.lrc ?? null)}
+		<!-- D-6: Use-automatic is shown ONLY when a pin exists. quick-261122-ugcb3: asked directly via
+		     hasLyricPin — "the read differs from track.lrc" stopped meaning "a pin exists" once the
+		     read gained its community rung. -->
+		<!-- quick-261122-ugcb3: community versions join the picker as labelled candidates. -->
+		<CommunityLyricsList {track} current={pinnedNow} onpick={pickLyrics} onfork={forkLyricsEditor} />
+		{#if hasLyricPin(track)}
 			<MenuActionButton icon={Sparkles} onclick={resetLyrics}>{t('menu.lyricsAuto')}</MenuActionButton>
 		{/if}
 		<!-- quick-261021-menu7 (user): shared LyricsTimingToggle — same component reused
@@ -2252,8 +2263,11 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 <LyricsEditor
 	{track}
 	open={lyricsEditorOpen}
-	initialLrc={readLyrics(track)}
-	onclose={() => (lyricsEditorOpen = false)}
+	initialLrc={lyricsForkLrc ?? readLyrics(track)}
+	onclose={() => {
+		lyricsEditorOpen = false;
+		lyricsForkLrc = null;
+	}}
 />
 
 <style>

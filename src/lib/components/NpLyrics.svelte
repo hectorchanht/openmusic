@@ -36,6 +36,7 @@
 	// quick-260919-1we (D-4): the user's explicit lyric pick, layered into a reactive READ so it
 	// outranks whatever the chain (or a downloaded file's embedded tag) supplied.
 	import { readLyrics } from '$lib/stores/lyric-pins.svelte';
+	import { communityLyrics } from '$lib/stores/community-lyrics.svelte';
 	// quick-260926-mis: per-song lyric TIME offset (±0.5s nudges; quick-260926-vur: + a slider).
 	// quick-260926-mzn: + the shared listener consensus (effective read, fetch, vote, reset).
 	import {
@@ -90,7 +91,11 @@
 	// quick-261019-lyrspin: while the track is still resolving (player.loading) or a lyric
 	// backfill walk is in flight for it (player.lyricsFetching), an empty pane means "not yet",
 	// not "none" — the template shows the spinner instead of the no-lyrics line.
-	const lyricsPending = $derived(player.loading || player.lyricsFetching);
+	// quick-261122-ugcb3: a community fetch in flight for a no-upstream song is still "not yet",
+	// not "no lyrics" — the skeleton holds until the community rung answers.
+	const lyricsPending = $derived(
+		player.loading || player.lyricsFetching || communityLyrics.isLoading(player.current?.uid)
+	);
 	// When multiple lyric lines share a timestamp (common in CN LRCs that ship the original
 	// + an inline translation as two consecutive entries at the same time, plus our own
 	// splitParenLines parent + paren clauses), ALL of them are simultaneously active for

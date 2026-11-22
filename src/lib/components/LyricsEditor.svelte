@@ -9,6 +9,11 @@
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { pinLyrics } from '$lib/stores/lyric-pins.svelte';
+	import { auth } from '$lib/stores/auth.svelte';
+	import { communityLyrics } from '$lib/stores/community-lyrics.svelte';
+	import { lyricsSongKey, type SubmitErr } from '$lib/services/community-lyrics';
+	import type { LyricCheckErr } from '$lib/proxy/community-lyrics';
+	import TurnstileGate from '$lib/components/TurnstileGate.svelte';
 	import { songKey } from '$lib/services/dedupe';
 	import { activeLineAt, lineSeekFraction } from '$lib/services/lrc';
 	import { scrollBehavior } from '$lib/motion';
@@ -263,13 +268,82 @@
 		return `${m}:${r}`;
 	}
 
-	function save() {
-		if (!track?.uid || !lines.length) return;
-		pinLyrics(track.uid, serializeEditorLines(lines));
-		clearInputDraft(lyricsDraftKey(track.uid)); // the draft's ONE deliberate ending
-		toast.show(t('toast.lyricsPinned'));
-		onsaved?.();
-		onclose();
+	// quick-261122-ugcb3 (UGC B3) — SHARE WITH EVERYONE. The local pin ALWAYS lands first (the
+	// Phase 1 contract: a save is instant and never waits on the network). When sharing is on, the
+	// same text then goes to /api/lyrics behind check layer 3 — a signed-in account + Turnstile — and
+	// THE CHECK; on acceptance the server's canonical text replaces the local pin (own accepted
+	// submission auto-pins) and every listener gets it immediately. Default ON for a signed-in user
+	// (users are lazy — sharing is not an extra step); anonymous users save locally and see how to
+	// share. A failed share keeps the editor open on this step with the reason, the local copy kept.
+	const signedIn = $derived(auth.user !== null);
+	let share = $state(true);
+	let token = $state('');
+	let gate = $state<{ reset: () => void } | null>(null);
+	let busy = $state(false);
+	let shareErr = $state<{ err: SubmitErr | 'verify'; reason?: LyricCheckErr } | null>(null);
+	const sharing = $derived(signedIn && share);
+	const fetcher = (path: string, init?: RequestInit) => auth.authedFetch(path, init ?? {});
+
+	$effect(() => {
+		if (!open) {
+			shareErr = null;
+			busy = false;
+		}
+	});
+
+	const errKey = (e: NonNullable<typeof shareErr>) =>
+		e.err === 'check'
+			? (`community.check.${e.reason ?? 'empty'}` as const)
+			: e.err === 'slow-down'
+				? 'comments.slowDown'
+				: e.err === 'verify'
+					? 'comments.errVerify'
+					: e.err === 'signin'
+						? 'community.signin'
+						: e.err === 'invalid'
+							? 'comments.invalid'
+							: 'comments.unavailable';
+
+	async function save() {
+		if (!track?.uid || !lines.length || busy) return;
+		const uid = track.uid;
+		const lrc = serializeEditorLines(lines);
+		pinLyrics(uid, lrc);
+		clearInputDraft(lyricsDraftKey(uid)); // the draft's ONE deliberate ending (quick-261122-rules)
+		if (!sharing) {
+			toast.show(t('toast.lyricsPinned'));
+			onsaved?.();
+			onclose();
+			return;
+		}
+		busy = true;
+		shareErr = null;
+		const k = await lyricsSongKey(artist, title);
+		if (!k) {
+			busy = false;
+			shareErr = { err: 'unavailable' };
+			return;
+		}
+		const r = await communityLyrics.submit(uid, fetcher, {
+			k,
+			lrc,
+			estimated,
+			title,
+			artist,
+			duration,
+			token
+		});
+		// Tokens are single-use: reset after EVERY attempt, success or failure.
+		gate?.reset();
+		busy = false;
+		if (r.ok) {
+			pinLyrics(uid, r.lrc);
+			toast.show(t('community.shared'));
+			onsaved?.();
+			onclose();
+			return;
+		}
+		shareErr = { err: r.err, reason: r.reason };
 	}
 </script>
 
@@ -349,10 +423,31 @@
 			<label class="fld"><span>{t('tags.fieldTitle')}</span><input bind:value={title} /></label>
 			<label class="fld"><span>{t('tags.fieldArtist')}</span><input bind:value={artist} /></label>
 			<p class="hint">{t('lyricsEditor.confirmHint')}</p>
+			<!-- quick-261122-ugcb3: share with everyone (community B3). -->
+			{#if signedIn}
+				<label class="share">
+					<input type="checkbox" bind:checked={share} />
+					<span>{t('community.shareToggle')}</span>
+				</label>
+				{#if share}
+					<p class="hint">{t('community.shareHint')}</p>
+					<TurnstileGate bind:this={gate} bind:token onunavailable={() => (shareErr = { err: 'verify' })} />
+				{/if}
+			{:else}
+				<p class="hint">{t('community.signinToShare')} <a href="/settings/account" onclick={onclose}>{t('community.signinLink')}</a></p>
+			{/if}
+			{#if shareErr}<p class="err" role="alert">{t(errKey(shareErr))}</p>{/if}
 			<p class="hint">{t('lyricsEditor.linesCount', { count: lines.length })}{#if estimated} · {t('lyricsEditor.estimated')}{/if} · {identity}</p>
 			<div class="row2">
 				<button type="button" class="tool" onclick={() => (step = 'edit')} use:tapBounce>{t('lyricsEditor.back')}</button>
-				<button type="button" class="primary grow" onclick={save} use:tapBounce>{t('lyricsEditor.save')}</button>
+				<button
+					type="button"
+					class="primary grow"
+					onclick={save}
+					disabled={busy || (sharing && !token)}
+					use:tapBounce
+					>{sharing ? (token ? t('community.saveAndShare') : t('community.verifying')) : t('lyricsEditor.save')}</button
+				>
 			</div>
 		{/if}
 	</div>
@@ -390,4 +485,9 @@
 	.row2 { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 	.row2 .primary { margin-top: 0; }
 	.grow { flex: 1; }
+	.primary:disabled { opacity: 0.55; cursor: default; }
+	.share { display: flex; align-items: center; gap: 8px; padding: 8px 2px 0; font-size: 0.8125rem; color: var(--color-text); }
+	.share input { width: 18px; height: 18px; accent-color: var(--color-primary); }
+	.err { color: var(--color-danger-text); font-size: 0.75rem; margin: 6px 2px 0; }
+	.hint a { color: var(--color-primary); }
 </style>

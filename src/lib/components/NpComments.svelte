@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
-	import { Capacitor } from '@capacitor/core';
 	import { settings } from '$lib/stores/settings.svelte';
 	import LoadingState from '$lib/components/LoadingState.svelte';
 	import { comments } from '$lib/stores/comments.svelte';
@@ -14,9 +12,9 @@
 		getCommentName,
 		setCommentName
 	} from '$lib/services/comment-drafts';
-	import { loadTurnstile, TURNSTILE_SITEKEY, type TurnstileApi } from '$lib/services/turnstile-widget';
-	import { apiOrigin } from '$lib/services/api-base';
-	import { BRIDGE_PATH, BRIDGE_MSG, bridgeOrigin, parseBridgeMessage } from '$lib/services/turnstile-bridge';
+	// quick-261122-ugcb3: the widget + native bridge live in the ONE shared TurnstileGate (the
+	// community-lyrics submit mounts the same gate). See that file for the ot5 bridge rationale.
+	import TurnstileGate from '$lib/components/TurnstileGate.svelte';
 
 	// quick-260926-nsz: the Comments pane — one public thread per SONG (every source copy and both
 	// Chinese scripts share it; see commentThreadKey). quick-260926-pb0: the thread is loaded by
@@ -26,16 +24,6 @@
 
 	const TEXT_MAX = 280;
 
-	// quick-260926-ot5: native posts through a Turnstile BRIDGE. The Capacitor WebView's origin is
-	// https://localhost, which the production hostname allowlist (openmusic.lol) rejects, so the app
-	// frames https://openmusic.lol/turnstile-bridge: the widget renders on the real hostname,
-	// siteverify reports openmusic.lol, and the token comes back over postMessage gated on origin +
-	// source. Rejected: localhost in the prod allowlist (anyone could farm tokens from a local page),
-	// and a real Capacitor server.hostname (new WebView origin = every user's localStorage/IndexedDB
-	// wiped).
-	const native = browser && Capacitor.isNativePlatform();
-
-
 	let composing = $state(false);
 	let name = $state(getCommentName());
 	let text = $state('');
@@ -43,15 +31,7 @@
 	let err = $state<CommentErr | null>(null);
 	let armed = $state<string | null>(null); // the id whose Report button is on its confirm step
 	let token = $state(''); // single-use Turnstile token; '' = none yet / spent / expired
-	let tsEl = $state<HTMLElement | null>(null);
-	let bridgeEl = $state<HTMLIFrameElement | null>(null);
-	// Computed once, not reactive. A native build without VITE_API_BASE yields null → no iframe and
-	// Post stays disabled (a dev-only misconfiguration, never the shipped APK).
-	const bridgeHost = native ? bridgeOrigin(apiOrigin()) : null;
-	const bridgeSrc = bridgeHost ? bridgeHost + BRIDGE_PATH : null;
-
-	let ts: TurnstileApi | null = null;
-	let widgetId: string | null = null;
+	let gate = $state<{ reset: () => void } | null>(null);
 
 	// A new song clears the previous thread's error line and armed Report. Reads only comments.uid
 	// and writes state it never reads, so it cannot self-invalidate.
@@ -92,68 +72,8 @@
 		setCommentName(name);
 	});
 
-	// Turnstile widget: script lazy-loaded once per app, rendered explicitly into the composer,
-	// removed on unmount. Post stays disabled until the widget hands us a token.
-	// quick-260926-pb0: the `.ts` div (and the native bridge iframe) live inside the composing block,
-	// so this effect only runs once the user taps "Write a comment", and its cleanup removes the
-	// widget when Cancel / a successful post unmounts the div. Perf + privacy: readers never load
-	// challenges.cloudflare.com.
-	$effect(() => {
-		const el = tsEl;
-		if (!el || native) return;
-		let gone = false;
-		void loadTurnstile().then((api) => {
-			if (gone) return;
-			if (!api) {
-				err = 'verify'; // script blocked or offline: say why Post stays disabled
-				return;
-			}
-			ts = api;
-			widgetId =
-				api.render(el, {
-					sitekey: TURNSTILE_SITEKEY,
-					action: 'comment', // must equal TURNSTILE_ACTION in /api/comments
-					theme: 'auto',
-					size: 'flexible',
-					callback: (tok: string) => (token = tok),
-					'expired-callback': () => (token = ''),
-					'error-callback': () => (token = '')
-				}) ?? null;
-		});
-		return () => {
-			gone = true;
-			if (ts && widgetId) ts.remove(widgetId);
-			widgetId = null;
-			token = '';
-		};
-	});
-
-	// Native bridge: take token/clear only from OUR iframe at the API origin. Reads no $state
-	// synchronously (bridgeEl is read inside the handler only), so it runs once on mount and cannot
-	// self-invalidate (cf. restore-effect-self-invalidation-loop). While the composer is closed
-	// there is no iframe, so every message fails the source check and is ignored.
-	$effect(() => {
-		const host = bridgeHost;
-		if (!bridgeSrc || !host) return;
-		const onMsg = (e: MessageEvent) => {
-			if (e.origin !== host || !bridgeEl || e.source !== bridgeEl.contentWindow) return;
-			const m = parseBridgeMessage(e.data);
-			if (!m) return;
-			token = m.type === BRIDGE_MSG.token ? m.token : '';
-		};
-		window.addEventListener('message', onMsg);
-		return () => {
-			window.removeEventListener('message', onMsg);
-			token = '';
-		};
-	});
-
-	// The bridge learns (and remembers) our origin from this hello; it never posts before it.
-	function hello() {
-		const host = bridgeHost;
-		if (!host) return;
-		bridgeEl?.contentWindow?.postMessage({ type: BRIDGE_MSG.hello }, host);
-	}
+	// Turnstile: the shared gate lives inside the composing block, so the widget only loads once
+	// the user taps "Write a comment", and Cancel / a successful post unmounts it (quick-260926-pb0).
 
 	// quick-261120-cdraft: Cancel is one of only two deliberate endings for a draft (the
 	// other is a successful Post), so it DISCARDS this song's draft — superseding the pb0
@@ -178,9 +98,7 @@
 		err = null;
 		const r = await postComment(k, n, body, token);
 		// Tokens are single-use: reset after EVERY attempt, success or failure.
-		token = '';
-		if (ts && widgetId) ts.reset(widgetId);
-		else if (bridgeHost) bridgeEl?.contentWindow?.postMessage({ type: BRIDGE_MSG.reset }, bridgeHost);
+		gate?.reset();
 		// Cleared BEFORE the supersede check: a song change mid-post must not leave Post disabled.
 		posting = false;
 		if (comments.uid !== uid) return; // song changed mid-post: the reply belongs to another thread
@@ -251,11 +169,7 @@
 				     number reaches 0 exactly when the textarea stops accepting input. -->
 				<span class="count">{t('comments.remaining', { n: TEXT_MAX - text.length })}</span>
 			</div>
-			{#if bridgeSrc}
-				<iframe class="ts-bridge" bind:this={bridgeEl} src={bridgeSrc} title="Cloudflare Turnstile" onload={hello}></iframe>
-			{:else if !native}
-				<div class="ts" bind:this={tsEl}></div>
-			{/if}
+			<TurnstileGate bind:this={gate} bind:token onunavailable={() => (err = 'verify')} />
 			<div class="bar">
 				<span class="actions">
 					<button class="cancel" onclick={close} use:tapBounce>{t('comments.cancel')}</button>
@@ -359,7 +273,6 @@
 	.muted { color: var(--color-text-muted); font-size: 0.75rem; }
 	.note { margin: 0; }
 	/* 65px = the flexible widget's fixed height; the interactive challenge renders inside that box. */
-	.ts-bridge { display: block; width: 100%; height: 65px; border: 0; }
 	.err { color: var(--color-danger-text); /* quick-261103-pga: was #f66 */ font-size: 0.8125rem; margin: 0; }
 	.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 	.head { display: flex; align-items: center; gap: 8px; }

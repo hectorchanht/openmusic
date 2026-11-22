@@ -89,8 +89,16 @@ describe('bridge page + route', () => {
 
 describe('NpComments wiring', () => {
 	const svelte = readFileSync('src/lib/components/NpComments.svelte', 'utf-8');
+	// quick-261122-ugcb3: the widget + bridge moved VERBATIM into the shared TurnstileGate.
+	const gate = readFileSync('src/lib/components/TurnstileGate.svelte', 'utf-8');
+
+	it('mounts the ONE shared TurnstileGate', () => {
+		expect(svelte).toContain("import TurnstileGate from '$lib/components/TurnstileGate.svelte'");
+		expect(svelte).toContain('<TurnstileGate bind:this={gate} bind:token');
+	});
 
 	it('frames the bridge and accepts messages only from its own iframe', () => {
+		const svelte = gate;
 		expect(svelte).toContain('BRIDGE_PATH');
 		expect(svelte).toContain('parseBridgeMessage(');
 		expect(svelte).toContain('contentWindow');
@@ -100,6 +108,7 @@ describe('NpComments wiring', () => {
 	it('no longer ships the web-only note and never posts to a wildcard', () => {
 		expect(svelte).not.toContain('postOnWeb');
 		expect(svelte).not.toContain("'*'");
+		expect(gate).not.toContain("'*'");
 		expect(readFileSync('src/lib/i18n/en.ts', 'utf-8')).not.toContain('comments.postOnWeb');
 	});
 });

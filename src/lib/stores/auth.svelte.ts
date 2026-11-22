@@ -237,7 +237,7 @@ class Auth {
 	 * logout) — quick-261020-authprio: they must never be fast-rejected or starved by the
 	 * governor's circuit breaker / FIFO queue.
 	 */
-	private authedFetch(path: string, init: ApiFetchInit = {}): Promise<Response> {
+	authedFetch(path: string, init: ApiFetchInit = {}): Promise<Response> {
 		const headers = new Headers(init.headers);
 		if (init.body != null && !headers.has('content-type')) {
 			headers.set('content-type', 'application/json');

@@ -35,7 +35,7 @@
 	import { collectLyricCandidates, type LyricCandidate } from '$lib/services/catalog';
 	import { combinedSignal } from '$lib/services/abort-signal';
 	import { parseLyrics } from '$lib/stores/lyric-script.svelte';
-	import { readLyrics, pinLyrics, unpinLyrics } from '$lib/stores/lyric-pins.svelte';
+	import { readLyrics, pinLyrics, unpinLyrics, hasLyricPin } from '$lib/stores/lyric-pins.svelte';
 	import { player } from '$lib/stores/player.svelte';
 	// quick-261120-gsync: the ONE shared gesture file-tag writer (TrackMenu calls it too).
 	import { writeTagsForGesture } from '$lib/services/gesture-tag-sync';
@@ -54,6 +54,7 @@
 	import SettingPicker from '$lib/components/SettingPicker.svelte';
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
 	import LyricsEditor from '$lib/components/LyricsEditor.svelte';
+	import CommunityLyricsList from '$lib/components/CommunityLyricsList.svelte';
 
 	let {
 		open = false,
@@ -152,7 +153,8 @@
 	let ac: AbortController | null = null;
 
 	const pinnedLrc = $derived(track ? readLyrics(track) : null);
-	const hasPin = $derived(!!track && pinnedLrc !== (track.lrc ?? null));
+	// quick-261122-ugcb3: asked directly — the read-differs inference broke with the community rung.
+	const hasPin = $derived(hasLyricPin(track));
 
 	async function openSource() {
 		if (!track?.uid) return;
@@ -204,9 +206,16 @@
 
 	// --- editor ------------------------------------------------------------------
 	let editorOpen = $state(false);
+	// quick-261122-ugcb3: fork-to-edit — a community version seeds the editor instead of the
+	// current read; cleared when the editor closes.
+	let forkLrc = $state<string | null>(null);
 	function openEditor() {
 		onclose();
 		editorOpen = true;
+	}
+	function forkEditor(lrc: string) {
+		forkLrc = lrc;
+		openEditor();
 	}
 
 	// --- offset (group 4) ----------------------------------------------------------
@@ -271,6 +280,8 @@
 					</div>
 				{/each}
 			{/if}
+			<!-- quick-261122-ugcb3: community versions join the picker as labelled candidates. -->
+			<CommunityLyricsList {track} current={pinnedLrc} onpick={pickCandidate} onfork={forkEditor} />
 			{#if hasPin}
 				<MenuActionButton icon={Sparkles} onclick={useAutomatic}>{t('menu.lyricsAuto')}</MenuActionButton>
 			{/if}
@@ -351,7 +362,15 @@
 	</div>
 {/if}
 
-<LyricsEditor open={editorOpen} onclose={() => (editorOpen = false)} {track} initialLrc={track ? readLyrics(track) : null} />
+<LyricsEditor
+	open={editorOpen}
+	onclose={() => {
+		editorOpen = false;
+		forkLrc = null;
+	}}
+	{track}
+	initialLrc={forkLrc ?? (track ? readLyrics(track) : null)}
+/>
 
 <style>
 	/* Sheet family idiom — see LyricsEditor.svelte / TrackMenu .menu (same tokens). */
