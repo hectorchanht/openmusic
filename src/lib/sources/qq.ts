@@ -283,6 +283,8 @@ async function fetchQqDetail(
 
 export const qq: SourceAdapter = {
 	id: 'qq',
+	// quick-261122-wsp: page = limit multiplier (rows 1…10×page) — see SourceAdapter.pagination.
+	pagination: 'superset',
 	label: 'QQ 音乐',
 	enabledByDefault: true,
 

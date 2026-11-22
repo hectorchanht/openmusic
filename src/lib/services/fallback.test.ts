@@ -19,10 +19,13 @@ import { makeUid, type SourceId, type Track } from '$lib/sources/types';
 vi.mock('$lib/sources/registry', () => {
 	// 43-D-08: `audius` is a fake flagged entry (NOT in getEnabledAdapters, so fallbackOrder never
 	// sees it) that walkSource is driven against directly to prove the noticeOnAutoPick gate.
-	const SOURCES: Record<string, { id: string; autoResolveEligible?: boolean; noticeOnAutoPick?: boolean }> = {
-		kuwo: { id: 'kuwo' },
-		qq: { id: 'qq' },
-		netease: { id: 'netease' },
+	const SOURCES: Record<
+		string,
+		{ id: string; autoResolveEligible?: boolean; noticeOnAutoPick?: boolean; pagination?: 'superset' }
+	> = {
+		kuwo: { id: 'kuwo', pagination: 'superset' },
+		qq: { id: 'qq', pagination: 'superset' },
+		netease: { id: 'netease', pagination: 'superset' },
 		joox: { id: 'joox' },
 		ytmusic: { id: 'ytmusic', autoResolveEligible: false },
 		audius: { id: 'audius', noticeOnAutoPick: true }
@@ -33,6 +36,8 @@ vi.mock('$lib/sources/registry', () => {
 		// behaviour over the mocked SOURCES flags (like onlySource below), so the ytmusic-exclusion
 		// assertions still prove the flag is what keeps it off the failover floor.
 		isAutoResolveEligible: (id: string) => SOURCES[id].autoResolveEligible !== false,
+		// quick-261122-wsp: REAL behaviour over the mocked flags, so the page assertions prove the flag.
+		poolPage: (id: string, supersetPage: number) => (SOURCES[id]?.pagination === 'superset' ? supersetPage : 1),
 		// quick-261102-sqn: getEnabledAdapters returns PLAYBACK_ORDER (registry SOURCES is built
 		// from it) — mirrored here: joox → kuwo → qq → netease, ytmusic last.
 		getEnabledAdapters: vi.fn(() => [
@@ -574,5 +579,29 @@ describe('43-D-08 walkSource versionMismatch marker', () => {
 
 	it('flagged source + plain same-length original → no marker (flag alone is not enough)', async () => {
 		expect((await hitFrom('audius', 'Song', 240)).versionMismatch).toBeUndefined();
+	});
+});
+
+describe('quick-261122-wsp walkSource search page', () => {
+	beforeEach(() => {
+		mockSearch.mockReset();
+		mockEnsure.mockReset();
+		mockSearch.mockResolvedValue({ interleaved: [], perSource: [] } as never);
+	});
+
+	async function pageFor(src: SourceId): Promise<unknown> {
+		const failed = { ...mk('netease', '1', 'Artist', 'Song', null), duration: 240 };
+		await walkSource(src, 'Song Artist', failed, new AbortController().signal);
+		return mockSearch.mock.calls[0][1];
+	}
+
+	it('superset (limit-multiplying) adapter keeps page 8 — the 80-row pool is unchanged', async () => {
+		expect(await pageFor('kuwo')).toBe(8);
+		expect(await (mockSearch.mockClear(), pageFor('qq'))).toBe(8);
+	});
+
+	it('true-page / no-paging adapter is asked for page 1, never page 8', async () => {
+		expect(await pageFor('joox')).toBe(1);
+		expect(await (mockSearch.mockClear(), pageFor('audius'))).toBe(1);
 	});
 });

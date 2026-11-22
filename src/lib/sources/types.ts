@@ -166,6 +166,13 @@ export interface SourceAdapter {
 	 *  the player surfaces a notice instead of silently playing a different version. `undefined` =
 	 *  no notice (every existing source). */
 	noticeOnAutoPick?: boolean;
+	/** quick-261122-wsp: what `search()`'s `page` argument MEANS to this adapter. `'superset'` =
+	 *  limit-multiplication (`limit = page × 10`, page N returns rows 1…10N — netease / qq / kuwo /
+	 *  suyin / gdnetease). `undefined` = anything else: a TRUE page (kugou / migu / fivesing /
+	 *  bilibili / archive / ccmixter / jamendo return rows 20(N-1)+1…20N), page>1 → [] (audius /
+	 *  ytmusic), or page ignored (bandcamp / joox). Read via `poolPage()` in registry.ts so a caller
+	 *  that wants "the top-N pool" (walkSource) never asks a true-page adapter for page 8. */
+	pagination?: 'superset';
 	search(keyword: string, page: number, signal: AbortSignal): Promise<Track[]>;
 	/** Lazy resolution: audioUrl + lrc + quality + detailsLoaded.
 	 *  `quality` (WR-07): an explicit per-call quality tier — used by the download path to

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SOURCES, getEnabledAdapters, isAutoResolveEligible } from './registry';
+import { SOURCES, getEnabledAdapters, isAutoResolveEligible, poolPage } from './registry';
 import { makeUid, type SourceId } from './types';
 
 // Order is load-bearing — getEnabledAdapters / fallbackOrder / resolveNameStub / interleave all
@@ -209,6 +209,27 @@ describe('isAutoResolveEligible (quick-260926-c69)', () => {
 			if (id !== 'ytmusic' && id !== 'bilibili' && id !== 'archive' && id !== 'ccmixter') {
 				expect(isAutoResolveEligible(id)).toBe(true);
 			}
+		}
+	});
+});
+
+describe('quick-261122-wsp pagination audit — poolPage', () => {
+	// The per-adapter page-vs-limit audit, pinned: ONLY these grow their pool with `page`
+	// (limit = page × 10). Every other adapter treats page as a true page, ignores it, or returns
+	// [] for page>1 — so a "top-N pool" caller must ask them for page 1.
+	const SUPERSET = ['netease', 'qq', 'kuwo', 'suyin', 'gdnetease'];
+
+	it('exactly the limit-multiplying adapters are flagged superset', () => {
+		const flagged = Object.values(SOURCES)
+			.filter((a) => a.pagination === 'superset')
+			.map((a) => a.id)
+			.sort();
+		expect(flagged).toEqual([...SUPERSET].sort());
+	});
+
+	it('superset → the requested page; everything else → page 1', () => {
+		for (const id of Object.keys(SOURCES) as (keyof typeof SOURCES)[]) {
+			expect(poolPage(id, 8)).toBe(SUPERSET.includes(id) ? 8 : 1);
 		}
 	});
 });

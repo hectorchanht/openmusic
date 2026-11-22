@@ -53,6 +53,8 @@ function pickQueryParam(rawUrl: string | undefined | null, key: string): string 
 
 export const netease: SourceAdapter = {
 	id: 'netease',
+	// quick-261122-wsp: page = limit multiplier (rows 1…10×page) — see SourceAdapter.pagination.
+	pagination: 'superset',
 	health: neteaseHealth,
 	label: '网易云音乐',
 	enabledByDefault: true,

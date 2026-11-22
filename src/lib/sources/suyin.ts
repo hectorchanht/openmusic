@@ -108,6 +108,8 @@ function toTrack(it: SuyinItem, keyword: string, idx: number): Track | null {
 
 export const suyin: SourceAdapter = {
 	id: 'suyin',
+	// quick-261122-wsp: page = limit multiplier (rows 1…10×page) — see SourceAdapter.pagination.
+	pagination: 'superset',
 	health: suyinHealth,
 	label: 'Kuwo（溯音）',
 	enabledByDefault: true,

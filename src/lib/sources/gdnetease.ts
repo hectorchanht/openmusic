@@ -60,6 +60,8 @@ function qualityFromBr(br: number | undefined): { quality: string | null; qualit
 
 export const gdnetease: SourceAdapter = {
 	id: 'gdnetease',
+	// quick-261122-wsp: page = limit multiplier (rows 1…10×page) — see SourceAdapter.pagination.
+	pagination: 'superset',
 	health: gdneteaseHealth,
 	label: 'Netease（GD）',
 	enabledByDefault: true,

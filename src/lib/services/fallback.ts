@@ -11,7 +11,7 @@
 import { searchAll, ensureTrackDetails } from '$lib/services/catalog';
 import { cjkSearchQuery } from '$lib/services/dedupe';
 import { rankAutoCandidates, candidateTier, isNotableVersionMismatch } from '$lib/services/song-variant';
-import { SOURCES, getEnabledAdapters, onlySource, isAutoResolveEligible } from '$lib/sources/registry';
+import { SOURCES, getEnabledAdapters, onlySource, isAutoResolveEligible, poolPage } from '$lib/sources/registry';
 import { PRIORITY_WINDOW_MS } from '$lib/sources/source-order';
 import { isDeviceUid } from '$lib/services/device-track';
 import type { SourceId, Track } from '$lib/sources/types';
@@ -308,6 +308,10 @@ function raceSources(
  * without turning one dead source into a long serial stall inside the race. */
 const MAX_CANDIDATE_RESOLVES = 3;
 
+/** quick-261122-wsp: the page a SUPERSET (limit-multiplying) adapter is searched at by walkSource —
+ * rows 1…80, the pool quick-261021-fb1 sized. Non-superset adapters get page 1 (`poolPage`). */
+const WALK_SUPERSET_PAGE = 8;
+
 /**
  * One source's attempt: search → gate → resolve. Never throws.
  * On success the hit carries its candidate tier so the race can arbitrate quality,
@@ -327,7 +331,12 @@ export async function walkSource(
 		// a Live/DJ/instrumental variant that the gates reject, marking the source as
 		// failed even though the official studio version is at #2 or #3. Fetch 8 and let
 		// the ranking pick the right ones. Parallel race keeps it fast.
-		result = await searchAll(query, 8, onlySource(src), signal);
+		// quick-261122-wsp: searchAll's 2nd arg is a PAGE, not a count. Page 8 only means "a big
+		// pool" to the limit-multiplying (superset) adapters (rows 1…80); to a true-page adapter it
+		// is rows 141…160 (or [] for audius/ytmusic), so kugou/migu/fivesing/jamendo/audius could
+		// never be a failover hit. poolPage keeps 8 for superset adapters (unchanged pool) and asks
+		// everyone else for page 1 — their actual top results.
+		result = await searchAll(query, poolPage(src, WALK_SUPERSET_PAGE), onlySource(src), signal);
 	} catch {
 		// The search itself never completed (transport failure / abort): this source
 		// never got to consider the song — inconclusive, NOT a rejection.

@@ -164,6 +164,18 @@ export function isAutoResolveEligible(id: SourceId): boolean {
 	return SOURCES[id].autoResolveEligible !== false;
 }
 
+/**
+ * quick-261122-wsp: the `page` to pass `searchAll` when a caller wants a source's TOP-N POOL
+ * rather than "page N of a listing". Only a `pagination: 'superset'` adapter grows its pool with
+ * the page number (limit = page × 10, rows 1…10N), so it gets `supersetPage`; every other adapter
+ * gets page 1 — page N of a true-page adapter is rows 20(N-1)+1…20N (or [] for audius/ytmusic),
+ * which is why walkSource's old hard-coded page 8 meant kugou/migu/fivesing/jamendo/audius could
+ * NEVER be a failover hit. Reads the registry flag, so no consumer names a source.
+ */
+export function poolPage(id: SourceId, supersetPage: number): number {
+	return SOURCES[id]?.pagination === 'superset' ? supersetPage : 1;
+}
+
 /** The player's initial-load retry budget for this source (`SourceAdapter.loadRetries`, default 0).
  *  Reads the registry flag so the player never names a source. */
 export function loadRetriesFor(id: SourceId): number {

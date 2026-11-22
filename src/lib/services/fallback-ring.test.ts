@@ -32,6 +32,8 @@ vi.mock('$lib/sources/registry', () => {
 	return {
 		SOURCES,
 		isAutoResolveEligible: (id: string) => SOURCES[id].autoResolveEligible !== false,
+		// quick-261122-wsp: walkSource now picks its search page via poolPage; the page is irrelevant here.
+		poolPage: () => 1,
 		getEnabledAdapters: vi.fn(() =>
 			['qq', 'joox', 'netease', 'gdnetease', 'kuwo', 'suyin', 'kugou', 'migu', 'ytmusic'].map(
 				(id) => ({ id })

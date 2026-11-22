@@ -80,6 +80,8 @@ async function kuwoJson<T>(path: string, signal: AbortSignal): Promise<T> {
 
 export const kuwo: SourceAdapter = {
 	id: 'kuwo',
+	// quick-261122-wsp: page = limit multiplier (rows 1…10×page) — see SourceAdapter.pagination.
+	pagination: 'superset',
 	health: kuwoHealth,
 	label: '酷我音乐',
 	enabledByDefault: true,
