@@ -335,7 +335,7 @@
 		const uid = track.uid;
 		const lrc = serializeEditorLines(lines);
 		pinLyrics(uid, lrc);
-		clearInputDraft(lyricsDraftKey(uid)); // the draft's ONE deliberate ending (quick-261122-rules)
+		clearInputDraft(lyricsDraftKey(track.uid)); // the draft's ONE deliberate ending (quick-261122-rules)
 		if (!sharing) {
 			toast.show(t('toast.lyricsPinned'));
 			onsaved?.();
