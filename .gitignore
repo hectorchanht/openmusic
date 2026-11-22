@@ -254,3 +254,6 @@ android/app/src/main/assets/capacitor.config.json
 # Dawn internal - never commit planning or internal docs (2026-11-19)
 .planning/
 plans/
+
+# APK device-test rig output (scripts/device-test/apk-cold-play.sh)
+device-test-out/
