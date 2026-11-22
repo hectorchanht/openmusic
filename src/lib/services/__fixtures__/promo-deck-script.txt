@@ -1,0 +1,51 @@
+
+      var LINK = "https://openmusic.lol";
+
+      // {name} 會俾朋友個名取代；冇名嗰陣用各語言嘅通用稱呼。
+      var FULL = [
+        {
+          lang: "廣東話",
+          region: "香港・廣東話朋友",
+          generic: "朋友",
+          text: "{name}，同你分享一樣好嘢 🎵 我最近用緊 OpenMusic，想聽咩歌都有，仲可以下載落自己部機 —— 啲歌真係屬於你㗎。最正係：完全免費，連廣告都冇！你都試下 👉 " + LINK + "\n祝你日日都有好歌聽，身體健康，生活愉快！ — Hector"
+        },
+        {
+          lang: "繁體中文",
+          region: "台灣",
+          generic: "朋友",
+          text: "{name}，跟你分享一個好東西 🎵 我最近在用 OpenMusic，想聽什麼歌都有，還能下載到自己的手機裡 —— 歌真的是屬於你的。最棒的是：完全免費，連廣告都沒有！你也試試看 👉 " + LINK + "\n祝你天天都有好歌聽，身體健康，一切順心！ — Hector"
+        },
+        {
+          lang: "简体中文",
+          region: "中国大陆",
+          generic: "朋友",
+          text: "{name}，跟你分享一个好东西 🎵 我最近在用 OpenMusic，想听什么歌都有，还能下载到自己的手机里 —— 歌真的是属于你的。最棒的是：完全免费，连广告都没有！你也试试看 👉 " + LINK + "\n祝你天天都有好歌听，身体健康，一切顺心！ — Hector"
+        },
+        {
+          lang: "English",
+          region: "Worldwide",
+          generic: "Hi there",
+          text: "{name}, sharing something good with you 🎵 I've been using OpenMusic — any song you can think of, and you can download it onto your own device, so the music is truly yours. The best part: it's completely free, with no ads at all. Give it a try 👉 " + LINK + "\nWishing you great music every day, good health and all the best! — Hector",
+          englishGreeting: true
+        },
+        {
+          lang: "日本語",
+          region: "日本",
+          generic: "こんにちは",
+          text: "{name}、いいものをシェアします 🎵 最近 OpenMusic を使っています。聴きたい曲はなんでもあって、自分のスマホにダウンロードできるから、音楽が本当に自分のものになります。しかも完全無料で、広告もゼロ！よかったら試してみて 👉 " + LINK + "\n毎日いい音楽とともに、健康で素敵な日々を！ — Hector",
+          suffixName: true
+        },
+        {
+          lang: "한국어",
+          region: "한국",
+          generic: "안녕하세요",
+          text: "{name}, 좋은 거 하나 공유해요 🎵 요즘 OpenMusic을 쓰고 있는데, 듣고 싶은 노래는 다 있고 내 기기에 다운로드할 수 있어서 음악이 진짜 내 것이 돼요. 무엇보다 완전 무료에 광고도 없어요! 한번 써봐요 👉 " + LINK + "\n매일 좋은 음악과 함께, 건강하고 행복한 날들 보내세요! — Hector",
+          suffixName: true
+        }
+      ];
+
+      var SHORT = [
+        { lang: "廣東話", text: "推介你 OpenMusic 🎵 咩歌都有、可以下載、完全免費、冇廣告 👉 " + LINK },
+        { lang: "English", text: "Try OpenMusic 🎵 Every song, downloadable, totally free, no ads 👉 " + LINK },
+        { lang: "繁體中文", text: "推薦你 OpenMusic 🎵 什麼歌都有、可以下載、完全免費、沒有廣告 👉 " + LINK }
+      ];

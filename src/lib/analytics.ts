@@ -69,3 +69,19 @@ export function trackDownload(
 ): void {
 	ping('/api/analytics/download', baseFields(track));
 }
+
+/** quick-261122-sharefeed: what the share sheet counts — opens, copies, WhatsApp taps. */
+export type ShareAction = 'open' | 'copy' | 'wa';
+
+/**
+ * Share-sheet count ping (K-factor instrumentation). Anonymous totals only: the
+ * action, the message language and which variant (full / short / link) — never
+ * the sender name, the track, or anything that could identify who shared.
+ */
+export function trackShare(
+	action: ShareAction,
+	lang: string,
+	variant: 'full' | 'short' | 'link' = 'full'
+): void {
+	ping('/api/analytics/share', { action, lang, variant });
+}

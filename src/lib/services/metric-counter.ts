@@ -23,7 +23,16 @@
 
 /** The only actions the counters know. like/unlike stay separate actions so
  *  net likes remain derivable from totals (likes − unlikes), as before. */
-export type MetricAction = 'play' | 'like' | 'unlike' | 'download';
+export type MetricAction =
+	| 'play'
+	| 'like'
+	| 'unlike'
+	| 'download'
+	// quick-261122-sharefeed: the ready-written share sheet's K-factor counters. Their song_id
+	// is a fixed `promo:<lang>:<variant>` bucket — never a person, never a track.
+	| 'share_open'
+	| 'share_copy'
+	| 'share_wa';
 
 /** The counter table's DDL — note what is NOT here: no identifier columns. */
 export const METRIC_COUNTERS_DDL = `CREATE TABLE IF NOT EXISTS metric_counters (

@@ -26,7 +26,9 @@ const SOURCES: Record<string, string> = {
 	'src/lib/analytics.ts': stripComments(read('src/lib/analytics.ts')),
 	'play/+server.ts': stripComments(read('src/routes/api/analytics/play/+server.ts')),
 	'like/+server.ts': stripComments(read('src/routes/api/analytics/like/+server.ts')),
-	'download/+server.ts': stripComments(read('src/routes/api/analytics/download/+server.ts'))
+	'download/+server.ts': stripComments(read('src/routes/api/analytics/download/+server.ts')),
+	// quick-261122-sharefeed: the share-sheet K-factor counters are held to the same doctrine.
+	'share/+server.ts': stripComments(read('src/routes/api/analytics/share/+server.ts'))
 };
 
 // Tokens whose presence in executable code would mean per-user data is being
@@ -57,7 +59,7 @@ describe('analytics doctrine — no per-user tracking can come back silently', (
 	}
 
 	it('all three endpoints write through the single counter path', () => {
-		for (const name of ['play/+server.ts', 'like/+server.ts', 'download/+server.ts']) {
+		for (const name of ['play/+server.ts', 'like/+server.ts', 'download/+server.ts', 'share/+server.ts']) {
 			expect(SOURCES[name], name).toContain("from '$lib/services/metric-counter'");
 			expect(SOURCES[name], name).toContain('bumpMetric(');
 		}

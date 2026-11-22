@@ -11,13 +11,17 @@ import { readFileSync } from 'node:fs';
 // SOURCE with comments stripped.
 
 const read = (p: string) => readFileSync(p, 'utf-8');
+// quick-261122-sharefeed: `//` lines are dropped BEFORE block comments. The other order let a
+// `/*` written inside a `//` line (TrackMenu's "`/api/*` fan-out" note) open a phantom block that
+// ran to the next real `*/` — 900 lines later once a nearby real block comment was removed —
+// silently deleting the very code these assertions look for.
 function stripComments(src: string): string {
 	return src
 		.replace(/<!--[\s\S]*?-->/g, '')
-		.replace(/\/\*[\s\S]*?\*\//g, '')
 		.split('\n')
 		.filter((l) => !/^\s*\/\//.test(l))
-		.join('\n');
+		.join('\n')
+		.replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
 const picker = stripComments(read('src/lib/components/VersionPicker.svelte'));

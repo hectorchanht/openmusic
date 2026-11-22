@@ -45,6 +45,8 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 	import CarMode from '$lib/components/CarMode.svelte';
 	import SleepTimerSheet from '$lib/components/SleepTimerSheet.svelte';
 	import SupporterSheet from '$lib/components/SupporterSheet.svelte';
+	// quick-261122-sharefeed: the ready-written share sheet (track ⋮ menu → Share).
+	import PromoShareSheet from '$lib/components/PromoShareSheet.svelte';
 	import ToastHost from '$lib/components/ToastHost.svelte';
 
 	let { children } = $props();
@@ -597,6 +599,10 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 	<!-- Donor wall (2026-10-14 donor-wall-ui): mounted ONCE, UNGATED — opened from the
 	     album "Download all" gate and the Settings support card via support.sheetOpen. -->
 	<SupporterSheet />
+
+	<!-- quick-261122-sharefeed ("feed it to their mouth"): mounted ONCE, UNGATED — the track ⋮
+	     menu's Share opens it via promoShare.open(track) after the menu closes. -->
+	<PromoShareSheet />
 
 	<!-- Single global toast host (D-15): mounted ONCE here so every page shares it. Pages call
 	     toast.show(msg); this is the only place the message is rendered. -->

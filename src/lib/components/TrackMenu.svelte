@@ -77,6 +77,8 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	import { writeTagsForGesture } from '$lib/services/gesture-tag-sync';
 	import { browser } from '$app/environment';
 	import { songShareUrl, encodePathSegment } from '$lib/services/share';
+	// quick-261122-sharefeed: Share opens the ready-written promo sheet (mounted in the app layout).
+	import { promoShare } from '$lib/stores/promoShare.svelte';
 	// quick-260809-3uo: the share card now carries the cover the user is looking at — read from the
 	// SAME shared reactive cache every other surface reads, plus the retained iTunes id.
 	import { readCoverByUidOrName, readChosenCover } from '$lib/stores/cover-version.svelte';
@@ -1470,18 +1472,13 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		// them is deleted with them. The card resolves server-side through the same resolver
 		// seam the song itself resolves through (see /api/og).
 		const url = songShareUrl({ title: dTitle, artist: dArtist });
-		// User call 2026-10-06: the menu's Share button copies the link straight to the device
-		// clipboard, ready to paste — the native share sheet is gone from this path. (Side
-		// benefit, and why this is strictly better for CJK links: clipboard.writeText takes the
-		// raw string verbatim, so the quick-260808-vkd `text`-not-`url` percent-encoding trap in
-		// the Web Share API never applies here. The shareIncludeTitle setting stays alive for the
-		// album page's share sheet.)
-		try {
-			await navigator.clipboard.writeText(url);
-			toast.show(t('toast.shareCopied'));
-		} catch {
-			/* clipboard unavailable (permissions / insecure context) — nothing was copied */
-		}
+		// quick-261122-sharefeed (GOLD RULE "feed it to their mouth", Hector 2026-11-21): Share now
+		// opens the ready-written share sheet — the canon promo message in the user's language,
+		// signed with their saved name, led by THIS song (title/artist/link computed above), one
+		// tap to copy or WhatsApp. The 2026-10-06 plain copy-link is kept as the sheet's
+		// "Copy link only" button (still clipboard.writeText of the raw string, so the
+		// quick-260808-vkd Web Share percent-encoding trap still never applies).
+		promoShare.open({ title: dTitle, artist: dArtist, url });
 	}
 	// Gated run callback (D-02): the gate already resolved the track, so just open the detail sheet
 	// with the resolved object (audioUrl/quality rows populated). The menu stays open behind the
