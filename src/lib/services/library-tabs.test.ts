@@ -15,25 +15,27 @@ import {
 // function over (URL, href): no DOM, no runes, no $app.
 const u = (href: string) => new URL(href);
 
-/** The six rail hrefs, in rail order (quick-260927-2cy added radio, last). */
+/** The seven rail hrefs, in rail order (quick-260927-2cy added radio; quick-261122-books added books, last). */
 const TABBED = [
 	'/library?tab=liked',
 	'/library?tab=playlists',
 	'/library?tab=downloads',
 	'/library?tab=fav-artists',
 	'/library?tab=history',
-	'/library?tab=radio'
+	'/library?tab=radio',
+	'/library?tab=books'
 ];
 
 describe('the shared allowlist + default', () => {
-	it('lists the six library tabs', () => {
+	it('lists the seven library tabs', () => {
 		expect([...LIBRARY_TAB_SET]).toEqual([
 			'liked',
 			'playlists',
 			'downloads',
 			'fav-artists',
 			'history',
-			'radio'
+			'radio',
+			'books'
 		] satisfies LibraryTab[]);
 	});
 
@@ -96,12 +98,26 @@ describe('navActive — a tabbed href also compares ?tab= through pickTab', () =
 		expect(navActive(u('https://x/library?tab=radio'), '/library?tab=history')).toBe(false);
 	});
 
-	it('lights EXACTLY ONE of the six rail entries for any library URL', () => {
+	it('lights books only on ?tab=books, never Radio or History (quick-261122-books)', () => {
+		expect(navActive(u('https://x/library?tab=books'), '/library?tab=books')).toBe(true);
+		expect(navActive(u('https://x/library?tab=books'), '/library?tab=radio')).toBe(false);
+		expect(navActive(u('https://x/library?tab=books'), '/library?tab=history')).toBe(false);
+		// the mobile tab-less Library entry still lights on it
+		expect(navActive(u('https://x/library?tab=books'), '/library')).toBe(true);
+	});
+
+	it('a garbage ?tab= never lights books (falls back to Liked)', () => {
+		expect(navActive(u('https://x/library?tab=book'), '/library?tab=books')).toBe(false);
+		expect(navActive(u('https://x/library?tab=book'), '/library?tab=liked')).toBe(true);
+	});
+
+	it('lights EXACTLY ONE of the seven rail entries for any library URL', () => {
 		for (const href of [
 			'https://x/library',
 			'https://x/library?tab=liked',
 			'https://x/library?tab=history',
 			'https://x/library?tab=radio',
+			'https://x/library?tab=books',
 			'https://x/library?tab=zzz'
 		]) {
 			const lit = TABBED.filter((t) => navActive(u(href), t));
@@ -160,7 +176,8 @@ describe('LIBRARY_TAB_ORDER + nextLibraryTab (quick-261116-libcycle)', () => {
 			'downloads',
 			'fav-artists',
 			'history',
-			'radio'
+			'radio',
+			'books'
 		] satisfies LibraryTab[]);
 		expect(new Set(LIBRARY_TAB_ORDER)).toEqual(LIBRARY_TAB_SET);
 	});
@@ -171,15 +188,16 @@ describe('LIBRARY_TAB_ORDER + nextLibraryTab (quick-261116-libcycle)', () => {
 		expect(nextLibraryTab('downloads')).toBe('fav-artists');
 		expect(nextLibraryTab('fav-artists')).toBe('history');
 		expect(nextLibraryTab('history')).toBe('radio');
+		expect(nextLibraryTab('radio')).toBe('books');
 	});
 
-	it('wraps from the last tab back to the first', () => {
-		expect(nextLibraryTab('radio')).toBe('liked');
+	it('wraps from the last tab (books) back to the first', () => {
+		expect(nextLibraryTab('books')).toBe('liked');
 	});
 
-	it('a full cycle of six steps returns to the start', () => {
+	it('a full cycle of seven steps returns to the start', () => {
 		let t: LibraryTab = 'downloads';
-		for (let i = 0; i < 6; i++) t = nextLibraryTab(t);
+		for (let i = 0; i < 7; i++) t = nextLibraryTab(t);
 		expect(t).toBe('downloads');
 	});
 });

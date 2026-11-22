@@ -3,7 +3,7 @@
 	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
 	import { page } from '$app/state';
 	import { goto, afterNavigate, preloadCode } from '$app/navigation';
-	import { House, Search, Library, Settings, Heart, ListMusic, Download, Users, Clock, Radio } from '@lucide/svelte';
+	import { House, Search, Library, Settings, Heart, ListMusic, Download, Users, Clock, Radio, BookHeadphones } from '@lucide/svelte';
 	import { player, SKIP_REASON_KEY } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -521,6 +521,8 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 		{ href: '/library?tab=fav-artists', labelKey: 'library.favArtists', icon: Users, desktopOnly: true },
 		{ href: '/library?tab=history', labelKey: 'history.heading', icon: Clock, desktopOnly: true },
 		{ href: '/library?tab=radio', labelKey: 'settings.homeSectionRadio', icon: Radio, desktopOnly: true },
+		// quick-261122-books: the seventh library tab, last — same navActive/LIBRARY_TAB_SET rule.
+		{ href: '/library?tab=books', labelKey: 'library.books', icon: BookHeadphones, desktopOnly: true },
 		{ href: '/settings', labelKey: 'home.settings', icon: Settings, desktopOnly: true }
 	];
 

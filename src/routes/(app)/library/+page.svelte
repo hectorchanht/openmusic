@@ -4,7 +4,7 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { Heart, ListMusic, Download, Trash2, Play, Clock, Pencil, Check, Users, ListEnd, ListStart, Shuffle, Ellipsis, X, Radio, CircleAlert, Sparkles } from '@lucide/svelte';
+	import { Heart, ListMusic, Download, Trash2, Play, Clock, Pencil, Check, Users, ListEnd, ListStart, Shuffle, Ellipsis, X, Radio, CircleAlert, Sparkles, BookHeadphones } from '@lucide/svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { history } from '$lib/stores/history.svelte';
 	import { player } from '$lib/stores/player.svelte';
@@ -29,6 +29,7 @@
 	import SwipeReveal from '$lib/components/SwipeReveal.svelte';
 	import TrackMenu from '$lib/components/TrackMenu.svelte';
 	import RadioList from '$lib/components/RadioList.svelte';
+	import BooksList from '$lib/components/BooksList.svelte';
 	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
 	// User 2026-10-06 (audit): replace native confirm() with in-app ConfirmModal.
 	import SettingsGear from '$lib/components/SettingsGear.svelte';
@@ -205,6 +206,7 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 			: tab === 'downloads' ? t('library.downloads')
 			: tab === 'fav-artists' ? t('library.favArtists')
 			: tab === 'radio' ? t('settings.homeSectionRadio')
+			: tab === 'books' ? t('library.books')
 			: t('history.heading')
 	);
 
@@ -508,7 +510,7 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 	<SettingsGear />
 </header>
 
-<!-- kyf-followup: icon-only pills (text moved to the header sub-label) so all 6 tabs
+<!-- kyf-followup: icon-only pills (text moved to the header sub-label) so all 7 tabs (quick-261122-books)
      fit in a single row at any reasonable viewport width. aria-label preserves the
      accessible name for screen readers + tooltips. -->
 <nav class="tabs">
@@ -518,6 +520,8 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 	<button class:active={tab === 'fav-artists'} aria-pressed={tab === 'fav-artists'} aria-current={tab === 'fav-artists' ? 'page' : undefined} aria-label={t('library.favArtists')} title={t('library.favArtists')} onclick={() => setTab('fav-artists')} use:tapBounce><Users size={16} /></button>
 	<button class:active={tab === 'history'} aria-pressed={tab === 'history'} aria-current={tab === 'history' ? 'page' : undefined} aria-label={t('history.heading')} title={t('history.heading')} onclick={() => setTab('history')} use:tapBounce><Clock size={16} /></button>
 	<button class:active={tab === 'radio'} aria-pressed={tab === 'radio'} aria-current={tab === 'radio' ? 'page' : undefined} aria-label={t('settings.homeSectionRadio')} title={t('settings.homeSectionRadio')} onclick={() => setTab('radio')} use:tapBounce><Radio size={16} /></button>
+	<!-- quick-261122-books: the seventh pill — Books (廣播劇 / 有聲書 / 說書), last after radio. -->
+	<button class:active={tab === 'books'} aria-pressed={tab === 'books'} aria-current={tab === 'books' ? 'page' : undefined} aria-label={t('library.books')} title={t('library.books')} onclick={() => setTab('books')} use:tapBounce><BookHeadphones size={16} /></button>
 </nav>
 
 <!-- quick-260915-vb9: per-tab action row. Every button is conditional — a tab with nothing to
@@ -671,6 +675,11 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 {:else if tab === 'radio'}
 	<!-- quick-260927-2cy: this branch MUST sit before the final else — that else IS History. -->
 	<RadioList onrequestmenu={openMenu} />
+{:else if tab === 'books'}
+	<!-- quick-261122-books: like radio, this branch MUST sit before the final else (History).
+	     tabList stays [] here — the series view owns its own Play / Play-from-here (chapter
+	     order, sameList), so the generic Play-all / Shuffle row never shuffles a book. -->
+	<BooksList onrequestmenu={openMenu} />
 {:else}
 	{#if history.entries.length}
 		<ul class="list">

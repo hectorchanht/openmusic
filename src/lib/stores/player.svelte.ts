@@ -138,6 +138,7 @@ import { sleepTimer } from '$lib/stores/sleepTimer.svelte';
 import { isExpired, fadeVolumeAt, canFadeVolume, decideEndedAction } from '$lib/services/sleep-timer';
 import type { QueueContext } from '$lib/config/defaults';
 import { history } from '$lib/stores/history.svelte';
+import { books } from '$lib/stores/books.svelte';
 import { library } from '$lib/stores/library.svelte';
 import { names } from '$lib/stores/names.svelte';
 // quick-260630-sgw: verbose action log. logAction is a tiny never-throw fn (the store imports the
@@ -4813,7 +4814,12 @@ class Player {
 		// resolution later errors. history imports nothing back (no circular dep).
 		// Fallback continuations DO NOT re-record — history reflects user intent, not the
 		// resolved source we ended up playing.
-		if (!opts?.fromFallback) history.record(track);
+		if (!opts?.fromFallback) {
+			history.record(track);
+			// quick-261122-books: the Books tab's per-series resume point rides the SAME seam
+			// (no parallel history system) — a no-op for anything that isn't a book chapter.
+			books.record(track, history.entries);
+		}
 		// D-05: auto-expand fires ONLY on explicit fresh user plays — never on auto-advance,
 		// failover skip, or queue progression (those call play() without opts.fresh). Fixes the
 		// track-change auto-expand bug where the nowbar jumped open on every advance.

@@ -10,10 +10,14 @@
 // lit-state, the pill row, the stored-tab restore and the T-23-10 `?tab=` sanitising all cover it
 // unchanged. It sits LAST, after 'history', because the radio draw is seeded from history.
 //
+// quick-261122-books: 'books' (廣播劇 / 有聲書 / 說書 — resume + discover long-form listening) is the
+// seventh, LAST after radio, by the same precedent: a library tab, not a new bottom-bar
+// destination (the mobile bar stays Home / Search / Library).
+//
 // PURE .ts: no runes, no `$app/*`, no DOM. Total functions over a URL, node-testable.
 import { pickTab } from './url-tab';
 
-export type LibraryTab = 'liked' | 'playlists' | 'downloads' | 'fav-artists' | 'history' | 'radio';
+export type LibraryTab = 'liked' | 'playlists' | 'downloads' | 'fav-artists' | 'history' | 'radio' | 'books';
 
 /**
  * The tabs in DISPLAYED order — the library page's pill row, the desktop rail, and
@@ -26,7 +30,8 @@ export const LIBRARY_TAB_ORDER: readonly LibraryTab[] = [
 	'downloads',
 	'fav-artists',
 	'history',
-	'radio'
+	'radio',
+	'books'
 ];
 
 /** Rail order == the page's pill-row order (== LIBRARY_TAB_ORDER). */
@@ -34,7 +39,7 @@ export const LIBRARY_TAB_SET: ReadonlySet<LibraryTab> = new Set<LibraryTab>(LIBR
 
 /**
  * quick-261116-libcycle — the tab AFTER `current` in displayed order, wrapping from the
- * last ('radio') back to the first ('liked'). An out-of-order value (unreachable through
+ * last ('books') back to the first ('liked'). An out-of-order value (unreachable through
  * the LibraryTab type, but the function is total) restarts at the first tab.
  */
 export function nextLibraryTab(current: LibraryTab): LibraryTab {
