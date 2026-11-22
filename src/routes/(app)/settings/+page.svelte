@@ -3,13 +3,14 @@
 	import { goto } from '$app/navigation';
 	// quick-260919-ebi: ChevronRight + tapBounce now live inside SettingRow; Radio stays only for
 	// the commented-out Last.fm row below.
-	import { Globe, Type, LayoutGrid, Languages, Music, Radio, HardDriveDownload, Database, ScrollText, Info, Heart, ChevronRight, CircleUserRound, Share2, RotateCcw, Sun, Palette, Zap, Paintbrush, Smartphone, Car } from '@lucide/svelte';
+	import { Globe, Type, LayoutGrid, Languages, Music, Radio, HardDriveDownload, Database, ScrollText, Info, Heart, ChevronRight, CircleUserRound, Share2, RotateCcw, Sun, Palette, Zap, Paintbrush, Smartphone, Car, Mic, Volume2 } from '@lucide/svelte';
 	import { settings, ACCENT_PRESETS, SUPPORTER_THEMES, FONT_SCALE_MIN, FONT_SCALE_MAX, type Theme } from '$lib/stores/settings.svelte';
 	import { support } from '$lib/stores/support.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingRow from '$lib/components/SettingRow.svelte';
 	import SettingToggle from '$lib/components/SettingToggle.svelte';
 	import SettingPicker from '$lib/components/SettingPicker.svelte';
+	import type { VoiceLangSetting } from '$lib/services/voice-intent';
 	import SettingHint from '$lib/components/SettingHint.svelte';
 	import ConfirmModal from '$lib/components/ConfirmModal.svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -109,6 +110,10 @@
 	function toggleHaptics() { settings.haptics = !settings.haptics; settings.save(); }
 	// quick-261116-carmode: show/hide the home page's Car Mode entry button (default hidden, Q5).
 	function toggleCarModeButton() { settings.showCarModeButton = !settings.showCarModeButton; settings.save(); }
+	// quick-261122-voice: the AI voice button + its spoken language + read-aloud.
+	function toggleVoiceButton() { settings.showVoiceButton = !settings.showVoiceButton; settings.save(); }
+	function toggleVoiceReadAloud() { settings.voiceReadAloud = !settings.voiceReadAloud; settings.save(); }
+	function setVoiceLang(v: VoiceLangSetting) { settings.voiceLang = v; settings.save(); }
 	// Commits LIVE (quick-261024-sets): save() → applyTheme() re-renders this page at the size
 	// being dragged, so the page is the preview.
 	function setAppTextSize(e: Event) { settings.fontScaleApp = Number((e.currentTarget as HTMLInputElement).value); settings.save(); }
@@ -216,6 +221,25 @@
 		<SettingToggle icon={Share2} label={t('settings.shareIncludeTitle')} checked={settings.shareIncludeTitle} onchange={toggleShareTitle} hint={t('settings.shareIncludeTitleDesc')} />
 		<SettingToggle icon={Smartphone} label={t('settings.haptics')} checked={settings.haptics} onchange={toggleHaptics} hint={t('settings.hapticsDesc')} />
 		<SettingToggle icon={Car} label={t('settings.carModeButton')} checked={settings.showCarModeButton} onchange={toggleCarModeButton} hint={t('settings.carModeButtonDesc')} />
+		<SettingToggle icon={Mic} label={t('settings.voiceButton')} checked={settings.showVoiceButton} onchange={toggleVoiceButton} hint={t('settings.voiceButtonDesc')} />
+		<SettingToggle icon={Volume2} label={t('settings.voiceReadAloud')} checked={settings.voiceReadAloud} onchange={toggleVoiceReadAloud} hint={t('settings.voiceReadAloudDesc')} />
+	</div>
+
+	<!-- quick-261122-voice: the SPOKEN language for the voice button (native names on purpose —
+	     a Cantonese speaker reading an English UI must still recognise 廣東話). -->
+	<div class="block">
+		<h3><Mic size={15} /> {t('settings.voiceLang')}</h3>
+		<SettingPicker
+			label={t('settings.voiceLang')}
+			value={settings.voiceLang}
+			onpick={setVoiceLang}
+			options={[
+				{ v: 'auto' as VoiceLangSetting, label: t('settings.voiceLangAuto') },
+				{ v: 'yue' as VoiceLangSetting, label: '廣東話' },
+				{ v: 'cmn' as VoiceLangSetting, label: '普通話' },
+				{ v: 'en' as VoiceLangSetting, label: 'English' }
+			]}
+		/>
 	</div>
 </section>
 

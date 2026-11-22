@@ -125,6 +125,44 @@ describe('settings persistence round-trip — showCarModeButton (quick-261116-ca
 	});
 });
 
+// quick-261122-voice: the AI voice button prefs — showVoiceButton (default ON), voiceLang
+// (allowlisted union, default 'auto'), voiceReadAloud (default ON).
+describe('settings persistence round-trip — voice button (quick-261122-voice)', () => {
+	beforeEach(() => memStore.clear());
+
+	it('defaults: button ON, lang auto, read-aloud ON', async () => {
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.showVoiceButton).toBe(true);
+		expect(settings.voiceLang).toBe('auto');
+		expect(settings.voiceReadAloud).toBe(true);
+	});
+
+	it('persisted values win; corrupt values fall back', async () => {
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', showVoiceButton: false, voiceLang: 'yue', voiceReadAloud: 'no' }));
+		const settings = await freshSettings();
+		settings.load();
+		expect(settings.showVoiceButton).toBe(false);
+		expect(settings.voiceLang).toBe('yue');
+		expect(settings.voiceReadAloud).toBe(true);
+		memStore.set(KEY, JSON.stringify({ appLang: 'en', voiceLang: 'klingon' }));
+		const s2 = await freshSettings();
+		s2.load();
+		expect(s2.voiceLang).toBe('auto');
+	});
+
+	it('save() writes and resetGeneral() reverts', async () => {
+		const settings = await freshSettings();
+		settings.showVoiceButton = false;
+		settings.voiceLang = 'cmn';
+		settings.save();
+		expect(JSON.parse(localStorage.getItem(KEY) as string)).toMatchObject({ showVoiceButton: false, voiceLang: 'cmn' });
+		settings.resetGeneral();
+		expect(settings.showVoiceButton).toBe(true);
+		expect(settings.voiceLang).toBe('auto');
+	});
+});
+
 // quick-261102-srcpill: the Now-Playing source pill's toggle. Default is TRUE (Hector
 // asked for the pill; hiding it is the opt-out) — the exact inverse of shareIncludeTitle's
 // default, which is why every case below asserts the TRUE resting value explicitly.

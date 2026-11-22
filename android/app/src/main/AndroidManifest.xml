@@ -104,6 +104,14 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- quick-261122-voice: the AI voice button. The Android WebView has no Web Speech API, so the
+         app records a short clip (getUserMedia + MediaRecorder) for Whisper on the edge. Capacitor's
+         BridgeWebChromeClient turns the WebView's mic PermissionRequest into the runtime
+         RECORD_AUDIO prompt — but only for a permission declared here. MODIFY_AUDIO_SETTINGS is
+         what WebRTC-style capture (echo cancellation / noise suppression) asks for. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
     <!-- D-04 background audio (Plan 999.1-04): a mediaPlayback foreground service keeps the
          backgrounded WebView audio alive past screen-off and renders the system media notification
          + lock-screen transport. The @jofr/capacitor-media-session plugin merges in its own

@@ -44,6 +44,10 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 	import { carMode } from '$lib/stores/car-mode.svelte';
 	import CarMode from '$lib/components/CarMode.svelte';
 	import SleepTimerSheet from '$lib/components/SleepTimerSheet.svelte';
+	// quick-261122-voice: the AI voice button (floating) + its sheet.
+	import VoiceButton from '$lib/components/VoiceButton.svelte';
+	import VoiceSheet from '$lib/components/VoiceSheet.svelte';
+	import { voice } from '$lib/stores/voice.svelte';
 	import SupporterSheet from '$lib/components/SupporterSheet.svelte';
 	// quick-261122-sharefeed: the ready-written share sheet (track ⋮ menu → Share).
 	import PromoShareSheet from '$lib/components/PromoShareSheet.svelte';
@@ -595,6 +599,14 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 	<!-- Sleep-timer sheet: mounted ONCE, UNGATED — reachable from the nowbar (collapsed) AND the
 	     expanded now-playing. Driven by the shared sleepTimer.sheetOpen flag (TIMER-01). -->
 	<SleepTimerSheet />
+
+	<!-- quick-261122-voice: the AI voice button floats above the now-bar on every tab (default
+	     ON — the elderly design target must find it untaught). Hidden under NowPlaying, Car Mode
+	     and while its own sheet is open; the sheet is mounted once, driven by voice.open. -->
+	{#if settings.showVoiceButton && !player.expanded && !carMode.active && !voice.open}
+		<VoiceButton />
+	{/if}
+	<VoiceSheet />
 
 	<!-- Donor wall (2026-10-14 donor-wall-ui): mounted ONCE, UNGATED — opened from the
 	     album "Download all" gate and the Settings support card via support.sheetOpen. -->

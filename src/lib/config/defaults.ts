@@ -1,3 +1,4 @@
+import type { VoiceLangSetting } from '$lib/services/voice-intent';
 // Central settings defaults (quick-260607-k3y). Edit this file to change what new users
 // see + what reset-to-default reverts to. The Settings class in stores/settings.svelte.ts
 // reads from these consts on class-field init AND on the reset-group methods.
@@ -47,6 +48,16 @@ export const GENERAL_DEFAULTS = {
 	 *  toggle lives in General because it gates a home-shell affordance, like haptics
 	 *  gates a shell-wide behaviour. */
 	showCarModeButton: false,
+	/** quick-261122-voice: the floating AI voice button (speak a request → action card → OK).
+	 *  Default ON — the design target (a 90-year-old who cannot type) must find it untaught,
+	 *  so it cannot hide behind an opt-in. Settings → General turns it off. */
+	showVoiceButton: true,
+	/** quick-261122-voice: the SPOKEN language for the voice button — 'auto' resolves from the
+	 *  device/UI locale (resolveVoiceLang: HK/MO + zh-Hant → Cantonese). */
+	voiceLang: 'auto' as VoiceLangSetting,
+	/** quick-261122-voice: read the action card aloud (speechSynthesis) — for users who cannot
+	 *  read small text. Default ON. */
+	voiceReadAloud: true,
 	/** Light/dark theme — default 'dark' (today's design). 'light' flips data-theme on <html>
 	 *  to surface the `[data-theme='light']` token overrides in app.css. */
 	theme: 'dark' as Theme

@@ -39,6 +39,7 @@ import { MENU_ACTIONS, normalizeMenuOrder, type MenuActionId } from '$lib/servic
 // quick-261116-perf: the haptics leaf util's enable seam — the store pushes the toggle
 // into the util (load/apply/reset), never the reverse, so both stay leaf-shaped.
 import { setHapticsEnabled } from '$lib/util/haptics';
+import { VOICE_LANGS, type VoiceLangSetting } from '$lib/services/voice-intent';
 
 export type LyricsLang =
 	| 'off'
@@ -279,6 +280,12 @@ class Settings {
 	/** quick-261116-carmode: show the Car Mode entry button on the home page. Default
 	 *  OFF (Q5) — the button renders only when this is on. */
 	showCarModeButton = $state<boolean>(GENERAL_DEFAULTS.showCarModeButton);
+	/** quick-261122-voice: floating AI voice button visibility (default ON). */
+	showVoiceButton = $state<boolean>(GENERAL_DEFAULTS.showVoiceButton);
+	/** quick-261122-voice: spoken language for the voice button ('auto' | yue | cmn | en). */
+	voiceLang = $state<VoiceLangSetting>(GENERAL_DEFAULTS.voiceLang);
+	/** quick-261122-voice: read the voice action card aloud (default ON). */
+	voiceReadAloud = $state<boolean>(GENERAL_DEFAULTS.voiceReadAloud);
 	/** Light/dark theme. Default 'dark' (today's design). applyTheme() flips
 	 *  the `data-theme` attribute on <html>. */
 	theme = $state<Theme>(GENERAL_DEFAULTS.theme);
@@ -512,6 +519,14 @@ class Settings {
 				// quick-261116-carmode: same explicit-boolean guard as haptics.
 				this.showCarModeButton =
 					typeof v.showCarModeButton === 'boolean' ? v.showCarModeButton : GENERAL_DEFAULTS.showCarModeButton;
+				// quick-261122-voice: explicit-boolean / allowlist guards, same posture as above.
+				this.showVoiceButton =
+					typeof v.showVoiceButton === 'boolean' ? v.showVoiceButton : GENERAL_DEFAULTS.showVoiceButton;
+				this.voiceLang = (['auto', ...VOICE_LANGS] as readonly unknown[]).includes(v.voiceLang)
+					? (v.voiceLang as VoiceLangSetting)
+					: GENERAL_DEFAULTS.voiceLang;
+				this.voiceReadAloud =
+					typeof v.voiceReadAloud === 'boolean' ? v.voiceReadAloud : GENERAL_DEFAULTS.voiceReadAloud;
 				// Theme is validated against the 4-value union; anything else → the default.
 				// quick-261023-perks: a stored supporter theme without supporter status
 				// demotes to dark (status is per-device localStorage — never trust it blind).
@@ -710,6 +725,9 @@ class Settings {
 					shareIncludeTitle: this.shareIncludeTitle,
 					haptics: this.haptics,
 					showCarModeButton: this.showCarModeButton,
+					showVoiceButton: this.showVoiceButton,
+					voiceLang: this.voiceLang,
+					voiceReadAloud: this.voiceReadAloud,
 					theme: this.theme,
 					autoExpandOnPlay: this.autoExpandOnPlay,
 					showQualityTag: this.showQualityTag,
@@ -838,6 +856,10 @@ class Settings {
 		setHapticsEnabled(this.haptics);
 		// quick-261116-carmode: the Car Mode button visibility rides the General reset too.
 		this.showCarModeButton = d.showCarModeButton;
+		// quick-261122-voice: the voice button prefs ride the General reset too.
+		this.showVoiceButton = d.showVoiceButton;
+		this.voiceLang = d.voiceLang;
+		this.voiceReadAloud = d.voiceReadAloud;
 		this.resetLook();
 	}
 
