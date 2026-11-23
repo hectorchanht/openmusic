@@ -4,8 +4,21 @@
 // Related, so its tests live beside it. No localStorage stub needed — the module is cache-free
 // (the caller passes the cache read IN; see row-cover.ts).
 import { describe, it, expect, beforeEach } from 'vitest';
-import { pickRowCover } from '$lib/services/row-cover';
+import { pickRowCover, queueRowCover } from '$lib/services/row-cover';
 import { markCoverUrlDead, __resetDeadCoverUrls } from '$lib/services/dead-cover-urls';
+
+describe('queueRowCover — the hero mirror (quick-261122-npfix)', () => {
+	it('the CURRENT row shows the hero url verbatim, never its own ladder', () => {
+		expect(queueRowCover(true, 'https://hero.example/a.jpg', 'https://row.example/b.jpg')).toBe('https://hero.example/a.jpg');
+	});
+	it('the current row follows the hero to a gradient (null) rather than diverging', () => {
+		expect(queueRowCover(true, null, 'https://row.example/b.jpg')).toBeNull();
+		expect(queueRowCover(true, '', 'https://row.example/b.jpg')).toBeNull();
+	});
+	it('every other row keeps its own pickRowCover result', () => {
+		expect(queueRowCover(false, 'https://hero.example/a.jpg', 'https://row.example/b.jpg')).toBe('https://row.example/b.jpg');
+	});
+});
 
 // 5-arg order: (pinned, explicit, resolved, seeded, cached).
 describe('pickRowCover', () => {
@@ -75,6 +88,23 @@ describe('pickRowCover', () => {
 			markCoverUrlDead('https://dead.example/album.jpg');
 			expect(pickRowCover(null, 'https://dead.example/album.jpg', null, 'https://s', 'https://c')).toBe(
 				'https://dead.example/album.jpg'
+			);
+		});
+
+		// quick-261122-npfix: the dead-skip covers EVERY auto rung, not just seeded. A stalled
+		// kuwo url that landed in the shared cache used to win rung 2 forever — the row painted a
+		// pending/broken tile while a live seeded or resolved cover sat one rung lower.
+		it('skips a dead CACHED url so the live seeded cover shows through', () => {
+			markCoverUrlDead('https://img2.kuwo.cn/star/albumcover/500/x.jpg');
+			expect(pickRowCover(null, null, null, 'https://live.example/seed.jpg', 'https://img2.kuwo.cn/star/albumcover/500/x.jpg')).toBe(
+				'https://live.example/seed.jpg'
+			);
+		});
+
+		it('skips a dead RESOLVED url so the live seeded cover shows through', () => {
+			markCoverUrlDead('https://dead.example/resolved.jpg');
+			expect(pickRowCover(null, null, 'https://dead.example/resolved.jpg', 'https://live.example/seed.jpg', null)).toBe(
+				'https://live.example/seed.jpg'
 			);
 		});
 

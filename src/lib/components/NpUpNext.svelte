@@ -9,11 +9,12 @@
 	import { t } from '$lib/i18n';
 	import { longpress } from '$lib/actions/longpress';
 	import { swipeAction } from '$lib/actions/swipeAction';
-	import { readCoverByUidOrName, readChosenCover, bumpCoverVersion } from '$lib/stores/cover-version.svelte';
+	import { readCoverByUidOrName, readChosenCover, bumpCoverVersion, removeCoverBoth } from '$lib/stores/cover-version.svelte';
+	import { markCoverUrlDead } from '$lib/services/dead-cover-urls';
 	import { backfillCovers } from '$lib/services/cover-backfill';
 	import { upNextCoverNeeds, UPNEXT_COVER_MAX } from '$lib/services/upnext-covers';
 	import { upNextScrollKey } from '$lib/services/upnext-scroll';
-	import { pickRowCover } from '$lib/services/row-cover';
+	import { pickRowCover, queueRowCover } from '$lib/services/row-cover';
 	import { sizedCover, ROW_COVER_PX } from '$lib/services/cover-size';
 	import { coverGradient } from '$lib/services/cover-gradient';
 	import { tick as hapticTick } from '$lib/util/haptics';
@@ -95,8 +96,13 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	// PIZ GUARD (quick-260910-piz): `upNextCoverNeeds` skips any row with an https `track.cover`, so
 	// an album-installed queue is never even submitted; `backfillCovers` writes the cover cache layers
 	// only and never touches `track.cover` / `attachedCover`.
+	// quick-261122-npfix: bumped by onRowCoverFail so a row whose cover just died is re-submitted to
+	// the ONE capped backfill (upNextCoverNeeds re-admits a dead track.cover; an evicted cache entry
+	// no longer short-circuits backfillCovers). Read here only — never inside the template.
+	let healTick = $state(0);
 	$effect(() => {
 		if (!open) return;
+		void healTick;
 		const needs = upNextCoverNeeds(rows);
 		if (!needs.length) return;
 		const ac = new AbortController();
@@ -111,6 +117,36 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		// pool is ever live per pane. backfillCovers treats abort != miss, so nothing is poisoned.
 		return () => ac.abort();
 	});
+
+	// quick-261122-npfix — the queue rows' HEAL. A row cover that errors OR stalls (CoverArt's
+	// coverStall watchdog — kuwo's CDN hangs ~1 request in 8) used to fail silently: no onerror was
+	// wired here, so the url was never marked dead, pickRowCover kept choosing it, and the row sat
+	// on a gradient for the rest of the session. Now:
+	//   • the CURRENT row defers to the hero's own healCover (probe → evict → re-resolve) — the
+	//     row mirrors displayCover, so it repaints the moment the hero heals;
+	//   • any other row marks the url dead (every auto rung of pickRowCover now skips it), evicts
+	//     it from the shared cache when that is where it came from, and nudges the backfill ONCE
+	//     per uid+url (no re-probe loop — the same contract as healCover's healProbed set).
+	const rowHealed = new Set<string>();
+	function onRowCoverFail(track: Track, url: string | null) {
+		if (!url) return;
+		markCoverUrlDead(url);
+		if (track.uid === player.current?.uid) {
+			void player.healCover(track.uid);
+			bumpCoverVersion();
+			return;
+		}
+		const key = `${track.uid}|${url}`;
+		if (rowHealed.has(key)) {
+			bumpCoverVersion();
+			return;
+		}
+		rowHealed.add(key);
+		const cached = readCoverByUidOrName(track.uid, track.artist, track.title);
+		if (cached && sizedCover(cached, ROW_COVER_PX) === url) removeCoverBoth(track.uid, track.artist, track.title);
+		else bumpCoverVersion();
+		healTick++;
+	}
 
 	// quick-260910-nx6: the split-by-direction swipe on the UP-NEXT list (right = open the version
 	// picker, left = remove). swipeAction is a PURE DOM gesture — the host fires haptics on commit
@@ -242,7 +278,9 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 			     quick-260910-qwt: now the SHARED pickRowCover — the identical read every other row
 			     surface uses (resolved → track.cover → shared cache). Behaviour is unchanged here.
 			     Phase 40 D-14: rung 0 is readChosenCover — the pin, then the crowd pick. -->
-			{@const qArt = sizedCover(pickRowCover(readChosenCover(track.uid, track.artist, track.title), undefined, resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title)), ROW_COVER_PX)}
+			<!-- quick-261122-npfix: the CURRENT row mirrors the hero (queueRowCover) — same url,
+			     verbatim, so hero cover == current row cover by construction. -->
+			{@const qArt = queueRowCover(track.uid === player.current?.uid, player.displayCover, sizedCover(pickRowCover(readChosenCover(track.uid, track.artist, track.title), undefined, resolvedCovers[track.uid], track.cover, readCoverByUidOrName(track.uid, track.artist, track.title)), ROW_COVER_PX))}
 			<li
 				class:lifted={i === dragFrom}
 				class:over={i === dragOver && i !== dragFrom}
@@ -292,7 +330,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 					     cover-hero-mediacard-missing. `track.cover` stays AHEAD of the cache so a quick-260910-piz
 					     attached album cover always wins over a per-track image. -->
 					<span class="q-art" style:background-image={coverGradient(track.uid)}>
-						<CoverArt src={qArt} />
+						<CoverArt src={qArt} onerror={() => onRowCoverFail(track, qArt)} />
 					</span>
 					<span class="q-text">
 						<!-- quick-260926-l69: glyph stays aria-hidden; the reason text is read by screen readers. -->

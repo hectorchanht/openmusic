@@ -69,10 +69,31 @@ export function pickRowCover(
 	if (explicit) return explicit;
 	// quick-261020-latest: the shared cache (name-first) outranks this row's older one-shot result —
 	// a newer cover written anywhere wins everywhere.
-	if (cached) return cached;
-	if (resolved) return resolved;
+	// quick-261122-npfix: the dead-skip now guards EVERY auto rung (cached, resolved, seeded) — a
+	// stalled CN-CDN url that reached the shared cache otherwise won rung 2 forever and painted a
+	// broken tile over a live cover one rung down. Pin + explicit stay unskipped (user / host choice).
+	if (cached && !isCoverUrlDead(cached)) return cached;
+	if (resolved && !isCoverUrlDead(resolved)) return resolved;
 	// quick-261020-dcvr: a seeded URL proven dead by an Image() probe must not shadow the live
 	// cache — skip it so the gradient (or nothing) shows instead of a broken tile.
 	if (seeded && !isCoverUrlDead(seeded)) return seeded;
 	return null;
+}
+
+/**
+ * quick-261122-npfix — THE MIRROR (Hector 2026-11-22, "hero cover == current row cover"). The
+ * current song's queue row is a mirror of the hero, not a second read: it renders the hero's
+ * `player.displayCover` URL verbatim (unsized — the hero already fetched it, so the row is a free
+ * cache hit and the two can never show different art). Every OTHER row keeps the pickRowCover
+ * ladder, sized for a row. Before this, the current row ran pickRowCover (chosen → cached → …)
+ * while the hero ran displayCover (cache → record → resolvedCover) — two ladders that could, and
+ * did, disagree (the hero healed to new art; the row stayed on the stalled url).
+ */
+export function queueRowCover(
+	isCurrent: boolean,
+	heroCover: string | null | undefined,
+	rowCover: string | null
+): string | null {
+	if (isCurrent) return heroCover || null;
+	return rowCover;
 }

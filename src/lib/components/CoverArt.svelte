@@ -23,6 +23,10 @@
 -->
 <script lang="ts">
 	import type { HTMLImgAttributes } from 'svelte/elements';
+	// quick-261122-npfix: a load that never settles (kuwo's CDN hangs ~1 request in 8) is a
+	// failure too — it reaches `fail` exactly like an <img> error, so the fallback shows and the
+	// host's onerror (dead-marking / heal) runs. See actions/coverStall.ts for the root cause.
+	import { coverStall } from '$lib/actions/coverStall';
 
 	interface Props {
 		src?: string | null;
@@ -66,7 +70,7 @@
 			{referrerpolicy}
 			onerror={fail}
 		/>
-		<img class="ca-fit" src={src} {alt} {loading} decoding="async" {referrerpolicy} onerror={fail} />
+		<img class="ca-fit" src={src} {alt} {loading} decoding="async" {referrerpolicy} onerror={fail} use:coverStall={{ src, onstall: () => fail(new Event('error')) }} />
 	{/if}
 </span>
 
