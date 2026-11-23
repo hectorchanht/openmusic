@@ -167,8 +167,13 @@ export function stampEditorLine(line: EditorLine, atSec: number, durationSec = 0
  * at the track's exact duration (《刺蝟的智慧》: 51 lines × [03:42.00] on a 222s song): every
  * line is zero-length at the end, activeLineAt can never fire, and no highlight exists anywhere.
  * The signature: at least MIN_DEGENERATE_LINES lines AND ≥ 90% of starts sharing ONE 0.1s
- * bucket AND that bucket sitting at the end of the song (≥ duration − 0.1) — or at 0 when the
- * duration is unknown (all-at-0 is provable without it). Detection only ever OFFERS a repair
+ * bucket AND that bucket sitting at the end of the song — or at 0 when the duration is
+ * unknown (all-at-0 is provable without it). "At the end" (quick-261122-tsfix2) means
+ * within the last max(2s, 2% of duration) or beyond it: LRC stamps are written against the
+ * NOMINAL duration (222.0 for a "3:42" song) while the editor's duration is the LIVE player
+ * duration, and real audio routinely runs a fraction of a second to ~2s longer than nominal
+ * — the original 0.1s end tolerance therefore never fired on real files (live-verified:
+ * 12 lines × [03:42.00], no banner). Detection only ever OFFERS a repair
  * (the editor's banner); it never rewrites a seed on its own — a genuinely repetitive chant
  * must survive a user's "no".
  */
@@ -190,7 +195,13 @@ export function hasDegenerateStamps(lines: readonly EditorLine[], durationSec = 
 	}
 	if (topCount < Math.ceil(lines.length * 0.9)) return false;
 	if (topBucket === 0) return true;
-	if (Number.isFinite(durationSec) && durationSec > 0) return topBucket >= snapTenth(durationSec - 0.1);
+	if (Number.isFinite(durationSec) && durationSec > 0) {
+		// quick-261122-tsfix2: realistic end tolerance — nominal-vs-actual duration gap (see
+		// the header note). A bucket beyond the duration also satisfies >=, so stamps that
+		// overshoot a slightly-shorter actual length still count as at-the-end.
+		const endTolerance = Math.max(2, durationSec * 0.02);
+		return topBucket >= snapTenth(durationSec - endTolerance);
+	}
 	return false;
 }
 

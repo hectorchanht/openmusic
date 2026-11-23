@@ -190,6 +190,22 @@ describe('hasDegenerateStamps — the all-at-end signature (quick-261122-tsfix)'
 		const lines = [...atEnd(9, 30), { start: 200, end: 210, text: 'x' }];
 		expect(hasDegenerateStamps(lines, 222)).toBe(false);
 	});
+	// quick-261122-tsfix2 — REGRESSION (live failure 2026-11-22): stamps are written against
+	// the NOMINAL duration (222.0) but the editor passes the LIVE player duration, which is
+	// essentially never exactly nominal. The original 0.1s end tolerance made the predicate
+	// false for every real file (12 probe lines × [03:42.00] on 刺蝟的智慧， no banner).
+	it('fires when the live duration runs slightly long (222.0 stamps, 222.6 duration)', () => {
+		expect(hasDegenerateStamps(atEnd(12), 222.6)).toBe(true);
+	});
+	it('fires when the live duration runs ~2s long (222.0 stamps, 224 duration)', () => {
+		expect(hasDegenerateStamps(atEnd(12), 224)).toBe(true);
+	});
+	it('fires when the stamps overshoot a slightly-shorter actual duration (222.0 stamps, 221.5 duration)', () => {
+		expect(hasDegenerateStamps(atEnd(12), 221.5)).toBe(true);
+	});
+	it('a cluster at 200 with duration 222 is still mid-song, not the end (stays false)', () => {
+		expect(hasDegenerateStamps(atEnd(10, 200), 222)).toBe(false);
+	});
 });
 
 describe('stampNextInSequence — tap-to-sync chain stamp (quick-261122-tsfix)', () => {
