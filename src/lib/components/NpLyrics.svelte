@@ -27,7 +27,7 @@
 	import { chunkRanges, dedupeSendList, applyUniqueChunkResult, applyUniqueChunkFlags, initialPending, clearUniqueChunkPending, skeletonWidthPct, LYRICS_CHUNK_SIZE, LYRICS_CHUNK_CONCURRENCY } from '$lib/services/lyric-chunks';
 	import { shouldTranslate, majorityLang } from '$lib/i18n/detect';
 	import { reorderPairs, splitParenLines, serializeLRC, lineSeekFraction, activeLineAt, lineEndAt, lyricAnchorMetrics, formatLyricOffset, LYRIC_OFFSET_MAX, type LyricLine } from '$lib/services/lrc';
-	import { charSpansFor, charFillAt, type TimedChar } from '$lib/services/lyric-chars';
+	import { charSpansFor, charFillAt, groupCharSpansBySurfaces, type TimedChar } from '$lib/services/lyric-chars';
 	// quick-261116-lyrux (Fix 2): the publication seam the Nowbar reads for replace mode.
 	import { lyricsTranslation, translationDuplicatesOriginal } from '$lib/stores/lyrics-translation.svelte';
 	// quick-260919-2jo: the Chinese script lock for lyric text. `parseLyrics` replaces `parseLRC`
@@ -856,6 +856,23 @@
 			hasKana(l.text) ? applyFuriganaPins(player.current?.uid ?? '', l.text, annotateLine(l.text, tb)) : []
 		);
 	});
+	// quick-261122-sweepfix: the furigana branch renders the SAME per-character sweep as the
+	// plain branch — the active line's timed characters re-grouped under the furigana surfaces
+	// (groupCharSpansBySurfaces), so an annotated line also fills left→right from 0 instead of
+	// taking the legacy whole-line white the moment it activates. A line whose surfaces do not
+	// align with its characters maps to NO entry here and its <p> still carries .sweep (muted,
+	// no flash) — it just renders its surfaces plain until the segmentations agree.
+	const furiChars = $derived.by(() => {
+		const m = new Map<number, TimedChar[][]>();
+		if (!furiLines) return m;
+		for (const [i, chs] of activeChars) {
+			const spans = furiLines[i];
+			if (!spans?.some((s) => s.chosen)) continue;
+			const groups = groupCharSpansBySurfaces(chs, spans.map((s) => s.surface));
+			if (groups) m.set(i, groups);
+		}
+		return m;
+	});
 	// The variant chooser: which word, in which line, is being re-read. A word
 	// tap must NOT seek — the enclosing <p> seeks on click — so the opener
 	// stopPropagation()s (see the template).
@@ -915,6 +932,13 @@
 			{#if !isHiddenParen && !hideForReplace}
 				{@const hideTrForLine = isTr && settings.lyricsHideParenTranslation}
 				{@const furi = furiLines?.[i]}
+				{@const chs = activeChars.get(i)}
+				<!-- quick-261122-sweepfix: a line that carries the per-character sweep (the plain
+				     branch, or the furigana branch re-grouped via furiChars) must NOT also take
+				     the legacy whole-line .active treatment — see the .sweep CSS below. Replace
+				     mode renders the translation text plain (no sweep in this <p>), so it is
+				     excluded and keeps the line treatment it has always had. -->
+				{@const sweepLine = !!chs?.length && !(showTr && settings.translateMode === 'replace' && !hideTrForLine)}
 				<!-- D-01: every lyric line is a tap target that seeks to its timestamp. The line stays a
 				     semantic <p> so the anchor $effect's `querySelectorAll('p')[idx]` scroll-centering, the
 				     `.lyrics p` centring/active/paren CSS, and the activeTime↔translated[i] index alignment
@@ -925,19 +949,25 @@
 				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 				<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
 				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-				<p data-i={i} class:active={l.time === activeTime && activeTime >= 0} class:paren={l.fromParen} onclick={() => seekToLine(l)} onkeydown={(e) => seekToLineKey(e, l)} role="button" tabindex={i === focusIdx ? 0 : -1}>
+				<p data-i={i} class:active={l.time === activeTime && activeTime >= 0} class:paren={l.fromParen} class:sweep={sweepLine} onclick={() => seekToLine(l)} onkeydown={(e) => seekToLineKey(e, l)} role="button" tabindex={i === focusIdx ? 0 : -1}>
 					{#if showTr && settings.translateMode === 'replace' && !hideTrForLine}
 						{trLines[i]}{#if trPending[i]}<span class="tr-spin motion-always" aria-hidden="true"></span>{/if}
 					{:else if furi?.some((s) => s.chosen)}
 						<!-- quick-261120-furi: annotated line — each read word is a ruby
 						     span; tapping it opens the variant chooser (and does NOT
 						     seek: openFuriChooser stopPropagation()s). Unread spans
-						     (kana runs) render as plain text. -->
-						{#each furi as span}
-							{#if span.chosen}<button type="button" class="fw" tabindex="-1" onclick={(e) => openFuriChooser(e, l.text, span)} aria-label="{span.surface} — {span.chosen}"><ruby>{span.surface}<rt class:pinned={span.pinned} class:est={span.estimated && !span.pinned}>{span.chosen}</rt></ruby></button>{:else}{span.surface}{/if}
+						     (kana runs) render as plain text.
+						     quick-261122-sweepfix: on the ACTIVE line the surfaces render
+						     as per-character .ch spans (furiChars, re-grouped from the
+						     line's timed characters) so the sweep fills them left→right
+						     from 0 like every other sung line — the rAF loop's '.ch'
+						     query reaches them unchanged. A surface with no group
+						     (segmentation mismatch) falls back to its plain text. -->
+						{#each furi as span, si}
+							{@const g = furiChars.get(i)?.[si]}
+							{#if span.chosen}<button type="button" class="fw" tabindex="-1" onclick={(e) => openFuriChooser(e, l.text, span)} aria-label="{span.surface} — {span.chosen}"><ruby>{#if g}{#each g as c, ci (ci)}<span class="ch" aria-hidden="true" data-s={c.start} data-e={c.end}>{c.text}</span>{/each}{:else}{span.surface}{/if}<rt class:pinned={span.pinned} class:est={span.estimated && !span.pinned}>{span.chosen}</rt></ruby></button>{:else if g}{#each g as c, ci (ci)}<span class="ch" aria-hidden="true" data-s={c.start} data-e={c.end}>{c.text}</span>{/each}{:else}{span.surface}{/if}
 						{/each}
 					{:else}
-						{@const chs = activeChars.get(i)}
 						{#if chs && chs.length}<span class="chs" aria-label={l.text}>{#each chs as c, ci (ci)}<span class="ch" aria-hidden="true" data-s={c.start} data-e={c.end}>{c.text}</span>{/each}</span>{:else}{l.text}{/if}
 						{#if showTr && !hideTrForLine}
 							{#if trPending[i]}
@@ -998,6 +1028,17 @@
 	.lyrics { text-align: center; line-height: 1.3; }
 	.lyrics p { font-size: calc(1rem * var(--fs-lyrics, 1)); color: var(--color-text-muted); transition: color 0.2s ease, text-shadow 0.2s ease, transform 0.2s ease; margin: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
 	.lyrics p.active { color: var(--color-text); text-shadow: 0 0 0.5px currentColor, 0 0 0.5px currentColor; }
+	/* quick-261122-sweepfix (Hector 2026-11-22): a line carrying the per-character sweep must
+	   NEVER flash fully white when it becomes active — the whole-line colour + faux-bold shadow
+	   above painted every glyph at full strength the moment .active landed, and only then did
+	   the sweep restart from the left. A .sweep line stays at the muted base colour with no
+	   shadow (its .ch spans carry the ONLY fill, via --p, from 0 at the line's start); the
+	   inherited shadow is also killed on the spans themselves below, since a transparent-fill
+	   glyph would otherwise show the parent's shadow through it. Paint-only, zero layout shift:
+	   no font-weight, no metrics change. Same specificity as p.active, later in the sheet, so
+	   it wins exactly the two properties it sets. Lines WITHOUT a sweep (translations, paren
+	   siblings, replace-mode text, plain fallbacks) keep the .active treatment untouched. */
+	.lyrics p.sweep { color: var(--color-text-muted); text-shadow: none; }
 	/* quick-261122-ugcb4 — the per-character sweep. Each character is a text-clipped gradient:
 	   the sung share in full text colour, the rest in the muted ink, with a soft 0.12em feather at
 	   the sweep edge so the fill glides THROUGH a character rather than snapping per glyph. --p is
@@ -1013,6 +1054,7 @@
 		);
 		-webkit-background-clip: text;
 		background-clip: text;
+		text-shadow: none;
 		color: transparent;
 		-webkit-text-fill-color: transparent;
 		white-space: pre-wrap;

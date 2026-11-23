@@ -246,6 +246,48 @@ export function retimeChars(
 	return chars.map((c) => ({ text: c.text, start: round2(map(c.start)), end: round2(map(c.end)) }));
 }
 
+/**
+ * Re-group a line's timed characters under a SECOND segmentation of the SAME text — the
+ * furigana spans (word surfaces that partition the line). Returns one TimedChar[] per surface,
+ * in order, or null when the two segmentations do not cover exactly the same graphemes (the
+ * caller then renders the surfaces plain rather than sweeping wrong timings). A character that
+ * straddles a surface boundary is split at the boundary, its time window divided in grapheme
+ * proportion — the same linear assumption charFillAt makes inside one character.
+ */
+export function groupCharSpansBySurfaces(chars: readonly TimedChar[], surfaces: readonly string[]): TimedChar[][] | null {
+	const totalChars = chars.reduce((n, c) => n + graphemes(c.text).length, 0);
+	const totalSurfaces = surfaces.reduce((n, s) => n + graphemes(s).length, 0);
+	if (!chars.length || !surfaces.length || totalChars !== totalSurfaces) return null;
+	const groups: TimedChar[][] = [];
+	let ci = 0; // index into chars
+	let co = 0; // graphemes already consumed of chars[ci]
+	for (const surface of surfaces) {
+		let need = graphemes(surface).length;
+		const group: TimedChar[] = [];
+		while (need > 0) {
+			const c = chars[ci];
+			if (!c) return null;
+			const cg = graphemes(c.text);
+			const take = Math.min(need, cg.length - co);
+			const from = co / cg.length;
+			const to = (co + take) / cg.length;
+			group.push({
+				text: cg.slice(co, co + take).join(''),
+				start: c.start + (c.end - c.start) * from,
+				end: c.start + (c.end - c.start) * to
+			});
+			co += take;
+			need -= take;
+			if (co === cg.length) {
+				ci++;
+				co = 0;
+			}
+		}
+		groups.push(group);
+	}
+	return ci === chars.length ? groups : null;
+}
+
 /** Per-character fill at `clock`: 1 = sung, 0 = not yet, a fraction for the character being sung. */
 export function charFillAt(c: TimedChar, clock: number): number {
 	if (clock >= c.end) return 1;
