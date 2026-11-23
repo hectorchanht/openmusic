@@ -118,3 +118,18 @@ describe('record maths', () => {
 		expect(parseLyricsRecord(JSON.stringify({ v: 1, versions: [{ id: 1 }] })).versions).toEqual([]);
 	});
 });
+
+describe('checkLyricText — degenerate stamps earn no precision (quick-261122-tsfix)', () => {
+	const allAt = (n: number, stamp: string) =>
+		Array.from({ length: n }, (_, i) => `${stamp}line ${i + 1}`).join('\n');
+	it('all-identical start stamps are accepted but downgraded to estimated', () => {
+		expect(checkLyricText(allAt(6, '[03:42.00]'), { durationSec: 222 })).toMatchObject({ ok: true, cls: 'estimated' });
+		expect(checkLyricText(allAt(51, '[03:42.00]'), { durationSec: 222 })).toMatchObject({ ok: true, cls: 'estimated' });
+	});
+	it('a normal spread still earns precise', () => {
+		expect(checkLyricText(timed(6), { durationSec: 222 })).toMatchObject({ ok: true, cls: 'precise' });
+	});
+	it('an explicitly estimated submission stays estimated either way', () => {
+		expect(checkLyricText(allAt(6, '[03:42.00]'), { durationSec: 222, estimated: true })).toMatchObject({ ok: true, cls: 'estimated' });
+	});
+});

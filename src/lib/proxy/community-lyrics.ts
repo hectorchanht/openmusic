@@ -12,6 +12,8 @@
 //                timed text parses clean with ≥ MIN_LINES timed lines, start stamps monotonic in
 //                file order, every stamp ≤ duration + END_SLACK_SEC. Unsynced plain text is
 //                accepted as the labelled lower class 'plain'. Language is NEVER a rejection reason.
+//                A timed lyric whose EVERY start stamp is one identical instant (quick-261122-tsfix)
+//                is downgraded to 'estimated' — accepted, but it has not earned 'precise'.
 //   2. SANITY  — no exact-duplicate version (a duplicate becomes a PIN of the existing one), and
 //                [ti:]/[ar:] metadata tags must not contradict the confirmed identity.
 //   3. ABUSE   — the route requires a signed-in account + Turnstile + a per-account throttle.
@@ -128,6 +130,7 @@ export function checkLyricText(
 	let timed = 0;
 	let prev = -1;
 	let maxStamp = 0;
+	const starts: number[] = [];
 	for (const line0 of text.split('\n')) {
 		const line = line0.trim();
 		if (!line) continue;
@@ -155,6 +158,7 @@ export function checkLyricText(
 			}
 			if (!line.replace(/\[[^\]]*\]|<[^>]*>/g, '').trim()) continue; // a stamp with no words
 			timed++;
+			starts.push(start);
 		}
 		kept.push(line);
 	}
@@ -166,7 +170,11 @@ export function checkLyricText(
 			STAMP.lastIndex = 0;
 			return STAMP.test(l);
 		});
-		return { ok: true, lrc: lines.join('\n'), cls: opts.estimated ? 'estimated' : 'precise' };
+		// quick-261122-tsfix: every start stamp the SAME instant (0.1s bucket) across ≥ MIN_LINES
+		// lines is a degenerate timing — the words may be perfect, the sync is not real, so the
+		// honest class is 'estimated', never 'precise'. Downgrade only, never reject.
+		const degenerate = timed >= MIN_LINES && new Set(starts.map((s) => Math.round(s * 10))).size === 1;
+		return { ok: true, lrc: lines.join('\n'), cls: opts.estimated || degenerate ? 'estimated' : 'precise' };
 	}
 	if (kept.length < MIN_LINES) return { ok: false, err: 'too-few-lines' };
 	return { ok: true, lrc: kept.join('\n'), cls: 'plain' };

@@ -42,6 +42,8 @@
 		nudgeEditorLine,
 		moveEditorLine,
 		stampEditorLine,
+		hasDegenerateStamps,
+		stampNextInSequence,
 		type EditorLine
 	} from '$lib/services/lyrics-editor';
 	import { charSpansFor, charFillAt, nudgeCharStart, setCharStart, type TimedChar } from '$lib/services/lyric-chars';
@@ -94,6 +96,8 @@
 		if (seededFor === seedKey) return;
 		seededFor = seedKey;
 		step = 'edit';
+		retime = false;
+		retimeCursor = 0;
 		title = track.title ?? '';
 		artist = track.artist ?? '';
 		// quick-261122-rules (GOLD auto-cache rule): an unsaved working draft for this track wins
@@ -160,7 +164,7 @@
 	}
 	$effect(() => {
 		void preview.idx;
-		if (!open || step !== 'edit') return;
+		if (!open || step !== 'edit' || retime) return;
 		scrollToActive();
 	});
 	// Re-engagement from OUTSIDE the editor too (lock-screen / Nowbar seek, pressing play).
@@ -272,6 +276,56 @@
 		if (!isCurrent) return;
 		adjust(i, stampEditorLine(lines[i], player.currentTime, duration), 'stamp');
 	}
+
+	// quick-261122-tsfix — DEGENERATE STAMPS + RE-TIME. The predicate runs on the lines however
+	// they were seeded (pin, community version, saved draft, fresh paste — the draft path is
+	// covered because this is derived from `lines` itself, not from one seed branch). Detection
+	// only OFFERS the repair; the user taps Distribute, or re-times by hand — never a silent
+	// rewrite of what a source shipped.
+	const degenerate = $derived(hasDegenerateStamps(lines, duration));
+	function distributeEvenly() {
+		// The estimator the plain-text paste path already uses; hand-set char spans do not
+		// survive it (they re-derive as the estimator's even pre-allocation, like any paste).
+		lines = estimateLines(lines.map((l) => l.text), duration);
+		estimated = lines.length > 0;
+		retime = false;
+		retimeCursor = 0;
+		follow('edit');
+		persistDraft();
+	}
+
+	// Tap-to-sync re-time: while ON, one persistent button stamps the NEXT line at the
+	// playhead and chains the previous line's end shut (stampNextInSequence) — one tap per
+	// line in singing order rebuilds a broken timing in a single play-through. Only for the
+	// playing track (the stamp button's isCurrent gate, same reason).
+	let retime = $state(false);
+	let retimeCursor = $state(0);
+	function toggleRetime() {
+		retime = !retime;
+		if (retime) retimeCursor = 0;
+	}
+	function stampNext() {
+		if (!isCurrent || retimeCursor >= lines.length) return;
+		const r = stampNextInSequence(lines, retimeCursor, player.currentTime, duration);
+		lines = r.lines;
+		retimeCursor = r.cursor;
+		estimated = false;
+		follow('stamp');
+		persistDraft();
+		if (retimeCursor >= lines.length) retime = false; // the last tap completes the mode itself
+	}
+	// While re-timing, the cursor row owns the list scroll (the playhead-follow scroll stands
+	// down — the two would fight over the same list).
+	$effect(() => {
+		void retimeCursor;
+		if (!open || !retime || !linesEl) return;
+		const row = linesEl.children[retimeCursor] as HTMLElement | undefined;
+		if (!row) return;
+		linesEl.scrollTo({
+			top: row.offsetTop - linesEl.clientHeight / 2 + row.clientHeight / 2,
+			behavior: scrollBehavior()
+		});
+	});
 
 	// Live preview: the line being sung right now (this editor's draft, the real pane's maths —
 	// activeLineAt is the one shared scan). Tapping a row seeks, like the pane itself.
@@ -395,11 +449,31 @@
 				<input class="file" type="file" accept=".lrc,.txt,text/plain" bind:this={fileEl} onchange={onFile} />
 				{#if lines.length}<span class="count">{t('lyricsEditor.linesCount', { count: lines.length })}</span>{/if}
 				{#if estimated}<span class="badge">{t('lyricsEditor.estimated')}</span>{/if}
+				{#if isCurrent && lines.length}
+					<button type="button" class="tool" class:on={retime} aria-pressed={retime} onclick={toggleRetime} use:tapBounce><Clock size={12} /> {t('lyricsEditor.retime')}</button>
+				{/if}
 			</div>
+
+			{#if degenerate && !retime}
+				<div class="warn" role="alert">
+					<p>{t('lyricsEditor.degenerate', { time: fmt(duration) })}</p>
+					<button type="button" class="tool" onclick={distributeEvenly} use:tapBounce>{t('lyricsEditor.distribute')}</button>
+				</div>
+			{/if}
+
+			{#if retime}
+				<div class="retimebar">
+					<button type="button" class="primary stampnext" onclick={stampNext} disabled={retimeCursor >= lines.length} use:tapBounce>
+						<span class="sn-lab"><Clock size={14} /> {t('lyricsEditor.stampNext')}</span>
+						{#if lines[retimeCursor]}<span class="sn-txt">{lines[retimeCursor].text}</span>{/if}
+					</button>
+					<span class="count">{retimeCursor}/{lines.length}</span>
+				</div>
+			{/if}
 
 			<div class="lines" bind:this={linesEl}>
 				{#each lines as l, i (i)}
-					<div class="line" class:active={i === preview.idx}>
+					<div class="line" class:active={i === preview.idx} class:next={retime && i === retimeCursor}>
 						<input class="txt" bind:value={lines[i].text} oninput={(e) => { lines[i].text = e.currentTarget.value; follow('edit'); persistDraft(); }} aria-label={l.text} />
 						{#if duration > 0}
 							<div class="tl">
@@ -423,6 +497,7 @@
 							</div>
 						{/if}
 						<div class="times">
+							{#if retime && i === retimeCursor}<span class="badge">{t('lyricsEditor.nextLine')}</span>{/if}
 							<span class="lab">{t('lyricsEditor.start')}</span>
 							<button type="button" class="nb" onclick={() => adjust(i, nudgeEditorLine(l, 'start', -0.1, duration))} use:tapBounce>−0.1</button>
 							<button type="button" class="tm" onclick={() => seekLine(l)} use:tapBounce>{fmt(l.start)}</button>
@@ -551,6 +626,15 @@
 	.chip.sel { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary) inset; }
 	.cg { font-size: 1rem; line-height: 1.2; white-space: pre; }
 	.ct { font-size: 0.625rem; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+	/* quick-261122-tsfix: degenerate-stamp banner + re-time bar + the next-to-stamp cursor row. */
+	.warn { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border: 1px solid var(--color-danger-text); border-radius: 10px; padding: 8px 10px; margin: 2px 2px 6px; }
+	.warn p { margin: 0; font-size: 0.8125rem; flex: 1; min-width: 200px; }
+	.retimebar { display: flex; align-items: center; gap: 8px; padding: 0 2px 6px; }
+	.stampnext { margin-top: 0; flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; }
+	.sn-lab { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+	.sn-txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.tool.on { border-color: var(--color-primary); color: var(--color-primary); }
+	.line.next { border-color: var(--color-text-muted); border-style: dashed; }
 	.share { display: flex; align-items: center; gap: 8px; padding: 8px 2px 0; font-size: 0.8125rem; color: var(--color-text); }
 	.share input { width: 18px; height: 18px; accent-color: var(--color-primary); }
 	.err { color: var(--color-danger-text); font-size: 0.75rem; margin: 6px 2px 0; }

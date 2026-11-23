@@ -163,6 +163,79 @@ export function stampEditorLine(line: EditorLine, atSec: number, durationSec = 0
 }
 
 /**
+ * quick-261122-tsfix — DEGENERATE-STAMP DETECTION. Some lyric sources ship every line stamped
+ * at the track's exact duration (《刺蝟的智慧》: 51 lines × [03:42.00] on a 222s song): every
+ * line is zero-length at the end, activeLineAt can never fire, and no highlight exists anywhere.
+ * The signature: at least MIN_DEGENERATE_LINES lines AND ≥ 90% of starts sharing ONE 0.1s
+ * bucket AND that bucket sitting at the end of the song (≥ duration − 0.1) — or at 0 when the
+ * duration is unknown (all-at-0 is provable without it). Detection only ever OFFERS a repair
+ * (the editor's banner); it never rewrites a seed on its own — a genuinely repetitive chant
+ * must survive a user's "no".
+ */
+export const MIN_DEGENERATE_LINES = 5;
+export function hasDegenerateStamps(lines: readonly EditorLine[], durationSec = 0): boolean {
+	if (lines.length < MIN_DEGENERATE_LINES) return false;
+	const buckets = new Map<number, number>();
+	for (const l of lines) {
+		const b = snapTenth(l.start);
+		buckets.set(b, (buckets.get(b) ?? 0) + 1);
+	}
+	let topBucket = 0;
+	let topCount = 0;
+	for (const [b, n] of buckets) {
+		if (n > topCount) {
+			topCount = n;
+			topBucket = b;
+		}
+	}
+	if (topCount < Math.ceil(lines.length * 0.9)) return false;
+	if (topBucket === 0) return true;
+	if (Number.isFinite(durationSec) && durationSec > 0) return topBucket >= snapTenth(durationSec - 0.1);
+	return false;
+}
+
+/**
+ * quick-261122-tsfix — TAP-TO-SYNC CHAIN STAMP, the re-time mode's one gesture: stamp line
+ * `cursor` at the playhead AND close the previous line at the same instant, so one tap per
+ * line, in singing order, rebuilds the whole timing in a single play-through (the karaoke
+ * tap-sync). The stamped line keeps its existing end when that end is still ahead (the
+ * degenerate case keeps the duration end, so the line stays "current" until the next tap
+ * chains it shut); the last line's end is the duration end it already carries. All outputs
+ * pass clampEditorLine — 0.1s snap, duration clamp, and hand-set character spans re-time
+ * through the same carryChars every other gesture uses. `atSec` never moves a stamp before
+ * the previous line's start (a backward seek mid-mode cannot un-monotonic the draft).
+ * Returns the next cursor (cursor + 1, clamped at lines.length = mode complete).
+ */
+export function stampNextInSequence(
+	lines: readonly EditorLine[],
+	cursor: number,
+	atSec: number,
+	durationSec = 0
+): { lines: EditorLine[]; cursor: number } {
+	if (!lines.length) return { lines: [], cursor: 0 };
+	const cur = Math.max(0, Math.min(Math.trunc(cursor) || 0, lines.length));
+	if (cur >= lines.length) return { lines: lines.map((l) => ({ ...l })), cursor: cur };
+	const prevStart = cur > 0 ? lines[cur - 1].start : 0;
+	const at = snapTenth(Math.max(snapTenth(atSec), prevStart));
+	const out = lines.map((l) => ({ ...l }));
+	if (cur > 0) {
+		// Chain rule: the previous line ENDS where this one begins — an end nudge from its
+		// true window, so hand-set character spans carry through the same path as a manual nudge.
+		const prev = lines[cur - 1];
+		out[cur - 1] = nudgeEditorLine(prev, 'end', at - prev.end, durationSec);
+	}
+	// The stamp itself is the existing gesture (start at the playhead, length kept, chars
+	// carried); when the line's old end is still ahead of the playhead — the degenerate case,
+	// where it sits at the duration — that end is kept, so the line stays "current" until the
+	// next tap chains it shut.
+	const orig = lines[cur];
+	const stamped = stampEditorLine(orig, at, durationSec);
+	const end = orig.end > at ? Math.max(stamped.end, orig.end) : stamped.end;
+	out[cur] = end !== stamped.end ? nudgeEditorLine(stamped, 'end', end - stamped.end, durationSec) : stamped;
+	return { lines: out, cursor: cur + 1 };
+}
+
+/**
  * The draft's timing class: 'estimated' while every stamp is still the estimator's, 'precise'
  * once any real timestamp source or hand adjustment has touched it, 'empty' with no lines.
  * The component tracks the transitions; this names the classes in one place.

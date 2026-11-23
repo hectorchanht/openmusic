@@ -10,6 +10,8 @@ import {
 	nudgeEditorLine,
 	moveEditorLine,
 	stampEditorLine,
+	hasDegenerateStamps,
+	stampNextInSequence,
 	ESTIMATE_FALLBACK_LINE_SEC,
 	type EditorLine
 } from './lyrics-editor';
@@ -159,5 +161,92 @@ describe('editor → pin store round-trip (Phase-1 save path)', () => {
 		expect(editorLinesFromLrc(saved as string, 30)).toEqual(draft);
 		removePinnedLyrics('uid-b2');
 		expect(getPinnedLyrics('uid-b2')).toBeNull();
+	});
+});
+
+describe('hasDegenerateStamps — the all-at-end signature (quick-261122-tsfix)', () => {
+	const atEnd = (n: number, t = 222): EditorLine[] =>
+		Array.from({ length: n }, (_, i) => ({ start: t, end: t, text: `line ${i}` }));
+	it('fires on 51 lines all stamped at the duration (the 刺蝟的智慧 case)', () => {
+		expect(hasDegenerateStamps(atEnd(51), 222)).toBe(true);
+	});
+	it('fires when ≥90% sit at the end even if a few lines carry real stamps', () => {
+		const lines = atEnd(10);
+		lines[0] = { start: 3, end: 6, text: 'real' };
+		expect(hasDegenerateStamps(lines, 222)).toBe(true);
+	});
+	it('does not fire on a normal spread', () => {
+		expect(hasDegenerateStamps(estimateLines(['a', 'b', 'c', 'd', 'e', 'f'], 60), 60)).toBe(false);
+	});
+	it('does not fire below the line floor, or on an empty draft', () => {
+		expect(hasDegenerateStamps(atEnd(4), 222)).toBe(false);
+		expect(hasDegenerateStamps([], 222)).toBe(false);
+	});
+	it('all-at-0 is provable without a duration; all-at-end is not', () => {
+		expect(hasDegenerateStamps(atEnd(6, 0), 0)).toBe(true);
+		expect(hasDegenerateStamps(atEnd(6, 222), 0)).toBe(false);
+	});
+	it('a same-stamp cluster mid-song is not the signature', () => {
+		const lines = [...atEnd(9, 30), { start: 200, end: 210, text: 'x' }];
+		expect(hasDegenerateStamps(lines, 222)).toBe(false);
+	});
+});
+
+describe('stampNextInSequence — tap-to-sync chain stamp (quick-261122-tsfix)', () => {
+	const degen = (): EditorLine[] => [0, 1, 2].map((i) => ({ start: 222, end: 222, text: `l${i}` }));
+	it('first stamp sets the start at the playhead (snapped) and keeps the duration end', () => {
+		const r = stampNextInSequence(degen(), 0, 12.34, 222);
+		expect(r.cursor).toBe(1);
+		expect(r.lines[0]).toMatchObject({ start: 12.3, end: 222 });
+		expect(r.lines[1]).toMatchObject({ start: 222, end: 222 });
+	});
+	it('the next stamp chains the previous line shut at the same instant', () => {
+		const first = stampNextInSequence(degen(), 0, 12.34, 222);
+		const r = stampNextInSequence(first.lines, first.cursor, 15.26, 222);
+		expect(r.cursor).toBe(2);
+		expect(r.lines[0]).toMatchObject({ start: 12.3, end: 15.3 });
+		expect(r.lines[1]).toMatchObject({ start: 15.3, end: 222 });
+	});
+	it('stamping the last line completes the cursor; further stamps are a no-op', () => {
+		let s = stampNextInSequence(degen(), 0, 10, 222);
+		s = stampNextInSequence(s.lines, s.cursor, 20, 222);
+		s = stampNextInSequence(s.lines, s.cursor, 30, 222);
+		expect(s.cursor).toBe(3);
+		expect(s.lines[2]).toMatchObject({ start: 30, end: 222 });
+		const again = stampNextInSequence(s.lines, s.cursor, 40, 222);
+		expect(again.cursor).toBe(3);
+		expect(again.lines).toEqual(s.lines);
+	});
+	it('a normal line keeps its length when its old end is behind the playhead', () => {
+		const lines: EditorLine[] = [
+			{ start: 10, end: 14, text: 'x' },
+			{ start: 14, end: 18, text: 'y' }
+		];
+		const r = stampNextInSequence(lines, 0, 20, 60);
+		expect(r.lines[0]).toMatchObject({ start: 20, end: 24 });
+	});
+	it('outputs stay monotonic and 0.1-snapped through a full pass', () => {
+		let s: { lines: EditorLine[]; cursor: number } = { lines: degen(), cursor: 0 };
+		for (const t of [3.33, 7.77, 11.11]) s = stampNextInSequence(s.lines, s.cursor, t, 222);
+		expect(s.lines.map((l) => l.start)).toEqual([3.3, 7.8, 11.1]);
+		for (let i = 1; i < s.lines.length; i++) expect(s.lines[i].start).toBeGreaterThanOrEqual(s.lines[i - 1].start);
+	});
+	it('hand-set character spans re-time through the chain (the carryChars route)', () => {
+		const lines: EditorLine[] = [
+			{ start: 0, end: 4, text: 'ab', chars: [{ text: 'a', start: 0, end: 2 }, { text: 'b', start: 2, end: 4 }] },
+			{ start: 4, end: 8, text: 'cd' }
+		];
+		const r1 = stampNextInSequence(lines, 0, 10, 60);
+		expect(r1.lines[0]).toMatchObject({ start: 10, end: 14 });
+		expect(r1.lines[0].chars).toEqual([
+			{ text: 'a', start: 10, end: 12 },
+			{ text: 'b', start: 12, end: 14 }
+		]);
+		const r2 = stampNextInSequence(r1.lines, 1, 12, 60);
+		expect(r2.lines[0]).toMatchObject({ start: 10, end: 12 });
+		expect(r2.lines[0].chars).toEqual([
+			{ text: 'a', start: 10, end: 11 },
+			{ text: 'b', start: 11, end: 12 }
+		]);
 	});
 });

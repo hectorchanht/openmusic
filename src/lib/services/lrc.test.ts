@@ -405,6 +405,16 @@ describe('activeLineAt', () => {
 		expect(activeLineAt(lines, 7, -3)).toEqual({ idx: 1, time: 10 });
 		expect(activeLineAt(lines, 7)).toEqual({ idx: 0, time: 5 });
 	});
+
+	// quick-261122-tsfix regression witness: a lyric whose every stamp sits AT the duration
+	// (the 刺蝟的智慧 case) can never activate a line before the song is over — this is WHY
+	// the repair lives in the editor (hasDegenerateStamps + re-time), not in this scan.
+	it('all stamps at the duration never activate', () => {
+		const lines = [L(222, 'a'), L(222, 'b'), L(222, 'c')];
+		expect(activeLineAt(lines, 0)).toEqual({ idx: -1, time: -1 });
+		expect(activeLineAt(lines, 100)).toEqual({ idx: -1, time: -1 });
+		expect(activeLineAt(lines, 221.9)).toEqual({ idx: -1, time: -1 });
+	});
 });
 
 describe('normalizeLyricOffset (quick-260926-mis)', () => {
