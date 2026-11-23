@@ -10510,3 +10510,86 @@ describe('NEVER-STOP resume hysteresis — mid-song stall holds the resume (Hect
 		expect(el.play).not.toHaveBeenCalled(); // …but the hold stays cancelled
 	});
 });
+
+/**
+ * PLAYSTATE-ICON (quick-261122-npicon, Hector 2026-11-22): the Now Playing / Nowbar play-pause
+ * glyph is `class:is-playing={player.playing}` — so `player.playing` IS the icon. It must equal the
+ * <audio> element's real state (the same truth toggle() and the progress bar trust) across play,
+ * pause and track change. Pre-fix it was a hand-written mirror: failure paths (stall.skip,
+ * error.ceiling, bg-error-skip, error→fallback) wrote `false` WITHOUT pausing the element, and only
+ * the `play` event (a paused→unpaused FLIP) could set it back — so an element that never paused kept
+ * playing (timeupdate advancing the bar, lyrics scrolling) under a ▶ icon. The screenshot: 聽海 at
+ * 2:10/5:18, advancing, ▶ shown. These tests are the deploy-gate hook (`pnpm test:gate`).
+ */
+describe('PLAYSTATE-ICON: player.playing (the play/pause glyph) == real <audio> state', () => {
+	const glyph = () => (player.playing ? 'pause' : 'play'); // NowPlaying/Nowbar .play-glyph.is-playing
+
+	function attachEl() {
+		const el = makeFakeAudio() as ReturnType<typeof makeFakeAudio> & { ended: boolean };
+		el.ended = false;
+		el.duration = 318; // 5:18
+		el.src = 'https://cdn/ting-hai.mp3';
+		player.current = mk('kuwo', 'tinghai', '張惠妹', '聽海');
+		player.attach(el as unknown as HTMLAudioElement);
+		return el;
+	}
+
+	it('play → pause → play: the glyph follows each transition', () => {
+		const el = attachEl();
+		el.paused = false;
+		el.fire('play');
+		el.fire('playing');
+		expect(glyph()).toBe('pause');
+		el.paused = true;
+		el.fire('pause');
+		expect(glyph()).toBe('play');
+		el.paused = false;
+		el.fire('play');
+		expect(glyph()).toBe('pause');
+	});
+
+	it('SCREENSHOT: element playing + progress advancing after a stale `false` write ⇒ pause glyph', () => {
+		const el = attachEl();
+		el.paused = false;
+		el.fire('play');
+		el.fire('playing');
+		// A failure path (stall.skip / error.ceiling / error→fallback) wrote the mirror false while the
+		// element never actually paused — so no `play` event will ever follow.
+		player.playing = false;
+		for (const t of [130, 130.25, 130.5]) {
+			el.currentTime = t; // 2:10 and advancing
+			el.fire('timeupdate');
+		}
+		expect(player.currentTime).toBe(130.5); // the bar advanced…
+		expect(glyph()).toBe('pause'); // …so the icon must say "playing"
+	});
+
+	it('track change with no paused→unpaused flip (no `play` event): `playing` alone restores the truth', () => {
+		const el = attachEl();
+		el.paused = false;
+		el.fire('play');
+		player.playing = false; // the error→fallback path's pre-swap write
+		// New src attached; WebKit keeps paused === false across the swap so audio.play() is a no-op
+		// and fires NO `play` — only `playing` once output starts.
+		el.src = 'https://cdn/next.mp3';
+		el.currentTime = 0;
+		el.fire('playing');
+		expect(glyph()).toBe('pause');
+	});
+
+	it('the reverse lie: element paused/ended while the mirror says playing ⇒ play glyph', () => {
+		const el = attachEl();
+		el.paused = false;
+		el.fire('play');
+		expect(glyph()).toBe('pause');
+		el.paused = true; // paused with no `pause` event delivered (bg throttling) — a seek tick arrives
+		el.fire('timeupdate');
+		expect(glyph()).toBe('play');
+		el.paused = false;
+		el.fire('play');
+		el.ended = true;
+		el.paused = true;
+		el.fire('ended');
+		expect(glyph()).toBe('play');
+	});
+});

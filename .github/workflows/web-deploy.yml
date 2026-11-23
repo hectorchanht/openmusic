@@ -18,6 +18,12 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # DEPLOY GATE (BTW-HOOK, quick-261122-npicon): regression checks that must pass on EVERY
+      # deploy, not only in the unit suite. The manifest is package.json `test:gate` — add a check
+      # there and both this workflow and `pnpm deploy` pick it up. Currently: PLAYSTATE-ICON
+      # (play/pause glyph == real <audio> state; NowPlaying/Nowbar wiring).
+      - name: Deploy gate (pnpm test:gate)
+        run: pnpm test:gate
       - name: Set version
         run: echo "VITE_APP_VERSION=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
       - run: pnpm build

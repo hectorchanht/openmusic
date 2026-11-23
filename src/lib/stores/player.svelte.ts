@@ -280,6 +280,14 @@ export function fmtTime(s: number): string {
 
 class Player {
 	current = $state<Track | null>(null);
+	/**
+	 * PLAYSTATE-ICON (quick-261122-npicon): THE play/pause truth every surface reads (NowPlaying +
+	 * Nowbar `.play-glyph.is-playing`, Media Session playbackState). Written ONLY by syncPlaying(),
+	 * which reads the <audio> element — the same truth toggle() acts on and the progress bar ticks
+	 * from. It used to be a hand-maintained mirror: failure paths wrote `false` without pausing the
+	 * element, and only a `play` event (a paused→unpaused FLIP) set it back, so an element that never
+	 * paused played on under a ▶ icon (Hector's 聽海 2:10/5:18 screenshot). Never assign it directly.
+	 */
 	playing = $state(false);
 	loading = $state(false);
 	/**
@@ -2381,6 +2389,19 @@ class Player {
 		if (st) ms.setPositionState(st);
 	}
 
+	/**
+	 * PLAYSTATE-ICON (quick-261122-npicon): the ONLY writer of `playing` — re-derive it from the
+	 * element (`!paused && !ended`). Called from every media event (play/playing/pause/ended/
+	 * timeupdate/emptied) and in place of every former imperative `playing = false`, so the glyph can
+	 * never outlive one timeupdate tick out of step with what toggle() will actually do. Writes only on
+	 * change (timeupdate fires ~4×/s). No element ⇒ not playing.
+	 */
+	private syncPlaying() {
+		const el = this.audio;
+		const next = !!el && !el.paused && !el.ended;
+		if (next !== this.playing) this.playing = next;
+	}
+
 	/** Keep the OS media UI play/pause/none state synced with real playback (MS-02). */
 	private syncPlaybackState() {
 		const ms = this.ms;
@@ -2504,7 +2525,7 @@ class Player {
 			return;
 		}
 		logAction('stall.skip', { uid: this.current.uid });
-		this.playing = false;
+		this.syncPlaying(); // PLAYSTATE-ICON: element truth, never a bare `false` (quick-261122-npicon)
 		// stall-kills-healthy-tracks (B): ONE strike + the skip toast, deliberately NOT a promotion to
 		// unplayableUids (the ✗ row). The user read "skipped but no ✗" as a contract breach; it is not:
 		// ✗ = STRIKE_CAP confirmed-definitive failures (31-D-16 — a 15s+15s silent hang is a probable
@@ -3016,7 +3037,7 @@ class Player {
 				if (!e.persisted || !this.audio) return; // only a bfcache restore needs the re-sync
 				logAction('bfcache.restore');
 				this.currentTime = this.audio.currentTime || 0;
-				this.playing = !this.audio.paused;
+				this.syncPlaying();
 			});
 		}
 		// quick-261014-routefix: AUDIO-ROUTE LOSS detection. The old SIMPLIFY
@@ -3031,6 +3052,12 @@ class Player {
 		// so playback stays paused until the user taps play again.
 		this.routeWatch?.stop();
 		this.routeWatch = watchAudioRouteLoss(() => this.pauseForRouteLoss());
+		// PLAYSTATE-ICON (quick-261122-npicon): a src reset (load algorithm) may flip paused with no
+		// `pause` event — re-derive so the glyph never keeps a dead element's ⏸.
+		el.addEventListener('emptied', () => {
+			this.syncPlaying();
+			this.syncPlaybackState();
+		});
 		el.addEventListener('play', () => {
 			// `play` fires the instant `paused` flips false (inside audio.play(), at
 			// readyState HAVE_NOTHING — before a single byte loads). It is a UI-STATE signal
@@ -3039,7 +3066,7 @@ class Player {
 			// (CR-01): doing so reset the failure counter on every auto-skip before the dead
 			// URL's `error` even arrived, so the loop-guard cap was unreachable. Those moved to
 			// the `playing` listener below.
-			this.playing = true;
+			this.syncPlaying(); // PLAYSTATE-ICON: element truth (paused is false here)
 			this.syncPlaybackState();
 		});
 		// slow-cold-start-first-playing: pure observability, one line per event type per src (logMedia is
@@ -3048,6 +3075,10 @@ class Player {
 		for (const ev of ['loadstart', 'progress', 'loadedmetadata', 'canplay', 'stalled', 'suspend', 'waiting'])
 			el.addEventListener(ev, () => this.logMedia(ev));
 		el.addEventListener('playing', () => {
+			// PLAYSTATE-ICON (quick-261122-npicon): real output ⇒ the glyph says playing, even when no
+			// `play` event preceded it (src swap on an element whose paused never flipped true).
+			this.syncPlaying();
+			this.syncPlaybackState();
 			logAction('playing', { uid: this.current?.uid, ms: this.srcSetAt ? Date.now() - this.srcSetAt : -1 });
 			// `playing` is the event that means audio is ACTUALLY producing output (CR-01).
 			// D-13/D-14: mark the src as having played + disarm the initial-load stall watchdog.
@@ -3128,7 +3159,7 @@ class Player {
 		});
 		el.addEventListener('pause', () => {
 			logAction('pause', { deliberate: this.deliberatePause });
-			this.playing = false;
+			this.syncPlaying(); // PLAYSTATE-ICON: element truth, never a bare `false` (quick-261122-npicon)
 			this.syncPlaybackState();
 			// WR-05: a pause during the initial-load window means the user opted OUT of this load —
 			// disarm the stall watchdog so it can't, 15s later, runFallback → play(swap) and start
@@ -3190,6 +3221,11 @@ class Player {
 			if (!this.hasPlayedSinceSrc) this.recoverLoadStall();
 		});
 		el.addEventListener('timeupdate', () => {
+			// PLAYSTATE-ICON (quick-261122-npicon): the tick that advances the progress bar also
+			// re-derives the glyph, so bar and icon can never disagree for more than one tick.
+			const wasPlaying = this.playing;
+			this.syncPlaying();
+			if (wasPlaying !== this.playing) this.syncPlaybackState();
 			// Sleep-timer minutes backstop (TIMER-01, Pattern 1): `timeupdate` fires ~4×/sec while
 			// audio plays — exempt from intensive bg-tab throttling — so checking the ABSOLUTE
 			// deadline here is the throttle-proof expiry authority. expireSleepTimer() pauses in
@@ -3245,7 +3281,7 @@ class Player {
 		el.addEventListener('durationchange', syncDur);
 		el.addEventListener('ended', () => {
 			logAction('ended', { uid: this.current?.uid });
-			this.playing = false;
+			this.syncPlaying(); // PLAYSTATE-ICON: element truth, never a bare `false` (quick-261122-npicon)
 			this.syncPlaybackState();
 			this.disarmStall(); // track finished — no initial-load stall to watch for
 			// EXTERNAL-PAUSE SELF-HEAL: a natural end-of-track also fires `pause` (just before/with
@@ -3337,7 +3373,7 @@ class Player {
 					this.repeatMode = 'off';
 					this.persist();
 				}
-				this.playing = false;
+				this.syncPlaying(); // PLAYSTATE-ICON: element truth, never a bare `false` (quick-261122-npicon)
 				// Strike the current track so nextAdvanceIndex / the prefetch walk route past it (bounded +
 				// recoverable: advanceTo still grants one second-chance retry and a real `playing` clears
 				// the strikes), then advance. next() bumps playGen via play(), superseding any in-flight
@@ -3519,7 +3555,7 @@ class Player {
 						this.recordSkip(this.current.uid, 'load-error'); // quick-260926-l69
 						this.strikeUnplayable(this.current.uid, 'load-error');
 					}
-					this.playing = false;
+					this.syncPlaying(); // PLAYSTATE-ICON: element truth, never a bare `false` (quick-261122-npicon)
 					// 31-D-17/31-D-18: this path DELIBERATELY differs from its sibling ceiling path in two
 					// ways, and both omissions are load-bearing — do not "fix" either of them.
 					//  (a) NO emitSkipNotice: it only runs while document.hidden, so nobody sees the toast,
@@ -3596,7 +3632,7 @@ class Player {
 			// try the same {artist,title} on the remaining enabled sources. Only after every
 			// source is exhausted does the existing error surface. Generation-guarded so a
 			// newer play() supersedes a stale retry.
-			this.playing = false;
+			this.syncPlaying(); // PLAYSTATE-ICON: element truth, never a bare `false` (quick-261122-npicon)
 			const failed = this.current;
 			if (!failed) {
 				this.error = 'toast.playbackStopped';
@@ -6225,9 +6261,9 @@ class Player {
 		logAction('grow.dry-stop', { attempts: this.dryGrowRetries });
 		this.dryGrowRetries = 0;
 		this.loading = false;
-		this.playing = false;
 		this.disarmStall();
 		this.pauseAudio(); // intentional pause — the `pause` listener must not fight it
+		this.syncPlaying(); // PLAYSTATE-ICON: re-read AFTER the pause (quick-261122-npicon)
 		this.error = 'toast.playbackStopped';
 		this.notice = {
 			kind: 'stopped',
@@ -6496,13 +6532,13 @@ class Player {
 		this.reresolveBurst = 0;
 		this.loadRetryBurst = 0;
 		this.loading = false;
-		this.playing = false;
 		// Cut every out-of-band /api/* fetch source dead so the STOP genuinely stops the spam.
 		this.prefetchController?.abort();
 		this.cancelAllRetryResolves();
 		this.clearDryGrowTimer(); // a queued dry-grow retry would re-arm the churn this STOP just cut
 		this.disarmStall();
 		this.pauseAudio(); // intentional pause — the `pause` listener will not re-play it
+		this.syncPlaying(); // PLAYSTATE-ICON: re-read AFTER the pause (quick-261122-npicon)
 		this.clearMedia();
 		this.error = 'toast.playbackStopped';
 		this.notice = {
