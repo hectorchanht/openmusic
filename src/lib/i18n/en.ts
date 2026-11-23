@@ -1116,6 +1116,7 @@ const en = {
 	"songbeat.keepListening": "Keep listening",
 	"songbeat.ready": "Notes flow with the lyrics — every pad tap is an instrument, note or no note.",
 	"songbeat.gridChart": "Beat grid (no lyrics)",
+	"songbeat.scrollLock": "Scroll lock",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Voice: say what to play",

@@ -12,6 +12,11 @@
 	import { player } from '$lib/stores/player.svelte';
 	import { t, type TranslationKey } from '$lib/i18n';
 	import { tapBounce } from '$lib/actions/tapBounce';
+	// quick-261122-npfix: Song Beat scroll LOCK — auto-pin on round start, a visible top-corner
+	// toggle as its face + manual override (rules: services/songbeat-scroll-lock.ts).
+	import { Lock, LockOpen } from '@lucide/svelte';
+	import { pinScroll } from '$lib/actions/pinScroll';
+	import { nextScrollLock } from '$lib/services/songbeat-scroll-lock';
 	import { readLyrics } from '$lib/stores/lyric-pins.svelte';
 	import { parseLyrics } from '$lib/stores/lyric-script.svelte';
 	import { getEffectiveLyricOffset } from '$lib/stores/lyric-offset.svelte';
@@ -131,6 +136,8 @@
 	let run = $state<Run | null>(null);
 	let runKey = $state('');
 	let endState = $state<'complete' | 'failed' | null>(null);
+	// quick-261122-npfix: the scroll lock (true = the sheet's scroller is pinned under the game).
+	let scrollLocked = $state(false);
 	let cardClosed = $state(false);
 	let best = $state<BestRecord | null>(null);
 	let newBest = $state(false);
@@ -179,6 +186,9 @@
 			// seek-skipped, never mass-missed (§6 derivation) — opening the tab at
 			// 2:00 in must not drain challenge HP to zero on the first frame.
 			if (!endState) seekRun(run, player.liveTime());
+			// quick-261122-npfix: AUTO-PIN — a live round (fresh, or re-entered mid-round) starts
+			// locked; re-entering a finished round's results card leaves the panel scrollable.
+			scrollLocked = nextScrollLock(scrollLocked, endState ? 'roundEnd' : 'roundStart');
 			stats = runStats(run);
 			const mode = challenge ? 'challenge' : 'casual';
 			best = parseBest(lsGet(bestKey(songHash, beat.difficulty, mode)));
@@ -230,6 +240,7 @@
 					endState = null;
 					cardClosed = false;
 					newBest = false;
+					scrollLocked = nextScrollLock(scrollLocked, 'roundStart'); // quick-261122-npfix
 				}
 			}
 			lastT = tNow;
@@ -242,12 +253,14 @@
 			stats = st;
 			if (!endState && st.failed) {
 				endState = 'failed';
+				scrollLocked = nextScrollLock(scrollLocked, 'roundEnd'); // quick-261122-npfix: results scroll
 				if (player.playing) player.toggle(); // HP 0: the music stops with the round (§5.3)
 			} else if (!endState && st.complete && chart) {
 				const lastNote = chart.notes.at(-1);
 				if (lastNote && tNow > lastNote.t + lastNote.dur + 1.2) {
 					endState = 'complete';
 					settleBest(st);
+					scrollLocked = nextScrollLock(scrollLocked, 'roundEnd'); // quick-261122-npfix
 				}
 			}
 		};
@@ -379,6 +392,7 @@
 		endState = null;
 		cardClosed = false;
 		newBest = false;
+		scrollLocked = nextScrollLock(scrollLocked, 'roundStart'); // quick-261122-npfix: AUTO-PIN
 		stats = runStats(run);
 		runPark.delete(runKey);
 	}
@@ -394,7 +408,11 @@
 	}
 </script>
 
-<div class="game">
+<div class="game" use:pinScroll={scrollLocked}>
+	<!-- quick-261122-npfix: the scroll LOCK's visible face (Hector 2026-11-22). Top corner of the
+	     game surface, 44×44, icon = the CURRENT state one-to-one (locked → Lock, unlocked →
+	     LockOpen), aria-pressed mirrors it. A tap is the manual override; a round start re-pins. -->
+	<button type="button" class="lock-toggle" class:on={scrollLocked} aria-pressed={scrollLocked} aria-label={t('songbeat.scrollLock')} title={t('songbeat.scrollLock')} onclick={() => (scrollLocked = nextScrollLock(scrollLocked, 'toggle'))} use:tapBounce>{#if scrollLocked}<Lock size={20} aria-hidden="true" />{:else}<LockOpen size={20} aria-hidden="true" />{/if}</button>
 	<!-- HUD (§3.3): difficulty + skin left, combo centre, score right; the HP bar
 	     renders ONLY in challenge mode — in casual play the slot is absent entirely. -->
 	<div class="hud">
@@ -511,7 +529,11 @@
 
 <style>
 	.game { display: flex; flex-direction: column; gap: 10px; padding: 10px 2px 14px; position: relative; }
-	.hud { display: flex; align-items: baseline; justify-content: space-between; min-height: 22px; }
+	.hud { display: flex; align-items: baseline; justify-content: space-between; min-height: 22px; padding-inline-end: 50px; }
+	/* quick-261122-npfix: the scroll-lock toggle — top corner, 44×44 hit box (DESIGN.md minimum);
+	   the HUD reserves 50px at its end so the score never sits under it. */
+	.lock-toggle { position: absolute; top: 2px; inset-inline-end: 2px; width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border-radius: 50%; border: 1px solid var(--color-border, rgba(255,255,255,0.14)); background: var(--color-surface-2); color: var(--color-text-muted); cursor: pointer; z-index: 2; }
+	.lock-toggle.on { background: var(--color-accent, #00c2b8); border-color: var(--color-accent, #00c2b8); color: #04211f; }
 	.hud-left { font-size: 12px; color: var(--color-text-muted); letter-spacing: 0.04em; }
 	.hud-combo { font-size: 14px; font-weight: 700; color: var(--color-accent, #00c2b8); }
 	.hud-score { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }

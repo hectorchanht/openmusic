@@ -1068,6 +1068,7 @@ const hi: Dict = {
 	"songbeat.keepListening": "सुनते रहें",
 	"songbeat.ready": "नोट्स गीत के साथ बहते हैं — हर टैप एक वाद्य है, नोट हो या न हो।",
 	"songbeat.gridChart": "बीट ग्रिड (बिना बोल)",
+	"songbeat.scrollLock": "स्क्रॉल लॉक",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "आवाज़: बोलें क्या बजाना है",

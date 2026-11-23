@@ -1068,6 +1068,7 @@ const ru: Dict = {
 	"songbeat.keepListening": "Слушать дальше",
 	"songbeat.ready": "Ноты текут вместе с текстом — каждое касание это инструмент, с нотой или без.",
 	"songbeat.gridChart": "Ритмическая сетка (без текста)",
+	"songbeat.scrollLock": "Блокировка прокрутки",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Голос: скажите, что включить",

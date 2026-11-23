@@ -1068,6 +1068,7 @@ const de: Dict = {
 	"songbeat.keepListening": "Weiter hören",
 	"songbeat.ready": "Noten fließen mit dem Text — jeder Tipp ist ein Instrument, mit oder ohne Note.",
 	"songbeat.gridChart": "Beatgitter (keine Lyrics)",
+	"songbeat.scrollLock": "Scrollsperre",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Sprache: sag, was laufen soll",

@@ -1068,6 +1068,7 @@ const es: Dict = {
 	"songbeat.keepListening": "Seguir escuchando",
 	"songbeat.ready": "Las notas fluyen con la letra: cada toque es un instrumento, haya nota o no.",
 	"songbeat.gridChart": "Rejilla rítmica (sin letra)",
+	"songbeat.scrollLock": "Bloqueo de desplazamiento",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Voz: di qué reproducir",

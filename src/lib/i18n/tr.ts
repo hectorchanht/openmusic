@@ -1068,6 +1068,7 @@ const tr: Dict = {
 	"songbeat.keepListening": "Dinlemeye devam",
 	"songbeat.ready": "Notalar sözlerle akar — her dokunuş bir enstrümandır, nota olsun olmasın.",
 	"songbeat.gridChart": "Ritim ızgarası (sözsüz)",
+	"songbeat.scrollLock": "Kaydırma kilidi",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Ses: ne çalınacağını söyle",
