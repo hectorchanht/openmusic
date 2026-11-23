@@ -1451,9 +1451,6 @@ import NpAbout from '$lib/components/NpAbout.svelte';
 		     resolve + a HEAD on every render of the now-playing view, and a format/size readout is not
 		     what was asked for here. -->
 		<span class="t-dl"><DownloadControl track={player.current} size={20}/></span>
-		<!-- quick-261121-beat: the game button — a shortcut to the game tab (selectTab also
-		     opens the sheet from closed), not a second mode (brief §3.1, ONE PATH). -->
-		<button class="t" aria-label={t('nowplaying.game')} title={t('nowplaying.game')} onclick={() => selectTab('game')} use:tapBounce><Gamepad2 size={20} /></button>
 	</div>
 	</div>
 
