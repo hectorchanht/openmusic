@@ -1072,6 +1072,7 @@ const tr: Dict = {
 	"songbeat.skin": "Görünüm",
 	"songbeat.skin.square": "Kare",
 	"songbeat.skin.round": "Yuvarlak",
+	"songbeat.skin.highway": "Otoyol",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Ses: ne çalınacağını söyle",

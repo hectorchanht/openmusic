@@ -1072,6 +1072,7 @@ const id: Dict = {
 	"songbeat.skin": "Skin",
 	"songbeat.skin.square": "Kotak",
 	"songbeat.skin.round": "Bulat",
+	"songbeat.skin.highway": "Jalan Raya",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Suara: ucapkan apa yang diputar",

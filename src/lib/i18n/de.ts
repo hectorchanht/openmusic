@@ -1072,6 +1072,7 @@ const de: Dict = {
 	"songbeat.skin": "Skin",
 	"songbeat.skin.square": "Quadratisch",
 	"songbeat.skin.round": "Rund",
+	"songbeat.skin.highway": "Highway",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Sprache: sag, was laufen soll",

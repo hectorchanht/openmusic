@@ -14,7 +14,7 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	// quick-261122-npfix: Song Beat scroll LOCK — auto-pin on round start, a visible top-corner
 	// toggle as its face + manual override (rules: services/songbeat-scroll-lock.ts).
-	import { Lock, LockOpen, Crosshair, Volume2, Swords, Square, Circle } from '@lucide/svelte';
+	import { Lock, LockOpen, Crosshair, Volume2, Swords, Square, Circle, Columns4 } from '@lucide/svelte';
 	import { pinScroll } from '$lib/actions/pinScroll';
 	import { nextScrollLock } from '$lib/services/songbeat-scroll-lock';
 	import { readLyrics } from '$lib/stores/lyric-pins.svelte';
@@ -25,6 +25,7 @@
 	import {
 		generateChart,
 		createRun,
+		visibleNotes,
 		tapDown,
 		tapUp,
 		advanceRun,
@@ -63,6 +64,7 @@
 	import { SONGBEAT_SKINS, skinDef } from '$lib/services/songbeat-skins';
 	import SongBeatSquareSkin from '$lib/components/SongBeatSquareSkin.svelte';
 	import SongBeatRoundSkin from '$lib/components/SongBeatRoundSkin.svelte';
+	import SongBeatHighwaySkin from '$lib/components/SongBeatHighwaySkin.svelte';
 	import { kick, snare, pluck, shaker } from '$lib/util/haptics';
 
 	// The pane's only parent seam: the results card's "back to lyrics" (the tab itself
@@ -350,6 +352,10 @@
 
 	// ---- derived render helpers ----
 	const displayPads = $derived(padOrder(beat.mirror));
+	// Lane-field skins (Highway / Rain): the visible-note set + display lane order,
+	// re-derived per frame from run state — the skins themselves stay stateless.
+	const fallingNotes = $derived(run ? visibleNotes(run, now, beat.approachSec) : []);
+	const displayLanes = $derived(beat.mirror ? [3, 2, 1, 0] : [0, 1, 2, 3]);
 	const activeLine = $derived(activeLineAt(gameLines, now, lyricOffset));
 	const activeLineText = $derived(activeLine.idx >= 0 ? gameLines[activeLine.idx]?.text ?? '' : '');
 
@@ -437,8 +443,11 @@
 		<p class="ready">{t('songbeat.ready')}</p>
 	{:else}
 		<!-- Skins (brief §2.3, Workstream F): Square is the default renderer; Round is
-		     the circular variant. Both are stateless — switching preserves the run. -->
-		{#if beat.skin === 'round'}
+		     the circular variant; Highway is the four-lane field. All are stateless —
+		     switching preserves the run. -->
+		{#if beat.skin === 'highway'}
+			<SongBeatHighwaySkin notes={fallingNotes} lanes={displayLanes} {pops} {flash} approachSec={beat.approachSec} onPadDown={padDown} onPadUp={padUp} groupLabel={t('nowplaying.game')} />
+		{:else if beat.skin === 'round'}
 			<SongBeatRoundSkin pads={displayPads} {laneOf} {nextNote} {pops} {flash} approachSec={beat.approachSec} onPadDown={padDown} onPadUp={padUp} groupLabel={t('nowplaying.game')} />
 		{:else}
 			<SongBeatSquareSkin pads={displayPads} {laneOf} {nextNote} {pops} {flash} approachSec={beat.approachSec} onPadDown={padDown} onPadUp={padUp} groupLabel={t('nowplaying.game')} />
@@ -456,7 +465,7 @@
 			{#each SONGBEAT_SKINS as def (def.id)}
 				<button type="button" class="icon-btn" class:active={beat.skin === def.id} aria-pressed={beat.skin === def.id}
 					aria-label={t(def.labelKey)} title={t(def.labelKey)}
-					onclick={() => { beat = { ...beat, skin: def.id }; }}>{#if def.id === 'round'}<Circle size={16} aria-hidden="true" />{:else}<Square size={16} aria-hidden="true" />{/if}</button>
+					onclick={() => { beat = { ...beat, skin: def.id }; }}>{#if def.id === 'round'}<Circle size={16} aria-hidden="true" />{:else if def.id === 'highway'}<Columns4 size={16} aria-hidden="true" />{:else}<Square size={16} aria-hidden="true" />{/if}</button>
 			{/each}
 		</div>
 		<div class="seg" role="group" aria-label={t('songbeat.difficulty')}>

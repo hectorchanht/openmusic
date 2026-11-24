@@ -4,16 +4,26 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { SONGBEAT_SKINS, skinDef, skinsInLockedOrder } from './songbeat-skins';
-import { SONGBEAT_SKIN_IDS, parseSongBeatSettings, serializeSongBeatSettings, DEFAULT_SONGBEAT_SETTINGS } from './songbeat';
+import {
+	SONGBEAT_SKIN_IDS,
+	parseSongBeatSettings,
+	serializeSongBeatSettings,
+	DEFAULT_SONGBEAT_SETTINGS,
+	createRun,
+	visibleNotes,
+	type Chart
+} from './songbeat';
 
 const npGame = readFileSync('src/lib/components/NpGame.svelte', 'utf-8');
 
-describe('skin registry — locked order (feel → Square → Round → …)', () => {
-	it('ships square then round, in order, with the core id list in lockstep', () => {
-		expect(SONGBEAT_SKINS.map((d) => d.id)).toEqual(['square', 'round']);
-		expect([...SONGBEAT_SKIN_IDS]).toEqual(['square', 'round']);
+describe('skin registry — locked order (feel → Square → Round → Highway → …)', () => {
+	it('ships square, round, highway, in order, with the core id list in lockstep', () => {
+		expect(SONGBEAT_SKINS.map((d) => d.id)).toEqual(['square', 'round', 'highway']);
+		expect([...SONGBEAT_SKIN_IDS]).toEqual(['square', 'round', 'highway']);
 		expect(skinsInLockedOrder()).toBe(true);
 		expect(skinDef('round').labelKey).toBe('songbeat.skin.round');
+		expect(skinDef('highway').labelKey).toBe('songbeat.skin.highway');
+		expect(skinDef('highway').geometry).toBe('lanes-4');
 	});
 
 	it('default skin is square; settings roundtrip a skin; garbage falls back to square', () => {
@@ -22,6 +32,8 @@ describe('skin registry — locked order (feel → Square → Round → …)', (
 		expect(parseSongBeatSettings('{"skin":"nope"}').skin).toBe('square');
 		const s = parseSongBeatSettings(serializeSongBeatSettings({ ...DEFAULT_SONGBEAT_SETTINGS, skin: 'round' }));
 		expect(s.skin).toBe('round');
+		const h = parseSongBeatSettings(serializeSongBeatSettings({ ...DEFAULT_SONGBEAT_SETTINGS, skin: 'highway' }));
+		expect(h.skin).toBe('highway');
 	});
 });
 
@@ -47,5 +59,59 @@ describe('Round skin — fixed circular geometry (NO STRETCH)', () => {
 		expect(round).toContain('border-radius: 50%');
 		expect(round).toContain('width: 112px; height: 112px');
 		expect(round).toContain('aspect-ratio: 1');
+	});
+});
+
+describe('Highway skin — four lanes on the grow-out skeleton', () => {
+	const highway = readFileSync('src/lib/components/SongBeatHighwaySkin.svelte', 'utf-8');
+	it('NpGame renders it from the shared visible-note derivation', () => {
+		expect(npGame).toContain('SongBeatHighwaySkin');
+		expect(npGame).toContain('visibleNotes(run, now, beat.approachSec)');
+		expect(npGame).toContain("beat.skin === 'highway'");
+	});
+
+	it('the selector gives Highway its own glyph (Icon Status Mapping)', () => {
+		expect(npGame).toContain('Columns4');
+		expect(npGame).toContain("def.id === 'highway'");
+	});
+
+	it('the judge line is the centred border and notes are placed by growOut only', () => {
+		expect(highway).toContain('judge-line');
+		expect(highway).toContain('lane-hit');
+		expect(highway).toContain('growOut(n.signedDt, approachSec)');
+		// Fixed geometry: 280px field, the line at its centre (140px), 18px notes.
+		expect(highway).toContain('height: 280px');
+		expect(highway).toContain('top: 140px');
+		expect(highway).toContain('HALF * (1 + g.offset)');
+	});
+
+	it('lanes render the shared pad ICON, never a visible text label (Workstream H)', () => {
+		expect(highway).toContain("import SongBeatPadIcon from '$lib/components/SongBeatPadIcon.svelte'");
+		expect(highway).toContain('<SongBeatPadIcon pad={lanePad(lane)}');
+		expect(highway).not.toContain('lane-label');
+		expect(highway).toContain('aria-label={PAD_LABEL[lanePad(lane)]}');
+	});
+
+	it('visibleNotes windows pending notes and reports holds', () => {
+		const chart: Chart = {
+			version: 1,
+			source: 'lyric-est',
+			notes: [{ t: 10, lane: 1, type: 'hold', dur: 30, anchor: false }]
+		};
+		const run = createRun(chart, 'standard', false);
+		// Before the approach window: nothing to draw.
+		expect(visibleNotes(run, 0, 1.6)).toEqual([]);
+		// Half-way through the approach: progress ≈ 0.5, signedDt ≈ −0.8.
+		const mid = visibleNotes(run, 9.2, 1.6);
+		expect(mid).toHaveLength(1);
+		expect(mid[0].progress).toBeCloseTo(0.5, 5);
+		expect(mid[0].signedDt).toBeCloseTo(-0.8, 5);
+		expect(mid[0].holding).toBe(false);
+		// At the hit moment: progress 1, signedDt 0 — the border crossing.
+		const at = visibleNotes(run, 10, 1.6);
+		expect(at[0].progress).toBe(1);
+		expect(at[0].signedDt).toBe(0);
+		// Past the miss tail: the note leaves the field (advanceRun settles it in play).
+		expect(visibleNotes(run, 10.3, 1.6)).toEqual([]);
 	});
 });

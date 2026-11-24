@@ -1072,6 +1072,7 @@ const vi: Dict = {
 	"songbeat.skin": "Giao diện",
 	"songbeat.skin.square": "Vuông",
 	"songbeat.skin.round": "Tròn",
+	"songbeat.skin.highway": "Đường cao tốc",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Giọng nói: nói bài muốn phát",

@@ -1072,6 +1072,7 @@ const th: Dict = {
 	"songbeat.skin": "สกิน",
 	"songbeat.skin.square": "สี่เหลี่ยม",
 	"songbeat.skin.round": "วงกลม",
+	"songbeat.skin.highway": "ทางหลวง",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "เสียง: พูดว่าจะเปิดเพลงอะไร",

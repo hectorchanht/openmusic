@@ -1120,6 +1120,7 @@ const en = {
 	"songbeat.skin": "Skin",
 	"songbeat.skin.square": "Square",
 	"songbeat.skin.round": "Round",
+	"songbeat.skin.highway": "Highway",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Voice: say what to play",

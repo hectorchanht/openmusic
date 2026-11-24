@@ -1072,6 +1072,7 @@ const ar: Dict = {
 	"songbeat.skin": "المظهر",
 	"songbeat.skin.square": "مربع",
 	"songbeat.skin.round": "دائري",
+	"songbeat.skin.highway": "الطريق السريع",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "الصوت: قل ما تريد تشغيله",

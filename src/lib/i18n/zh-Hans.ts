@@ -1104,6 +1104,7 @@ const zhHans: Dict = {
 	"songbeat.skin": "皮肤",
 	"songbeat.skin.square": "方形",
 	"songbeat.skin.round": "圆形",
+	"songbeat.skin.highway": "轨道",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "语音：说出想听的歌",

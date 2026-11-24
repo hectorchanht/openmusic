@@ -26,7 +26,8 @@ export interface SongBeatSkinDef {
  *  first entry forever — users who never touch the selector keep Square exactly. */
 export const SONGBEAT_SKINS: readonly SongBeatSkinDef[] = [
 	{ id: 'square', labelKey: 'songbeat.skin.square', geometry: 'pads-2x2' },
-	{ id: 'round', labelKey: 'songbeat.skin.round', geometry: 'pads-2x2' }
+	{ id: 'round', labelKey: 'songbeat.skin.round', geometry: 'pads-2x2' },
+	{ id: 'highway', labelKey: 'songbeat.skin.highway', geometry: 'lanes-4' }
 ];
 
 /** Registry integrity: the defs and the core's selectable ids are the same set, in

@@ -1072,6 +1072,7 @@ const hi: Dict = {
 	"songbeat.skin": "स्किन",
 	"songbeat.skin.square": "वर्ग",
 	"songbeat.skin.round": "गोल",
+	"songbeat.skin.highway": "हाईवे",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "आवाज़: बोलें क्या बजाना है",

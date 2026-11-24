@@ -48,7 +48,7 @@ export const CHART_VERSION = 1;
 // unshipped skin is never selectable and a shipped one never reorders.
 export type SongBeatSkinId = 'square' | 'round' | 'highway' | 'character-catch' | 'pulse' | 'rain';
 
-export const SONGBEAT_SKIN_IDS: readonly SongBeatSkinId[] = ['square', 'round'];
+export const SONGBEAT_SKIN_IDS: readonly SongBeatSkinId[] = ['square', 'round', 'highway'];
 
 export function isSongBeatSkinId(v: unknown): v is SongBeatSkinId {
 	return typeof v === 'string' && (SONGBEAT_SKIN_IDS as readonly string[]).includes(v);
@@ -527,6 +527,61 @@ export function seekRun(run: Run, songTime: number): void {
 			}
 		}
 	}
+}
+
+// ---- visible notes for the lane-field skins (Workstream F: Highway / Rain) ----
+
+export interface VisibleNote {
+	index: number;
+	lane: number;
+	t: number;
+	type: ChartNote['type'];
+	dur: number;
+	/** GROW-OUT input (Hector 2026-11-23 22:09): now − note.t — negative while the
+	 *  note approaches, 0 AT the judge line (the border = PERFECT), positive past it.
+	 *  Lane skins position via growOut(signedDt, approachSec) and nothing else, so
+	 *  travel inside the line mirrors travel outside it exactly. */
+	signedDt: number;
+	/** 0 at the approach-window start → 1 at the hit moment. */
+	progress: number;
+	holding: boolean;
+	/** 0→1 across a hold's duration while it is being held. */
+	holdProgress: number;
+}
+
+/**
+ * Every note a lane-field skin must draw at `now`: pending notes inside
+ * [−MISS_AFTER, +approachSec] of their hit moment, plus holds currently being
+ * held. Resolved notes (hit / missed / skipped) are never returned — the pop and
+ * flash layers carry their feedback. Pure derivation from run state (§6): a
+ * seek or pause re-derives the same field, nothing is cached.
+ */
+export function visibleNotes(run: Run, now: number, approachSec: number): VisibleNote[] {
+	const out: VisibleNote[] = [];
+	const window = approachSec > 0 ? approachSec : 1.6;
+	for (let i = 0; i < run.chart.notes.length; i++) {
+		const n = run.chart.notes[i];
+		const st = run.notes[i].state;
+		if (st === 'holding') {
+			const p = n.dur > 0 ? Math.min(1, Math.max(0, (now - n.t) / n.dur)) : 1;
+			out.push({ index: i, lane: n.lane, t: n.t, type: n.type, dur: n.dur, signedDt: now - n.t, progress: 1, holding: true, holdProgress: p });
+		} else if (st === 'pending') {
+			const dt = n.t - now;
+			if (dt < -MISS_AFTER || dt > window) continue;
+			out.push({
+				index: i,
+				lane: n.lane,
+				t: n.t,
+				type: n.type,
+				dur: n.dur,
+				signedDt: now - n.t,
+				progress: Math.min(1, Math.max(0, 1 - dt / window)),
+				holding: false,
+				holdProgress: 0
+			});
+		}
+	}
+	return out;
 }
 
 // ---- derived stats (§5.2/§5.3) ----
