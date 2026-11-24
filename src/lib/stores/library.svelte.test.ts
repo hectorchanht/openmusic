@@ -904,6 +904,40 @@ describe('library.downloadUidFor (quick-261008-dl1)', () => {
 	});
 });
 
+// quick-261123-dlsrc (Hector 2026-11-23 04:05): download STATUS follows the CURRENT source
+// only — the status twin of downloadUidFor above. Playback bridging (downloadUidFor) is
+// untouched: the old-source file still plays offline and stays in the downloads library.
+describe('library current-source download status (quick-261123-dlsrc)', () => {
+	beforeEach(() => {
+		library.downloads = [];
+		memStore.clear();
+	});
+
+	it('(1) downloaded under source X, current source = Y → not downloaded; menu face is download-from-source only', () => {
+		library.downloads = [mk({ uid: 'qq:1', source: 'qq', artist: '周杰倫', title: '晴天' })];
+		const asY = mk({ uid: 'netease:9', source: 'netease', artist: '周杰倫', title: '晴天' });
+		expect(library.isDownloadedForCurrentSource(asY)).toBe(false);
+		expect(library.downloadUidForCurrentSource(asY)).toBeNull();
+		// …while the song-level playback bridge still resolves the old file, and the
+		// old-source entry remains in the downloads library.
+		expect(library.downloadUidFor(asY)).toBe('qq:1');
+		expect(library.downloads).toHaveLength(1);
+	});
+
+	it('(2) current source = X (the downloaded variant) → downloaded state only', () => {
+		library.downloads = [mk({ uid: 'qq:1', source: 'qq', artist: '周杰倫', title: '晴天' })];
+		const asX = mk({ uid: 'qq:1', source: 'qq', artist: '周杰倫', title: '晴天' });
+		expect(library.isDownloadedForCurrentSource(asX)).toBe(true);
+		expect(library.downloadUidForCurrentSource(asX)).toBe('qq:1');
+	});
+
+	it('null / uid-less tracks are never current-source downloaded', () => {
+		library.downloads = [mk({ uid: 'qq:1', source: 'qq' })];
+		expect(library.isDownloadedForCurrentSource(null)).toBe(false);
+		expect(library.downloadUidForCurrentSource(mk({ uid: '', source: 'qq' }))).toBeNull();
+	});
+});
+
 // quick-261031-dlpersist: the discography Download-all run state — claim-once per artist,
 // progress writes land in the store (so a remounted page re-reads them), release frees the
 // artist for a fresh run. Plus quick-261031-dedup's otherDownloadOf.

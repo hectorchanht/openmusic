@@ -37,7 +37,10 @@
 		// source's uid counts, exactly as the player's offline branch plays it), not this uid alone.
 		track?: Track;
 	} = $props();
-	const dlUid = $derived((track && library.downloadUidFor(track)) || uid);
+	// quick-261123-dlsrc: the ✓ is a STATUS badge — current source only. A twin downloaded
+	// under another source's uid no longer lights this row's badge (downloadUidFor's
+	// song-level bridge remains for offline playback in the player, not for status).
+	const dlUid = $derived((track && library.downloadUidForCurrentSource(track)) || uid);
 
 	// quick-260919-l9e (D-5): the suppression is gated at the $derived, NOT just in the markup — a
 	// badge the row will never draw must not hold a live library subscription either (D-7: these

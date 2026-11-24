@@ -8,6 +8,7 @@ import { writeCoverBoth } from '$lib/stores/cover-version.svelte';
 import { hasHttpsScheme } from '$lib/services/url-safety';
 import { matchKey, dedupeShelfList, isSameShelfSong, sameSongStrings, songKey } from '$lib/services/dedupe';
 import { isDeviceUid } from '$lib/services/device-track';
+import { downloadUidForCurrentSource as currentSourceUid, isDownloadedForCurrentSource as currentSourceDownloaded } from '$lib/components/download-state';
 import { isChineseLine, warmScript } from '$lib/services/zh-convert';
 // quick-261023-syncmerge: tombstone helpers — the `deleted` set lives on the library blob
 // and rides the synced library key (merge-logic.ts owns the namespaces).
@@ -696,6 +697,25 @@ class Library {
 		// downloaded song was "not downloaded" here while addDownload called it a duplicate.
 		const rec = this.downloads.find((d) => !isDeviceUid(d.uid) && isSameShelfSong(d, track));
 		return rec ? rec.uid : null;
+	}
+	/**
+	 * quick-261123-dlsrc (Hector 2026-11-23 04:05) — download STATUS follows the CURRENT
+	 * source/variant only. This is downloadUidFor's STATUS twin, deliberately NOT its
+	 * replacement: downloadUidFor stays song-level for offline PLAYBACK (a twin's file
+	 * playing offline is a feature), but a status surface (TrackMenu download cell,
+	 * DownloadControl, RowBadges, the Detail sheet's file quality) must only claim
+	 * "Downloaded" for the variant the track currently IS — exact uid + same source.
+	 * A same-song download under source X remains in `downloads` (and in the library)
+	 * when the current source is Y; it simply does not surface as Y's status, so the
+	 * menu can never show X's "✓ Downloaded · MP3 · 6.0 MB" beside Y's download action.
+	 * The pure rule lives in components/download-state.ts (isDownloadedForCurrentSource).
+	 */
+	downloadUidForCurrentSource(track: Track | null | undefined): string | null {
+		return currentSourceUid(this.downloads, track ?? null);
+	}
+	/** Boolean form of downloadUidForCurrentSource — the status surfaces' one read. */
+	isDownloadedForCurrentSource(track: Track | null | undefined): boolean {
+		return currentSourceDownloaded(this.downloads, track ?? null);
 	}
 	/**
 	 * 34-D-06 NOTE: this method is the EXPLICIT removal path (library/+page.svelte:162 edit-mode swipe

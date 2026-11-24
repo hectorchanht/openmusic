@@ -145,8 +145,19 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 				return !isDevice || (isDevice && nonCurrent);
 			// quick-261006-44w: the "Download from…" picker as its own item — same gate
 			// as the download button (the picker itself also bails for device tracks).
+			// quick-261123-dlsrc: NEVER beside a current-source Downloaded face — the menu
+			// showed "✓ Downloaded" and "Download from source" at once after a source
+			// switch (Hector 2026-11-23). When the CURRENT source is downloaded the menu
+			// shows the downloaded state only (source switching stays on the Downloaded
+			// cell's long-press, quick-261007-rpl); when it is not, this cell is the
+			// download-from-source action and no downloaded face renders.
 			case 'downloadSource':
-				return !isDevice || (isDevice && nonCurrent);
+				return (
+					(!isDevice || (isDevice && nonCurrent)) &&
+					blobPresent !== true &&
+					!(track && library.isDownloadedForCurrentSource(track)) &&
+					!(track && library.downloading.has(track.uid))
+				);
 			case 'addQueue':
 				return nonCurrent;
 			// quick-261006-44s: playNext lives HERE now, not as an empty render inside its
@@ -1497,7 +1508,10 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	// quick-261008-dl1: resolve through downloadUidFor — a track opened under another source's
 	// uid still reports its downloaded copy's quality.
 	function doDetail(resolved: Track) {
-		const dlUid = library.downloadUidFor(resolved);
+		// quick-261123-dlsrc: the Detail sheet's file quality is a STATUS surface — it must
+		// describe the CURRENT source's file only, never an old source's download record
+		// (downloadUidFor's song-level bridge stays for playback, not for status).
+		const dlUid = library.downloadUidForCurrentSource(resolved);
 		const q = dlUid ? library.qualityForDownload(dlUid) : null;
 		// quick-261102-qtruth: the merge itself is services/display-quality's
 		// withDownloadQuality now — shared with every other quality surface, not a
@@ -1510,7 +1524,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	// already renders a graceful "not resolved" for a missing audioUrl. Open it with the
 	// track as-is.
 	function onDetailTap() {
-		if (track && library.downloadUidFor(track) !== null) { // quick-261102-trh: song-level
+		if (track && library.downloadUidForCurrentSource(track) !== null) { // quick-261123-dlsrc: current-source only (was song-level downloadUidFor, quick-261102-trh)
 			doDetail(track);
 			return;
 		}
@@ -1749,7 +1763,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 					<span class="gi-label">{t('menu.download')}</span>
 					{#if frac !== undefined}<span class="gi-sub">{Math.round(frac * 100)}%</span>{/if}
 				</button>
-			{:else if nonCurrent && (blobPresent === true || library.isDownloaded(tr.uid)) && !library.isUnavailable(tr.uid)}
+			{:else if nonCurrent && (blobPresent === true || library.isDownloadedForCurrentSource(tr)) && !library.isUnavailable(tr.uid)}
 				<!-- quick-261006-mnu: the remove-download face now carries the localMeta sub-label
 				     (F2 parity — a song that IS downloaded says what it is, in the same slot the
 				     probed `FLAC · 38.2 MB` label occupies). localMeta is null for a list-only row.
