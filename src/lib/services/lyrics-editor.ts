@@ -11,7 +11,7 @@
 // promotes the draft out of it.
 
 import { parseLRC, serializeLRC, lineEndAt, type LyricLine } from './lrc';
-import { charSpansFor, explicitCharsMatch, retimeChars, type TimedChar } from './lyric-chars';
+import { charSpansFor, explicitCharsMatch, parseCharStamps, retimeChars, type TimedChar } from './lyric-chars';
 
 /** One editable lyric line: explicit START and END (brief §2.4 line layer). */
 export interface EditorLine {
@@ -82,11 +82,67 @@ export function estimateLines(texts: readonly string[], durationSec: number): Ed
  * Editor lines from existing LRC text (paste/import of a ready .lrc, or editing the current
  * lyrics): real timestamps kept; each line's END is its explicit end when the text carries one,
  * else the next line's start, else the duration (lineEndAt — the one definition).
+ *
+ * quick-261123-untimed — UNTIMED LINES SURVIVE (Hector 2026-11-23: header lines typed into the
+ * raw box above the timed lines — "Sorry呢度係香港 / Song by Billy Choi · 2023" — vanished).
+ * parseLRC drops any line without a timestamp tag, and it stays that way (it is the shared
+ * verbatim display parser); the EDITOR layer keeps the untimed lines instead, in raw order,
+ * and gives each one a time so the serialize → parse round-trip carries it like any other line:
+ *   · with `untimedStartSec` supplied (the component passes the live playhead when this track
+ *     is the playing one — D(i)'s real-time stamp for newly typed lines), every untimed line
+ *     is stamped at that instant, 0.1-snapped;
+ *   · otherwise positional: before the first timed line → 0; between timed lines → the
+ *     previous timed line's end (lineEndAt over the timed lines). Ends then resolve through
+ *     lineEndAt over the combined list, so a header before the first timed line ends exactly
+ *     where that line starts, and an in-between note spans previous-end → next-start.
+ *   · text with NO timed lines at all and no playhead falls back to the estimator's even
+ *     distribution (the same shape a plain-text paste gets), so it is kept, singable and
+ *     round-trips instead of collapsing onto a single instant.
  */
-export function editorLinesFromLrc(lrc: string, durationSec = 0): EditorLine[] {
-	const parsed = parseLRC(lrc ?? '');
-	return parsed.map((l, i) => {
-		const end = lineEndAt(parsed, i, durationSec);
+export function editorLinesFromLrc(lrc: string, durationSec = 0, untimedStartSec?: number): EditorLine[] {
+	const tagRe = /\[\d{1,2}:\d{1,2}(?:\.\d{1,3})?\]/;
+	type RawEntry = { text: string; timed?: LyricLine; timedIdx: number };
+	const entries: RawEntry[] = [];
+	const timedRaw: LyricLine[] = [];
+	for (const raw of (lrc ?? '').split(/\r?\n/)) {
+		if (tagRe.test(raw)) {
+			const parsed = parseLRC(raw);
+			if (!parsed.length) continue; // a tag with no text is not a line (parseLRC's own rule)
+			entries.push({ text: parsed[0].text, timed: parsed[0], timedIdx: timedRaw.length });
+			timedRaw.push(parsed[0]);
+		} else {
+			// Enhanced-LRC character stamps are timing data, never display text (lrc.ts's rule).
+			const cs = parseCharStamps(raw);
+			const text = (cs ? cs.text : raw).trim();
+			if (text) entries.push({ text, timedIdx: -1 });
+		}
+	}
+	if (!entries.length) return [];
+	const hasPlayhead = untimedStartSec !== undefined && Number.isFinite(untimedStartSec);
+	if (!timedRaw.length && !hasPlayhead) {
+		return estimateLines(entries.map((e) => e.text), durationSec);
+	}
+	const playhead = hasPlayhead ? snapTenth(untimedStartSec as number) : 0;
+	const combined: LyricLine[] = entries.map((e) => {
+		if (e.timed) return e.timed;
+		let start: number;
+		if (hasPlayhead) {
+			start = playhead;
+		} else {
+			// The previous TIMED entry in raw order anchors the positional stamp.
+			let prevIdx = -1;
+			for (let k = entries.indexOf(e) - 1; k >= 0; k--) {
+				if (entries[k].timed) {
+					prevIdx = entries[k].timedIdx;
+					break;
+				}
+			}
+			start = prevIdx < 0 ? 0 : lineEndAt(timedRaw, prevIdx, durationSec);
+		}
+		return { time: start, text: e.text };
+	});
+	return combined.map((l, i) => {
+		const end = lineEndAt(combined, i, durationSec);
 		const line: EditorLine = { start: l.time, end, text: l.text };
 		// quick-261122-ugcb4: hand-set character spans survive import / re-edit.
 		if (explicitCharsMatch(l)) line.chars = charSpansFor(l, end);

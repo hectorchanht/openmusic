@@ -105,6 +105,53 @@ describe('start+end round-trip — editor → serialize → parse → editor', (
 	});
 });
 
+describe('editorLinesFromLrc — untimed lines survive (quick-261123-untimed)', () => {
+	// Hector 2026-11-23: header lines typed into the raw box above the timed lines vanished
+	// at derive time — parseLRC drops untimed lines, and the editor was built on it alone.
+	const withHeaders =
+		'Sorry呢度係香港\nSong by Billy Choi · 2023\n[00:05.50]first sung\n[00:10.00]second sung';
+
+	it('headers above the timed lines survive editor → serialize → parse, texts and order intact', () => {
+		const lines = editorLinesFromLrc(withHeaders, 60);
+		expect(lines.map((l) => l.text)).toEqual([
+			'Sorry呢度係香港',
+			'Song by Billy Choi · 2023',
+			'first sung',
+			'second sung'
+		]);
+		// Positional: before the first timed line → start 0, end = that line's start.
+		expect(lines[0]).toMatchObject({ start: 0, end: 5.5 });
+		expect(lines[1]).toMatchObject({ start: 0, end: 5.5 });
+		const back = parseLRC(serializeEditorLines(lines));
+		expect(back.map((l) => l.text)).toEqual(lines.map((l) => l.text));
+	});
+
+	it('an untimed line between timed lines spans previous end → next start', () => {
+		const lines = editorLinesFromLrc('[00:01.00][00:05.50]one\nmiddle note\n[00:10.00]two', 60);
+		expect(lines.map((l) => l.text)).toEqual(['one', 'middle note', 'two']);
+		expect(lines[1]).toMatchObject({ start: 5.5, end: 10 });
+		expect(parseLRC(serializeEditorLines(lines)).map((l) => l.text)).toEqual(['one', 'middle note', 'two']);
+	});
+
+	it('with a playhead supplied, untimed lines are stamped at the playhead (0.1 snap)', () => {
+		const lines = editorLinesFromLrc(withHeaders, 60, 12.34);
+		expect(lines[0]).toMatchObject({ start: 12.3, text: 'Sorry呢度係香港' });
+		expect(lines[1]).toMatchObject({ start: 12.3, text: 'Song by Billy Choi · 2023' });
+		// The timed lines keep their own stamps.
+		expect(lines[2]).toMatchObject({ start: 5.5, text: 'first sung' });
+	});
+
+	it('untimed-only text is kept (estimator distribution, round-trips)', () => {
+		const lines = editorLinesFromLrc('alpha\nbeta', 40);
+		expect(lines.map((l) => l.text)).toEqual(['alpha', 'beta']);
+		expect(lines.map((l) => [l.start, l.end])).toEqual([
+			[0, 20],
+			[20, 40]
+		]);
+		expect(parseLRC(serializeEditorLines(lines)).map((l) => l.text)).toEqual(['alpha', 'beta']);
+	});
+});
+
 describe('pinpoint gestures — drag / nudge / stamp at 0.1s', () => {
 	const line: EditorLine = { start: 10, end: 14, text: 'x' };
 	it('nudge moves one boundary and clamps end above start', () => {

@@ -112,7 +112,7 @@
 			lines = draft.lrc ? editorLinesFromLrc(draft.lrc, duration) : [];
 			estimated = draft.estimated && lines.length > 0;
 		} else if (initialLrc) {
-			lines = editorLinesFromLrc(initialLrc, duration);
+			lines = editorLinesFromLrc(initialLrc, duration, isCurrent ? player.currentTime : undefined);
 			estimated = false;
 		} else {
 			lines = [];
@@ -202,7 +202,10 @@
 			return;
 		}
 		if (looksLikeLrc(rawText)) {
-			lines = editorLinesFromLrc(rawText, duration);
+			// quick-261123-untimed: untimed lines typed into the raw box (headers above the
+			// timed lines) survive the derive — stamped at the live playhead when this track
+			// is the playing one (the real-time stamp), positional otherwise.
+			lines = editorLinesFromLrc(rawText, duration, isCurrent ? player.currentTime : undefined);
 			estimated = false;
 		} else {
 			lines = estimateLines(splitPastedText(rawText), duration);
