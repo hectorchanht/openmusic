@@ -1122,6 +1122,7 @@ const en = {
 	"songbeat.skin.round": "Round",
 	"songbeat.skin.highway": "Highway",
 	"songbeat.skin.characterCatch": "Character-Catch",
+	"songbeat.skin.pulse": "Pulse",
 	"songbeat.charAccuracy": "Character accuracy",
 	"songbeat.charUnavailable": "No lyrics for this song — Character-Catch needs lyrics",
 

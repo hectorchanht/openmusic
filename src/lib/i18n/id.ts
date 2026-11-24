@@ -1074,6 +1074,7 @@ const id: Dict = {
 	"songbeat.skin.round": "Bulat",
 	"songbeat.skin.highway": "Jalan Raya",
 	"songbeat.skin.characterCatch": "Tangkap Karakter",
+	"songbeat.skin.pulse": "Denyut",
 	"songbeat.charAccuracy": "Akurasi karakter",
 	"songbeat.charUnavailable": "Tidak ada lirik — Tangkap Karakter butuh lirik",
 

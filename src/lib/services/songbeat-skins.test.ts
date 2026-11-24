@@ -16,16 +16,18 @@ import {
 
 const npGame = readFileSync('src/lib/components/NpGame.svelte', 'utf-8');
 
-describe('skin registry — locked order (feel → Square → Round → Highway → Character-Catch → …)', () => {
-	it('ships square, round, highway, character-catch, in order, with the core id list in lockstep', () => {
-		expect(SONGBEAT_SKINS.map((d) => d.id)).toEqual(['square', 'round', 'highway', 'character-catch']);
-		expect([...SONGBEAT_SKIN_IDS]).toEqual(['square', 'round', 'highway', 'character-catch']);
+describe('skin registry — locked order (feel → Square → Round → Highway → Character-Catch → Pulse → …)', () => {
+	it('ships square, round, highway, character-catch, pulse, in order, with the core id list in lockstep', () => {
+		expect(SONGBEAT_SKINS.map((d) => d.id)).toEqual(['square', 'round', 'highway', 'character-catch', 'pulse']);
+		expect([...SONGBEAT_SKIN_IDS]).toEqual(['square', 'round', 'highway', 'character-catch', 'pulse']);
 		expect(skinsInLockedOrder()).toBe(true);
 		expect(skinDef('round').labelKey).toBe('songbeat.skin.round');
 		expect(skinDef('highway').labelKey).toBe('songbeat.skin.highway');
 		expect(skinDef('highway').geometry).toBe('lanes-4');
 		expect(skinDef('character-catch').labelKey).toBe('songbeat.skin.characterCatch');
 		expect(skinDef('character-catch').geometry).toBe('lanes-4-chars');
+		expect(skinDef('pulse').labelKey).toBe('songbeat.skin.pulse');
+		expect(skinDef('pulse').geometry).toBe('pulse-ring');
 	});
 
 	it('default skin is square; settings roundtrip a skin; garbage falls back to square', () => {
@@ -38,6 +40,33 @@ describe('skin registry — locked order (feel → Square → Round → Highway 
 		expect(h.skin).toBe('highway');
 		const c = parseSongBeatSettings(serializeSongBeatSettings({ ...DEFAULT_SONGBEAT_SETTINGS, skin: 'character-catch' }));
 		expect(c.skin).toBe('character-catch');
+		const p = parseSongBeatSettings(serializeSongBeatSettings({ ...DEFAULT_SONGBEAT_SETTINGS, skin: 'pulse' }));
+		expect(p.skin).toBe('pulse');
+	});
+});
+
+describe('Pulse skin — one pulsing heart on the grow-out skeleton', () => {
+	const pulse = readFileSync('src/lib/components/SongBeatPulseSkin.svelte', 'utf-8');
+	it('NpGame renders it in the chain with its own selector glyph', () => {
+		expect(npGame).toContain('SongBeatPulseSkin');
+		expect(npGame).toContain("beat.skin === 'pulse'");
+		expect(npGame).toContain('HeartPulse');
+		expect(npGame).toContain("def.id === 'pulse'");
+	});
+
+	it('the stage is a fixed circle whose border is the perfect line; the ring grows by growOut', () => {
+		expect(pulse).toContain('pulse-stage');
+		expect(pulse).toContain('width: 200px; height: 200px');
+		expect(pulse).toContain('border-radius: 50%');
+		expect(pulse).toContain('growOut(stage.signedDt, approachSec)');
+		expect(pulse).toContain('pulse-ring');
+	});
+
+	it('lanes render the shared pad ICON, never a visible text label (Workstream H)', () => {
+		expect(pulse).toContain("import SongBeatPadIcon from '$lib/components/SongBeatPadIcon.svelte'");
+		expect(pulse).toContain('<SongBeatPadIcon {pad}');
+		expect(pulse).not.toContain('pad-label');
+		expect(pulse).toContain('aria-label={PAD_LABEL[pad]}');
 	});
 });
 

@@ -1074,6 +1074,7 @@ const ru: Dict = {
 	"songbeat.skin.round": "Круг",
 	"songbeat.skin.highway": "Шоссе",
 	"songbeat.skin.characterCatch": "Ловля иероглифов",
+	"songbeat.skin.pulse": "Пульс",
 	"songbeat.charAccuracy": "Точность ловли",
 	"songbeat.charUnavailable": "Нет текста — для ловли иероглифов нужен текст",
 

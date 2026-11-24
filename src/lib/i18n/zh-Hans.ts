@@ -1106,6 +1106,7 @@ const zhHans: Dict = {
 	"songbeat.skin.round": "圆形",
 	"songbeat.skin.highway": "轨道",
 	"songbeat.skin.characterCatch": "接字",
+	"songbeat.skin.pulse": "脉冲",
 	"songbeat.charAccuracy": "接字准确率",
 	"songbeat.charUnavailable": "这首歌没歌词，用不了接字",
 
