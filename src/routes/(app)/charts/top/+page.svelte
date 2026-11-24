@@ -17,6 +17,7 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { t } from '$lib/i18n';
+	import { Music2, Users } from '@lucide/svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
 	import SwipeReveal from '$lib/components/SwipeReveal.svelte';
@@ -152,23 +153,29 @@
 
 <PageHeader title={t('charts.topTitle')} backLabel={t('common.back')} showSettings />
 
-<!-- Songs / Artists toggle (UI-SPEC §7.1 — aria-pressed reflects the active toggle). -->
+<!-- Songs / Artists toggle (UI-SPEC §7.1 — aria-pressed reflects the active toggle).
+     Workstream H batch 2 (Dawn-Design §8): icon-only — Music2 = Songs, Users = Artists;
+     the words survive as aria-label + title. Pinned by nav-icon-labels.test.ts. -->
 <div class="tabs">
 	<button
 		type="button"
 		class="tab"
 		aria-pressed={view === 'tracks'}
+		aria-label={t('charts.topTracksTab')}
+		title={t('charts.topTracksTab')}
 		onclick={() => { view = 'tracks'; syncTabUrl('tab', 'tracks', 'tracks'); }}
 	>
-		{t('charts.topTracksTab')}
+		<Music2 size={18} />
 	</button>
 	<button
 		type="button"
 		class="tab"
 		aria-pressed={view === 'artists'}
+		aria-label={t('charts.topArtistsTab')}
+		title={t('charts.topArtistsTab')}
 		onclick={() => { view = 'artists'; syncTabUrl('tab', 'artists', 'tracks'); }}
 	>
-		{t('charts.topArtistsTab')}
+		<Users size={18} />
 	</button>
 </div>
 
@@ -256,9 +263,10 @@
 	/* Songs / Artists toggle */
 	.tabs { display: flex; gap: 8px; margin-bottom: 14px; }
 	.tab {
+		/* Icon-only (H batch 2): fixed 36px square, glyph centred — content never resizes it. */
 		background: var(--color-surface-2); border: 1px solid var(--color-border);
 		color: var(--color-text-muted); border-radius: var(--radius-full);
-		padding: 8px 16px; font-size: 0.8125rem; font-weight: 600; cursor: pointer;
+		width: 36px; height: 36px; padding: 0; display: inline-grid; place-items: center; cursor: pointer;
 		transition: background 0.12s ease, color 0.12s ease;
 	}
 	.tab[aria-pressed='true'] { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ }

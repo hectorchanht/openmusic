@@ -698,17 +698,23 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 			<!-- quick-260919-et3 (D-4): aria-current marks the active destination for assistive tech.
 			     One attribute, no new strings, no visual change — and it improves the announcement on
 			     mobile too, which is why it is the one delta this task makes outside a media query. -->
+			<!-- Workstream H batch 2 (Hector 2026-11-23 22:08, Dawn-Design §8): the tab's
+			     ICON carries the label — the visible word is gone; the name survives as
+			     aria-label + title (the batch-1 Song Beat pattern). Icon-only tabs are
+			     pinned by nav-icon-labels.test.ts. -->
 			<a
 				class="tab"
 				class:active
 				class:desktop-only={tab.desktopOnly}
 				class:mobile-only={tab.mobileOnly}
 				href={tab.href}
+				aria-label={t(tab.labelKey)}
+				title={t(tab.labelKey)}
 				aria-current={active ? 'page' : undefined}
 				onclick={(e) => onTabClick(e, tab.href)}
 				use:tapBounce
 			>
-				<span class="ic"><Icon size={20} fill={active ? 'currentColor' : 'none'} strokeWidth={active ? 1.5 : 2} /></span>{t(tab.labelKey)}
+				<span class="ic"><Icon size={20} fill={active ? 'currentColor' : 'none'} strokeWidth={active ? 1.5 : 2} /></span>
 			</a>
 		{/each}
 	</nav>

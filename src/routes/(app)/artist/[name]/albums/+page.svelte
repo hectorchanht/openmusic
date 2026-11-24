@@ -17,7 +17,8 @@
 	// there is one source of truth for "what order" and "what counts as an album".
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { Download, ListEnd, Play, Share2, Shuffle } from '@lucide/svelte';
+	import { Disc, Disc3, Download, LayoutGrid, ListEnd, Play, Share2, Shuffle } from '@lucide/svelte';
+	import type { Component } from 'svelte';
 	import { names } from '$lib/stores/names.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { player } from '$lib/stores/player.svelte';
@@ -68,10 +69,12 @@
 
 	const shown = $derived(filterByType(albums, filter));
 
-	const FILTERS: { id: DiscographyFilter; key: TranslationKey }[] = [
-		{ id: 'main', key: 'artist.filterMain' },
-		{ id: 'single', key: 'artist.filterSingle' },
-		{ id: 'all', key: 'artist.filterAll' }
+	// Workstream H batch 2 (Dawn-Design §8): each filter chip is icon-only — Disc3 =
+	// Albums & EPs, Disc = Singles, LayoutGrid = All; the word survives as aria-label + title.
+	const FILTERS: { id: DiscographyFilter; key: TranslationKey; icon: Component }[] = [
+		{ id: 'main', key: 'artist.filterMain', icon: Disc3 },
+		{ id: 'single', key: 'artist.filterSingle', icon: Disc },
+		{ id: 'all', key: 'artist.filterAll', icon: LayoutGrid }
 	];
 
 	// Pack header: year range of the CURRENTLY SHOWN list (respects the filter).
@@ -343,13 +346,16 @@
 
 <div class="chips" role="tablist">
 	{#each FILTERS as f (f.id)}
+		{@const FIcon = f.icon}
 		<button
 			class="chip"
 			class:on={filter === f.id}
 			role="tab"
 			aria-selected={filter === f.id}
+			aria-label={t(f.key)}
+			title={t(f.key)}
 			onclick={() => { filter = f.id; syncTabUrl('tab', f.id, 'main'); }}
-			use:tapBounce>{t(f.key)}</button
+			use:tapBounce><FIcon size={16} /></button
 		>
 	{/each}
 </div>
@@ -410,7 +416,7 @@
 	/* quick-261007-hscroll: hide the scrollbar — same idiom as .artist-tiles on /search. */
 	.chips { display: flex; gap: 8px; padding: 10px 4px 4px; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; }
 	.chips::-webkit-scrollbar { display: none; width: 0; }
-	.chip { flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--color-border); background: none; color: var(--color-text-muted); font-size: 0.8rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+	.chip { flex: 0 0 auto; width: 32px; height: 32px; padding: 0; display: inline-grid; place-items: center; border-radius: 999px; border: 1px solid var(--color-border); background: none; color: var(--color-text-muted); cursor: pointer; }
 	.chip.on { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ }
 
 	.list { list-style: none; margin: 8px 0 0; padding: 0 0 32px; }
