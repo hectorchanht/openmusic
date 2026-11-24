@@ -1069,6 +1069,9 @@ const vi: Dict = {
 	"songbeat.ready": "Nốt chảy theo lời bài hát — mỗi lần chạm là một nhạc cụ, có nốt hay không.",
 	"songbeat.gridChart": "Lưới nhịp (không có lời)",
 	"songbeat.scrollLock": "Khóa cuộn",
+	"songbeat.skin": "Giao diện",
+	"songbeat.skin.square": "Vuông",
+	"songbeat.skin.round": "Tròn",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Giọng nói: nói bài muốn phát",

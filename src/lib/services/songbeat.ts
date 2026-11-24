@@ -41,6 +41,19 @@ export const MIN_INTERVAL: Record<Difficulty, number> = {
 
 export const CHART_VERSION = 1;
 
+// ---- skins (brief §2.2/§2.3, Workstream F — skins are RENDERERS over this core) ----
+// Skin application order is LOCKED (feel → Square → Round → Highway → Character-Catch →
+// Pulse → Rain): SONGBEAT_SKIN_IDS grows by exactly one entry per shipped skin, in that
+// order, and the selector (services/songbeat-skins.ts) is driven by this list — an
+// unshipped skin is never selectable and a shipped one never reorders.
+export type SongBeatSkinId = 'square' | 'round' | 'highway' | 'character-catch' | 'pulse' | 'rain';
+
+export const SONGBEAT_SKIN_IDS: readonly SongBeatSkinId[] = ['square', 'round'];
+
+export function isSongBeatSkinId(v: unknown): v is SongBeatSkinId {
+	return typeof v === 'string' && (SONGBEAT_SKIN_IDS as readonly string[]).includes(v);
+}
+
 // ---- chart model (§4) ----
 
 export interface ChartNote {
@@ -568,6 +581,9 @@ export function runStats(run: Run): RunStats {
 // ---- settings (§7) ----
 
 export interface SongBeatSettings {
+	/** Active skin (brief §2.3) — a renderer choice only; switching mid-run preserves
+	 *  every note state because skins own no run state (§2.2). Default 'square'. */
+	skin: SongBeatSkinId;
 	difficulty: Difficulty;
 	/** 挑戰模式 — the fail state lives here, default OFF (Amendment C). */
 	challenge: boolean;
@@ -581,6 +597,7 @@ export const SONGBEAT_SETTINGS_KEY = 'openmusic:songbeat:v1';
 export const APPROACH_OPTIONS: readonly number[] = [2.0, 1.6, 1.25];
 
 export const DEFAULT_SONGBEAT_SETTINGS: SongBeatSettings = {
+	skin: 'square',
 	difficulty: 'standard',
 	challenge: false,
 	approachSec: 1.6,
@@ -595,6 +612,7 @@ export function parseSongBeatSettings(raw: string | null): SongBeatSettings {
 	try {
 		const v = JSON.parse(raw) as Partial<SongBeatSettings>;
 		return {
+			skin: isSongBeatSkinId(v.skin) ? v.skin : d.skin,
 			difficulty: DIFFICULTIES.includes(v.difficulty as Difficulty) ? (v.difficulty as Difficulty) : d.difficulty,
 			challenge: typeof v.challenge === 'boolean' ? v.challenge : d.challenge,
 			approachSec:

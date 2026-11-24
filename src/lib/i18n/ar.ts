@@ -1069,6 +1069,9 @@ const ar: Dict = {
 	"songbeat.ready": "تتدفق النغمات مع الكلمات — كل نقرة آلة موسيقية، بنغمة أو بدونها.",
 	"songbeat.gridChart": "شبكة إيقاع (بدون كلمات)",
 	"songbeat.scrollLock": "قفل التمرير",
+	"songbeat.skin": "المظهر",
+	"songbeat.skin.square": "مربع",
+	"songbeat.skin.round": "دائري",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "الصوت: قل ما تريد تشغيله",

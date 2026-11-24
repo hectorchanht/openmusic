@@ -1069,6 +1069,9 @@ const de: Dict = {
 	"songbeat.ready": "Noten fließen mit dem Text — jeder Tipp ist ein Instrument, mit oder ohne Note.",
 	"songbeat.gridChart": "Beatgitter (keine Lyrics)",
 	"songbeat.scrollLock": "Scrollsperre",
+	"songbeat.skin": "Skin",
+	"songbeat.skin.square": "Quadratisch",
+	"songbeat.skin.round": "Rund",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Sprache: sag, was laufen soll",

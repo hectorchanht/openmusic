@@ -1101,6 +1101,9 @@ const zhHant: Dict = {
 	"songbeat.ready": "音符跟住歌詞流落嚟 — 每一擊都係樂器，有冇音符都出聲。",
 	"songbeat.gridChart": "節拍格（無歌詞）",
 	"songbeat.scrollLock": "鎖定捲動",
+	"songbeat.skin": "皮膚",
+	"songbeat.skin.square": "方形",
+	"songbeat.skin.round": "圓形",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "語音：講出想聽嘅歌",

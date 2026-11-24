@@ -58,6 +58,11 @@
 		type TapAlongSettings
 	} from '$lib/services/tapalong';
 	import { playPadSound, unlockSynth, setSynthVolume } from '$lib/util/tap-synth';
+	// Workstream F: skin registry + renderers (brief §2.2) — the selector below is
+	// registry-driven; each skin is a stateless component under SongBeat*Skin.svelte.
+	import { SONGBEAT_SKINS, skinDef } from '$lib/services/songbeat-skins';
+	import SongBeatSquareSkin from '$lib/components/SongBeatSquareSkin.svelte';
+	import SongBeatRoundSkin from '$lib/components/SongBeatRoundSkin.svelte';
 	import { kick, snare, pluck, shaker } from '$lib/util/haptics';
 
 	// The pane's only parent seam: the results card's "back to lyrics" (the tab itself
@@ -372,7 +377,6 @@
 		return pad === 'kick' ? 0 : pad === 'snare' ? 1 : pad === 'pluck' ? 2 : 3;
 	}
 
-	const PAD_LABEL: Record<PadId, string> = { kick: 'KICK', snare: 'SNARE', pluck: 'PLUCK', shaker: 'SHAKER' };
 	const DIFF_KEY: Record<Difficulty, TranslationKey> = {
 		relaxed: 'songbeat.relaxed',
 		standard: 'songbeat.standard',
@@ -416,7 +420,7 @@
 	<!-- HUD (§3.3): difficulty + skin left, combo centre, score right; the HP bar
 	     renders ONLY in challenge mode — in casual play the slot is absent entirely. -->
 	<div class="hud">
-		<span class="hud-left">{t(DIFF_KEY[beat.difficulty])}{#if chart?.source === 'grid'} · {t('songbeat.gridChart')}{/if}</span>
+		<span class="hud-left">{t(DIFF_KEY[beat.difficulty])} · {t(skinDef(beat.skin).labelKey)}{#if chart?.source === 'grid'} · {t('songbeat.gridChart')}{/if}</span>
 		<span class="hud-combo">{#if (stats?.combo ?? 0) >= 2}{stats?.combo} {t('songbeat.combo')}{/if}</span>
 		<span class="hud-score">{(stats?.score ?? 0).toLocaleString()}</span>
 	</div>
@@ -429,44 +433,23 @@
 	{#if !track}
 		<p class="ready">{t('songbeat.ready')}</p>
 	{:else}
-		<!-- Skin A — Square Pads (§2.3): the Tap-Along deck geometry, 2×2 fixed pads.
-		     The approach ring converges on the pad; holds fill the pad. -->
-		<div class="deck" role="group" aria-label={t('nowplaying.game')}>
-			{#each displayPads as pad (pad)}
-				{@const lane = laneOf(pad)}
-				{@const next = nextNote(lane)}
-				{@const pop = pops[lane]}
-				{@const fl = flash[lane]}
-				<button
-					type="button"
-					class="pad"
-					class:flash-perfect={fl?.j === 'perfect'}
-					class:flash-great={fl?.j === 'great'}
-					class:flash-good={fl?.j === 'good'}
-					class:flash-miss={fl?.j === 'miss'}
-					aria-label={PAD_LABEL[pad]}
-					onpointerdown={(e) => padDown(lane, e)}
-					onpointerup={() => padUp(lane)}
-					onpointercancel={() => padUp(lane)}
-					use:tapBounce
-				>
-					{#if next && !next.hold}
-						<span class="ring" style:transform={`scale(${1.45 - 0.45 * next.progress})`} style:opacity={0.25 + 0.75 * next.progress}></span>
-					{/if}
-					{#if next?.hold}
-						<span class="holdfill" style:height={`${next.progress * 100}%`}></span>
-					{/if}
-					<span class="pad-label">{PAD_LABEL[pad]}</span>
-					{#if pop}
-						{#key pop.seq}<span class="pop {pop.cls}">{pop.text}{#if pop.hint}<small>{pop.hint}</small>{/if}</span>{/key}
-					{/if}
-				</button>
-			{/each}
-		</div>
+		<!-- Skins (brief §2.3, Workstream F): Square is the default renderer; Round is
+		     the circular variant. Both are stateless — switching preserves the run. -->
+		{#if beat.skin === 'round'}
+			<SongBeatRoundSkin pads={displayPads} {laneOf} {nextNote} {pops} {flash} onPadDown={padDown} onPadUp={padUp} groupLabel={t('nowplaying.game')} />
+		{:else}
+			<SongBeatSquareSkin pads={displayPads} {laneOf} {nextNote} {pops} {flash} onPadDown={padDown} onPadUp={padUp} groupLabel={t('nowplaying.game')} />
+		{/if}
 	{/if}
 
 	<!-- Toolbar (§7): every game setting at the point of use, never in global Settings. -->
 	<div class="toolbar">
+		<div class="seg" role="group" aria-label={t('songbeat.skin')}>
+			{#each SONGBEAT_SKINS as def (def.id)}
+				<button type="button" class:active={beat.skin === def.id} aria-pressed={beat.skin === def.id}
+					onclick={() => { beat = { ...beat, skin: def.id }; }}>{t(def.labelKey)}</button>
+			{/each}
+		</div>
 		<div class="seg" role="group" aria-label={t('songbeat.difficulty')}>
 			{#each ['relaxed', 'standard', 'fever', 'hell'] as d (d)}
 				<button type="button" class:active={beat.difficulty === d} aria-pressed={beat.difficulty === d}
@@ -541,23 +524,6 @@
 	.hp-fill { height: 100%; background: var(--color-accent, #00c2b8); border-radius: 3px; transition: width 0.18s linear; }
 	.lyric-strip { min-height: 20px; text-align: center; font-size: 14px; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.ready { text-align: center; color: var(--color-text-muted); font-size: 13px; padding: 18px 8px; }
-	.deck { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-	.pad { position: relative; height: 104px; border-radius: 14px; border: 1px solid var(--color-border, rgba(255,255,255,0.14)); background: var(--color-surface-2); color: var(--color-text); overflow: hidden; touch-action: none; cursor: pointer; }
-	.pad:active { background: var(--color-surface-3, var(--color-surface-2)); }
-	.pad-label { position: relative; z-index: 2; font-size: 13px; font-weight: 800; letter-spacing: 0.14em; }
-	.ring { position: absolute; inset: 6px; border: 2px solid var(--color-accent, #00c2b8); border-radius: 10px; pointer-events: none; z-index: 1; }
-	.holdfill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--color-accent, #00c2b8); opacity: 0.35; pointer-events: none; z-index: 0; }
-	.flash-perfect { border-color: var(--color-accent, #00c2b8); box-shadow: 0 0 0 2px var(--color-accent, #00c2b8) inset; }
-	.flash-great { border-color: var(--color-accent, #00c2b8); }
-	.flash-good { border-color: var(--color-text-muted); }
-	.flash-miss { border-color: #e5484d; }
-	.pop { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); z-index: 3; font-size: 15px; font-weight: 900; letter-spacing: 0.06em; pointer-events: none; animation: popfade 0.7s ease-out forwards; white-space: nowrap; }
-	.pop small { display: block; text-align: center; font-size: 10px; font-weight: 600; color: var(--color-text-muted); }
-	.pop.perfect { color: var(--color-accent, #00c2b8); }
-	.pop.great { color: var(--color-text); }
-	.pop.good { color: var(--color-text-muted); }
-	.pop.miss { color: #e5484d; }
-	@keyframes popfade { 0% { opacity: 0; transform: translateX(-50%) translateY(4px); } 15% { opacity: 1; transform: translateX(-50%) translateY(0); } 70% { opacity: 1; } 100% { opacity: 0; } }
 	.toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
 	.seg { display: inline-flex; border: 1px solid var(--color-border, rgba(255,255,255,0.14)); border-radius: 999px; overflow: hidden; }
 	.seg button { padding: 6px 10px; font-size: 12px; background: transparent; color: var(--color-text-muted); border: 0; cursor: pointer; }

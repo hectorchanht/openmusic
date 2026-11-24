@@ -1101,6 +1101,9 @@ const zhHans: Dict = {
 	"songbeat.ready": "音符跟着歌词流下来 — 每一击都是乐器，有没有音符都出声。",
 	"songbeat.gridChart": "节拍格（无歌词）",
 	"songbeat.scrollLock": "锁定滚动",
+	"songbeat.skin": "皮肤",
+	"songbeat.skin.square": "方形",
+	"songbeat.skin.round": "圆形",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "语音：说出想听的歌",

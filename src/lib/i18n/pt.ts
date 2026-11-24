@@ -1069,6 +1069,9 @@ const pt: Dict = {
 	"songbeat.ready": "As notas fluem com a letra — cada toque é um instrumento, com nota ou não.",
 	"songbeat.gridChart": "Grade de ritmo (sem letra)",
 	"songbeat.scrollLock": "Bloqueio de rolagem",
+	"songbeat.skin": "Skin",
+	"songbeat.skin.square": "Quadrado",
+	"songbeat.skin.round": "Redondo",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Voz: diga o que tocar",

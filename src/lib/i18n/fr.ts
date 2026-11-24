@@ -1069,6 +1069,9 @@ const fr: Dict = {
 	"songbeat.ready": "Les notes coulent avec les paroles — chaque frappe est un instrument, note ou pas.",
 	"songbeat.gridChart": "Grille rythmique (sans paroles)",
 	"songbeat.scrollLock": "Verrouillage du défilement",
+	"songbeat.skin": "Apparence",
+	"songbeat.skin.square": "Carré",
+	"songbeat.skin.round": "Rond",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Voix : dites quoi jouer",

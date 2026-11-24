@@ -357,7 +357,8 @@ describe('bests per mode (§5.4)', () => {
 
 describe('settings + chart cache (§7/§4.2)', () => {
 	it('settings roundtrip; garbage falls back per-field; calibration clamps', () => {
-		const s = parseSongBeatSettings(serializeSongBeatSettings({ difficulty: 'hell', challenge: true, approachSec: 1.25, calibrationMs: 999, mirror: true }));
+		const s = parseSongBeatSettings(serializeSongBeatSettings({ skin: 'round', difficulty: 'hell', challenge: true, approachSec: 1.25, calibrationMs: 999, mirror: true }));
+		expect(s.skin).toBe('round');
 		expect(s.difficulty).toBe('hell');
 		expect(s.challenge).toBe(true);
 		expect(s.calibrationMs).toBe(150);

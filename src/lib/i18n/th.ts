@@ -1069,6 +1069,9 @@ const th: Dict = {
 	"songbeat.ready": "โน้ตไหลไปพร้อมเนื้อเพลง — ทุกการแตะคือเครื่องดนตรี มีโน้ตหรือไม่มีก็ดัง",
 	"songbeat.gridChart": "ตารางจังหวะ (ไม่มีเนื้อเพลง)",
 	"songbeat.scrollLock": "ล็อกการเลื่อน",
+	"songbeat.skin": "สกิน",
+	"songbeat.skin.square": "สี่เหลี่ยม",
+	"songbeat.skin.round": "วงกลม",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "เสียง: พูดว่าจะเปิดเพลงอะไร",

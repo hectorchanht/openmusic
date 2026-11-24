@@ -1069,6 +1069,9 @@ const id: Dict = {
 	"songbeat.ready": "Not mengalir mengikuti lirik — setiap ketukan adalah instrumen, ada not atau tidak.",
 	"songbeat.gridChart": "Grid ketukan (tanpa lirik)",
 	"songbeat.scrollLock": "Kunci gulir",
+	"songbeat.skin": "Skin",
+	"songbeat.skin.square": "Kotak",
+	"songbeat.skin.round": "Bulat",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Suara: ucapkan apa yang diputar",
