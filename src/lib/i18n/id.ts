@@ -975,8 +975,8 @@ const id: Dict = {
 	"free.shot.settingsAlt": "Pengaturan OpenMusic: 15 bahasa, tema Gelap, Terang, Gold dan Sakura, warna aksen dan ukuran teks",
 	"free.shot.listCaption": "Pemutaran, unduhan, tampilan, terjemahan, data… semua bisa kamu atur.",
 	"free.shot.listAlt": "Daftar pengaturan OpenMusic: Akun, Pemutaran, Unduhan, Tampilan, Tata letak Beranda, Terjemahan, Data, Log aktivitas dan Tentang",
-	"free.shot.homeCaption": "Lagu sungguhan di Beranda. Tanpa akun, tanpa iklan — hanya satu baris Bersponsor berlabel.",
-	"free.shot.homeAlt": "Beranda OpenMusic: baris Bersponsor berlabel, bilah pencarian, dan rak lagu sungguhan",
+	"free.shot.homeCaption": "Lagu sungguhan di Beranda. Tanpa akun, tanpa iklan, tanpa sponsor — hanya tip jar sukarela jika Anda ingin mendukung pengembang secara pribadi.",
+	"free.shot.homeAlt": "Beranda OpenMusic: tombol tip jar sukarela di header, bilah pencarian, dan rak lagu sungguhan",
 
 	// --- lyrics editor (quick-261120-ugcb2) ---
 	"nowplaying.addLyrics": "Tambah lirik",

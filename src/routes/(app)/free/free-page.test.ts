@@ -66,6 +66,19 @@ describe('/free page', () => {
 		}
 	});
 
+	it('home shot caption tells the tip-jar-only truth (Hector 2026-11-23: no sponsorships, only direct personal donations)', () => {
+		// Failing-if-broken pin for Workstream A: the old caption claimed "the one
+		// labelled Sponsored row" — that row is gone. The caption AND the alt text
+		// must say no ads, no sponsorships, and name the voluntary tip jar instead.
+		expect(en['free.shot.homeCaption']).toMatch(/no ads/i);
+		expect(en['free.shot.homeCaption']).toMatch(/no sponsorships/i);
+		expect(en['free.shot.homeCaption']).toMatch(/voluntary tip jar/i);
+		expect(en['free.shot.homeCaption']).toMatch(/developer personally/i);
+		expect(en['free.shot.homeCaption']).not.toMatch(/labelled Sponsored row/);
+		expect(en['free.shot.homeAlt']).toMatch(/voluntary tip jar/i);
+		expect(en['free.shot.homeAlt']).not.toMatch(/Sponsored row/);
+	});
+
 	it('copy stays honest: resume scope matches the code, radio is not called AI, no invented prices', () => {
 		const free = Object.entries(en).filter(([k]) => k.startsWith('free.'));
 		const all = free.map(([, v]) => v).join('\n');

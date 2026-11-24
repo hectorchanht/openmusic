@@ -975,8 +975,8 @@ const de: Dict = {
 	"free.shot.settingsAlt": "OpenMusic-Einstellungen: 15 Sprachen, Designs Dunkel, Hell, Gold und Sakura, Akzentfarben und Textgröße",
 	"free.shot.listCaption": "Wiedergabe, Downloads, Darstellung, Übersetzung, Daten… alles nach deinem Geschmack.",
 	"free.shot.listAlt": "OpenMusic-Einstellungsliste: Konto, Wiedergabe, Downloads, Darstellung, Startseiten-Layout, Übersetzung, Daten, Aktivitätsprotokoll und Info",
-	"free.shot.homeCaption": "Echte Titel auf der Startseite. Kein Konto, keine Werbung — nur die eine gekennzeichnete Gesponsert-Zeile.",
-	"free.shot.homeAlt": "OpenMusic-Startseite: die gekennzeichnete Gesponsert-Zeile, die Suchleiste und Regale mit echten Titeln",
+	"free.shot.homeCaption": "Echte Titel auf der Startseite. Kein Konto, keine Werbung, keine Sponsorings — nur ein freiwilliges Trinkgeldglas, wenn du den Entwickler persönlich unterstützen willst.",
+	"free.shot.homeAlt": "OpenMusic-Startseite: die freiwillige Trinkgeldglas-Schaltfläche in der Kopfzeile, die Suchleiste und Regale mit echten Titeln",
 
 	// --- lyrics editor (quick-261120-ugcb2) ---
 	"nowplaying.addLyrics": "Songtext hinzufügen",

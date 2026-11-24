@@ -1007,8 +1007,8 @@ const zhHant: Dict = {
 	"free.shot.settingsAlt": "OpenMusic 設定:15 種介面語言、深色/淺色/金色/櫻色主題、強調色及文字大小",
 	"free.shot.listCaption": "播放、下載、外觀、翻譯、資料……全部任你調整。",
 	"free.shot.listAlt": "OpenMusic 設定列表:帳號、播放、下載、外觀、首頁版面、翻譯、資料、活動記錄及關於",
-	"free.shot.homeCaption": "首頁上是真實的歌曲。不用帳號,沒有廣告 — 只有一行標明的贊助。",
-	"free.shot.homeAlt": "OpenMusic 首頁:標明的贊助行、搜尋列,以及真實歌曲的精選推薦",
+	"free.shot.homeCaption": "首頁上是真實的歌曲。不用帳號,沒有廣告,也沒有贊助 — 只有一個自願的小費罐,供你親自支持開發者。",
+	"free.shot.homeAlt": "OpenMusic 首頁:頁首的自願小費罐按鈕、搜尋列,以及真實歌曲的精選推薦",
 
 	// --- lyrics editor (quick-261120-ugcb2) ---
 	"nowplaying.addLyrics": "新增歌詞",

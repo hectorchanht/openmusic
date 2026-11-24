@@ -975,8 +975,8 @@ const tr: Dict = {
 	"free.shot.settingsAlt": "OpenMusic Ayarları: 15 dil, Koyu, Açık, Gold ve Sakura temaları, vurgu renkleri ve yazı boyutu",
 	"free.shot.listCaption": "Çalma, indirmeler, görünüm, çeviri, veri… hepsi senin ayarına göre.",
 	"free.shot.listAlt": "OpenMusic ayar listesi: Hesap, Çalma, İndirmeler, Görünüm, Ana sayfa düzeni, Çeviri, Veri, Etkinlik günlüğü ve Hakkında",
-	"free.shot.homeCaption": "Ana sayfada gerçek şarkılar. Hesap yok, reklam yok — sadece etiketli tek bir Sponsorlu satırı.",
-	"free.shot.homeAlt": "OpenMusic Ana sayfası: etiketli Sponsorlu satırı, arama çubuğu ve gerçek şarkı rafları",
+	"free.shot.homeCaption": "Ana sayfada gerçek şarkılar. Hesap yok, reklam yok, sponsorluk yok — sadece geliştiriciyi kişisel olarak desteklemek isterseniz gönüllü bir bahşiş kavanozu.",
+	"free.shot.homeAlt": "OpenMusic Ana sayfası: üst bilgideki gönüllü bahşiş düğmesi, arama çubuğu ve gerçek şarkı rafları",
 
 	// --- lyrics editor (quick-261120-ugcb2) ---
 	"nowplaying.addLyrics": "Şarkı sözü ekle",

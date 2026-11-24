@@ -1023,8 +1023,8 @@ const en = {
 	"free.shot.settingsAlt": "OpenMusic Settings: 15 app languages, Dark, Light, Gold and Sakura themes, accent colours and app text size",
 	"free.shot.listCaption": "Playback, downloads, appearance, translation, data… all yours to tune.",
 	"free.shot.listAlt": "OpenMusic Settings list: Account, Playback, Downloads, Appearance, Home layout, Translation, Data, Activity log and About",
-	"free.shot.homeCaption": "Real songs on Home. No account, no ads — just the one labelled Sponsored row.",
-	"free.shot.homeAlt": "OpenMusic Home: the labelled Sponsored row, the search bar and Top picks shelves of real songs",
+	"free.shot.homeCaption": "Real songs on Home. No account, no ads, no sponsorships — only a voluntary tip jar if you want to support the developer personally.",
+	"free.shot.homeAlt": "OpenMusic Home: the voluntary tip jar pill in the header, the search bar and Top picks shelves of real songs",
 
 	// --- lyrics editor (quick-261120-ugcb2) ---
 	"nowplaying.addLyrics": "Add lyrics",

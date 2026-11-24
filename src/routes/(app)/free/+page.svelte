@@ -58,6 +58,10 @@
 	// quick-261118-freeshots (Hector via Muse: SHOW, DON'T TELL): real captures of the live app,
 	// shipped untouched in static/show/ — cover tiles show the app's own gradient fallback because
 	// the capture sandbox could not reach the image hosts; that is a real app state, not retouched.
+	// shot-home.webp RECAPTURED 2026-11-23 (Hector 2026-11-23 tip-jar-only ruling): the previous
+	// capture still showed the retired sponsored row with its referral pills; the new capture is
+	// a real headless-Chromium shot of a local production build's Home — header holds ONLY the
+	// gold ☕ Tip jar pill, no sponsored row — at the same 2560×1600 size.
 	// Settings first (the depth story), then the settings list, then Home. 2560×1600 sources; the
 	// width/height attrs reserve the 16:10 box so nothing shifts while they lazy-load.
 	const SHOTS: { src: string; caption: TranslationKey; alt: TranslationKey }[] = [

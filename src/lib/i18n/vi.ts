@@ -975,8 +975,8 @@ const vi: Dict = {
 	"free.shot.settingsAlt": "Cài đặt OpenMusic: 15 ngôn ngữ, giao diện Tối, Sáng, Gold và Sakura, màu nhấn và cỡ chữ",
 	"free.shot.listCaption": "Phát nhạc, tải xuống, giao diện, dịch, dữ liệu… tất cả tùy bạn chỉnh.",
 	"free.shot.listAlt": "Danh sách cài đặt OpenMusic: Tài khoản, Phát nhạc, Tải xuống, Giao diện, Bố cục Trang chủ, Dịch, Dữ liệu, Nhật ký hoạt động và Giới thiệu",
-	"free.shot.homeCaption": "Bài hát thật trên Trang chủ. Không tài khoản, không quảng cáo — chỉ một hàng Được tài trợ được ghi rõ.",
-	"free.shot.homeAlt": "Trang chủ OpenMusic: hàng Được tài trợ được ghi rõ, thanh tìm kiếm và các kệ bài hát thật",
+	"free.shot.homeCaption": "Bài hát thật trên Trang chủ. Không tài khoản, không quảng cáo, không tài trợ — chỉ một hũ tip tự nguyện nếu bạn muốn ủng hộ trực tiếp nhà phát triển.",
+	"free.shot.homeAlt": "Trang chủ OpenMusic: nút hũ tip tự nguyện ở đầu trang, thanh tìm kiếm và các kệ bài hát thật",
 
 	// --- lyrics editor (quick-261120-ugcb2) ---
 	"nowplaying.addLyrics": "Thêm lời bài hát",

@@ -1007,8 +1007,8 @@ const zhHans: Dict = {
 	"free.shot.settingsAlt": "OpenMusic 设置:15 种界面语言、深色/浅色/金色/樱色主题、强调色和文字大小",
 	"free.shot.listCaption": "播放、下载、外观、翻译、数据……全部任你调整。",
 	"free.shot.listAlt": "OpenMusic 设置列表:账号、播放、下载、外观、首页布局、翻译、数据、活动日志和关于",
-	"free.shot.homeCaption": "首页上是真实的歌曲。不用账号,没有广告 — 只有一行标明的赞助。",
-	"free.shot.homeAlt": "OpenMusic 首页:标明的赞助行、搜索栏,以及真实歌曲的精选推荐",
+	"free.shot.homeCaption": "首页上是真实的歌曲。不用账号,没有广告,也没有赞助 — 只有一个自愿的小费罐,供你亲自支持开发者。",
+	"free.shot.homeAlt": "OpenMusic 首页:页首的自愿小费罐按钮、搜索栏,以及真实歌曲的精选推荐",
 
 	// --- lyrics editor (quick-261120-ugcb2) ---
 	"nowplaying.addLyrics": "添加歌词",
