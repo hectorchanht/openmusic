@@ -12,6 +12,7 @@ import {
 	stampEditorLine,
 	hasDegenerateStamps,
 	stampNextInSequence,
+	cascadeEditorLines,
 	ESTIMATE_FALLBACK_LINE_SEC,
 	type EditorLine
 } from './lyrics-editor';
@@ -161,6 +162,74 @@ describe('editor → pin store round-trip (Phase-1 save path)', () => {
 		expect(editorLinesFromLrc(saved as string, 30)).toEqual(draft);
 		removePinnedLyrics('uid-b2');
 		expect(getPinnedLyrics('uid-b2')).toBeNull();
+	});
+});
+
+describe('cascadeEditorLines — the [start][end] chain cascade (quick-261123-cascade)', () => {
+	// Hector's case: a chain lyric whose line 1 really starts at 0 but was pulled to 0:35.9.
+	const chain = (): EditorLine[] => [
+		{ start: 0, end: 7.7, text: 'one' },
+		{ start: 7.7, end: 15, text: 'two' },
+		{ start: 15, end: 22, text: 'three' }
+	];
+	const spans = (ls: EditorLine[]) => ls.map((l) => [l.start, l.end]);
+
+	it("line 1's start edit shifts ALL following lines by the same delta, gaps preserved", () => {
+		expect(spans(cascadeEditorLines(chain(), 0, 'start', 35.9, 60))).toEqual([
+			[35.9, 43.6],
+			[43.6, 50.9],
+			[50.9, 57.9]
+		]);
+	});
+
+	it('the saved order can no longer scramble: a cascaded chain round-trips in text order', () => {
+		const out = cascadeEditorLines(chain(), 0, 'start', 35.9, 60);
+		expect(parseLRC(serializeEditorLines(out)).map((l) => l.text)).toEqual(['one', 'two', 'three']);
+	});
+
+	it("a mid-chain start edit chains the previous line's end to the new start", () => {
+		expect(spans(cascadeEditorLines(chain(), 1, 'start', 2, 60))).toEqual([
+			[0, 9.7],
+			[9.7, 17],
+			[17, 24]
+		]);
+	});
+
+	it("an end edit moves the next line's start with it and shifts the tail", () => {
+		expect(spans(cascadeEditorLines(chain(), 0, 'end', -2, 60))).toEqual([
+			[0, 5.7],
+			[5.7, 13],
+			[13, 20]
+		]);
+	});
+
+	it('a start edit never crosses the previous line or zero (delta clamps, chain stays valid)', () => {
+		const out = cascadeEditorLines(chain(), 1, 'start', -20, 60);
+		expect(out[1].start).toBe(0.1);
+		expect(out[0].end).toBe(0.1);
+		for (let k = 1; k < out.length; k++) expect(out[k].start).toBeGreaterThan(out[k - 1].start);
+	});
+
+	it('nothing is pushed past the duration — the whole chain stops together', () => {
+		const out = cascadeEditorLines(chain(), 0, 'start', 100, 60);
+		expect(out[out.length - 1].end).toBe(60);
+		expect(spans(out)).toEqual([
+			[38, 45.7],
+			[45.7, 53],
+			[53, 60]
+		]);
+	});
+
+	it('an end edit keeps at least 0.1s of its own line', () => {
+		const out = cascadeEditorLines(chain(), 2, 'end', -100, 60);
+		expect(out[2]).toMatchObject({ start: 15, end: 15.1 });
+	});
+
+	it('out-of-range index and zero delta are no-ops (copies, never the input array)', () => {
+		const src = chain();
+		expect(cascadeEditorLines(src, 9, 'start', 1, 60)).toEqual(src);
+		expect(cascadeEditorLines(src, 0, 'start', 0, 60)).toEqual(src);
+		expect(cascadeEditorLines(src, 0, 'start', 1, 60)).not.toBe(src);
 	});
 });
 

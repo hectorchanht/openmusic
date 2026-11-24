@@ -39,7 +39,7 @@
 		editorLinesFromLrc,
 		serializeEditorLines,
 		editorLinesToLyricLines,
-		nudgeEditorLine,
+		cascadeEditorLines,
 		moveEditorLine,
 		stampEditorLine,
 		hasDegenerateStamps,
@@ -218,6 +218,16 @@
 			onRawInput();
 		});
 		(e.currentTarget as HTMLInputElement).value = '';
+	}
+
+	// quick-261123-cascade: the Start/End ±0.1 buttons are CHAIN edits, not pinpoint ones —
+	// the [start][end] chain cascades to the neighbours (services/lyrics-editor.ts
+	// cascadeEditorLines), so an edit can never scramble the line order or open a collision.
+	function cascadeAdjust(i: number, which: 'start' | 'end', delta: number) {
+		lines = cascadeEditorLines(lines, i, which, delta, duration);
+		estimated = false;
+		follow('edit');
+		persistDraft();
 	}
 
 	// Any hand adjustment promotes the draft out of the Estimated class (brief §2.2).
@@ -499,13 +509,13 @@
 						<div class="times">
 							{#if retime && i === retimeCursor}<span class="badge">{t('lyricsEditor.nextLine')}</span>{/if}
 							<span class="lab">{t('lyricsEditor.start')}</span>
-							<button type="button" class="nb" onclick={() => adjust(i, nudgeEditorLine(l, 'start', -0.1, duration))} use:tapBounce>−0.1</button>
+							<button type="button" class="nb" onclick={() => cascadeAdjust(i, 'start', -0.1)} use:tapBounce>−0.1</button>
 							<button type="button" class="tm" onclick={() => seekLine(l)} use:tapBounce>{fmt(l.start)}</button>
-							<button type="button" class="nb" onclick={() => adjust(i, nudgeEditorLine(l, 'start', 0.1, duration))} use:tapBounce>+0.1</button>
+							<button type="button" class="nb" onclick={() => cascadeAdjust(i, 'start', 0.1)} use:tapBounce>+0.1</button>
 							<span class="lab">{t('lyricsEditor.end')}</span>
-							<button type="button" class="nb" onclick={() => adjust(i, nudgeEditorLine(l, 'end', -0.1, duration))} use:tapBounce>−0.1</button>
+							<button type="button" class="nb" onclick={() => cascadeAdjust(i, 'end', -0.1)} use:tapBounce>−0.1</button>
 							<span class="tm">{fmt(l.end)}</span>
-							<button type="button" class="nb" onclick={() => adjust(i, nudgeEditorLine(l, 'end', 0.1, duration))} use:tapBounce>+0.1</button>
+							<button type="button" class="nb" onclick={() => cascadeAdjust(i, 'end', 0.1)} use:tapBounce>+0.1</button>
 							{#if isCurrent}
 								<button type="button" class="nb stamp" onclick={() => stamp(i)} use:tapBounce><Clock size={12} /> {t('lyricsEditor.stamp')}</button>
 							{/if}

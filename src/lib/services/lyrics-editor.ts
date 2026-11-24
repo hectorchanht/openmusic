@@ -153,6 +153,63 @@ export function moveEditorLine(line: EditorLine, delta: number, durationSec = 0)
 }
 
 /**
+ * quick-261123-cascade (Hector 2026-11-23 04:11 + 04:14) — THE CHAIN CASCADE. Editor LRC is a
+ * [start][end] CHAIN: one line's end is the next line's start. The old pinpoint nudges moved
+ * ONE boundary of ONE line, so pulling line 1's start later left lines 2+ behind — line 1
+ * ended after line 2 began, and the saved order scrambled on re-parse (parseLRC sorts by
+ * time, so the TEXT order silently changed). Hector's spec: changing line 1's start shifts
+ * ALL following lines by the same delta, preserving relative gaps.
+ *
+ * Generalization choice (noted per the brief): the chain makes the same rule natural for ANY
+ * line, so this helper is not line-1-only —
+ *   · a START edit on line i shifts lines i…end bodily by the delta (lengths + gaps kept),
+ *     and line i−1's END follows to the new start (the chain link), so no gap or overlap
+ *     opens behind the edit;
+ *   · an END edit on line i moves that end and shifts lines i+1…end bodily by the delta
+ *     (line i+1's start IS line i's end in a chain), so no gap or overlap opens ahead of it.
+ * The delta is clamped before anything moves: the edited start never crosses the previous
+ * line's start (+0.1), the edited end never crosses its own start (+0.1), and nothing is
+ * pushed past the duration — a clamped edit moves the whole chain by the clamped amount, so
+ * the chain can never collide with itself. Every moved line routes through moveEditorLine /
+ * nudgeEditorLine, so hand-set character spans carry exactly as with any other gesture.
+ */
+export function cascadeEditorLines(
+	lines: readonly EditorLine[],
+	i: number,
+	which: 'start' | 'end',
+	delta: number,
+	durationSec = 0
+): EditorLine[] {
+	const copy = () => lines.map((l) => ({ ...l }));
+	if (!lines.length || i < 0 || i >= lines.length || !Number.isFinite(delta)) return copy();
+	// Signed 0.1s snap (snapTenth floors negatives at 0 — it snaps TIMES, not deltas).
+	let d = Math.round(delta * 10) / 10 || 0;
+	if (d === 0) return copy();
+	const last = lines.length - 1;
+	const hasDur = Number.isFinite(durationSec) && durationSec > 0;
+	if (which === 'start') {
+		const minStart = i > 0 ? lines[i - 1].start + 0.1 : 0;
+		d = Math.max(d, Math.round((minStart - lines[i].start) * 10) / 10);
+		if (hasDur) d = Math.min(d, Math.round((snapTenth(durationSec) - lines[last].end) * 10) / 10);
+		if (d === 0) return copy();
+		return lines.map((l, j) => {
+			if (j < i - 1) return { ...l };
+			if (j === i - 1) return nudgeEditorLine(l, 'end', lines[i].start + d - l.end, durationSec);
+			return moveEditorLine(l, d, durationSec);
+		});
+	}
+	// which === 'end': the edited end keeps ≥0.1s of its own line; the tail chain shifts by d.
+	d = Math.max(d, Math.round((lines[i].start + 0.1 - lines[i].end) * 10) / 10);
+	if (hasDur) d = Math.min(d, Math.round((snapTenth(durationSec) - lines[last].end) * 10) / 10);
+	if (d === 0) return copy();
+	return lines.map((l, j) => {
+		if (j < i) return { ...l };
+		if (j === i) return nudgeEditorLine(l, 'end', d, durationSec);
+		return moveEditorLine(l, d, durationSec);
+	});
+}
+
+/**
  * Tap-to-stamp: the line starts at the playhead (snapped to 0.1s), keeping its length — the
  * stamp is the same adjustment as a drag, in one tap, while the song plays.
  */
