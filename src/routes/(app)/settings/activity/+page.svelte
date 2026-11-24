@@ -119,9 +119,11 @@
 <PageHeader title={t('settings.activityHeading')} backLabel={t('settings.backToSettings')} onback={() => goto('/settings')} />
 
 <div class="actions">
-	<button class="item" onclick={copyLog} use:tapBounce><Copy size={18} /> {t('settings.activityCopy')}</button>
-	<button class="item" onclick={uploadLog} disabled={uploading} use:tapBounce><Upload size={18} /> {t('settings.activityUpload')}</button>
-	<button class="item danger" onclick={clearLog} use:tapBounce><Trash2 size={18} /> {t('settings.activityClear')}</button>
+	<!-- Workstream H batch 4 (Dawn-Design §8): icon-only action rows — Copy / Upload /
+	     Trash2 carry the labels; words survive as aria-label + title. -->
+	<button class="item" aria-label={t('settings.activityCopy')} title={t('settings.activityCopy')} onclick={copyLog} use:tapBounce><Copy size={18} /></button>
+	<button class="item" aria-label={t('settings.activityUpload')} title={t('settings.activityUpload')} onclick={uploadLog} disabled={uploading} use:tapBounce><Upload size={18} /></button>
+	<button class="item danger" aria-label={t('settings.activityClear')} title={t('settings.activityClear')} onclick={clearLog} use:tapBounce><Trash2 size={18} /></button>
 </div>
 
 {#if rows.length === 0}

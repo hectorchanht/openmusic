@@ -77,7 +77,8 @@
 		<h2>{t('privacy.title')}</h2>
 		<p class="promise"><ShieldCheck size={16} /> <span>{t('free.dataPromisePseudo')}</span></p>
 		<p class="note">{t('privacy.collected')}</p>
-		<button type="button" class="item link" onclick={onResetId} use:tapBounce><RotateCcw size={18} /> <span>{t('privacy.resetId')}</span></button>
+		<!-- Workstream H batch 4 (Dawn-Design §8): icon-only — RotateCcw carries the label. -->
+		<button type="button" class="item link" aria-label={t('privacy.resetId')} title={t('privacy.resetId')} onclick={onResetId} use:tapBounce><RotateCcw size={18} /></button>
 		<p class="note" aria-live="polite">{resetDone ? t('privacy.resetDone') : t('privacy.resetIdHint')}</p>
 	</section>
 {/if}

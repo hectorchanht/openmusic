@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { Languages, RotateCcw } from '@lucide/svelte';
+	import { FileText, Languages, Layers, RotateCcw, Type, User } from '@lucide/svelte';
+	import type { Component } from 'svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingPicker from '$lib/components/SettingPicker.svelte';
 	import SettingHint from '$lib/components/SettingHint.svelte';
@@ -151,10 +152,12 @@
 	// old `bioOptions` array existed only to float Auto above Off; it now shares `langs` with the
 	// other three, so the four accordions are chip-for-chip identical (Off, Auto, then endonyms).
 	// `skip` marks which parts have a source-language whitelist — bio does not.
-	const parts: { key: PartKey; headingKey: TranslationKey; noteKey: TranslationKey; skip: boolean }[] = [
-		{ key: 'artist', headingKey: 'settings.translateArtist', noteKey: 'settings.translateArtistNote', skip: true },
-		{ key: 'title', headingKey: 'settings.translateTitle', noteKey: 'settings.translateTitleNote', skip: true },
-		{ key: 'bio', headingKey: 'settings.translateLastfm', noteKey: 'settings.translateLastfmNote', skip: false }
+	// Workstream H batch 4 (Dawn-Design §8): tab glyphs — User = Artist, Type = Title,
+	// FileText = Bio (Last.fm text); the All tab uses Layers. Words survive as aria-label + title.
+	const parts: { key: PartKey; headingKey: TranslationKey; noteKey: TranslationKey; skip: boolean; icon: Component }[] = [
+		{ key: 'artist', headingKey: 'settings.translateArtist', noteKey: 'settings.translateArtistNote', skip: true, icon: User },
+		{ key: 'title', headingKey: 'settings.translateTitle', noteKey: 'settings.translateTitleNote', skip: true, icon: Type },
+		{ key: 'bio', headingKey: 'settings.translateLastfm', noteKey: 'settings.translateLastfmNote', skip: false, icon: FileText }
 	];
 
 	// quick-260919-ebi: both labelled controls on this page now come from the ONE SettingPicker.
@@ -204,9 +207,10 @@
 	<h2><Languages size={15} /> {t('settings.translateTargets')}</h2>
 
 	<div class="tabs" role="tablist">
-		<button role="tab" aria-selected={tabState === 'all'} class="tab" class:on={tabState === 'all'} onclick={() => (tabState = 'all')} use:tapBounce>{t('settings.translateApplyAll')}</button>
+		<button role="tab" aria-selected={tabState === 'all'} class="tab" class:on={tabState === 'all'} aria-label={t('settings.translateApplyAll')} title={t('settings.translateApplyAll')} onclick={() => (tabState = 'all')} use:tapBounce><Layers size={16} /></button>
 		{#each parts as part (part.key)}
-			<button role="tab" aria-selected={tabState === part.key} class="tab" class:on={tabState === part.key} onclick={() => (tabState = part.key)} use:tapBounce>{t(part.headingKey)}</button>
+			{@const PIcon = part.icon}
+			<button role="tab" aria-selected={tabState === part.key} class="tab" class:on={tabState === part.key} aria-label={t(part.headingKey)} title={t(part.headingKey)} onclick={() => (tabState = part.key)} use:tapBounce><PIcon size={16} /></button>
 		{/each}
 	</div>
 
@@ -321,9 +325,10 @@
 	.tabs { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 12px; scrollbar-width: none; }
 	.tabs::-webkit-scrollbar { display: none; }
 	.tab {
-		flex: none; padding: 8px 14px; border-radius: 999px; font-size: 0.85rem;
+		/* Icon-only (H batch 4): fixed 34px square, glyph centred — content never resizes it. */
+		flex: none; width: 34px; height: 34px; padding: 0; display: inline-grid; place-items: center; border-radius: 999px;
 		background: var(--color-surface-2); color: var(--color-text-muted);
-		border: 1px solid var(--color-border); cursor: pointer; white-space: nowrap;
+		border: 1px solid var(--color-border); cursor: pointer;
 	}
 	.tab.on { background: var(--color-primary); color: var(--color-on-primary); /* quick-261102-rrb */ border-color: transparent; }
 	.tabpane { padding: 4px 0; }

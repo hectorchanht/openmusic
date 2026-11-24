@@ -22,7 +22,11 @@
 		ListX,
 		Regex,
 		EyeOff,
-		ListMusic
+		ListMusic,
+		Pause,
+		Play,
+		Undo2,
+		X
 	} from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import { library } from '$lib/stores/library.svelte';
@@ -306,11 +310,13 @@
 							})
 						: t('import.scanning')}
 				</span>
-				<button class="chip cancel" onclick={() => deviceImport.cancel()} use:tapBounce aria-label={t('import.cancel')}>{t('import.cancel')}</button>
+				<button class="chip cancel" onclick={() => deviceImport.cancel()} use:tapBounce aria-label={t('import.cancel')} title={t('import.cancel')}><X size={14} /></button>
 			</div>
 		{:else}
-			<button class="cta" onclick={() => deviceImport.runImport()} use:tapBounce>
-				<Smartphone size={18} aria-hidden="true" /> {t('import.cta')}
+			<!-- Workstream H batch 4 (Dawn-Design §8): icon-only CTA — Smartphone carries
+			     "Import songs from device"; the words survive as aria-label + title. -->
+			<button class="cta" aria-label={t('import.cta')} title={t('import.cta')} onclick={() => deviceImport.runImport()} use:tapBounce>
+				<Smartphone size={18} aria-hidden="true" />
 			</button>
 		{/if}
 		<p class="muted">{t('import.ctaNote')}</p>
@@ -465,8 +471,11 @@
 
 <section>
 	<h2><Tags size={15} /> {t('settings.groupDownloads')}</h2>
-	<button class="item" onclick={retag} disabled={busy || eligible.length === 0} use:tapBounce>
-		<Tags size={18} /> {t('settings.retagDownloads', { count: eligible.length })}
+	<!-- Workstream H batch 4 (Dawn-Design §8): Tags glyph carries "Retag downloaded
+	     songs"; the eligible count stays visible as a bare quantity (numbers are
+	     content, never icon-carried) and the full phrase survives as aria-label. -->
+	<button class="item" aria-label={t('settings.retagDownloads', { count: eligible.length })} title={t('settings.retagDownloads', { count: eligible.length })} onclick={retag} disabled={busy || eligible.length === 0} use:tapBounce>
+		<Tags size={18} /> <span class="count">{eligible.length}</span>
 	</button>
 	<p class="hint">{t('settings.retagDownloadsDesc')}</p>
 	{#if progress}
@@ -479,11 +488,11 @@
 		     (Resume continues it, re-running the consent gate); Cancel wipes it. -->
 		<div class="row-btns">
 			{#if busy}
-				<button class="chip" onclick={() => retagQueue.pause()} use:tapBounce>{t('settings.retagPause')}</button>
+				<button class="chip" aria-label={t('settings.retagPause')} title={t('settings.retagPause')} onclick={() => retagQueue.pause()} use:tapBounce><Pause size={14} /></button>
 			{:else if paused}
-				<button class="chip" onclick={() => retagQueue.resume()} use:tapBounce>{t('settings.retagResume')}</button>
+				<button class="chip" aria-label={t('settings.retagResume')} title={t('settings.retagResume')} onclick={() => retagQueue.resume()} use:tapBounce><Play size={14} /></button>
 			{/if}
-			<button class="chip" onclick={() => retagQueue.cancel()} use:tapBounce>{t('settings.retagCancel')}</button>
+			<button class="chip" aria-label={t('settings.retagCancel')} title={t('settings.retagCancel')} onclick={() => retagQueue.cancel()} use:tapBounce><X size={14} /></button>
 		</div>
 	{/if}
 	{#if eligible.length > 0}
@@ -524,7 +533,7 @@
 			     catalog strings the app did not author. -->
 			<div class="excl-row">
 				<span class="excl-label">{label || uid}</span>
-				<button class="chip" onclick={() => allowAgain(uid)} use:tapBounce>{t('settings.excludedRestore')}</button>
+				<button class="chip" aria-label={t('settings.excludedRestore')} title={t('settings.excludedRestore')} onclick={() => allowAgain(uid)} use:tapBounce><Undo2 size={14} /></button>
 			</div>
 		{/each}
 	{/if}
