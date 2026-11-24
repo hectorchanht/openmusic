@@ -10,6 +10,7 @@
 	// overlays open/dismiss $effect with untrack), so the OS/browser Back gesture closes this sheet
 	// through the SINGLE dismiss path — the host $effect cleanup is the only overlays.dismiss caller.
 	import { untrack } from 'svelte';
+	import { Check, X } from '@lucide/svelte';
 	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
 	import { names } from '$lib/stores/names.svelte';
 	import { overlays } from '$lib/stores/overlays.svelte';
@@ -215,9 +216,9 @@
 		{/if}
 		<p class="hint">{t('tags.hint')}</p>
 		<div class="actions">
-			<button class="mi" onclick={onclose} use:tapBounce>{t('tags.cancel')}</button>
-			<button class="mi primary" disabled={saving} aria-busy={saving} onclick={save} use:tapBounce>
-				{saving ? t('tags.saving') : t('tags.save')}
+			<button class="mi" aria-label={t('tags.cancel')} title={t('tags.cancel')} onclick={onclose} use:tapBounce><X size={18} /></button>
+			<button class="mi primary" disabled={saving} aria-busy={saving} aria-label={saving ? t('tags.saving') : t('tags.save')} title={saving ? t('tags.saving') : t('tags.save')} onclick={save} use:tapBounce>
+				<Check size={18} />
 			</button>
 		</div>
 	</div>

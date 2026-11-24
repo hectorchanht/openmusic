@@ -4,7 +4,7 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { Heart, ListMusic, Download, Trash2, Play, Clock, Pencil, Check, Users, ListEnd, ListStart, Shuffle, Ellipsis, X, Radio, CircleAlert, Sparkles, BookHeadphones } from '@lucide/svelte';
+	import { Heart, ListMusic, Download, Trash2, Play, Clock, Pencil, Check, Users, ListEnd, ListStart, Shuffle, Ellipsis, X, Radio, CircleAlert, Sparkles, BookHeadphones, Wrench } from '@lucide/svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { history } from '$lib/stores/history.svelte';
 	import { player } from '$lib/stores/player.svelte';
@@ -620,7 +620,7 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 			<div class="heal-bar">
 				<CircleAlert size={18} />
 				<span class="heal-label">{healDownloads.job ? t('heal.progress', { n: healDownloads.job.done, total: healDownloads.job.total }) : t('heal.failedCount', { n: failedDownloads.length })}</span>
-				<button class="heal-btn" disabled={healDownloads.job !== null} onclick={healAllFailed} use:tapBounce>{t('heal.all')}</button>
+				<button class="heal-btn" disabled={healDownloads.job !== null} aria-label={t('heal.all')} title={t('heal.all')} onclick={healAllFailed} use:tapBounce><Wrench size={16} /></button>
 			</div>
 		{/if}
 		<!-- quick-261121-canon: Re-download to Canon — pre-Canon downloads re-based
@@ -632,7 +632,7 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 			<div class="heal-bar">
 				<Sparkles size={18} />
 				<span class="heal-label">{canonMigration.job ? t('canon.progress', { n: canonMigration.job.done, total: canonMigration.job.total }) : t('canon.preCount', { n: preCanonDownloads.length, size: formatBytes(canonSizeBytes) ?? '0 B' })}</span>
-				<button class="heal-btn" disabled={canonMigration.job !== null} onclick={migrateToCanon} use:tapBounce>{t('canon.redownload')}</button>
+				<button class="heal-btn" disabled={canonMigration.job !== null} aria-label={t('canon.redownload')} title={t('canon.redownload')} onclick={migrateToCanon} use:tapBounce><Download size={16} /></button>
 			</div>
 		{/if}
 		<ul class="list">

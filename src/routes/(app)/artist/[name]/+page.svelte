@@ -5,7 +5,7 @@
 	// Not a true artist catalog — an approximation from cross-source search.
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { ChevronDown, ChevronRight, Heart, Play, Share2 } from '@lucide/svelte';
+	import { ChevronDown, ChevronRight, Heart, Play, Share2, Library } from '@lucide/svelte';
 	import { searchAll } from '$lib/services/catalog';
 	import { dedupeBest, rankByArtistExactness } from '$lib/services/dedupe';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -622,7 +622,7 @@
 	<div class="offline-state">
 		<p class="offline-title">{t('offline.title')}</p>
 		<p class="offline-body">{t('offline.body')}</p>
-		<button type="button" class="offline-cta" onclick={() => goto('/library')} use:tapBounce>{t('offline.goToLibrary')}</button>
+		<button type="button" class="offline-cta" aria-label={t('offline.goToLibrary')} title={t('offline.goToLibrary')} onclick={() => goto('/library')} use:tapBounce><Library size={18} /></button>
 	</div>
 {/if}
 
@@ -718,7 +718,7 @@
 			{#if loadingMoreSongs}
 				<div class="more"><p class="muted">{t('search.loadingMore')}</p></div>
 			{:else if rankedSongs.length > shown || hasMoreSongs}
-				<div class="more"><button class="act" use:tapBounce onclick={loadMoreSongs}>{t('artist.showMore')}<ChevronDown size={18}/></button></div>
+				<div class="more"><button class="act" aria-label={t('artist.showMore')} title={t('artist.showMore')} use:tapBounce onclick={loadMoreSongs}><ChevronDown size={18}/></button></div>
 			{/if}
 		{:else}<p class="muted">{t('artist.noSongs', { name: names.dnArtist(displayName) })}</p>{/if}
 	</section>

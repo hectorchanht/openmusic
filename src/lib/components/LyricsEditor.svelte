@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { fly } from 'svelte/transition';
-	import { X, Clock, Type } from '@lucide/svelte';
+	import { X, Clock, Type, FileUp, Eye, Check, ChevronLeft, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter } from '@lucide/svelte';
 	import type { Track } from '$lib/sources/types';
 	import { t } from '$lib/i18n';
 	import { player } from '$lib/stores/player.svelte';
@@ -458,19 +458,19 @@
 				aria-label={t('lyricsEditor.pasteHint')}
 			></textarea>
 			<div class="tools">
-				<button type="button" class="tool" onclick={() => fileEl?.click()} use:tapBounce>{t('lyricsEditor.import')}</button>
+				<button type="button" class="tool" aria-label={t('lyricsEditor.import')} title={t('lyricsEditor.import')} onclick={() => fileEl?.click()} use:tapBounce><FileUp size={14} /></button>
 				<input class="file" type="file" accept=".lrc,.txt,text/plain" bind:this={fileEl} onchange={onFile} />
 				{#if lines.length}<span class="count">{t('lyricsEditor.linesCount', { count: lines.length })}</span>{/if}
 				{#if estimated}<span class="badge">{t('lyricsEditor.estimated')}</span>{/if}
 				{#if isCurrent && lines.length}
-					<button type="button" class="tool" class:on={retime} aria-pressed={retime} onclick={toggleRetime} use:tapBounce><Clock size={12} /> {t('lyricsEditor.retime')}</button>
+					<button type="button" class="tool" class:on={retime} aria-pressed={retime} aria-label={t('lyricsEditor.retime')} title={t('lyricsEditor.retime')} onclick={toggleRetime} use:tapBounce><Clock size={12} /></button>
 				{/if}
 			</div>
 
 			{#if degenerate && !retime}
 				<div class="warn" role="alert">
 					<p>{t('lyricsEditor.degenerate', { time: fmt(duration) })}</p>
-					<button type="button" class="tool" onclick={distributeEvenly} use:tapBounce>{t('lyricsEditor.distribute')}</button>
+					<button type="button" class="tool" aria-label={t('lyricsEditor.distribute')} title={t('lyricsEditor.distribute')} onclick={distributeEvenly} use:tapBounce><AlignVerticalDistributeCenter size={14} /></button>
 				</div>
 			{/if}
 
@@ -520,9 +520,9 @@
 							<span class="tm">{fmt(l.end)}</span>
 							<button type="button" class="nb" onclick={() => cascadeAdjust(i, 'end', 0.1)} use:tapBounce>+0.1</button>
 							{#if isCurrent}
-								<button type="button" class="nb stamp" onclick={() => stamp(i)} use:tapBounce><Clock size={12} /> {t('lyricsEditor.stamp')}</button>
+								<button type="button" class="nb stamp" aria-label={t('lyricsEditor.stamp')} title={t('lyricsEditor.stamp')} onclick={() => stamp(i)} use:tapBounce><Clock size={12} /></button>
 							{/if}
-							<button type="button" class="nb" class:on={charsOpen === i} aria-expanded={charsOpen === i} onclick={() => toggleChars(i)} use:tapBounce><Type size={12} /> {t('lyricsEditor.chars')}</button>
+							<button type="button" class="nb" class:on={charsOpen === i} aria-expanded={charsOpen === i} aria-label={t('lyricsEditor.chars')} title={t('lyricsEditor.chars')} onclick={() => toggleChars(i)} use:tapBounce><Type size={12} /></button>
 						</div>
 						{#if charsOpen === i}
 							{@const spans = spansOf(l)}
@@ -545,10 +545,10 @@
 								<span class="tm">{fmt(spans[charSel]?.start ?? l.start)}</span>
 								<button type="button" class="nb" disabled={charSel < 1} onclick={() => charAdjust(i, (sp, ln) => nudgeCharStart(sp, charSel, 0.1, ln.start, ln.end))} use:tapBounce>+0.1</button>
 								{#if isCurrent}
-									<button type="button" class="nb stamp" disabled={charSel < 1} onclick={() => charAdjust(i, (sp, ln) => setCharStart(sp, charSel, Math.round(player.currentTime * 10) / 10, ln.start, ln.end))} use:tapBounce><Clock size={12} /> {t('lyricsEditor.stamp')}</button>
+									<button type="button" class="nb stamp" disabled={charSel < 1} aria-label={t('lyricsEditor.stamp')} title={t('lyricsEditor.stamp')} onclick={() => charAdjust(i, (sp, ln) => setCharStart(sp, charSel, Math.round(player.currentTime * 10) / 10, ln.start, ln.end))} use:tapBounce><Clock size={12} /></button>
 								{/if}
 								{#if l.chars}
-									<button type="button" class="nb" onclick={() => charsEven(i)} use:tapBounce>{t('lyricsEditor.charsEven')}</button>
+									<button type="button" class="nb" aria-label={t('lyricsEditor.charsEven')} title={t('lyricsEditor.charsEven')} onclick={() => charsEven(i)} use:tapBounce><AlignHorizontalDistributeCenter size={12} /></button>
 								{/if}
 							</div>
 							{#if !l.chars}<p class="hint">{t('lyricsEditor.charsHint')}</p>{/if}
@@ -558,7 +558,7 @@
 			</div>
 
 			{#if lines.length}
-				<button type="button" class="primary" onclick={() => (step = 'confirm')} use:tapBounce>{t('lyricsEditor.review')}</button>
+				<button type="button" class="primary" aria-label={t('lyricsEditor.review')} title={t('lyricsEditor.review')} onclick={() => (step = 'confirm')} use:tapBounce><Eye size={16} /></button>
 			{/if}
 		{:else}
 			<!-- Identity confirmation (brief §2.2): the lyric attaches to the confirmed clean
@@ -583,14 +583,15 @@
 			{#if shareErr}<p class="err" role="alert">{t(errKey(shareErr))}</p>{/if}
 			<p class="hint">{t('lyricsEditor.linesCount', { count: lines.length })}{#if estimated} · {t('lyricsEditor.estimated')}{/if} · {identity}</p>
 			<div class="row2">
-				<button type="button" class="tool" onclick={() => (step = 'edit')} use:tapBounce>{t('lyricsEditor.back')}</button>
+				<button type="button" class="tool" aria-label={t('lyricsEditor.back')} title={t('lyricsEditor.back')} onclick={() => (step = 'edit')} use:tapBounce><ChevronLeft size={14} /></button>
 				<button
 					type="button"
 					class="primary grow"
 					onclick={save}
 					disabled={busy || (sharing && !token)}
 					use:tapBounce
-					>{sharing ? (token ? t('community.saveAndShare') : t('community.verifying')) : t('lyricsEditor.save')}</button
+					aria-label={sharing ? (token ? t('community.saveAndShare') : t('community.verifying')) : t('lyricsEditor.save')}
+					><Check size={16} /></button
 				>
 			</div>
 		{/if}

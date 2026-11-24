@@ -53,7 +53,7 @@
 		lyricSyncOpen,
 		setLyricSyncOpen
 	} from '$lib/stores/lyric-offset.svelte';
-	import { Check, X } from '@lucide/svelte';
+	import { Check, X, RefreshCw, PenLine } from '@lucide/svelte';
 	// quick-261120-furi: furigana — the local finite-table readings engine
 	// (services/furigana) + the user's per-song reading pins (Addendum 6).
 	import { annotateLine, ensureFuriganaTables, hasKana, type FuriganaTables } from '$lib/services/furigana';
@@ -958,7 +958,7 @@
 		<!-- quick-261121-trfix (Hector 2026-11-21): force refresh AT THE POINT OF
 		     USE — while a translation is on screen, one tap busts this song +
 		     target's client caches and re-translates this song only. -->
-		<button type="button" class="tr-refresh" onclick={forceRetranslate} use:tapBounce>{t('lyricsSettings.retranslate')}</button>
+		<button type="button" class="tr-refresh" aria-label={t('lyricsSettings.retranslate')} title={t('lyricsSettings.retranslate')} onclick={forceRetranslate} use:tapBounce><RefreshCw size={14} /></button>
 	{/if}
 	<div class="lyrics" role="group" aria-label={t('nowplaying.lyrics')} bind:this={lyricsEl} onpointerdown={lyricsPointerDown} ontouchstart={lyricsTouch} ontouchend={lyricsTouch} ontouchcancel={lyricsTouch} onwheel={() => dispatch({ type: 'wheel' })}>
 		{#each lines as l, i (i)}
@@ -1028,7 +1028,7 @@
 			{/if}
 		{/each}
 	</div>
-{:else if lyricsPending}<LoadingState label={t('common.loading')} lines={6} />{:else}<div class="empty-wrap"><p class="empty">{t('nowplaying.noLyrics')}</p>{#if player.current?.uid}<button type="button" class="add-lyrics" onclick={() => (editorOpen = true)} use:tapBounce>{t('nowplaying.addLyrics')}</button>{/if}</div>{/if}
+{:else if lyricsPending}<LoadingState label={t('common.loading')} lines={6} />{:else}<div class="empty-wrap"><p class="empty">{t('nowplaying.noLyrics')}</p>{#if player.current?.uid}<button type="button" class="add-lyrics" aria-label={t('nowplaying.addLyrics')} title={t('nowplaying.addLyrics')} onclick={() => (editorOpen = true)} use:tapBounce><PenLine size={16} /></button>{/if}</div>{/if}
 
 <!-- quick-261120-furi: the reading-variant chooser (Addendum 6 — WHY NOT ALL:
      every plausible reading is listed; the tap pins it for this song). Sheet

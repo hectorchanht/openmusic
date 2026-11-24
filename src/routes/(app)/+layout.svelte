@@ -594,7 +594,7 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 		>
 			<span class="msg">{host.text}</span>
 			{#if host.kind === 'stopped' && host.action}
-				<button type="button" class="retry" onclick={onRetry} use:tapBounce>{t('toast.retry')}</button>
+				<button type="button" class="retry" aria-label={t('toast.retry')} title={t('toast.retry')} onclick={onRetry} use:tapBounce><RefreshCw size={14} /></button>
 			{/if}
 		</div>
 	{/if}

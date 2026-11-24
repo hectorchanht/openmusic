@@ -279,9 +279,9 @@
 			{#if err.detail}<p class="v-detail">{err.detail}</p>{/if}
 			<div class="v-err-btns">
 				{#if err.kind !== 'none' && err.kind !== 'unsupported'}
-					<button onclick={manualRetry}><RotateCcw size={14} /> {t('video.retry')}</button>
+					<button aria-label={t('video.retry')} title={t('video.retry')} onclick={manualRetry}><RotateCcw size={14} /></button>
 				{/if}
-				<button onclick={onclose}><X size={14} /> {t('nowplaying.closeVideo')}</button>
+				<button aria-label={t('nowplaying.closeVideo')} title={t('nowplaying.closeVideo')} onclick={onclose}><X size={14} /></button>
 			</div>
 		</div>
 	{:else if height === 0}

@@ -14,7 +14,7 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	// quick-261122-npfix: Song Beat scroll LOCK — auto-pin on round start, a visible top-corner
 	// toggle as its face + manual override (rules: services/songbeat-scroll-lock.ts).
-	import { Lock, LockOpen, Crosshair, Volume2, Swords, Square, Circle, Columns4, WholeWord, HeartPulse, CloudRain } from '@lucide/svelte';
+	import { Lock, LockOpen, Crosshair, Volume2, Swords, Square, Circle, Columns4, WholeWord, HeartPulse, CloudRain, RotateCcw, Headphones, MicVocal } from '@lucide/svelte';
 	import { pinScroll } from '$lib/actions/pinScroll';
 	import { nextScrollLock } from '$lib/services/songbeat-scroll-lock';
 	import { readLyrics } from '$lib/stores/lyric-pins.svelte';
@@ -577,11 +577,11 @@
 				<div class="r-line best">{t('songbeat.best')} {best.score.toLocaleString()}{#if newBest && endState === 'complete'} · {t('songbeat.newRecord')}{/if}</div>
 			{/if}
 			<div class="r-actions">
-				<button type="button" class="r-btn primary" onclick={playAgain} use:tapBounce>{t('songbeat.playAgain')}</button>
+				<button type="button" class="r-btn primary" aria-label={t('songbeat.playAgain')} title={t('songbeat.playAgain')} onclick={playAgain} use:tapBounce><RotateCcw size={18} /></button>
 				{#if endState === 'failed'}
-					<button type="button" class="r-btn" onclick={keepListening} use:tapBounce>{t('songbeat.keepListening')}</button>
+					<button type="button" class="r-btn" aria-label={t('songbeat.keepListening')} title={t('songbeat.keepListening')} onclick={keepListening} use:tapBounce><Headphones size={18} /></button>
 				{:else}
-					<button type="button" class="r-btn" onclick={() => onExit?.()} use:tapBounce>{t('songbeat.backToLyrics')}</button>
+					<button type="button" class="r-btn" aria-label={t('songbeat.backToLyrics')} title={t('songbeat.backToLyrics')} onclick={() => onExit?.()} use:tapBounce><MicVocal size={18} /></button>
 				{/if}
 			</div>
 		</div>

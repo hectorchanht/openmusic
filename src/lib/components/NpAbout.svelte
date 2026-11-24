@@ -56,7 +56,7 @@
 		<div class="err" role="alert">
 			<p>{t('about.error')}</p>
 			{#if result.detail}<p class="detail">{result.detail}</p>{/if}
-			<button onclick={() => attempt++}><RotateCcw size={14} /> {t('video.retry')}</button>
+			<button aria-label={t('video.retry')} title={t('video.retry')} onclick={() => attempt++}><RotateCcw size={14} /></button>
 		</div>
 	{:else if result.kind === 'empty'}
 		<p class="muted">{t('about.empty')}</p>

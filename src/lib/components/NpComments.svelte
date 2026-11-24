@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { PenLine, Send, X } from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import LoadingState from '$lib/components/LoadingState.svelte';
 	import { comments } from '$lib/stores/comments.svelte';
@@ -141,9 +142,11 @@
 			<div class="topbar">
 				<button
 					class="post"
+					aria-label={t('comments.post')}
+					title={t('comments.post')}
 					disabled={!text.trim() || posting || !comments.key || !token || comments.unavailable}
 					onclick={submit}
-					use:tapBounce>{t('comments.post')}</button
+					use:tapBounce><Send size={16} /></button
 				>
 			</div>
 			<input
@@ -172,7 +175,7 @@
 			<TurnstileGate bind:this={gate} bind:token onunavailable={() => (err = 'verify')} />
 			<div class="bar">
 				<span class="actions">
-					<button class="cancel" onclick={close} use:tapBounce>{t('comments.cancel')}</button>
+					<button class="cancel" aria-label={t('comments.cancel')} title={t('comments.cancel')} onclick={close} use:tapBounce><X size={16} /></button>
 				</span>
 			</div>
 			{#if err}<p class="err">{t(errKey(err))}</p>{/if}
@@ -180,7 +183,7 @@
 		</div>
 	{:else if !comments.unavailable}
 		<div class="write-row">
-			<button class="write" onclick={() => (composing = true)} use:tapBounce>{t('comments.write')}</button>
+			<button class="write" aria-label={t('comments.write')} title={t('comments.write')} onclick={() => (composing = true)} use:tapBounce><PenLine size={16} /></button>
 		</div>
 	{/if}
 

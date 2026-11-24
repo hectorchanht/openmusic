@@ -10,7 +10,7 @@
 	// No new route in v1 (the playlist-detail pin precedent): the series view is local state.
 	// No new audio source: the existing searchAll fan-out already carries these catalogues.
 	import { onMount } from 'svelte';
-	import { BookHeadphones, Play, ChevronLeft, X, Bookmark } from '@lucide/svelte';
+	import { BookHeadphones, Play, ChevronLeft, ChevronDown, X, Bookmark } from '@lucide/svelte';
 	import { searchAll } from '$lib/services/catalog';
 	import { groupSeries, sortChapters, seriesKey, seriesQuery, chaptersFrom } from '$lib/services/book-chapters';
 	import { coverGradient } from '$lib/services/cover-gradient';
@@ -174,7 +174,7 @@
 {#if open}
 	{@const s = open}
 	<section class="series" aria-label={names.dnTitle(s.name)}>
-		<button class="back" onclick={closeSeries} use:tapBounce><ChevronLeft size={18} /> {t('books.allBooks')}</button>
+		<button class="back" aria-label={t('books.allBooks')} title={t('books.allBooks')} onclick={closeSeries} use:tapBounce><ChevronLeft size={18} /></button>
 		<header class="series-head">
 			<span class="cover lg" style:background-image={coverStyle(resumeRow?.entry.cover ?? chapters.find((c) => c.cover)?.cover, s.name)}></span>
 			<div class="series-meta">
@@ -207,7 +207,7 @@
 		{:else if !chapters.length}
 			<p class="empty"><BookHeadphones size={28} /><span>{t('books.noChapters')}</span></p>
 		{:else if hasMore}
-			<button class="more" onclick={loadMore} use:tapBounce>{t('artist.showMore')}</button>
+			<button class="more" aria-label={t('artist.showMore')} title={t('artist.showMore')} onclick={loadMore} use:tapBounce><ChevronDown size={20} /></button>
 		{/if}
 	</section>
 {:else}

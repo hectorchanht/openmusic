@@ -39,7 +39,7 @@
 	import { searchHistory } from '$lib/stores/searchHistory.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { t } from '$lib/i18n';
-	import { LoaderCircle, X, Trash2, Search } from '@lucide/svelte';
+	import { LoaderCircle, X, Trash2, Search, Library } from '@lucide/svelte';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { dragScroll } from '$lib/actions/dragScroll';
 	import { toast } from '$lib/stores/toast.svelte';
@@ -884,7 +884,7 @@
 	<div class="offline-state">
 		<p class="offline-title">{t('offline.title')}</p>
 		<p class="offline-body">{t('offline.body')}</p>
-		<button type="button" class="offline-cta" onclick={() => goto('/library')} use:tapBounce>{t('offline.goToLibrary')}</button>
+		<button type="button" class="offline-cta" aria-label={t('offline.goToLibrary')} title={t('offline.goToLibrary')} onclick={() => goto('/library')} use:tapBounce><Library size={18} /></button>
 	</div>
 {/if}
 

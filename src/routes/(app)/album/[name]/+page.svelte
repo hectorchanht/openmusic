@@ -5,7 +5,7 @@
 	// resolved to a playable Track lazily, ON TAP, via resolveStub (D-05/D-03) — the same
 	// resolve-on-tap path the home shelves use.
 	import { page } from '$app/state';
-	import { Play, Download, Share2, Shuffle } from '@lucide/svelte';
+	import { Play, Download, Share2, Shuffle, Library, Wrench } from '@lucide/svelte';
 	import { player } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { names } from '$lib/stores/names.svelte';
@@ -695,7 +695,7 @@
 	<div class="offline-state">
 		<p class="offline-title">{t('offline.title')}</p>
 		<p class="offline-body">{t('offline.body')}</p>
-		<button type="button" class="offline-cta" onclick={() => goto('/library')} use:tapBounce>{t('offline.goToLibrary')}</button>
+		<button type="button" class="offline-cta" aria-label={t('offline.goToLibrary')} title={t('offline.goToLibrary')} onclick={() => goto('/library')} use:tapBounce><Library size={18} /></button>
 	</div>
 {:else if tracks.length}
 	<!-- Album-level actions. ii6: PER-BUTTON disable (busyAction === id) so only the
@@ -730,7 +730,7 @@
 		<div class="heal-bar">
 			<CircleAlert size={18} />
 			<span class="heal-label">{t('heal.failedCount', { n: failedAlbumCount })}</span>
-			<button class="heal-btn" disabled={albumDownloading} onclick={healAlbum} use:tapBounce>{t('heal.all')}</button>
+			<button class="heal-btn" disabled={albumDownloading} aria-label={t('heal.all')} title={t('heal.all')} onclick={healAlbum} use:tapBounce><Wrench size={16} /></button>
 		</div>
 	{/if}
 	<ul class="list">

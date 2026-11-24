@@ -77,7 +77,7 @@
 			<div class="lyr-body" role="group" aria-label={t('nowplaying.lyrics')} data-no-drag>{text}</div>
 			<MenuActionButton icon={Mic2} onclick={() => use(v)}>{t('menu.useTheseLyrics')}</MenuActionButton>
 			<div class="row">
-				<button type="button" class="mini" onclick={() => onfork(v.lrc)} use:tapBounce><Pencil size={13} /> {t('community.fork')}</button>
+				<button type="button" class="mini" aria-label={t('community.fork')} title={t('community.fork')} onclick={() => onfork(v.lrc)} use:tapBounce><Pencil size={13} /></button>
 				<button type="button" class="mini" class:armed={armed === v.id} onclick={() => report(v)} use:tapBounce
 					><Flag size={13} /> {t(armed === v.id ? 'comments.reportConfirm' : 'comments.report')}</button
 				>
