@@ -254,6 +254,7 @@
 	title={t('account.signOut')}
 	body={t('account.signOutConfirm')}
 	confirmLabel={t('account.signOut')}
+	confirmIcon={LogOut}
 	onconfirm={doSignOut}
 	onclose={() => (signOutOpen = false)}
 />

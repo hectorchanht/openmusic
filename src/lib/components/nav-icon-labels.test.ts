@@ -30,7 +30,7 @@ describe('H batch 2 — app tabbar is icon-only', () => {
 
 describe('H batch 2 — charts Songs/Artists toggle is icon-only', () => {
 	it('Songs = Music2, Artists = Users, names kept as aria-label + title', () => {
-		expect(charts).toContain("import { Music2, Users } from '@lucide/svelte'");
+		expect(charts).toContain("import { Library, Music2, Users } from '@lucide/svelte'");
 		expect(charts).toContain('<Music2 size={18} />');
 		expect(charts).toContain('<Users size={18} />');
 		expect(charts).toContain("aria-label={t('charts.topTracksTab')}");

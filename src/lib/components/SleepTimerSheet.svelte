@@ -8,7 +8,7 @@
 	// now-playing is collapsed (nowbar) or expanded (NowPlaying).
 	import { untrack } from 'svelte';
 	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
-	import { Moon } from '@lucide/svelte';
+	import { Moon, MoonStar, X } from '@lucide/svelte';
 	import { dragClose } from '$lib/actions/dragClose';
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -74,12 +74,12 @@
 				<Moon size={18} /> {t('timer.minutes', { n: min })}
 			</button>
 		{/each}
-		<button class="mi" class:on={sleepTimer.mode === 'end-of-track'} onclick={pickEndOfTrack} use:tapBounce>
-			<Moon size={18} /> {t('timer.endOfTrack')}
+		<button class="mi" class:on={sleepTimer.mode === 'end-of-track'} aria-label={t('timer.endOfTrack')} title={t('timer.endOfTrack')} onclick={pickEndOfTrack} use:tapBounce>
+			<MoonStar size={18} />
 		</button>
 		{#if sleepTimer.active}
-			<button class="mi cancel" onclick={cancelTimer} use:tapBounce>
-				{t('timer.cancel')}
+			<button class="mi cancel" aria-label={t('timer.cancel')} title={t('timer.cancel')} onclick={cancelTimer} use:tapBounce>
+				<X size={18} />
 			</button>
 		{/if}
 	</div>

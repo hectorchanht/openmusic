@@ -17,7 +17,7 @@
 	import { toast } from '$lib/stores/toast.svelte';
 	import { online } from '$lib/stores/online.svelte';
 	import { t } from '$lib/i18n';
-	import { Music2, Users } from '@lucide/svelte';
+	import { Library, Music2, Users } from '@lucide/svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SongRow from '$lib/components/SongRow.svelte';
 	import SwipeReveal from '$lib/components/SwipeReveal.svelte';
@@ -185,7 +185,7 @@
 	<div class="offline-state">
 		<p class="offline-title">{t('offline.title')}</p>
 		<p class="offline-body">{t('offline.body')}</p>
-		<button type="button" class="offline-cta" onclick={() => goto('/library')}>{t('offline.goToLibrary')}</button>
+		<button type="button" class="offline-cta" aria-label={t('offline.goToLibrary')} title={t('offline.goToLibrary')} onclick={() => goto('/library')}><Library size={18} /></button>
 	</div>
 {/if}
 

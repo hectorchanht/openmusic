@@ -14,22 +14,28 @@
 		disabled?: boolean;
 		/** Additional class. */
 		class?: string;
+		/** Workstream H batch 5 (Dawn-Design §8): accessible name for icon-only use —
+		    when set with an icon and no children, the button renders the glyph alone. */
+		label?: string;
 		/** Button children (label). */
 		children?: import('svelte').Snippet;
 	}
 
-	let { icon: Icon, onclick, disabled = false, class: klass = '', children }: Props = $props();
+	let { icon: Icon, onclick, disabled = false, class: klass = '', label, children }: Props = $props();
 </script>
 
 <button
 	class="menu-action-btn {klass}"
+	class:icon-only={label && !children}
 	{disabled}
 	aria-disabled={disabled}
+	aria-label={label}
+	title={label}
 	{onclick}
 	use:tapBounce
 >
 	{#if Icon}<Icon size={18} />{/if}
-	<span class="label">{@render children?.()}</span>
+	{#if children}<span class="label">{@render children?.()}</span>{/if}
 </button>
 
 <style>
@@ -59,5 +65,8 @@
 	}
 	.menu-action-btn .label {
 		flex: 1;
+	}
+	.menu-action-btn.icon-only {
+		justify-content: center;
 	}
 </style>

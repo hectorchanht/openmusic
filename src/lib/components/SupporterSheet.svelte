@@ -21,7 +21,7 @@
 	import { untrack } from 'svelte';
 	import { onMount } from 'svelte';
 	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
-	import { Heart, HandCoins, Copy, Check } from '@lucide/svelte';
+	import { Heart, HandCoins, Copy, Check, ShieldCheck } from '@lucide/svelte';
 	import { dragClose } from '$lib/actions/dragClose';
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { tapBounce } from '$lib/actions/tapBounce';
@@ -327,8 +327,8 @@
 					{#if error}
 						<p class="verr" role="alert">{error}</p>
 					{/if}
-					<button class="vbtn" use:tapBounce onclick={() => void verify()} disabled={verifying || !key.trim()}>
-						{verifying ? 'Verifying…' : 'Verify key'}
+					<button class="vbtn" use:tapBounce onclick={() => void verify()} disabled={verifying || !key.trim()} aria-label={verifying ? 'Verifying…' : 'Verify key'} title={verifying ? 'Verifying…' : 'Verify key'}>
+						<ShieldCheck size={18} />
 					</button>
 					<p class="vhint">The key is in the receipt email Gumroad sent after your tip.</p>
 				</div>

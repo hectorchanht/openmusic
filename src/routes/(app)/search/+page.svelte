@@ -1005,6 +1005,7 @@
 	title={t('search.confirmRemoveRecent', { q: removeRecentQuery })}
 	body={t('search.confirmRemoveRecent', { q: removeRecentQuery })}
 	confirmLabel={t('search.clear')}
+	confirmIcon={Trash2}
 	onconfirm={confirmRemoveRecent}
 	onclose={() => (removeRecentOpen = false)}
 />
@@ -1013,6 +1014,7 @@
 	title={t('search.clear')}
 	body={t('search.confirmClearAll')}
 	confirmLabel={t('search.clear')}
+	confirmIcon={Trash2}
 	onconfirm={() => { searchHistory.clear(); clearAllOpen = false; }}
 	onclose={() => (clearAllOpen = false)}
 />

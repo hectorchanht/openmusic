@@ -709,16 +709,16 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 	<div class="sheet" role="dialog" aria-modal="true" aria-label={tabLabel} transition:fly={{ y: 240, duration: 200 }} use:dragClose={{ onclose: () => (listMenuOpen = false) }} use:focusTrap>
 		<div class="sheet-head">{tabLabel}</div>
 		{#if tabList.length}
-			<button class="mi" onclick={queueWholeList} use:tapBounce><ListEnd size={18} /> {t('menu.addToQueue')}</button>
-			<button class="mi" onclick={playListNext} use:tapBounce><ListStart size={18} /> {t('menu.playNext')}</button>
+			<button class="mi" aria-label={t('menu.addToQueue')} title={t('menu.addToQueue')} onclick={queueWholeList} use:tapBounce><ListEnd size={18} /></button>
+			<button class="mi" aria-label={t('menu.playNext')} title={t('menu.playNext')} onclick={playListNext} use:tapBounce><ListStart size={18} /></button>
 		{/if}
 		{#if detailPlaylist}
-			<button class="mi danger" onclick={deleteDetailPlaylist} use:tapBounce><Trash2 size={18} /> {t('library.deletePlaylist')}</button>
+			<button class="mi danger" aria-label={t('library.deletePlaylist')} title={t('library.deletePlaylist')} onclick={deleteDetailPlaylist} use:tapBounce><Trash2 size={18} /></button>
 		{/if}
 		{#if listMenuHasItems}
-			<button class="mi danger" onclick={clearCurrentList} use:tapBounce><Trash2 size={18} /> {t('library.clearList')}</button>
+			<button class="mi danger" aria-label={t('library.clearList')} title={t('library.clearList')} onclick={clearCurrentList} use:tapBounce><Trash2 size={18} /></button>
 		{/if}
-		<button class="mi close" onclick={() => (listMenuOpen = false)} use:tapBounce><X size={18} /> {t('menu.close')}</button>
+		<button class="mi close" aria-label={t('menu.close')} title={t('menu.close')} onclick={() => (listMenuOpen = false)} use:tapBounce><X size={18} /></button>
 	</div>
 {/if}
 
@@ -732,6 +732,7 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 	title={t('library.clearList')}
 	body={t('library.clearListConfirm', { name: detailPlaylist?.name ?? tabLabel })}
 	confirmLabel={t('library.clearList')}
+	confirmIcon={Trash2}
 	onconfirm={confirmClearList}
 	onclose={() => (clearListOpen = false)}
 />
@@ -740,6 +741,7 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 	title={t('library.deletePlaylist')}
 	body={t('library.deletePlaylistConfirm', { name: deletePlaylistName })}
 	confirmLabel={t('library.deletePlaylist')}
+	confirmIcon={Trash2}
 	onconfirm={confirmDeletePlaylist}
 	onclose={() => (deletePlaylistId = null)}
 />

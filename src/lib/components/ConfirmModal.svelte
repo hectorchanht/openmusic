@@ -12,6 +12,8 @@
 	import { focusTrap } from '$lib/actions/focusTrap';
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { t } from '$lib/i18n';
+	import { Check, X } from '@lucide/svelte';
+	import type { Component } from 'svelte';
 
 	interface Props {
 		/** Whether the modal is visible. */
@@ -22,13 +24,17 @@
 		body: string;
 		/** Confirm button label (already translated by the caller). */
 		confirmLabel: string;
+		/** Workstream H batch 5 (Dawn-Design §8): the glyph that carries confirmLabel
+		    (Trash2 for delete/clear, RotateCcw for reset, LogOut for sign-out).
+		    Defaults to Check, the generic confirm glyph. */
+		confirmIcon?: Component;
 		/** Fired when the confirm button is tapped. The modal closes itself after. */
 		onconfirm: () => void;
 		/** Fired on cancel / scrim / drag / back. */
 		onclose: () => void;
 	}
 
-	let { open, title, body, confirmLabel, onconfirm, onclose }: Props = $props();
+	let { open, title, body, confirmLabel, confirmIcon: ConfirmIcon = Check, onconfirm, onclose }: Props = $props();
 </script>
 
 {#if open}
@@ -45,14 +51,18 @@
 		<div class="cm-title">{title}</div>
 		<p class="cm-body">{body}</p>
 		<div class="cm-actions">
-			<button class="cm-btn" onclick={onclose} use:tapBounce>{t('tags.cancel')}</button>
+			<!-- Workstream H batch 5 (Dawn-Design §8): icon-only actions — X = Cancel,
+			     the caller's glyph = Confirm; both words survive as aria-label + title. -->
+			<button class="cm-btn" aria-label={t('tags.cancel')} title={t('tags.cancel')} onclick={onclose} use:tapBounce><X size={18} /></button>
 			<button
 				class="cm-btn danger"
+				aria-label={confirmLabel}
+				title={confirmLabel}
 				onclick={() => {
 					onconfirm();
 					onclose();
 				}}
-				use:tapBounce>{confirmLabel}</button
+				use:tapBounce><ConfirmIcon size={18} /></button
 			>
 		</div>
 	</div>
@@ -100,6 +110,8 @@
 	.cm-btn {
 		flex: 1;
 		min-height: 48px;
+		display: grid;
+		place-items: center;
 		border-radius: 12px;
 		border: 1px solid var(--color-border);
 		background: var(--color-surface);

@@ -147,7 +147,7 @@
 				<Mic size={56} strokeWidth={2} />
 			</button>
 			<p class="heard" aria-live="polite">{voice.transcript || t('voice.hint')}</p>
-			<button class="done" onclick={() => voice.finishListening()} use:tapBounce>{t('voice.done')}</button>
+			<button class="done" aria-label={t('voice.done')} title={t('voice.done')} onclick={() => voice.finishListening()} use:tapBounce><Check size={20} /></button>
 			<div class="langs" role="radiogroup" aria-label={t('settings.voiceLang')}>
 				{#each VOICE_LANGS as l (l)}
 					<button
@@ -186,8 +186,8 @@
 
 			{#if actionable}
 				<div class="actions">
-					<button class="ok" onclick={() => voice.confirm()} use:tapBounce><Check size={34} strokeWidth={3} /> {t('voice.ok')}</button>
-					<button class="no" onclick={() => voice.listen()} use:tapBounce><RotateCcw size={26} /> {t('voice.no')}</button>
+					<button class="ok" aria-label={t('voice.ok')} title={t('voice.ok')} onclick={() => voice.confirm()} use:tapBounce><Check size={34} strokeWidth={3} /></button>
+					<button class="no" aria-label={t('voice.no')} title={t('voice.no')} onclick={() => voice.listen()} use:tapBounce><RotateCcw size={26} /></button>
 				</div>
 				{#if p.kind === 'play-song' && p.alternates.length}
 					<p class="alt-head">{t('voice.orOneOf')}</p>
@@ -202,8 +202,8 @@
 				{/if}
 			{:else}
 				<div class="actions">
-					<button class="ok" onclick={() => voice.listen()} use:tapBounce><Mic size={30} /> {t('voice.askAgain')}</button>
-					<button class="no" onclick={() => voice.close()} use:tapBounce>{t('voice.close')}</button>
+					<button class="ok" aria-label={t('voice.askAgain')} title={t('voice.askAgain')} onclick={() => voice.listen()} use:tapBounce><Mic size={30} /></button>
+					<button class="no" aria-label={t('voice.close')} title={t('voice.close')} onclick={() => voice.close()} use:tapBounce><X size={26} /></button>
 				</div>
 			{/if}
 		{:else if voice.phase === 'error'}

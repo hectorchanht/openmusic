@@ -3,7 +3,7 @@
 	import { fly } from '$lib/motion'; // quick-261102-u4t: reduce-motion aware
 	import { page } from '$app/state';
 	import { goto, afterNavigate, preloadCode } from '$app/navigation';
-	import { House, Search, Library, Settings, Heart, ListMusic, Download, Users, Clock, Radio, BookHeadphones } from '@lucide/svelte';
+	import { House, Search, Library, Settings, Heart, ListMusic, Download, Users, Clock, Radio, BookHeadphones, RefreshCw } from '@lucide/svelte';
 	import { player, SKIP_REASON_KEY } from '$lib/stores/player.svelte';
 	import { library } from '$lib/stores/library.svelte';
 	import { settings } from '$lib/stores/settings.svelte';
@@ -566,8 +566,8 @@ import { navSignals } from '$lib/stores/nav-signals.svelte';
 	{#if swUpdate.updateReady}
 		<div class="update-bar" role="status" aria-live="polite">
 			<span class="update-msg">{t('update.available')}</span>
-			<button type="button" class="update-btn" onclick={() => swUpdate.applyUpdate()} use:tapBounce>
-				{t('update.reload')}
+			<button type="button" class="update-btn" aria-label={t('update.reload')} title={t('update.reload')} onclick={() => swUpdate.applyUpdate()} use:tapBounce>
+				<RefreshCw size={16} />
 			</button>
 		</div>
 	{/if}

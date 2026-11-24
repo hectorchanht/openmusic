@@ -2018,7 +2018,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		{#each library.playlists as pl (pl.id)}
 			<MenuActionButton icon={ListPlus} onclick={() => addToPlaylist(pl.id)}>{pl.name} <span class="count">{pl.tracks.length}</span></MenuActionButton>
 		{/each}
-		<button class="mi accent" onclick={newPlaylist} use:tapBounce><Plus size={18} /> {t('menu.newPlaylist')}</button>
+		<button class="mi accent" aria-label={t('menu.newPlaylist')} title={t('menu.newPlaylist')} onclick={newPlaylist} use:tapBounce><Plus size={18} /></button>
 	</div>
 {/if}
 
@@ -2036,8 +2036,8 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		<p class="hint">{t('menu.removeDownloadBody')}</p>
 		<SettingToggle label={t('menu.removeDownloadDeleteFile')} checked={rmDeleteFile} onchange={() => (rmDeleteFile = !rmDeleteFile)} />
 		<div class="actions">
-			<MenuActionButton onclick={() => (rmOpen = false)}>{t('tags.cancel')}</MenuActionButton>
-			<button class="mi danger" onclick={confirmRemoveDownload} use:tapBounce><Trash2 size={18} /> {t('menu.removeDownloadAction')}</button>
+			<MenuActionButton icon={X} label={t('tags.cancel')} onclick={() => (rmOpen = false)} />
+			<button class="mi danger" aria-label={t('menu.removeDownloadAction')} title={t('menu.removeDownloadAction')} onclick={confirmRemoveDownload} use:tapBounce><Trash2 size={18} /></button>
 		</div>
 	</div>
 {/if}
@@ -2116,7 +2116,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 				{/each}
 			</div>
 		{/if}
-		<MenuActionButton icon={RotateCcw} onclick={refreshCover}>{t('menu.refreshCover')}</MenuActionButton>
+		<MenuActionButton icon={RotateCcw} label={t('menu.refreshCover')} onclick={refreshCover} />
 	</div>
 {/if}
 
@@ -2139,7 +2139,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 			<p class="cover-none">{t('menu.lyricsPickerNone')}</p>
 			<!-- D-6: Retry is shown ONLY on a dry walk — the one affordance that is not redundant with
 			     re-opening the sheet, because the sheet is already open. -->
-			<MenuActionButton icon={Mic2} onclick={openLyricsPicker}>{t('menu.lyricsRetry')}</MenuActionButton>
+			<MenuActionButton icon={Mic2} label={t('menu.lyricsRetry')} onclick={openLyricsPicker} />
 		{:else}
 			{#each lyricCandidates as c (c.source)}
 				<!-- quick-260919-2jo: the preview is script-locked, the CANDIDATE is not. `pickLyrics(c.lrc)`
@@ -2164,7 +2164,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 					     after dragClose's native listener has already armed — measured in E2E.)
 					     role+aria-label = the NpLyrics precedent. -->
 					<div class="lyr-body" role="group" aria-label={t('nowplaying.lyrics')} data-no-drag>{text}</div>
-					<MenuActionButton icon={Mic2} onclick={() => pickLyrics(c.lrc)}>{t('menu.useTheseLyrics')}</MenuActionButton>
+					<MenuActionButton icon={Mic2} label={t('menu.useTheseLyrics')} onclick={() => pickLyrics(c.lrc)} />
 				</div>
 			{/each}
 		{/if}
@@ -2174,7 +2174,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		<!-- quick-261122-ugcb3: community versions join the picker as labelled candidates. -->
 		<CommunityLyricsList {track} current={pinnedNow} onpick={pickLyrics} onfork={forkLyricsEditor} />
 		{#if hasLyricPin(track)}
-			<MenuActionButton icon={Sparkles} onclick={resetLyrics}>{t('menu.lyricsAuto')}</MenuActionButton>
+			<MenuActionButton icon={Sparkles} label={t('menu.lyricsAuto')} onclick={resetLyrics} />
 		{/if}
 		<!-- quick-261021-menu7 (user): shared LyricsTimingToggle — same component reused
 		     everywhere the toggle appears, not a duplicate button. -->
@@ -2182,7 +2182,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		<!-- quick-261120-ugcb2 (brief §2.1 entry point 2): the PERMANENT footer — present on a
 		     dry walk and with candidates alike, because a user's own lyric can be better than
 		     every upstream one, not only a fallback. Opens the ONE shared LyricsEditor. -->
-		<MenuActionButton icon={Pencil} onclick={openLyricsEditor}>{t('menu.writeOwnLyrics')}</MenuActionButton>
+		<MenuActionButton icon={Pencil} label={t('menu.writeOwnLyrics')} onclick={openLyricsEditor} />
 	</div>
 {/if}
 

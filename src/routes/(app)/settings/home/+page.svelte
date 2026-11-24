@@ -317,6 +317,7 @@
 	title={t('settings.resetGroup')}
 	body={t('settings.resetConfirm')}
 	confirmLabel={t('settings.resetGroup')}
+	confirmIcon={RotateCcw}
 	onconfirm={() => settings.resetHome()}
 	onclose={() => (resetOpen = false)}
 />

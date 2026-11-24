@@ -1,7 +1,20 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { Trash2, RefreshCw, Languages, Image, Search, SlidersHorizontal, Download, Upload, Undo2, CloudDownload, CircleStop } from '@lucide/svelte';
+	import {
+		Trash2,
+		RefreshCw,
+		Languages,
+		Image,
+		Search,
+		SlidersHorizontal,
+		Download,
+		Upload,
+		Undo2,
+		CloudDownload,
+		CircleStop,
+		RotateCcw
+	} from '@lucide/svelte';
 	import { settings } from '$lib/stores/settings.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SettingRow from '$lib/components/SettingRow.svelte';
@@ -199,6 +212,7 @@
 	title={t('settings.resetAppearance')}
 	body={t('settings.resetAppearanceDesc')}
 	confirmLabel={t('settings.resetGroup')}
+	confirmIcon={RotateCcw}
 	onconfirm={doResetAppearance}
 	onclose={() => (resetOpen = false)}
 />
