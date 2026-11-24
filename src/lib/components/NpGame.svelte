@@ -14,7 +14,7 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	// quick-261122-npfix: Song Beat scroll LOCK — auto-pin on round start, a visible top-corner
 	// toggle as its face + manual override (rules: services/songbeat-scroll-lock.ts).
-	import { Lock, LockOpen } from '@lucide/svelte';
+	import { Lock, LockOpen, Crosshair, Volume2, Swords, Square, Circle } from '@lucide/svelte';
 	import { pinScroll } from '$lib/actions/pinScroll';
 	import { nextScrollLock } from '$lib/services/songbeat-scroll-lock';
 	import { readLyrics } from '$lib/stores/lyric-pins.svelte';
@@ -446,35 +446,44 @@
 	{/if}
 
 	<!-- Toolbar (§7): every game setting at the point of use, never in global Settings. -->
+	<!-- Workstream H (Hector 2026-11-23, Icon Status Mapping): every toolbar LABEL is an
+	     icon — skin = its shape glyph (Square/Circle), difficulty = 1→4 intensity bars,
+	     challenge = crossed swords, calibration = crosshair, volume = speaker. Words live
+	     on as aria-label/title only. Pure quantities stay NUMERIC (approach seconds,
+	     calibration ms value, score) — an icon cannot carry a number. -->
 	<div class="toolbar">
 		<div class="seg" role="group" aria-label={t('songbeat.skin')}>
 			{#each SONGBEAT_SKINS as def (def.id)}
-				<button type="button" class:active={beat.skin === def.id} aria-pressed={beat.skin === def.id}
-					onclick={() => { beat = { ...beat, skin: def.id }; }}>{t(def.labelKey)}</button>
+				<button type="button" class="icon-btn" class:active={beat.skin === def.id} aria-pressed={beat.skin === def.id}
+					aria-label={t(def.labelKey)} title={t(def.labelKey)}
+					onclick={() => { beat = { ...beat, skin: def.id }; }}>{#if def.id === 'round'}<Circle size={16} aria-hidden="true" />{:else}<Square size={16} aria-hidden="true" />{/if}</button>
 			{/each}
 		</div>
 		<div class="seg" role="group" aria-label={t('songbeat.difficulty')}>
-			{#each ['relaxed', 'standard', 'fever', 'hell'] as d (d)}
-				<button type="button" class:active={beat.difficulty === d} aria-pressed={beat.difficulty === d}
-					onclick={() => { beat = { ...beat, difficulty: d as Difficulty }; }}>{t(DIFF_KEY[d as Difficulty])}</button>
+			{#each ['relaxed', 'standard', 'fever', 'hell'] as d, di (d)}
+				<button type="button" class="icon-btn" class:active={beat.difficulty === d} aria-pressed={beat.difficulty === d}
+					aria-label={t(DIFF_KEY[d as Difficulty])} title={t(DIFF_KEY[d as Difficulty])}
+					onclick={() => { beat = { ...beat, difficulty: d as Difficulty }; }}><span class="diff-bars" aria-hidden="true">{#each [0, 1, 2, 3] as b (b)}<span class="diff-bar" class:filled={b <= di} style:height={`${4 + b * 3}px`}></span>{/each}</span></button>
 			{/each}
 		</div>
-		<button type="button" class="toggle" class:on={beat.challenge} aria-pressed={beat.challenge}
-			onclick={() => { beat = { ...beat, challenge: !beat.challenge }; }}>{t('songbeat.challenge')}</button>
+		<button type="button" class="toggle icon-btn" class:on={beat.challenge} aria-pressed={beat.challenge}
+			aria-label={t('songbeat.challenge')} title={t('songbeat.challenge')}
+			onclick={() => { beat = { ...beat, challenge: !beat.challenge }; }}><Swords size={16} aria-hidden="true" /></button>
 		<div class="seg" role="group" aria-label={t('songbeat.approach')}>
 			{#each APPROACH_OPTIONS as a (a)}
 				<button type="button" class:active={beat.approachSec === a} aria-pressed={beat.approachSec === a}
 					onclick={() => { beat = { ...beat, approachSec: a }; }}>{a.toFixed(2).replace(/0$/, '')}s</button>
 			{/each}
 		</div>
-		<label class="slider">
-			<span>{t('songbeat.calibration')} {beat.calibrationMs > 0 ? '+' : ''}{beat.calibrationMs}ms</span>
-			<input type="range" min="-150" max="150" step="5" value={beat.calibrationMs}
+		<label class="slider" aria-label={t('songbeat.calibration')}>
+			<Crosshair size={16} aria-hidden="true" />
+			<span class="slider-value">{beat.calibrationMs > 0 ? '+' : ''}{beat.calibrationMs}ms</span>
+			<input type="range" min="-150" max="150" step="5" value={beat.calibrationMs} aria-label={t('songbeat.calibration')}
 				oninput={(e) => { beat = { ...beat, calibrationMs: Number((e.currentTarget as HTMLInputElement).value) }; }} />
 		</label>
-		<label class="slider">
-			<span>{t('songbeat.volume')}</span>
-			<input type="range" min="0" max="100" step="1" value={Math.round(tapCfg.synthVolume * 100)}
+		<label class="slider" aria-label={t('songbeat.volume')}>
+			<Volume2 size={16} aria-hidden="true" />
+			<input type="range" min="0" max="100" step="1" value={Math.round(tapCfg.synthVolume * 100)} aria-label={t('songbeat.volume')}
 				oninput={(e) => { tapCfg = { ...tapCfg, synthVolume: Number((e.currentTarget as HTMLInputElement).value) / 100 }; }} />
 		</label>
 	</div>
@@ -533,6 +542,13 @@
 	.seg button.active { background: var(--color-accent, #00c2b8); color: #04211f; font-weight: 700; }
 	.toggle { padding: 6px 12px; font-size: 12px; border-radius: 999px; border: 1px solid var(--color-border, rgba(255,255,255,0.14)); background: transparent; color: var(--color-text-muted); cursor: pointer; }
 	.toggle.on { background: #e5484d; border-color: #e5484d; color: #fff; font-weight: 700; }
+	/* Workstream H: icon-only toolbar buttons keep the seg/toggle geometry (NO STRETCH —
+	   fixed padding box, glyph centred, content never resizes the control). */
+	.seg button.icon-btn, .toggle.icon-btn { display: inline-grid; place-items: center; min-width: 36px; min-height: 28px; line-height: 0; }
+	.toggle.icon-btn { padding: 6px 10px; }
+	.diff-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 13px; }
+	.diff-bar { width: 3px; border-radius: 1px; background: currentColor; opacity: 0.25; }
+	.diff-bar.filled { opacity: 1; }
 	.slider { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--color-text-muted); }
 	.slider input { width: 110px; accent-color: var(--color-accent, #00c2b8); }
 	.results { border: 1px solid var(--color-border, rgba(255,255,255,0.14)); background: var(--color-surface-2); border-radius: 14px; padding: 16px; text-align: center; display: flex; flex-direction: column; gap: 6px; align-items: center; }

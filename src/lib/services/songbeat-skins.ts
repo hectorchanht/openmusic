@@ -9,8 +9,9 @@ import type { TranslationKey } from '$lib/i18n';
 import { SONGBEAT_SKIN_IDS, type SongBeatSkinId } from '$lib/services/songbeat';
 import type { PadId } from '$lib/services/tapalong';
 
-/** Pad display labels — one shared map for every pad-style skin (never re-declared
- *  per skin; ONE FUNCTION ONE PATH). */
+/** Pad ACCESSIBLE names — one shared map for every pad-style skin (never re-declared
+ *  per skin; ONE FUNCTION ONE PATH). Workstream H (2026-11-23): pads render ICONS
+ *  (SongBeatPadIcon) — this map is the aria-label only, never visible pad text. */
 export const PAD_LABEL: Record<PadId, string> = { kick: 'KICK', snare: 'SNARE', pluck: 'PLUCK', shaker: 'SHAKER' };
 
 export interface SongBeatSkinDef {

@@ -7,6 +7,9 @@
 	// grid cell; content (label / pop) never resizes it.
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { PAD_LABEL } from '$lib/services/songbeat-skins';
+	// Workstream H: pads render the SHARED icon glyph (SongBeatPadIcon) — the word
+	// survives only as aria-label below (Icon Status Mapping, Hector 2026-11-23).
+	import SongBeatPadIcon from '$lib/components/SongBeatPadIcon.svelte';
 	import { growOut } from '$lib/services/songbeat';
 	import type { Judgment } from '$lib/services/songbeat';
 	import type { PadId } from '$lib/services/tapalong';
@@ -50,7 +53,7 @@
 			{#if next?.hold}
 				<span class="holdclip"><span class="holdfill" style:height={`${next.holdProgress * 100}%`}></span></span>
 			{/if}
-			<span class="pad-label">{PAD_LABEL[pad]}</span>
+			<SongBeatPadIcon {pad} />
 			{#if pop}
 				{#key pop.seq}<span class="pop {pop.cls}">{pop.text}{#if pop.hint}<small>{pop.hint}</small>{/if}</span>{/key}
 			{/if}
@@ -60,9 +63,8 @@
 
 <style>
 	.deck { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; justify-items: center; }
-	.pad { position: relative; width: 112px; height: 112px; max-width: 100%; aspect-ratio: 1; border-radius: 50%; border: 1px solid var(--color-border, rgba(255,255,255,0.14)); background: var(--color-surface-2); color: var(--color-text); overflow: visible; touch-action: none; cursor: pointer; }
+	.pad { position: relative; width: 112px; height: 112px; max-width: 100%; aspect-ratio: 1; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--color-border, rgba(255,255,255,0.14)); background: var(--color-surface-2); color: var(--color-text); overflow: visible; touch-action: none; cursor: pointer; }
 	.pad:active { background: var(--color-surface-3, var(--color-surface-2)); }
-	.pad-label { position: relative; z-index: 2; font-size: 13px; font-weight: 800; letter-spacing: 0.14em; }
 	.note-shape { position: absolute; inset: 6px; border: 2px solid var(--color-accent, #00c2b8); border-radius: 50%; pointer-events: none; z-index: 1; }
 	.holdclip { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; pointer-events: none; z-index: 0; }
 	.holdfill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--color-accent, #00c2b8); opacity: 0.35; pointer-events: none; }
