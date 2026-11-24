@@ -1121,6 +1121,9 @@ const en = {
 	"songbeat.skin.square": "Square",
 	"songbeat.skin.round": "Round",
 	"songbeat.skin.highway": "Highway",
+	"songbeat.skin.characterCatch": "Character-Catch",
+	"songbeat.charAccuracy": "Character accuracy",
+	"songbeat.charUnavailable": "No lyrics for this song — Character-Catch needs lyrics",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Voice: say what to play",

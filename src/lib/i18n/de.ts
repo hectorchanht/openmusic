@@ -1073,6 +1073,9 @@ const de: Dict = {
 	"songbeat.skin.square": "Quadratisch",
 	"songbeat.skin.round": "Rund",
 	"songbeat.skin.highway": "Highway",
+	"songbeat.skin.characterCatch": "Zeichen fangen",
+	"songbeat.charAccuracy": "Zeichen-Genauigkeit",
+	"songbeat.charUnavailable": "Keine Songtexte — Zeichen fangen braucht Texte",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Sprache: sag, was laufen soll",

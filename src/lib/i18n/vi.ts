@@ -1073,6 +1073,9 @@ const vi: Dict = {
 	"songbeat.skin.square": "Vuông",
 	"songbeat.skin.round": "Tròn",
 	"songbeat.skin.highway": "Đường cao tốc",
+	"songbeat.skin.characterCatch": "Bắt Chữ",
+	"songbeat.charAccuracy": "Độ chính xác bắt chữ",
+	"songbeat.charUnavailable": "Bài này không có lời — Bắt Chữ cần lời bài hát",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Giọng nói: nói bài muốn phát",

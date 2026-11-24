@@ -1105,6 +1105,9 @@ const zhHant: Dict = {
 	"songbeat.skin.square": "方形",
 	"songbeat.skin.round": "圓形",
 	"songbeat.skin.highway": "軌道",
+	"songbeat.skin.characterCatch": "接字",
+	"songbeat.charAccuracy": "接字準確率",
+	"songbeat.charUnavailable": "呢首歌冇歌詞，用唔到接字",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "語音：講出想聽嘅歌",

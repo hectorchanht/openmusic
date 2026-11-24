@@ -1073,6 +1073,9 @@ const it: Dict = {
 	"songbeat.skin.square": "Quadrato",
 	"songbeat.skin.round": "Rotondo",
 	"songbeat.skin.highway": "Autostrada",
+	"songbeat.skin.characterCatch": "Cattura caratteri",
+	"songbeat.charAccuracy": "Precisione caratteri",
+	"songbeat.charUnavailable": "Nessun testo — Cattura caratteri richiede il testo",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Voce: di' cosa suonare",

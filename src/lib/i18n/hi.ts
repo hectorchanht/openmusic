@@ -1073,6 +1073,9 @@ const hi: Dict = {
 	"songbeat.skin.square": "वर्ग",
 	"songbeat.skin.round": "गोल",
 	"songbeat.skin.highway": "हाईवे",
+	"songbeat.skin.characterCatch": "अक्षर पकड़ें",
+	"songbeat.charAccuracy": "अक्षर सटीकता",
+	"songbeat.charUnavailable": "इस गाने के बोल नहीं हैं — अक्षर पकड़ने के लिए बोल चाहिए",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "आवाज़: बोलें क्या बजाना है",

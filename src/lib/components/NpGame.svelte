@@ -14,7 +14,7 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	// quick-261122-npfix: Song Beat scroll LOCK — auto-pin on round start, a visible top-corner
 	// toggle as its face + manual override (rules: services/songbeat-scroll-lock.ts).
-	import { Lock, LockOpen, Crosshair, Volume2, Swords, Square, Circle, Columns4 } from '@lucide/svelte';
+	import { Lock, LockOpen, Crosshair, Volume2, Swords, Square, Circle, Columns4, WholeWord } from '@lucide/svelte';
 	import { pinScroll } from '$lib/actions/pinScroll';
 	import { nextScrollLock } from '$lib/services/songbeat-scroll-lock';
 	import { readLyrics } from '$lib/stores/lyric-pins.svelte';
@@ -26,6 +26,12 @@
 		generateChart,
 		createRun,
 		visibleNotes,
+		generateCharChart,
+		charChartToNoteChart,
+		visibleChars,
+		charChartCacheKey,
+		serializeCharChart,
+		parseCharChart,
 		tapDown,
 		tapUp,
 		advanceRun,
@@ -42,6 +48,7 @@
 		serializeSongBeatSettings,
 		APPROACH_OPTIONS,
 		type Chart,
+		type CharChart,
 		type Run,
 		type RunStats,
 		type BestRecord,
@@ -65,6 +72,7 @@
 	import SongBeatSquareSkin from '$lib/components/SongBeatSquareSkin.svelte';
 	import SongBeatRoundSkin from '$lib/components/SongBeatRoundSkin.svelte';
 	import SongBeatHighwaySkin from '$lib/components/SongBeatHighwaySkin.svelte';
+	import SongBeatCharCatchSkin from '$lib/components/SongBeatCharCatchSkin.svelte';
 	import { kick, snare, pluck, shaker } from '$lib/util/haptics';
 
 	// The pane's only parent seam: the results card's "back to lyrics" (the tab itself
@@ -140,6 +148,9 @@
 
 	// ---- run lifecycle ----
 	let chart = $state<Chart | null>(null);
+	// Skin D's char chart (addendum §3) — set only while the char family is active;
+	// the run itself always plays a plain Chart (the derived target-note chart).
+	let charChart = $state<CharChart | null>(null);
 	let run = $state<Run | null>(null);
 	let runKey = $state('');
 	let endState = $state<'complete' | 'failed' | null>(null);
@@ -155,11 +166,21 @@
 		songHash && track ? `${track.uid}|${beat.difficulty}|${songHash}|${gameLines.length}|${Math.floor(player.duration)}` : ''
 	);
 
+	// Character-Catch (Skin D) plays a different chart FAMILY (addendum §3): its own
+	// char chart + derived target-note chart, parked separately from the note-chart
+	// runs. The family rides at the END of the park key so settleParked's segment
+	// indices never move. A song with no lyric lines cannot play it — the skin is
+	// honestly unavailable there and the surface falls back to Square (addendum §2).
+	const charAvailable = $derived(gameLines.length > 0);
+	const effectiveSkin = $derived(beat.skin === 'character-catch' && !charAvailable ? 'square' : beat.skin);
+	const chartFamily = $derived(effectiveSkin === 'character-catch' ? 'char' : 'note');
+
 	$effect(() => {
 		const key = chartKey;
 		const challenge = beat.challenge;
+		const family = chartFamily;
 		if (!key || !songHash) return;
-		const fullKey = `${key}|${challenge}`;
+		const fullKey = `${key}|${challenge}|${family}`;
 		untrack(() => {
 			if (fullKey === runKey) return;
 			// Park the outgoing run before replacing it (tab switches unmount instead —
@@ -175,15 +196,32 @@
 			newBest = false;
 			// Chart: localStorage cache first (an optimisation — regeneration is the
 			// source of truth and must equal it, §4.2), else generate + store.
-			const ck = chartCacheKey(songHash, beat.difficulty);
-			let ch = parseChart(lsGet(ck));
-			// A cached GRID chart is only valid while the song still shows no lyric
-			// lines: lyrics load async, so a grid generated inside the load window
-			// must not poison the cache once the real lines arrive.
-			if (ch && ch.source === 'grid' && gameLines.length > 0) ch = null;
-			if (!ch) {
-				ch = generateChart(gameLines, player.duration, beat.difficulty, songHash);
-				lsSet(ck, serializeChart(ch));
+			let ch: Chart;
+			if (family === 'char') {
+				// Skin D: the char chart under its own cache key (addendum §3); the
+				// run plays the derived target-note chart, so every core rule —
+				// judgment, scoring, HP, bests — is the shared path, never a fork.
+				const ck = charChartCacheKey(songHash, beat.difficulty);
+				let cc = parseCharChart(lsGet(ck));
+				if (!cc) {
+					cc = generateCharChart(gameLines, player.duration, beat.difficulty, songHash);
+					lsSet(ck, serializeCharChart(cc));
+				}
+				charChart = cc;
+				ch = charChartToNoteChart(cc);
+			} else {
+				charChart = null;
+				const ck = chartCacheKey(songHash, beat.difficulty);
+				let nch = parseChart(lsGet(ck));
+				// A cached GRID chart is only valid while the song still shows no lyric
+				// lines: lyrics load async, so a grid generated inside the load window
+				// must not poison the cache once the real lines arrive.
+				if (nch && nch.source === 'grid' && gameLines.length > 0) nch = null;
+				if (!nch) {
+					nch = generateChart(gameLines, player.duration, beat.difficulty, songHash);
+					lsSet(ck, serializeChart(nch));
+				}
+				ch = nch;
 			}
 			chart = ch;
 			const parked = runPark.get(fullKey);
@@ -356,6 +394,10 @@
 	// re-derived per frame from run state — the skins themselves stay stateless.
 	const fallingNotes = $derived(run ? visibleNotes(run, now, beat.approachSec) : []);
 	const displayLanes = $derived(beat.mirror ? [3, 2, 1, 0] : [0, 1, 2, 3]);
+	// Skin D: the raining character set (stream + targets) for the char family.
+	const fallingChars = $derived(
+		effectiveSkin === 'character-catch' && charChart ? visibleChars(charChart, run, now, beat.approachSec) : []
+	);
 	const activeLine = $derived(activeLineAt(gameLines, now, lyricOffset));
 	const activeLineText = $derived(activeLine.idx >= 0 ? gameLines[activeLine.idx]?.text ?? '' : '');
 
@@ -429,7 +471,7 @@
 	<!-- HUD (§3.3): difficulty + skin left, combo centre, score right; the HP bar
 	     renders ONLY in challenge mode — in casual play the slot is absent entirely. -->
 	<div class="hud">
-		<span class="hud-left">{t(DIFF_KEY[beat.difficulty])} · {t(skinDef(beat.skin).labelKey)}{#if chart?.source === 'grid'} · {t('songbeat.gridChart')}{/if}</span>
+		<span class="hud-left">{t(DIFF_KEY[beat.difficulty])} · {t(skinDef(effectiveSkin).labelKey)}{#if chart?.source === 'grid'} · {t('songbeat.gridChart')}{/if}</span>
 		<span class="hud-combo">{#if (stats?.combo ?? 0) >= 2}{stats?.combo} {t('songbeat.combo')}{/if}</span>
 		<span class="hud-score">{(stats?.score ?? 0).toLocaleString()}</span>
 	</div>
@@ -443,9 +485,12 @@
 		<p class="ready">{t('songbeat.ready')}</p>
 	{:else}
 		<!-- Skins (brief §2.3, Workstream F): Square is the default renderer; Round is
-		     the circular variant; Highway is the four-lane field. All are stateless —
-		     switching preserves the run. -->
-		{#if beat.skin === 'highway'}
+		     the circular variant; Highway is the four-lane field; Character-Catch
+		     rains the lyric characters themselves. All are stateless — switching
+		     preserves the run (Character-Catch parks its own chart family's run). -->
+		{#if effectiveSkin === 'character-catch'}
+			<SongBeatCharCatchSkin chars={fallingChars} lanes={displayLanes} {pops} {flash} approachSec={beat.approachSec} onPadDown={padDown} onPadUp={padUp} groupLabel={t('nowplaying.game')} />
+		{:else if beat.skin === 'highway'}
 			<SongBeatHighwaySkin notes={fallingNotes} lanes={displayLanes} {pops} {flash} approachSec={beat.approachSec} onPadDown={padDown} onPadUp={padUp} groupLabel={t('nowplaying.game')} />
 		{:else if beat.skin === 'round'}
 			<SongBeatRoundSkin pads={displayPads} {laneOf} {nextNote} {pops} {flash} approachSec={beat.approachSec} onPadDown={padDown} onPadUp={padUp} groupLabel={t('nowplaying.game')} />
@@ -464,8 +509,9 @@
 		<div class="seg" role="group" aria-label={t('songbeat.skin')}>
 			{#each SONGBEAT_SKINS as def (def.id)}
 				<button type="button" class="icon-btn" class:active={beat.skin === def.id} aria-pressed={beat.skin === def.id}
-					aria-label={t(def.labelKey)} title={t(def.labelKey)}
-					onclick={() => { beat = { ...beat, skin: def.id }; }}>{#if def.id === 'round'}<Circle size={16} aria-hidden="true" />{:else if def.id === 'highway'}<Columns4 size={16} aria-hidden="true" />{:else}<Square size={16} aria-hidden="true" />{/if}</button>
+					aria-label={t(def.labelKey)} title={def.id === 'character-catch' && !charAvailable ? t('songbeat.charUnavailable') : t(def.labelKey)}
+					disabled={def.id === 'character-catch' && !charAvailable}
+					onclick={() => { beat = { ...beat, skin: def.id }; }}>{#if def.id === 'round'}<Circle size={16} aria-hidden="true" />{:else if def.id === 'highway'}<Columns4 size={16} aria-hidden="true" />{:else if def.id === 'character-catch'}<WholeWord size={16} aria-hidden="true" />{:else}<Square size={16} aria-hidden="true" />{/if}</button>
 			{/each}
 		</div>
 		<div class="seg" role="group" aria-label={t('songbeat.difficulty')}>
@@ -510,6 +556,11 @@
 			<div class="r-line">
 				{t('songbeat.accuracy')} {Math.round(stats.accuracy * 100)}% · {t('songbeat.maxCombo')} {stats.maxCombo}
 			</div>
+			{#if effectiveSkin === 'character-catch'}
+				<!-- Skin D's signature number (addendum §3): per-character catch accuracy —
+				     the core accuracy over target characters, under its own name. -->
+				<div class="r-line">{t('songbeat.charAccuracy')} {Math.round(stats.accuracy * 100)}%</div>
+			{/if}
 			<div class="r-counts">
 				<span class="perfect">{t('songbeat.perfect')} {stats.counts.perfect}</span>
 				<span class="great">{t('songbeat.great')} {stats.counts.great}</span>
@@ -549,6 +600,9 @@
 	.seg { display: inline-flex; border: 1px solid var(--color-border, rgba(255,255,255,0.14)); border-radius: 999px; overflow: hidden; }
 	.seg button { padding: 6px 10px; font-size: 12px; background: transparent; color: var(--color-text-muted); border: 0; cursor: pointer; }
 	.seg button.active { background: var(--color-accent, #00c2b8); color: #04211f; font-weight: 700; }
+	/* Skin D unavailable on a no-lyrics song (addendum §2): the selector entry dims
+	   and refuses the tap; its title carries the honest reason. */
+	.seg button:disabled { opacity: 0.45; cursor: not-allowed; }
 	.toggle { padding: 6px 12px; font-size: 12px; border-radius: 999px; border: 1px solid var(--color-border, rgba(255,255,255,0.14)); background: transparent; color: var(--color-text-muted); cursor: pointer; }
 	.toggle.on { background: #e5484d; border-color: #e5484d; color: #fff; font-weight: 700; }
 	/* Workstream H: icon-only toolbar buttons keep the seg/toggle geometry (NO STRETCH —

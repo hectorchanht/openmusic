@@ -1073,6 +1073,9 @@ const id: Dict = {
 	"songbeat.skin.square": "Kotak",
 	"songbeat.skin.round": "Bulat",
 	"songbeat.skin.highway": "Jalan Raya",
+	"songbeat.skin.characterCatch": "Tangkap Karakter",
+	"songbeat.charAccuracy": "Akurasi karakter",
+	"songbeat.charUnavailable": "Tidak ada lirik — Tangkap Karakter butuh lirik",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Suara: ucapkan apa yang diputar",

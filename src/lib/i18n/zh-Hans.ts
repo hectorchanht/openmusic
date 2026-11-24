@@ -1105,6 +1105,9 @@ const zhHans: Dict = {
 	"songbeat.skin.square": "方形",
 	"songbeat.skin.round": "圆形",
 	"songbeat.skin.highway": "轨道",
+	"songbeat.skin.characterCatch": "接字",
+	"songbeat.charAccuracy": "接字准确率",
+	"songbeat.charUnavailable": "这首歌没歌词，用不了接字",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "语音：说出想听的歌",

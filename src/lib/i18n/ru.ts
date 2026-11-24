@@ -1073,6 +1073,9 @@ const ru: Dict = {
 	"songbeat.skin.square": "Квадрат",
 	"songbeat.skin.round": "Круг",
 	"songbeat.skin.highway": "Шоссе",
+	"songbeat.skin.characterCatch": "Ловля иероглифов",
+	"songbeat.charAccuracy": "Точность ловли",
+	"songbeat.charUnavailable": "Нет текста — для ловли иероглифов нужен текст",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "Голос: скажите, что включить",

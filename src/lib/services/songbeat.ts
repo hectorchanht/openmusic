@@ -48,7 +48,7 @@ export const CHART_VERSION = 1;
 // unshipped skin is never selectable and a shipped one never reorders.
 export type SongBeatSkinId = 'square' | 'round' | 'highway' | 'character-catch' | 'pulse' | 'rain';
 
-export const SONGBEAT_SKIN_IDS: readonly SongBeatSkinId[] = ['square', 'round', 'highway'];
+export const SONGBEAT_SKIN_IDS: readonly SongBeatSkinId[] = ['square', 'round', 'highway', 'character-catch'];
 
 export function isSongBeatSkinId(v: unknown): v is SongBeatSkinId {
 	return typeof v === 'string' && (SONGBEAT_SKIN_IDS as readonly string[]).includes(v);
@@ -584,6 +584,137 @@ export function visibleNotes(run: Run, now: number, approachSec: number): Visibl
 	return out;
 }
 
+// ---- Character-Catch chart (addendum-character-catch.md, Skin D) ----
+// Every sung grapheme falls; the TARGET subset is what the core judges. The char
+// chart is a pure function of (lines, duration, difficulty, songHash) exactly like
+// the note chart (§4.2), and the run itself is built from the DERIVED note chart
+// (charChartToNoteChart) — so judgment, scoring, HP and the fail state are the
+// core's shared path, never a fork (addendum §1/§7). Per-character times are
+// ESTIMATES inside each line's [time, end] window (§4.1.2's allocation), honestly
+// labelled 'char-est' until the B4 char-span layer lands (addendum §2).
+
+export interface CharNote {
+	/** Estimated onset (seconds, lyric-clock) — the char's centre in its line window. */
+	t: number;
+	/** The grapheme itself (one code point, per sungChars). */
+	ch: string;
+	lane: number;
+	/** True = a catch target (judged); false = lyric-stream glyph (never judged). */
+	target: boolean;
+}
+
+export interface CharChart {
+	chars: CharNote[];
+	/** 'char-est' while onsets are estimated; B4 spans flip this to 'char' later. */
+	source: 'char-est';
+	version: number;
+}
+
+/**
+ * The char chart (addendum §3): every sung grapheme of every line, in time order.
+ * Onsets: char k of n in a line gets start + (k + 0.5)/n × lineDur — the §4.1.2
+ * pre-allocation, identical doctrine to the note chart's syllable fills.
+ * Targets: line-start characters are anchors (always targets, exempt from
+ * thinning — the §4.1.1 rule); every other character is a target iff it lands at
+ * least MIN_INTERVAL[difficulty] after the last kept target — so 熱血 (fever)
+ * keeps every character except a too-close pair's later one, which drops to
+ * stream-only (the addendum's 0.21s floor merge), and 輕鬆/標準 thin to their
+ * ≈0.45s / ≈0.30s densities. Lanes: the §4.1.6 seeded assignment family (same
+ * chartSeed stream, same never-3-same-lane rule) run over the character sequence.
+ */
+export function generateCharChart(
+	lines: readonly LyricLine[],
+	duration: number,
+	difficulty: Difficulty,
+	songHash: string,
+	version = CHART_VERSION
+): CharChart {
+	const dur = Number.isFinite(duration) && duration > 0 ? duration : 0;
+	const raw: { t: number; ch: string; anchor: boolean }[] = [];
+	for (let i = 0; i < (lines?.length ?? 0); i++) {
+		const line = lines[i];
+		const start = line.time;
+		const end = lineEnd(lines, i, dur);
+		const lineDur = Math.max(0, end - start);
+		const chars = sungChars(line.text);
+		const n = chars.length;
+		for (let k = 0; k < n; k++) {
+			raw.push({ t: start + ((k + 0.5) / n) * lineDur, ch: chars[k], anchor: k === 0 });
+		}
+	}
+	raw.sort((a, b) => a.t - b.t);
+
+	const minInterval = MIN_INTERVAL[difficulty];
+	const rand = mulberry32(chartSeed(songHash, difficulty, version));
+	let lastTarget = -Infinity;
+	let prevLane = -1;
+	let prevPrevLane = -1;
+	const chars: CharNote[] = raw.map((c) => {
+		const target = c.anchor || c.t - lastTarget >= minInterval;
+		if (target) lastTarget = c.t;
+		let lane = Math.floor(rand() * 4);
+		if (lane === prevLane && lane === prevPrevLane) lane = (lane + 1 + Math.floor(rand() * 3)) % 4;
+		prevPrevLane = prevLane;
+		prevLane = lane;
+		return { t: c.t, ch: c.ch, lane, target };
+	});
+	return { chars, source: 'char-est', version };
+}
+
+/**
+ * The run's chart for Character-Catch: the target characters, in order, as plain
+ * tap notes. Target ordinal in this array IS the character's index among targets —
+ * visibleChars relies on that 1:1 mapping to read run states back onto glyphs.
+ * There are no holds in a char chart (addendum §1): one character = one tap.
+ */
+export function charChartToNoteChart(cc: CharChart): Chart {
+	return {
+		notes: cc.chars.filter((c) => c.target).map((c) => ({ t: c.t, lane: c.lane, type: 'tap' as const, dur: 0, anchor: false })),
+		source: 'lyric-est',
+		version: cc.version
+	};
+}
+
+export type VisibleCharState = 'stream' | 'pending' | 'hit' | 'missed' | 'skipped';
+
+/** A character as the skin draws it at one instant: the glyph + its grow-out
+ *  input + (for targets) the run state that drives its caught/missed styling. */
+export interface VisibleChar {
+	index: number;
+	ch: string;
+	lane: number;
+	t: number;
+	target: boolean;
+	signedDt: number;
+	state: VisibleCharState;
+}
+
+/**
+ * Every character inside the render window at `now`: from approachSec before its
+ * onset to 1.2×approachSec past it (missed targets visibly fall THROUGH the line
+ * and out of the field, addendum §4). Stream characters are never judged — their
+ * state stays 'stream' whatever the run does. Pure derivation, like visibleNotes.
+ */
+export function visibleChars(cc: CharChart, run: Run | null, now: number, approachSec: number): VisibleChar[] {
+	const out: VisibleChar[] = [];
+	const window = approachSec > 0 ? approachSec : 1.6;
+	const tail = window * 1.2;
+	let ord = 0;
+	for (let i = 0; i < cc.chars.length; i++) {
+		const c = cc.chars[i];
+		let state: VisibleCharState = 'stream';
+		if (c.target) {
+			const nr = run?.notes[ord];
+			ord++;
+			state = nr ? (nr.state === 'holding' ? 'pending' : nr.state) : 'pending';
+		}
+		const signedDt = now - c.t;
+		if (signedDt < -window || signedDt > tail) continue;
+		out.push({ index: i, ch: c.ch, lane: c.lane, t: c.t, target: c.target, signedDt, state });
+	}
+	return out;
+}
+
 // ---- derived stats (§5.2/§5.3) ----
 
 export interface RunStats {
@@ -773,6 +904,29 @@ export function chartCacheKey(songHash: string, difficulty: Difficulty): string 
 
 export function serializeChart(chart: Chart): string {
 	return JSON.stringify(chart);
+}
+
+/** Char-chart cache key (addendum §3): the note scheme + a `:char:` segment. */
+export function charChartCacheKey(songHash: string, difficulty: Difficulty): string {
+	return `openmusic:songbeat:chart:v1:${songHash}:char:${difficulty}`;
+}
+
+export function serializeCharChart(cc: CharChart): string {
+	return JSON.stringify(cc);
+}
+
+export function parseCharChart(raw: string | null): CharChart | null {
+	if (!raw) return null;
+	try {
+		const v = JSON.parse(raw) as CharChart;
+		if (!v || !Array.isArray(v.chars) || v.source !== 'char-est') return null;
+		for (const c of v.chars) {
+			if (typeof c.t !== 'number' || typeof c.ch !== 'string' || typeof c.lane !== 'number' || typeof c.target !== 'boolean') return null;
+		}
+		return { chars: v.chars, source: 'char-est', version: typeof v.version === 'number' ? v.version : CHART_VERSION };
+	} catch {
+		return null;
+	}
 }
 
 export function parseChart(raw: string | null): Chart | null {

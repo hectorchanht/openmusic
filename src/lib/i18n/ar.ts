@@ -1073,6 +1073,9 @@ const ar: Dict = {
 	"songbeat.skin.square": "مربع",
 	"songbeat.skin.round": "دائري",
 	"songbeat.skin.highway": "الطريق السريع",
+	"songbeat.skin.characterCatch": "التقاط الأحرف",
+	"songbeat.charAccuracy": "دقة الالتقاط",
+	"songbeat.charUnavailable": "لا توجد كلمات لهذه الأغنية — يحتاج وضع التقاط الأحرف إلى كلمات",
 
 	// --- AI voice button (quick-261122-voice) ---
 	"voice.button": "الصوت: قل ما تريد تشغيله",

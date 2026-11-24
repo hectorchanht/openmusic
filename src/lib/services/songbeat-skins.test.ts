@@ -16,14 +16,16 @@ import {
 
 const npGame = readFileSync('src/lib/components/NpGame.svelte', 'utf-8');
 
-describe('skin registry — locked order (feel → Square → Round → Highway → …)', () => {
-	it('ships square, round, highway, in order, with the core id list in lockstep', () => {
-		expect(SONGBEAT_SKINS.map((d) => d.id)).toEqual(['square', 'round', 'highway']);
-		expect([...SONGBEAT_SKIN_IDS]).toEqual(['square', 'round', 'highway']);
+describe('skin registry — locked order (feel → Square → Round → Highway → Character-Catch → …)', () => {
+	it('ships square, round, highway, character-catch, in order, with the core id list in lockstep', () => {
+		expect(SONGBEAT_SKINS.map((d) => d.id)).toEqual(['square', 'round', 'highway', 'character-catch']);
+		expect([...SONGBEAT_SKIN_IDS]).toEqual(['square', 'round', 'highway', 'character-catch']);
 		expect(skinsInLockedOrder()).toBe(true);
 		expect(skinDef('round').labelKey).toBe('songbeat.skin.round');
 		expect(skinDef('highway').labelKey).toBe('songbeat.skin.highway');
 		expect(skinDef('highway').geometry).toBe('lanes-4');
+		expect(skinDef('character-catch').labelKey).toBe('songbeat.skin.characterCatch');
+		expect(skinDef('character-catch').geometry).toBe('lanes-4-chars');
 	});
 
 	it('default skin is square; settings roundtrip a skin; garbage falls back to square', () => {
@@ -34,6 +36,8 @@ describe('skin registry — locked order (feel → Square → Round → Highway 
 		expect(s.skin).toBe('round');
 		const h = parseSongBeatSettings(serializeSongBeatSettings({ ...DEFAULT_SONGBEAT_SETTINGS, skin: 'highway' }));
 		expect(h.skin).toBe('highway');
+		const c = parseSongBeatSettings(serializeSongBeatSettings({ ...DEFAULT_SONGBEAT_SETTINGS, skin: 'character-catch' }));
+		expect(c.skin).toBe('character-catch');
 	});
 });
 
