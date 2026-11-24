@@ -48,7 +48,7 @@ export const CHART_VERSION = 1;
 // unshipped skin is never selectable and a shipped one never reorders.
 export type SongBeatSkinId = 'square' | 'round' | 'highway' | 'character-catch' | 'pulse' | 'rain';
 
-export const SONGBEAT_SKIN_IDS: readonly SongBeatSkinId[] = ['square', 'round', 'highway', 'character-catch', 'pulse'];
+export const SONGBEAT_SKIN_IDS: readonly SongBeatSkinId[] = ['square', 'round', 'highway', 'character-catch', 'pulse', 'rain'];
 
 export function isSongBeatSkinId(v: unknown): v is SongBeatSkinId {
 	return typeof v === 'string' && (SONGBEAT_SKIN_IDS as readonly string[]).includes(v);

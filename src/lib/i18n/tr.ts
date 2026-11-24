@@ -1075,6 +1075,7 @@ const tr: Dict = {
 	"songbeat.skin.highway": "Otoyol",
 	"songbeat.skin.characterCatch": "Karakter Yakala",
 	"songbeat.skin.pulse": "Nabız",
+	"songbeat.skin.rain": "Yağmur",
 	"songbeat.charAccuracy": "Karakter doğruluğu",
 	"songbeat.charUnavailable": "Bu şarkının sözü yok — Karakter Yakala söz gerektirir",
 

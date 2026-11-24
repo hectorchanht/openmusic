@@ -1075,6 +1075,7 @@ const pt: Dict = {
 	"songbeat.skin.highway": "Rodovia",
 	"songbeat.skin.characterCatch": "Pegue o Caractere",
 	"songbeat.skin.pulse": "Pulso",
+	"songbeat.skin.rain": "Chuva",
 	"songbeat.charAccuracy": "Precisão de caracteres",
 	"songbeat.charUnavailable": "Sem letra — Pegue o Caractere precisa da letra",
 

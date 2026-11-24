@@ -16,10 +16,10 @@ import {
 
 const npGame = readFileSync('src/lib/components/NpGame.svelte', 'utf-8');
 
-describe('skin registry — locked order (feel → Square → Round → Highway → Character-Catch → Pulse → …)', () => {
-	it('ships square, round, highway, character-catch, pulse, in order, with the core id list in lockstep', () => {
-		expect(SONGBEAT_SKINS.map((d) => d.id)).toEqual(['square', 'round', 'highway', 'character-catch', 'pulse']);
-		expect([...SONGBEAT_SKIN_IDS]).toEqual(['square', 'round', 'highway', 'character-catch', 'pulse']);
+describe('skin registry — locked order (feel → Square → Round → Highway → Character-Catch → Pulse → Rain)', () => {
+	it('ships all six skins, in order, with the core id list in lockstep', () => {
+		expect(SONGBEAT_SKINS.map((d) => d.id)).toEqual(['square', 'round', 'highway', 'character-catch', 'pulse', 'rain']);
+		expect([...SONGBEAT_SKIN_IDS]).toEqual(['square', 'round', 'highway', 'character-catch', 'pulse', 'rain']);
 		expect(skinsInLockedOrder()).toBe(true);
 		expect(skinDef('round').labelKey).toBe('songbeat.skin.round');
 		expect(skinDef('highway').labelKey).toBe('songbeat.skin.highway');
@@ -28,6 +28,8 @@ describe('skin registry — locked order (feel → Square → Round → Highway 
 		expect(skinDef('character-catch').geometry).toBe('lanes-4-chars');
 		expect(skinDef('pulse').labelKey).toBe('songbeat.skin.pulse');
 		expect(skinDef('pulse').geometry).toBe('pulse-ring');
+		expect(skinDef('rain').labelKey).toBe('songbeat.skin.rain');
+		expect(skinDef('rain').geometry).toBe('lanes-4-rain');
 	});
 
 	it('default skin is square; settings roundtrip a skin; garbage falls back to square', () => {
@@ -42,6 +44,37 @@ describe('skin registry — locked order (feel → Square → Round → Highway 
 		expect(c.skin).toBe('character-catch');
 		const p = parseSongBeatSettings(serializeSongBeatSettings({ ...DEFAULT_SONGBEAT_SETTINGS, skin: 'pulse' }));
 		expect(p.skin).toBe('pulse');
+		const r = parseSongBeatSettings(serializeSongBeatSettings({ ...DEFAULT_SONGBEAT_SETTINGS, skin: 'rain' }));
+		expect(r.skin).toBe('rain');
+	});
+});
+
+describe('Rain skin — droplets on the grow-out skeleton', () => {
+	const rain = readFileSync('src/lib/components/SongBeatRainSkin.svelte', 'utf-8');
+	it('NpGame renders it from the shared visible-note derivation with its own glyph', () => {
+		expect(npGame).toContain('SongBeatRainSkin');
+		expect(npGame).toContain("beat.skin === 'rain'");
+		expect(npGame).toContain('CloudRain');
+		expect(npGame).toContain("def.id === 'rain'");
+	});
+
+	it('the surface line is the centred border and drops are placed by growOut only', () => {
+		expect(rain).toContain('rain-field');
+		expect(rain).toContain('surface-line');
+		expect(rain).toContain('growOut(n.signedDt, approachSec)');
+		expect(rain).toContain('HALF * (1 + g.offset)');
+		// Fixed geometry: 280px field, line at its centre, 22px drops, 44×14 puddles.
+		expect(rain).toContain('height: 280px');
+		expect(rain).toContain('top: 140px');
+		expect(rain).toContain('width: 22px; height: 22px');
+		expect(rain).toContain('width: 44px; height: 14px');
+	});
+
+	it('lanes render the shared pad ICON, never a visible text label (Workstream H)', () => {
+		expect(rain).toContain("import SongBeatPadIcon from '$lib/components/SongBeatPadIcon.svelte'");
+		expect(rain).toContain('<SongBeatPadIcon pad={lanePad(lane)}');
+		expect(rain).not.toContain('lane-label');
+		expect(rain).toContain('aria-label={PAD_LABEL[lanePad(lane)]}');
 	});
 });
 

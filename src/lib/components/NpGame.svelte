@@ -14,7 +14,7 @@
 	import { tapBounce } from '$lib/actions/tapBounce';
 	// quick-261122-npfix: Song Beat scroll LOCK — auto-pin on round start, a visible top-corner
 	// toggle as its face + manual override (rules: services/songbeat-scroll-lock.ts).
-	import { Lock, LockOpen, Crosshair, Volume2, Swords, Square, Circle, Columns4, WholeWord, HeartPulse } from '@lucide/svelte';
+	import { Lock, LockOpen, Crosshair, Volume2, Swords, Square, Circle, Columns4, WholeWord, HeartPulse, CloudRain } from '@lucide/svelte';
 	import { pinScroll } from '$lib/actions/pinScroll';
 	import { nextScrollLock } from '$lib/services/songbeat-scroll-lock';
 	import { readLyrics } from '$lib/stores/lyric-pins.svelte';
@@ -74,6 +74,7 @@
 	import SongBeatHighwaySkin from '$lib/components/SongBeatHighwaySkin.svelte';
 	import SongBeatCharCatchSkin from '$lib/components/SongBeatCharCatchSkin.svelte';
 	import SongBeatPulseSkin from '$lib/components/SongBeatPulseSkin.svelte';
+	import SongBeatRainSkin from '$lib/components/SongBeatRainSkin.svelte';
 	import { kick, snare, pluck, shaker } from '$lib/util/haptics';
 
 	// The pane's only parent seam: the results card's "back to lyrics" (the tab itself
@@ -491,6 +492,8 @@
 		     preserves the run (Character-Catch parks its own chart family's run). -->
 		{#if effectiveSkin === 'character-catch'}
 			<SongBeatCharCatchSkin chars={fallingChars} lanes={displayLanes} {pops} {flash} approachSec={beat.approachSec} onPadDown={padDown} onPadUp={padUp} groupLabel={t('nowplaying.game')} />
+		{:else if beat.skin === 'rain'}
+			<SongBeatRainSkin notes={fallingNotes} lanes={displayLanes} {pops} {flash} approachSec={beat.approachSec} onPadDown={padDown} onPadUp={padUp} groupLabel={t('nowplaying.game')} />
 		{:else if beat.skin === 'pulse'}
 			<SongBeatPulseSkin pads={displayPads} {laneOf} {nextNote} {pops} {flash} approachSec={beat.approachSec} onPadDown={padDown} onPadUp={padUp} groupLabel={t('nowplaying.game')} />
 		{:else if beat.skin === 'highway'}
@@ -514,7 +517,7 @@
 				<button type="button" class="icon-btn" class:active={beat.skin === def.id} aria-pressed={beat.skin === def.id}
 					aria-label={t(def.labelKey)} title={def.id === 'character-catch' && !charAvailable ? t('songbeat.charUnavailable') : t(def.labelKey)}
 					disabled={def.id === 'character-catch' && !charAvailable}
-					onclick={() => { beat = { ...beat, skin: def.id }; }}>{#if def.id === 'round'}<Circle size={16} aria-hidden="true" />{:else if def.id === 'highway'}<Columns4 size={16} aria-hidden="true" />{:else if def.id === 'character-catch'}<WholeWord size={16} aria-hidden="true" />{:else if def.id === 'pulse'}<HeartPulse size={16} aria-hidden="true" />{:else}<Square size={16} aria-hidden="true" />{/if}</button>
+					onclick={() => { beat = { ...beat, skin: def.id }; }}>{#if def.id === 'round'}<Circle size={16} aria-hidden="true" />{:else if def.id === 'highway'}<Columns4 size={16} aria-hidden="true" />{:else if def.id === 'character-catch'}<WholeWord size={16} aria-hidden="true" />{:else if def.id === 'pulse'}<HeartPulse size={16} aria-hidden="true" />{:else if def.id === 'rain'}<CloudRain size={16} aria-hidden="true" />{:else}<Square size={16} aria-hidden="true" />{/if}</button>
 			{/each}
 		</div>
 		<div class="seg" role="group" aria-label={t('songbeat.difficulty')}>

@@ -1075,6 +1075,7 @@ const ar: Dict = {
 	"songbeat.skin.highway": "الطريق السريع",
 	"songbeat.skin.characterCatch": "التقاط الأحرف",
 	"songbeat.skin.pulse": "نبض",
+	"songbeat.skin.rain": "مطر",
 	"songbeat.charAccuracy": "دقة الالتقاط",
 	"songbeat.charUnavailable": "لا توجد كلمات لهذه الأغنية — يحتاج وضع التقاط الأحرف إلى كلمات",
 

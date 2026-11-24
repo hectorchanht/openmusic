@@ -1075,6 +1075,7 @@ const fr: Dict = {
 	"songbeat.skin.highway": "Autoroute",
 	"songbeat.skin.characterCatch": "Attrape-caractères",
 	"songbeat.skin.pulse": "Pouls",
+	"songbeat.skin.rain": "Pluie",
 	"songbeat.charAccuracy": "Précision des caractères",
 	"songbeat.charUnavailable": "Pas de paroles — Attrape-caractères en a besoin",
 

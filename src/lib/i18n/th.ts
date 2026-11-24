@@ -1075,6 +1075,7 @@ const th: Dict = {
 	"songbeat.skin.highway": "ทางหลวง",
 	"songbeat.skin.characterCatch": "จับตัวอักษร",
 	"songbeat.skin.pulse": "ชีพจร",
+	"songbeat.skin.rain": "สายฝน",
 	"songbeat.charAccuracy": "ความแม่นยำตัวอักษร",
 	"songbeat.charUnavailable": "เพลงนี้ไม่มีเนื้อร้อง — จับตัวอักษรต้องใช้เนื้อร้อง",
 

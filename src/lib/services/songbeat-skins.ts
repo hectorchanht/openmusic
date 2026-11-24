@@ -29,7 +29,8 @@ export const SONGBEAT_SKINS: readonly SongBeatSkinDef[] = [
 	{ id: 'round', labelKey: 'songbeat.skin.round', geometry: 'pads-2x2' },
 	{ id: 'highway', labelKey: 'songbeat.skin.highway', geometry: 'lanes-4' },
 	{ id: 'character-catch', labelKey: 'songbeat.skin.characterCatch', geometry: 'lanes-4-chars' },
-	{ id: 'pulse', labelKey: 'songbeat.skin.pulse', geometry: 'pulse-ring' }
+	{ id: 'pulse', labelKey: 'songbeat.skin.pulse', geometry: 'pulse-ring' },
+	{ id: 'rain', labelKey: 'songbeat.skin.rain', geometry: 'lanes-4-rain' }
 ];
 
 /** Registry integrity: the defs and the core's selectable ids are the same set, in

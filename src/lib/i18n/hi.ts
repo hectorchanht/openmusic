@@ -1075,6 +1075,7 @@ const hi: Dict = {
 	"songbeat.skin.highway": "हाईवे",
 	"songbeat.skin.characterCatch": "अक्षर पकड़ें",
 	"songbeat.skin.pulse": "नाड़ी",
+	"songbeat.skin.rain": "बारिश",
 	"songbeat.charAccuracy": "अक्षर सटीकता",
 	"songbeat.charUnavailable": "इस गाने के बोल नहीं हैं — अक्षर पकड़ने के लिए बोल चाहिए",
 
