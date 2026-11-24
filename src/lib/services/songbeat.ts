@@ -281,6 +281,47 @@ function laneAssign(
 	return out;
 }
 
+// ---- GROW-OUT hit geometry (Hector 2026-11-23 22:09, standing law for Song Beat) ----
+// The shared skeleton EVERY skin renders by — skins change the skin, never this
+// geometry. Each note starts INSIDE its hit box and GROWS outward, crossing the box's
+// border and continuing outside: the distance travelled inside before the border
+// EQUALS the distance travelled outside past it (approach and overshoot are mirror
+// images around the border), and THE BORDER IS THE PERFECT LINE — the moment the
+// growing note aligns with the border (signed offset 0) is the PERFECT hit moment;
+// the judgment windows (§5.1) are symmetric around that crossing by construction.
+
+/** Signed time of a note relative to song time: negative before its hit moment,
+ *  0 AT the hit moment, positive after. (now − note.t) */
+export interface GrowOutState {
+	/** Note size as a multiple of the hit-box size: 0 at the window start (a point
+	 *  inside the box), 1 exactly AT the border, 2 at the mirror end of the window. */
+	scale: number;
+	/** Signed distance from the border, in border units (box half-size = 1):
+	 *  −1 at the window start, 0 at the border, +1 at the mirror end. */
+	offset: number;
+	/** Unsigned distance from the border — EQUAL at equal time offsets before and
+	 *  after the perfect moment (the symmetry pin, songbeat-geometry.test.ts). */
+	borderDistance: number;
+	/** True only at the exact hit moment — border alignment IS perfect (§5.1). */
+	atBorder: boolean;
+	phase: 'approach' | 'perfect' | 'overshoot';
+}
+
+/** Grow-out state for a signed dt (now − note.t, seconds) over the approach window.
+ *  Pure: same inputs → same geometry on every skin, so a skin switch mid-run can
+ *  never change where a note sits relative to its border. */
+export function growOut(signedDt: number, approachSec: number): GrowOutState {
+	const window = approachSec > 0 ? approachSec : 1.6;
+	const offset = signedDt / window;
+	return {
+		scale: 1 + offset,
+		offset,
+		borderDistance: Math.abs(offset),
+		atBorder: signedDt === 0,
+		phase: signedDt < 0 ? 'approach' : signedDt > 0 ? 'overshoot' : 'perfect'
+	};
+}
+
 // ---- judgment (§5.1) ----
 
 export type Judgment = 'perfect' | 'great' | 'good' | 'miss';

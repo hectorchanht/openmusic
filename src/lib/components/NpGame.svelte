@@ -353,8 +353,11 @@
 	const activeLine = $derived(activeLineAt(gameLines, now, lyricOffset));
 	const activeLineText = $derived(activeLine.idx >= 0 ? gameLines[activeLine.idx]?.text ?? '' : '');
 
-	/** The next unresolved note per lane inside the approach window (the ring's target). */
-	function nextNote(lane: number): { progress: number; hold: boolean } | null {
+	/** The next unresolved note per lane inside the approach window. Carries the
+	 *  GROW-OUT geometry inputs (Hector 2026-11-23 22:09): signedDt = now − note.t
+	 *  (negative before the hit moment, 0 AT the border = PERFECT, positive past it)
+	 *  — skins turn it into size/position via growOut() and nothing else. */
+	function nextNote(lane: number): { progress: number; hold: boolean; signedDt: number; holdProgress: number } | null {
 		if (!run || !chart) return null;
 		for (let i = 0; i < chart.notes.length; i++) {
 			const n = chart.notes[i];
@@ -362,13 +365,13 @@
 			const st = run.notes[i].state;
 			if (st === 'holding') {
 				const p = n.dur > 0 ? Math.min(1, Math.max(0, (now - n.t) / n.dur)) : 1;
-				return { progress: p, hold: true };
+				return { progress: 1, hold: true, signedDt: now - n.t, holdProgress: p };
 			}
 			if (st !== 'pending') continue;
 			const dt = n.t - now;
 			if (dt < -0.22) continue;
 			if (dt > beat.approachSec) return null;
-			return { progress: Math.min(1, Math.max(0, 1 - dt / beat.approachSec)), hold: false };
+			return { progress: Math.min(1, Math.max(0, 1 - dt / beat.approachSec)), hold: false, signedDt: -dt, holdProgress: 0 };
 		}
 		return null;
 	}
@@ -436,9 +439,9 @@
 		<!-- Skins (brief §2.3, Workstream F): Square is the default renderer; Round is
 		     the circular variant. Both are stateless — switching preserves the run. -->
 		{#if beat.skin === 'round'}
-			<SongBeatRoundSkin pads={displayPads} {laneOf} {nextNote} {pops} {flash} onPadDown={padDown} onPadUp={padUp} groupLabel={t('nowplaying.game')} />
+			<SongBeatRoundSkin pads={displayPads} {laneOf} {nextNote} {pops} {flash} approachSec={beat.approachSec} onPadDown={padDown} onPadUp={padUp} groupLabel={t('nowplaying.game')} />
 		{:else}
-			<SongBeatSquareSkin pads={displayPads} {laneOf} {nextNote} {pops} {flash} onPadDown={padDown} onPadUp={padUp} groupLabel={t('nowplaying.game')} />
+			<SongBeatSquareSkin pads={displayPads} {laneOf} {nextNote} {pops} {flash} approachSec={beat.approachSec} onPadDown={padDown} onPadUp={padUp} groupLabel={t('nowplaying.game')} />
 		{/if}
 	{/if}
 

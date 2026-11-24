@@ -5,13 +5,15 @@
 	// in the caller/core. Fixed geometry (NO STRETCH): 2×2 grid, pad height fixed.
 	import { tapBounce } from '$lib/actions/tapBounce';
 	import { PAD_LABEL } from '$lib/services/songbeat-skins';
+	import { growOut } from '$lib/services/songbeat';
 	import type { Judgment } from '$lib/services/songbeat';
 	import type { PadId } from '$lib/services/tapalong';
 
-	let { pads, laneOf, nextNote, pops, flash, onPadDown, onPadUp, groupLabel }: {
+	let { pads, laneOf, nextNote, approachSec, pops, flash, onPadDown, onPadUp, groupLabel }: {
 		pads: PadId[];
 		laneOf: (pad: PadId) => number;
-		nextNote: (lane: number) => { progress: number; hold: boolean } | null;
+		nextNote: (lane: number) => { progress: number; hold: boolean; signedDt: number; holdProgress: number } | null;
+		approachSec: number;
 		pops: Record<number, { text: string; cls: string; hint: string; seq: number }>;
 		flash: Record<number, { j: Judgment | 'ghost'; seq: number }>;
 		onPadDown: (lane: number, e: PointerEvent) => void;
@@ -40,10 +42,11 @@
 			use:tapBounce
 		>
 			{#if next && !next.hold}
-				<span class="ring" style:transform={`scale(${1.45 - 0.45 * next.progress})`} style:opacity={0.25 + 0.75 * next.progress}></span>
+				{@const g = growOut(next.signedDt, approachSec)}
+				<span class="note-shape" style:transform={`scale(${Math.max(0, g.scale)})`} style:opacity={next.signedDt <= 0 ? 0.3 + 0.7 * next.progress : 1}></span>
 			{/if}
 			{#if next?.hold}
-				<span class="holdfill" style:height={`${next.progress * 100}%`}></span>
+				<span class="holdclip"><span class="holdfill" style:height={`${next.holdProgress * 100}%`}></span></span>
 			{/if}
 			<span class="pad-label">{PAD_LABEL[pad]}</span>
 			{#if pop}
@@ -55,11 +58,12 @@
 
 <style>
 	.deck { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-	.pad { position: relative; height: 104px; border-radius: 14px; border: 1px solid var(--color-border, rgba(255,255,255,0.14)); background: var(--color-surface-2); color: var(--color-text); overflow: hidden; touch-action: none; cursor: pointer; }
+	.pad { position: relative; height: 104px; border-radius: 14px; border: 1px solid var(--color-border, rgba(255,255,255,0.14)); background: var(--color-surface-2); color: var(--color-text); overflow: visible; touch-action: none; cursor: pointer; }
 	.pad:active { background: var(--color-surface-3, var(--color-surface-2)); }
 	.pad-label { position: relative; z-index: 2; font-size: 13px; font-weight: 800; letter-spacing: 0.14em; }
-	.ring { position: absolute; inset: 6px; border: 2px solid var(--color-accent, #00c2b8); border-radius: 10px; pointer-events: none; z-index: 1; }
-	.holdfill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--color-accent, #00c2b8); opacity: 0.35; pointer-events: none; z-index: 0; }
+	.note-shape { position: absolute; inset: 6px; border: 2px solid var(--color-accent, #00c2b8); border-radius: 10px; pointer-events: none; z-index: 1; }
+	.holdclip { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; pointer-events: none; z-index: 0; }
+	.holdfill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--color-accent, #00c2b8); opacity: 0.35; pointer-events: none; }
 	.flash-perfect { border-color: var(--color-accent, #00c2b8); box-shadow: 0 0 0 2px var(--color-accent, #00c2b8) inset; }
 	.flash-great { border-color: var(--color-accent, #00c2b8); }
 	.flash-good { border-color: var(--color-text-muted); }
