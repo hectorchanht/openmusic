@@ -27,6 +27,8 @@
 	import { chunkRanges, dedupeSendList, applyUniqueChunkResult, applyUniqueChunkFlags, initialPending, clearUniqueChunkPending, skeletonWidthPct, LYRICS_CHUNK_SIZE, LYRICS_CHUNK_CONCURRENCY } from '$lib/services/lyric-chunks';
 	import { shouldTranslate, majorityLang } from '$lib/i18n/detect';
 	import { reorderPairs, splitParenLines, serializeLRC, lineSeekFraction, activeLineAt, lineEndAt, lyricAnchorMetrics, formatLyricOffset, LYRIC_OFFSET_MAX, type LyricLine } from '$lib/services/lrc';
+	// quick-261123-lyricspin: the pure middle-pin scroll-target maths (see lyric-center.ts).
+	import { centeredScrollTop } from '$lib/services/lyric-center';
 	import { charSpansFor, charFillAt, groupCharSpansBySurfaces, type TimedChar } from '$lib/services/lyric-chars';
 	// quick-261116-lyrux (Fix 2): the publication seam the Nowbar reads for replace mode.
 	import { lyricsTranslation, translationDuplicatesOriginal } from '$lib/stores/lyrics-translation.svelte';
@@ -188,6 +190,13 @@
 	// element with no padding, and a surviving guard would skip re-applying it.
 	let lastPadTop = '';
 	let lastPadBottom = '';
+	// quick-261123-lyricspin: the line-set key (`uid:lineCount`) whose INITIAL anchor has
+	// already landed, plus when it landed. Plain fields (nothing renders them). The first
+	// anchor for a fresh line set — lyrics finishing loading mid-playback, or a new track —
+	// must be INSTANT, so the pane LANDS with the current active line at the middle instead
+	// of rendering top-anchored and then gliding/jumping there. Later line changes glide.
+	let initialAnchorKey = '';
+	let initialAnchorAt = 0;
 	let idleTimer: ReturnType<typeof setTimeout> | null = null;
 	// D-10/LYR-02: how long after manual scrolling STOPS before auto-scroll resumes. Raised from
 	// the old 600ms (which snapped the view back mid-read) to ~3s.
@@ -341,7 +350,15 @@
 		// centre is now the default of a configurable offset (settings.lyricsAnchor, percent of the
 		// visible band). Read here, at the top, so the $effect re-anchors live when the Appearance
 		// slider moves.
-		const anchorPct = settings.lyricsAnchor;
+		// quick-261123-lyricspin (Hector 2026-11-23 21:36, real-device report): the middle-pin is
+		// now an INVARIANT of this pane, not a preference — the active line is pinned at the
+		// vertical middle (50%) at all times, so the anchor is fixed at 50 here regardless of
+		// the stored Appearance value.
+		const anchorPct = 50;
+		// quick-261123-lyricspin: read the line-set identity at the TOP (before any return) so
+		// the anchor $effect re-runs the moment a fresh line set renders — lyrics finishing
+		// loading mid-playback must anchor in THAT pass, at the then-current active line.
+		const anchorKey = `${player.current?.uid ?? ''}:${lines.length}`;
 		// quick-260926-qat: the timing row's height enters/leaves `syncH` when it toggles, so the
 		// effect must re-anchor on the flag; read at the top so the synchronous pass registers it.
 		lyricSyncOpen();
@@ -416,10 +433,32 @@
 		// padding does not move the bounded `.panel` scroller's own rect.
 		const elRect = el.getBoundingClientRect();
 		const offsetWithin = elRect.top - cRect.top + container.scrollTop; // line top in container scroll-space
+		// quick-261123-lyricspin: the middle-pin target — the line's CENTRE on the visible
+		// band's CENTRE, clamped to the scrollable range (centeredScrollTop, lyric-center.ts).
+		// At the fixed 50% anchor this equals `offsetWithin - anchorWithin`; the helper form
+		// is the tested invariant, and anchorWithin still drives the head/tail padding above.
+		void anchorWithin;
+		const target = centeredScrollTop({
+			lineTop: offsetWithin,
+			lineHeight: el.offsetHeight,
+			viewportHeight: visHeight,
+			viewportTopOffset: visTopWithin,
+			maxScrollTop: container.scrollHeight - container.clientHeight
+		});
+		// quick-261123-lyricspin: the FIRST anchor for a fresh line set is INSTANT ('auto') —
+		// the pane lands with the current active line already at the middle, with no
+		// top-anchored render and no visible glide/jump afterwards. The settle re-anchor
+		// inside the same window is instant too (it corrects the same landing). Every
+		// later line change glides as before.
+		const isInitial = anchorKey !== initialAnchorKey || Date.now() - initialAnchorAt < REFLOW_SETTLE_MS + 50;
+		if (anchorKey !== initialAnchorKey) {
+			initialAnchorKey = anchorKey;
+			initialAnchorAt = Date.now();
+		}
 		// quick-261102-s5t: reduce motion (app flag OR OS) jumps instead of gliding. Read here, after
 		// the early returns, so it is not a dependency of the anchor effect.
 		// quick-261102-u4t: the ONE reduce-motion decision ($lib/motion), not an inline copy.
-		container.scrollTo({ top: offsetWithin - anchorWithin, behavior: scrollBehavior() });
+		container.scrollTo({ top: target, behavior: isInitial ? 'auto' : scrollBehavior() });
 	}
 
 	// quick-260919-npfix (Fix 3): how long to wait before re-anchoring after a sheet-state change.
