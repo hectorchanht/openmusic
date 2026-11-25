@@ -210,31 +210,31 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	// label keys are the actions' OWN existing keys (no new i18n); the icons are the same
 	// components the live cells use, so the preview reads as the menu it configures
 	// (the RowActionsConfig precedent).
-	const EDIT_META: Record<MenuActionId, { icon: Component; label: TranslationKey }> = {
-		remix: { icon: Sparkles, label: 'menu.autoplay' },
-		playNext: { icon: ListStart, label: 'menu.playNext' },
-		download: { icon: Download, label: 'menu.download' },
-		like: { icon: Heart, label: 'menu.like' },
-		addQueue: { icon: ListEnd, label: 'menu.addToQueue' },
-		startRadio: { icon: Radio, label: 'menu.startRadio' },
-		versions: { icon: Layers, label: 'menu.versions' },
-		changeCover: { icon: ImageIcon, label: 'menu.changeCover' },
-		changeLyrics: { icon: Mic2, label: 'menu.fixLyrics' },
-		viewComments: { icon: MessageCircle, label: 'menu.viewComments' },
-		viewRelated: { icon: ListMusic, label: 'menu.viewRelated' },
+	const EDIT_META: Record<MenuActionId, { icon: Component; label: TranslationKey; micro: TranslationKey }> = {
+		remix: { icon: Sparkles, label: 'menu.autoplay', micro: 'menu.micro.remix' },
+		playNext: { icon: ListStart, label: 'menu.playNext', micro: 'menu.micro.playNext' },
+		download: { icon: Download, label: 'menu.download', micro: 'menu.micro.download' },
+		like: { icon: Heart, label: 'menu.like', micro: 'menu.micro.like' },
+		addQueue: { icon: ListEnd, label: 'menu.addToQueue', micro: 'menu.micro.addQueue' },
+		startRadio: { icon: Radio, label: 'menu.startRadio', micro: 'menu.micro.startRadio' },
+		versions: { icon: Layers, label: 'menu.versions', micro: 'menu.micro.versions' },
+		changeCover: { icon: ImageIcon, label: 'menu.changeCover', micro: 'menu.micro.changeCover' },
+		changeLyrics: { icon: Mic2, label: 'menu.fixLyrics', micro: 'menu.micro.changeLyrics' },
+		viewComments: { icon: MessageCircle, label: 'menu.viewComments', micro: 'menu.micro.viewComments' },
+		viewRelated: { icon: ListMusic, label: 'menu.viewRelated', micro: 'menu.micro.viewRelated' },
 		// quick-261021-menu7: lyricsTiming removed from EDIT_META — no longer a menu item.
-		editTags: { icon: Tags, label: 'menu.editTags' },
-		addToPlaylist: { icon: ListPlus, label: 'menu.addToPlaylist' },
-		customize: { icon: Pencil, label: 'menu.customize' },
-		repeat: { icon: Repeat, label: 'nowplaying.repeat' },
-		shuffleQueue: { icon: Shuffle, label: 'menu.shuffleQueue' },
-		clearQueue: { icon: Trash2, label: 'menu.clearQueue' },
-		sleepTimer: { icon: Moon, label: 'menu.sleepTimer' },
-		goToArtist: { icon: User, label: 'menu.goToArtist' },
-		goToAlbum: { icon: Disc3, label: 'menu.goToAlbum' },
-		share: { icon: Share2, label: 'menu.share' },
-		detail: { icon: Info, label: 'menu.details' },
-		downloadSource: { icon: ArrowDownToLine, label: 'menu.downloadFromSource' }
+		editTags: { icon: Tags, label: 'menu.editTags', micro: 'menu.micro.editTags' },
+		addToPlaylist: { icon: ListPlus, label: 'menu.addToPlaylist', micro: 'menu.micro.addToPlaylist' },
+		customize: { icon: Pencil, label: 'menu.customize', micro: 'menu.micro.customize' },
+		repeat: { icon: Repeat, label: 'nowplaying.repeat', micro: 'menu.micro.repeat' },
+		shuffleQueue: { icon: Shuffle, label: 'menu.shuffleQueue', micro: 'menu.micro.shuffleQueue' },
+		clearQueue: { icon: Trash2, label: 'menu.clearQueue', micro: 'menu.micro.clearQueue' },
+		sleepTimer: { icon: Moon, label: 'menu.sleepTimer', micro: 'menu.micro.sleepTimer' },
+		goToArtist: { icon: User, label: 'menu.goToArtist', micro: 'menu.micro.goToArtist' },
+		goToAlbum: { icon: Disc3, label: 'menu.goToAlbum', micro: 'menu.micro.goToAlbum' },
+		share: { icon: Share2, label: 'menu.share', micro: 'menu.micro.share' },
+		detail: { icon: Info, label: 'menu.details', micro: 'menu.micro.detail' },
+		downloadSource: { icon: ArrowDownToLine, label: 'menu.downloadFromSource', micro: 'menu.micro.downloadSource' }
 	};
 
 	// quick-261006-mnu — EDIT MODE. `editing` is per-open component state (reset in close()).
@@ -1702,10 +1702,10 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		<!-- D-01: the action list ALWAYS renders (no `loading` gate around the buttons — `loading`
 		     now only drives the header-only skeleton above). Gated rows (Download / Detail / Remix)
 		     are tappable on a stub and resolve-then-act with an inline spinner (D-02/D-03).
-		     quick-261006-grd: the list is now an ICON GRID — 4 columns, icon + 2-line micro label per
-		     cell (the iOS-share-sheet idiom). Workstream H batch 3 supersedes the micro label:
-		     cells are icon-only, the word lives in aria-label + title (Dawn-Design §8).
-		     Only the presentation class moves from `.mi`
+		     quick-261125-microlabel: every cell = icon + 1–2 char micro label (menu.micro.* keys);
+		     the full-length name stays in aria-label/title. (Was: full labels, clamped 2 lines.)
+		     quick-261006-grd: the list is now an ICON GRID — 4 columns, icon + micro label per
+		     cell (the iOS-share-sheet idiom). Only the presentation class moves from `.mi`
 		     (full-width row) to `.gi` (grid cell). The picker sub-sheets below (playlist /
 		     lyrics / download / remove-download) keep `.mi` — they are separate sheets, not
 		     this grid.
@@ -1716,8 +1716,8 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		     snippet keeps its original markup, handlers and inner conditions verbatim. -->
 		<!-- Remix: GATED (needs audioUrl to play the seed) — Sparkles + the inline spinner. -->
 		{#snippet cellRemix(tr: Track)}
-			<button class="gi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : t('menu.autoplay')} onclick={onRemixTap} use:tapBounce>
-				{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}
+			<button class="gi" aria-busy={inFlight.has('remix')} aria-label={inFlight.has('remix') ? t('menu.preparing') : t('menu.autoplay')} title={t('menu.autoplay')} onclick={onRemixTap} use:tapBounce>
+				{#if inFlight.has('remix')}<span class="row-spinner motion-always"></span>{:else}<Sparkles size={22} />{/if}<span class="gi-label">{t('menu.micro.remix')}</span>
 			</button>
 		{/snippet}
 		<!-- Play next — non-current tracks only. quick-261006-44s: the gate lives in
@@ -1727,7 +1727,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		     (still resolving, or a resolve miss that now keeps the menu open) — like Like / Cover /
 		     Lyrics already did — so an unresolved `uid:''` stub never enters the queue or a playlist. -->
 		{#snippet cellPlayNext(tr: Track)}
-			<button class="gi" disabled={!tr.uid} onclick={playNext} use:tapBounce aria-label={t('menu.playNext')} title={t('menu.playNext')}><ListStart size={22} /></button>
+			<button class="gi" disabled={!tr.uid} aria-label={t('menu.playNext')} title={t('menu.playNext')} onclick={playNext} use:tapBounce><ListStart size={22} /><span class="gi-label">{t('menu.micro.playNext')}</span></button>
 		{/snippet}
 		<!-- quick-261006-mnu — the download slot is ONE adaptive cell: the Download tri-state,
 		     Remove-download and Don't-import are inverse states of one thing (mutually exclusive
@@ -1741,7 +1741,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 				{#if nonCurrent}
 					<!-- quick-260919-30x: Don't import again — the mirror image of remove-download,
 					     for a file the USER owns (`device:`). Unchanged markup/handler. -->
-					<button class="gi" onclick={noImport} use:tapBounce aria-label={t('menu.noImport')} title={t('menu.noImport')}><EyeOff size={22} /></button>
+					<button class="gi" aria-label={t('menu.noImport')} title={t('menu.noImport')} onclick={noImport} use:tapBounce><EyeOff size={22} /><span class="gi-label">{t('menu.micro.noImport')}</span></button>
 				{/if}
 			{:else if library.downloading.has(tr.uid)}
 				<!-- quick-260913-omi: real byte progress, not a decorative animation. `downloadProgress`
@@ -1762,6 +1762,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 						: `${t('menu.download')} ${Math.round(frac * 100)}%`}
 				>
 					<Download size={22} />
+					<span class="gi-label">{t('menu.micro.download')}</span>
 					{#if frac !== undefined}<span class="gi-sub">{Math.round(frac * 100)}%</span>{/if}
 				</button>
 			{:else if nonCurrent && (blobPresent === true || library.isDownloadedForCurrentSource(tr)) && !library.isUnavailable(tr.uid)}
@@ -1772,7 +1773,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 				     the same "Download from…" sheet as the idle face; picking a source replaces the
 				     file (downloadTrack → blobStore.put overwrites, native deletes the old public
 				     copy first per 36-D-19). Tap still opens the remove sheet. -->
-				<button class="gi" aria-label={`${t('menu.removeDownload')} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onclick={openRemoveDownload} onlongpress={openDownloadPicker} use:longpress use:tapBounce><Trash2 size={22} />{#if localMeta}<span class="gi-sub">{localMeta}</span>{/if}</button>
+				<button class="gi" aria-label={`${t('menu.removeDownload')} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onclick={openRemoveDownload} onlongpress={openDownloadPicker} use:longpress use:tapBounce><Trash2 size={22} /><span class="gi-label">{t('menu.micro.removeDownload')}</span>{#if localMeta}<span class="gi-sub">{localMeta}</span>{/if}</button>
 			{:else if blobPresent === true}
 				<!-- quick-260919-3j1 (F2): a song that IS downloaded says what it is — the SAME
 				     `.gi-sub` slot the probed label and the download percentage occupy.
@@ -1780,7 +1781,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 				     idle face). The button is no longer `disabled` so the hold gesture can fire;
 				     tap stays a no-op — the file is already there. -->
 				<button class="gi" aria-label={`${t('menu.downloaded')} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onlongpress={openDownloadPicker} use:longpress use:tapBounce>
-					<Check size={22} />
+					<Check size={22} /><span class="gi-label">{t('menu.micro.downloaded')}</span>
 					{#if localMeta}<span class="gi-sub">{localMeta}</span>{/if}
 				</button>
 			{:else}
@@ -1797,7 +1798,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 				     distance that cancels the longpress timer. -->
 				<div class="gi-split">
 					<button class="gi" aria-label={`${dlLabel} · ${t('menu.downloadHoldHint')}`} title={t('menu.downloadHoldHint')} onclick={startDownload} onlongpress={openDownloadPicker} use:longpress use:tapBounce>
-						<Download size={22} />
+						<Download size={22} /><span class="gi-label">{t('menu.micro.download')}</span>
 						<!-- quick-261006-44w (user 2026-10-06): the visible long-press hint is retired —
 						     "Download from…" is now its own menu item at the end. The hold gesture
 						     itself stays (onlongpress → openDownloadPicker). Idle shows no sub-label;
@@ -1811,29 +1812,29 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		<!-- like-state-wrong-track-menu: a name-stub (uid:'') has no identity to like yet; the row waits for
 		     the host page's resolve to swap in the real Track rather than firing a no-op + wrong toast. -->
 		{#snippet cellLike(tr: Track)}
-			<button class="gi" class:on={liked} aria-pressed={liked} disabled={!tr.uid} onclick={like} use:tapBounce aria-label={liked ? t('menu.liked') : t('menu.like')} title={liked ? t('menu.liked') : t('menu.like')}>
-				<Heart size={22} fill={liked ? 'currentColor' : 'none'} />
+			<button class="gi" class:on={liked} aria-pressed={liked} aria-label={liked ? t('menu.liked') : t('menu.like')} title={liked ? t('menu.liked') : t('menu.like')} disabled={!tr.uid} onclick={like} use:tapBounce>
+				<Heart size={22} fill={liked ? 'currentColor' : 'none'} /><span class="gi-label">{t('menu.micro.like')}</span>
 			</button>
 		{/snippet}
 		{#snippet cellAddQueue(tr: Track)}
-			<button class="gi" disabled={!tr.uid} onclick={addQueue} use:tapBounce aria-label={t('menu.addToQueue')} title={t('menu.addToQueue')}><ListEnd size={22} /></button>
+			<button class="gi" disabled={!tr.uid} aria-label={t('menu.addToQueue')} title={t('menu.addToQueue')} onclick={addQueue} use:tapBounce><ListEnd size={22} /><span class="gi-label">{t('menu.micro.addQueue')}</span></button>
 		{/snippet}
 		{#snippet cellStartRadio(tr: Track)}
-			<button class="gi" onclick={startRadio} use:tapBounce aria-label={t('menu.startRadio')} title={t('menu.startRadio')}><Radio size={22} /></button>
+			<button class="gi" aria-label={t('menu.startRadio')} title={t('menu.startRadio')} onclick={startRadio} use:tapBounce><Radio size={22} /><span class="gi-label">{t('menu.micro.startRadio')}</span></button>
 		{/snippet}
 		<!-- Gap 4 (26-10): Play from source — opens a lazily-fed VersionPicker. The variant fetch fires
 		     ONLY on THIS tap (openVersions), never on menu open (opt-in; T-26-10-02). Shown for every
 		     track (variants discovered on demand; the picker's loading/empty states cover a single-source
 		     song). Available for the current track too (switch the playing source). -->
 		{#snippet cellVersions(tr: Track)}
-			<button class="gi" onclick={openVersions} use:tapBounce aria-label={t('menu.versions')} title={t('menu.versions')}><Layers size={22} /></button>
+			<button class="gi" aria-label={t('menu.versions')} title={t('menu.versions')} onclick={openVersions} use:tapBounce><Layers size={22} /><span class="gi-label">{t('menu.micro.versions')}</span></button>
 		{/snippet}
 		<!-- quick-260915-w4f: Change cover. The cover chain is first-solid-wins and sometimes wins wrong
 		     (wrong album, live-version art, a low-res CN thumbnail); this lets the user override it once,
 		     per song, permanently. The candidate fan-out fires on THIS tap only (Q1). `disabled` mirrors
 		     the Like row: a uid-less stub has no identity to pin against. -->
 		{#snippet cellChangeCover(tr: Track)}
-			<button class="gi" disabled={!tr.uid} onclick={openCoverPicker} use:tapBounce aria-label={t('menu.changeCover')} title={t('menu.changeCover')}><ImageIcon size={22} /></button>
+			<button class="gi" disabled={!tr.uid} aria-label={t('menu.changeCover')} title={t('menu.changeCover')} onclick={openCoverPicker} use:tapBounce><ImageIcon size={22} /><span class="gi-label">{t('menu.micro.changeCover')}</span></button>
 		{/snippet}
 		<!-- quick-260919-1we: Fix lyrics. Same story as Change cover one line up, for the lyric chain:
 		     it is first-source-wins and sometimes wins wrong (wrong song, wrong language, an
@@ -1841,13 +1842,13 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		     fires on THIS tap only (T-1we-03). `disabled` mirrors the Like / Change-cover rows: a
 		     uid-less stub has no identity to pin against (D-1). -->
 		{#snippet cellChangeLyrics(tr: Track)}
-			<button class="gi" disabled={!tr.uid} onclick={openLyricsPicker} use:tapBounce aria-label={t('menu.fixLyrics')} title={t('menu.fixLyrics')}><Mic2 size={22} /></button>
+			<button class="gi" disabled={!tr.uid} aria-label={t('menu.fixLyrics')} title={t('menu.fixLyrics')} onclick={openLyricsPicker} use:tapBounce><Mic2 size={22} /><span class="gi-label">{t('menu.micro.changeLyrics')}</span></button>
 		{/snippet}
 		{#snippet cellViewComments(tr: Track)}
-			<button class="gi" onclick={viewComments} use:tapBounce aria-label={t('menu.viewComments')} title={t('menu.viewComments')}><MessageCircle size={22} /></button>
+			<button class="gi" aria-label={t('menu.viewComments')} title={t('menu.viewComments')} onclick={viewComments} use:tapBounce><MessageCircle size={22} /><span class="gi-label">{t('menu.micro.viewComments')}</span></button>
 		{/snippet}
 		{#snippet cellViewRelated(tr: Track)}
-			<button class="gi" onclick={viewRelated} use:tapBounce aria-label={t('menu.viewRelated')} title={t('menu.viewRelated')}><ListMusic size={22} /></button>
+			<button class="gi" aria-label={t('menu.viewRelated')} title={t('menu.viewRelated')} onclick={viewRelated} use:tapBounce><ListMusic size={22} /><span class="gi-label">{t('menu.micro.viewRelated')}</span></button>
 		{/snippet}
 		<!-- quick-260926-qat: lyrics timing toggle. Shown ONLY for the currently playing track that
 		     actually has lyrics — the row it reveals lives in the Now Playing lyrics pane of
@@ -1862,10 +1863,10 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		     is an <a download> click that reports success even when the user cancels the dialog), so
 		     the list happily says "Downloaded" with nothing stored anywhere. -->
 		{#snippet cellEditTags(tr: Track)}
-			<button class="gi" aria-label={t('menu.editTags')} title={t('menu.editTags')} onclick={() => (tagsOpen = true)} use:tapBounce><Tags size={22} /></button>
+			<button class="gi" aria-label={t('menu.editTags')} title={t('menu.editTags')} onclick={() => (tagsOpen = true)} use:tapBounce><Tags size={22} /><span class="gi-label">{t('menu.micro.editTags')}</span></button>
 		{/snippet}
 		{#snippet cellAddToPlaylist(tr: Track)}
-			<button class="gi" disabled={!tr.uid} aria-label={t('menu.addToPlaylist')} title={t('menu.addToPlaylist')} onclick={() => { pickerOpen = true; }} use:tapBounce><ListPlus size={22} /></button>
+			<button class="gi" disabled={!tr.uid} aria-label={t('menu.addToPlaylist')} title={t('menu.addToPlaylist')} onclick={() => { pickerOpen = true; }} use:tapBounce><ListPlus size={22} /><span class="gi-label">{t('menu.micro.addToPlaylist')}</span></button>
 		{/snippet}
 		<!-- quick-261006-44r: the edit affordance is a GRID CELL now (user 2026-10-06 — it
 		     takes repeat's old slot; repeat moves to the back). The header pencil is retired,
@@ -1873,7 +1874,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		     visibleIds) and can never be hidden. Tapping enters edit mode; in edit mode the
 		     same slot becomes the Done button (rendered in the edit grid below). -->
 		{#snippet cellCustomize(tr: Track)}
-			<button class="gi" aria-label={t('menu.customize')} onclick={enterEdit} use:tapBounce><Pencil size={22} /></button>
+			<button class="gi" aria-label={t('menu.customize')} title={t('menu.customize')} onclick={enterEdit} use:tapBounce><Pencil size={22} /><span class="gi-label">{t('menu.micro.customize')}</span></button>
 		{/snippet}
 		<!-- quick-260919-0mw (correction): Repeat, relocated from the NowPlaying transport row.
 		     Deliberately OUTSIDE the queue.length > 1 gate that wraps Shuffle: shuffling a
@@ -1886,19 +1887,19 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		     the LABEL swapping to "Repeat one" — the menu CLOSES on tap, so the label must show
 		     the state before the tap. -->
 		{#snippet cellRepeat(tr: Track)}
-			<button class="gi" class:on={player.repeatMode !== 'off'} aria-pressed={player.repeatMode !== 'off'} onclick={cycleRepeatMode} use:tapBounce aria-label={player.repeatMode === 'one' ? t('nowplaying.repeatModeOne') : t('nowplaying.repeat')} title={player.repeatMode === 'one' ? t('nowplaying.repeatModeOne') : t('nowplaying.repeat')}>
-				{#if player.repeatMode === 'one'}<Repeat1 size={22} />{:else}<Repeat size={22} />{/if}
+			<button class="gi" class:on={player.repeatMode !== 'off'} aria-pressed={player.repeatMode !== 'off'} aria-label={player.repeatMode === 'one' ? t('nowplaying.repeatModeOne') : t('nowplaying.repeat')} title={player.repeatMode === 'one' ? t('nowplaying.repeatModeOne') : t('nowplaying.repeat')} onclick={cycleRepeatMode} use:tapBounce>
+				{#if player.repeatMode === 'one'}<Repeat1 size={22} />{:else}<Repeat size={22} />{/if}<span class="gi-label">{t('menu.micro.repeat')}</span>
 			</button>
 		{/snippet}
 		<!-- ii6: Shuffle moved off the NowPlaying transport row into the menu. Shown only when
 		     there's a queue to shuffle (otherwise the action would be a no-op). -->
 		{#snippet cellShuffleQueue(tr: Track)}
-			<button class="gi" class:on={player.shuffle} aria-pressed={player.shuffle} onclick={shuffleQueue} use:tapBounce aria-label={t('menu.shuffleQueue')} title={t('menu.shuffleQueue')}><Shuffle size={22} /></button>
+			<button class="gi" class:on={player.shuffle} aria-pressed={player.shuffle} aria-label={t('menu.shuffleQueue')} title={t('menu.shuffleQueue')} onclick={shuffleQueue} use:tapBounce><Shuffle size={22} /><span class="gi-label">{t('menu.micro.shuffleQueue')}</span></button>
 		{/snippet}
 		<!-- GLN-5: clear-queue relocated here from the NowPlaying subnav. Clearing a queue that is just
 		     [current] is a no-op, so the item is gated to queue.length > 1 in canShow. -->
 		{#snippet cellClearQueue(tr: Track)}
-			<button class="gi" onclick={clearQueue} use:tapBounce aria-label={t('menu.clearQueue')} title={t('menu.clearQueue')}><Trash2 size={22} /></button>
+			<button class="gi" aria-label={t('menu.clearQueue')} title={t('menu.clearQueue')} onclick={clearQueue} use:tapBounce><Trash2 size={22} /><span class="gi-label">{t('menu.micro.clearQueue')}</span></button>
 		{/snippet}
 		<!-- Opens the GLOBAL SleepTimerSheet (mounted in the app layout) — not a local sub-sheet
 		     here, so the timer indicator is reachable from the nowbar + now-playing too (D-08).
@@ -1910,10 +1911,10 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		     menu's stack slot + history entry to the sheet in place; the cleanup dismiss
 		     below finds no 'trackmenu-menu' entry and no-ops. -->
 		{#snippet cellSleepTimer(tr: Track)}
-			<button class="gi" aria-label={t('menu.sleepTimer')} title={t('menu.sleepTimer')} onclick={() => { overlays.replace('trackmenu-menu', 'trackmenu-timer', () => (sleepTimer.sheetOpen = false)); close(); tick().then(() => (sleepTimer.sheetOpen = true)); }} use:tapBounce><Moon size={22} /></button>
+			<button class="gi" aria-label={t('menu.sleepTimer')} title={t('menu.sleepTimer')} onclick={() => { overlays.replace('trackmenu-menu', 'trackmenu-timer', () => (sleepTimer.sheetOpen = false)); close(); tick().then(() => (sleepTimer.sheetOpen = true)); }} use:tapBounce><Moon size={22} /><span class="gi-label">{t('menu.micro.sleepTimer')}</span></button>
 		{/snippet}
 		{#snippet cellGoToArtist(tr: Track)}
-			<button class="gi" onclick={gotoArtist} use:tapBounce aria-label={t('menu.goToArtist')} title={t('menu.goToArtist')}><User size={22} /></button>
+			<button class="gi" aria-label={t('menu.goToArtist')} title={t('menu.goToArtist')} onclick={gotoArtist} use:tapBounce><User size={22} /><span class="gi-label">{t('menu.micro.goToArtist')}</span></button>
 		{/snippet}
 		<!-- quick-261006-mnu: Go to album — the menu finally answers "which album is this from",
 		     grouped after Go to artist. quick-261006-44g: always rendered now (the grid
@@ -1921,8 +1922,8 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		     no album and toasts only when there is still nothing to navigate to. The route
 		     takes the script-locked names like gotoArtist. -->
 		{#snippet cellGoToAlbum(tr: Track)}
-			<button class="gi" aria-busy={inFlight.has('goToAlbum')} aria-label={inFlight.has('goToAlbum') ? t('menu.preparing') : t('menu.goToAlbum')} onclick={gotoAlbum} use:tapBounce>
-				{#if inFlight.has('goToAlbum')}<span class="row-spinner motion-always"></span>{:else}<Disc3 size={22} />{/if}
+			<button class="gi" aria-busy={inFlight.has('goToAlbum')} aria-label={inFlight.has('goToAlbum') ? t('menu.preparing') : t('menu.goToAlbum')} title={t('menu.goToAlbum')} onclick={gotoAlbum} use:tapBounce>
+				{#if inFlight.has('goToAlbum')}<span class="row-spinner motion-always"></span>{:else}<Disc3 size={22} />{/if}<span class="gi-label">{t('menu.micro.goToAlbum')}</span>
 			</button>
 		{/snippet}
 		<!-- quick-260920-kia: Share is UNCONDITIONAL — UI-SPEC Contract 8's `!isDevice` guard on
@@ -1931,19 +1932,19 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 		     uid carrier that used to filter device: uids is retired with the carrier itself), so an
 		     imported local track shares a valid catalog link. Do not reintroduce a device guard here. -->
 		{#snippet cellShare(tr: Track)}
-			<button class="gi" onclick={doShare} use:tapBounce aria-label={t('menu.share')} title={t('menu.share')}><Share2 size={22} /></button>
+			<button class="gi" aria-label={t('menu.share')} title={t('menu.share')} onclick={doShare} use:tapBounce><Share2 size={22} /><span class="gi-label">{t('menu.micro.share')}</span></button>
 		{/snippet}
 		<!-- Detail: GATED — resolves details to populate the detail sheet's audioUrl/quality rows. -->
 		{#snippet cellDetail(tr: Track)}
-			<button class="gi" aria-busy={inFlight.has('detail')} aria-label={inFlight.has('detail') ? t('menu.preparing') : t('menu.details')} onclick={onDetailTap} use:tapBounce>
-				{#if inFlight.has('detail')}<span class="row-spinner motion-always"></span>{:else}<Info size={22} />{/if}
+			<button class="gi" aria-busy={inFlight.has('detail')} aria-label={inFlight.has('detail') ? t('menu.preparing') : t('menu.details')} title={t('menu.details')} onclick={onDetailTap} use:tapBounce>
+				{#if inFlight.has('detail')}<span class="row-spinner motion-always"></span>{:else}<Info size={22} />{/if}<span class="gi-label">{t('menu.micro.detail')}</span>
 			</button>
 		{/snippet}
 		<!-- quick-261006-44w (user 2026-10-06): "Download from…" as a first-class menu item
 		     at the end — opens the same all-sources picker as the download button's
 		     long-press (openDownloadPicker). -->
 		{#snippet cellDownloadSource(tr: Track)}
-			<button class="gi" onclick={openDownloadPicker} use:tapBounce aria-label={t('menu.downloadFromSource')} title={t('menu.downloadFromSource')}><ArrowDownToLine size={22} /></button>
+			<button class="gi" aria-label={t('menu.downloadFromSource')} title={t('menu.downloadFromSource')} onclick={openDownloadPicker} use:tapBounce><ArrowDownToLine size={22} /><span class="gi-label">{t('menu.micro.downloadSource')}</span></button>
 		{/snippet}
 		{#if editing}
 			<!-- quick-261006-mnu — EDIT MODE replaces the live grid: every catalog action as a
@@ -1987,7 +1988,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 						onlostpointercapture={mLostCapture}
 						onclick={() => mClick(id)}
 						onkeydown={(e) => mKey(e, id)}
-					><Icon size={22} /></button>
+					><Icon size={22} /><span class="gi-label">{t(EDIT_META[id].micro)}</span></button>
 				{/each}
 				<!-- quick-261021-menu5 (user): divider after the 20 visible slots — rows 6+
 				     are the hidden pool, still reorderable via drag. Moved OUT of the keyed
@@ -2377,7 +2378,7 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	   readout, not a label, and stays. */
 	.gi {
 		position: relative; display: flex; flex-direction: column; align-items: center;
-		justify-content: center; gap: 4px; min-height: 56px; padding: 8px 4px;
+		justify-content: flex-start; gap: 6px; min-height: 78px; min-width: 0; padding: 12px 4px 8px;
 		background: none; border: none; border-radius: 12px; color: var(--color-text);
 		cursor: pointer; text-align: center; -webkit-tap-highlight-color: transparent;
 	}
@@ -2392,7 +2393,18 @@ import CoverArt from '$lib/components/CoverArt.svelte';
 	   do the same for the icons, but svelte-check cannot see through the lucide components to
 	   their rendered <svg> and would flag it unused — the size={22} prop already fixes them.) */
 	.gi > .row-spinner { flex: none; margin: 3px; }
-	/* Meta under the glyph (download quality/size, progress %) — tabular-nums so the climbing
+	/* quick-261125-microlabel (Hector 2026-11-25): the visible label is a 1–2 char MICRO
+	   label (menu.micro.*) — icon-only was too minimal to read, full labels wrapped and
+	   blurred the grid. NO STRETCH: single line, ellipsized, max-width 100% of the fixed
+	   1fr track — a label can never widen its cell. The full action name lives on the
+	   button's aria-label/title. */
+	.gi-label {
+		font-size: 0.625rem; line-height: 1.3; color: var(--color-text-muted);
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+		max-width: 100%; min-width: 0;
+	}
+	.gi.on .gi-label { color: var(--color-primary); }
+	/* Meta under the label (download quality/size, progress %) — tabular-nums so the climbing
 	   percentage doesn't jitter the cell. Never animated: the bar below owns the motion. */
 	.gi-sub {
 		font-size: 0.5625rem; line-height: 1.2; color: var(--color-text-muted);

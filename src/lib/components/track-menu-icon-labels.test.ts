@@ -1,13 +1,16 @@
 // Workstream H batch 3 — TrackMenu / queue / library ICON-label regression pins
 // (NO SILENT BREAKAGE). Hector 2026-11-23 22:08 (Dawn-Design §8 v1.6): the
 // TrackMenu icon grid is icon-only — every cell's glyph carries its label and
-// the word survives as aria-label + title. These pins FAIL if a .gi cell ever
-// renders a visible .gi-label again, if a cell loses its accessible name, or
-// if the fixed cell geometry moves. The download faces' CURRENT-SOURCE
-// behaviour is untouched: the busy face keeps its % status readout (.gi-sub)
-// and the downloaded faces keep their localMeta readout — status readouts are
-// content, not labels. Queue + library controls were already icon-only and
-// are pinned here against regression.
+// the word survives as aria-label + title. SUPERSEDED IN PART by Hector
+// 2026-11-25 (quick-261125-microlabel): grid cells now render a visible 1–2
+// char MICRO label (.gi-label, menu.micro.*) under the glyph — the full name
+// still survives as aria-label + title, and the fixed cell geometry is now
+// 78px. The micro-label set itself is pinned by track-menu-microlabel.test.ts;
+// this file keeps the aria-name, readout and geometry pins. The download
+// faces' CURRENT-SOURCE behaviour is untouched: the busy face keeps its %
+// status readout (.gi-sub) and the downloaded faces keep their localMeta
+// readout — status readouts are content, not labels. Queue + library
+// controls were already icon-only and are pinned here against regression.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 
@@ -15,10 +18,10 @@ const menu = readFileSync('src/lib/components/TrackMenu.svelte', 'utf-8');
 const upNext = readFileSync('src/lib/components/NpUpNext.svelte', 'utf-8');
 const libraryPage = readFileSync('src/routes/(app)/library/+page.svelte', 'utf-8');
 
-describe('H batch 3 — TrackMenu grid cells are icon-only', () => {
-	it('no .gi-label span is rendered anywhere (markup or CSS class)', () => {
-		expect(menu).not.toContain('class="gi-label"');
-		expect(menu).not.toContain('.gi-label {');
+describe('H batch 3 — TrackMenu grid cells (micro-labels since 2026-11-25)', () => {
+	it('a .gi-label span is rendered (visible micro label, markup + CSS class)', () => {
+		expect(menu).toContain('class="gi-label"');
+		expect(menu).toContain('.gi-label {');
 	});
 	it('every menu action key survives as an aria-label', () => {
 		for (const key of [
@@ -41,16 +44,17 @@ describe('H batch 3 — TrackMenu grid cells are icon-only', () => {
 		expect(menu).toContain("`${t('menu.download')} ${Math.round(frac * 100)}%`");
 		expect(menu).toContain("aria-label={player.repeatMode === 'one' ? t('nowplaying.repeatModeOne') : t('nowplaying.repeat')}");
 	});
-	it('edit-mode cells keep their EDIT_META aria-label and lose the visible label', () => {
+	it('edit-mode cells keep their EDIT_META aria-label and show the MICRO label', () => {
 		expect(menu).toContain('aria-label={t(EDIT_META[id].label)}');
+		expect(menu).toContain('<span class="gi-label">{t(EDIT_META[id].micro)}</span>');
 		expect(menu).not.toContain('<span class="gi-label">{t(EDIT_META[id].label)}</span>');
 	});
 	it('download status readouts stay visible (content, not labels)', () => {
 		expect(menu).toContain('<span class="gi-sub">{Math.round(frac * 100)}%</span>');
 		expect(menu).toContain('{#if localMeta}<span class="gi-sub">{localMeta}</span>{/if}');
 	});
-	it('cell geometry is fixed at 56px (NO STRETCH)', () => {
-		expect(menu).toContain('min-height: 56px;');
+	it('cell geometry is fixed at 78px (NO STRETCH)', () => {
+		expect(menu).toContain('min-height: 78px;');
 	});
 });
 
