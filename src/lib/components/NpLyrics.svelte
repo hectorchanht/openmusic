@@ -30,6 +30,9 @@
 	// quick-261123-lyricspin: the pure middle-pin scroll-target maths (see lyric-center.ts).
 	import { centeredScrollTop } from '$lib/services/lyric-center';
 	import { charSpansFor, charFillAt, groupCharSpansBySurfaces, type TimedChar } from '$lib/services/lyric-chars';
+	// quick-261125-cascade: interlude (blank-time) segments — the SAME derivation the
+	// LyricsEditor uses (services/lyrics-editor), never a second interlude model.
+	import { interludeSegmentsFromSpans, activeInterludeAt } from '$lib/services/lyrics-editor';
 	// quick-261116-lyrux (Fix 2): the publication seam the Nowbar reads for replace mode.
 	import { lyricsTranslation, translationDuplicatesOriginal } from '$lib/stores/lyrics-translation.svelte';
 	// quick-260919-2jo: the Chinese script lock for lyric text. `parseLyrics` replaces `parseLRC`
@@ -154,6 +157,20 @@
 		}
 		return m;
 	});
+	// quick-261125-cascade: the interlude playing NOW, if any. Segments derive from
+	// the lines' own spans (explicit end via lineEndAt, else the next line's start —
+	// so legacy LRC without explicit ends yields NO segments and zero behaviour
+	// change). The lyric clock is `currentTime - lyricOffset`, the activeLineAt
+	// convention. While a segment plays, the template renders a plain progress
+	// bar before the following line — no text, and it unmounts the moment the
+	// segment ends, so it can never overlap the next line.
+	const interludes = $derived(
+		interludeSegmentsFromSpans(
+			lines.map((l, i) => ({ start: l.time, end: lineEndAt(lines, i, player.duration) })),
+			player.duration
+		)
+	);
+	const activeInterlude = $derived(activeInterludeAt(interludes, player.currentTime - lyricOffset));
 	let lyricsEl = $state<HTMLElement | null>(null);
 	$effect(() => {
 		const root = lyricsEl;
@@ -968,6 +985,13 @@
 			     when a translation sibling shares its timestamp. The translation line itself
 			     (isTr) always shows in Replace mode. -->
 			{@const hideForReplace = settings.translateMode === 'replace' && !isTr && lines.some((o, j) => j !== i && o.time === l.time && (o.fromParen || o.isTranslation))}
+			<!-- quick-261125-cascade: the playing interlude's progress bar, rendered in
+			     flow BEFORE the line it precedes (first entry of the timestamp group
+			     only). A <div>, never a <p>: the anchor pass counts <p>s by index.
+			     No text — blank time carries no words (2026-11-23 ruling). -->
+			{#if activeInterlude && Math.abs(activeInterlude.segment.end - l.time) < 0.05 && (i === 0 || lines[i - 1].time !== l.time)}
+				<div class="interlude-bar" aria-hidden="true"><span style="width:{(activeInterlude.progress * 100).toFixed(1)}%"></span></div>
+			{/if}
 			{#if !isHiddenParen && !hideForReplace}
 				{@const hideTrForLine = isTr && settings.lyricsHideParenTranslation}
 				{@const furi = furiLines?.[i]}
@@ -1027,6 +1051,10 @@
 				</p>
 			{/if}
 		{/each}
+		<!-- quick-261125-cascade: tail interlude (after the last line) — same bar. -->
+		{#if activeInterlude && lines.length && activeInterlude.segment.start >= lineEndAt(lines, lines.length - 1, player.duration) - 0.05}
+			<div class="interlude-bar" aria-hidden="true"><span style="width:{(activeInterlude.progress * 100).toFixed(1)}%"></span></div>
+		{/if}
 	</div>
 {:else if lyricsPending}<LoadingState label={t('common.loading')} lines={6} />{:else}<div class="empty-wrap"><p class="empty">{t('nowplaying.noLyrics')}</p>{#if player.current?.uid}<button type="button" class="add-lyrics" aria-label={t('nowplaying.addLyrics')} title={t('nowplaying.addLyrics')} onclick={() => (editorOpen = true)} use:tapBounce><PenLine size={16} /></button>{/if}</div>{/if}
 
@@ -1066,6 +1094,9 @@
 	   (CJK with no spaces, or long URLs) to wrap inside the column instead of being clipped. */
 	.lyrics { text-align: center; line-height: 1.3; }
 	.lyrics p { font-size: calc(1rem * var(--fs-lyrics, 1)); color: var(--color-text-muted); transition: color 0.2s ease, text-shadow 0.2s ease, transform 0.2s ease; margin: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+	/* quick-261125-cascade: interlude progress bar — a thin track + fill, no text. */
+	.interlude-bar { height: 4px; border-radius: 999px; background: var(--color-border); margin: 10px 0; overflow: hidden; }
+	.interlude-bar span { display: block; height: 100%; border-radius: 999px; background: var(--color-primary); }
 	.lyrics p.active { color: var(--color-text); text-shadow: 0 0 0.5px currentColor, 0 0 0.5px currentColor; }
 	/* quick-261122-sweepfix (Hector 2026-11-22): a line carrying the per-character sweep must
 	   NEVER flash fully white when it becomes active — the whole-line colour + faux-bold shadow

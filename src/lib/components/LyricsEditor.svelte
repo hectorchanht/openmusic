@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { fly } from 'svelte/transition';
-	import { X, Clock, Type, FileUp, Eye, Check, ChevronLeft, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter } from '@lucide/svelte';
+	import { X, Clock, Type, FileUp, Eye, Check, ChevronLeft, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Link, Unlink, Anchor, LoaderCircle, Trash2, Plus } from '@lucide/svelte';
 	import type { Track } from '$lib/sources/types';
 	import { t } from '$lib/i18n';
 	import { player } from '$lib/stores/player.svelte';
@@ -39,12 +39,21 @@
 		editorLinesFromLrc,
 		serializeEditorLines,
 		editorLinesToLyricLines,
-		cascadeEditorLines,
+		nudgeEditorLine,
 		moveEditorLine,
 		stampEditorLine,
 		hasDegenerateStamps,
 		stampNextInSequence,
-		type EditorLine
+		rippleShiftDraft,
+		anchorStretchLines,
+		interludesFromEditorLines,
+		insertInterlude,
+		resizeInterlude,
+		deleteInterlude,
+		DEFAULT_INTERLUDE_SEC,
+		type EditorLine,
+		type EditorCascadeMode,
+		type InterludeSegment
 	} from '$lib/services/lyrics-editor';
 	import { charSpansFor, charFillAt, nudgeCharStart, setCharStart, type TimedChar } from '$lib/services/lyric-chars';
 
@@ -74,6 +83,12 @@
 	let step = $state<'edit' | 'confirm'>('edit');
 	let rawText = $state('');
 	let lines = $state<EditorLine[]>([]);
+	// quick-261125-cascade: the cascade mode (Single default) + the draft's interlude
+	// (blank-time) segments. Segments are derived from the lines' chain on seed/paste
+	// (interludesFromEditorLines — the ONE model playback reads too) and then carried
+	// explicitly through every cascade operation.
+	let mode = $state<EditorCascadeMode>('single');
+	let segments = $state<InterludeSegment[]>([]);
 	let estimated = $state(false);
 	let title = $state('');
 	let artist = $state('');
@@ -118,6 +133,9 @@
 			lines = [];
 			estimated = false;
 		}
+		// quick-261125-cascade: interlude segments derive from the seeded chain, whichever
+		// branch produced it (the LRC [start][end] gaps ARE the segments — one model).
+		segments = interludesFromEditorLines(lines, duration);
 	});
 	$effect(() => {
 		if (!open) seededFor = '';
@@ -152,7 +170,9 @@
 	function scrollToActive() {
 		const target = followScrollTarget(following, preview.idx, lastScrolled, lines.length);
 		if (target === null || !linesEl) return;
-		const row = linesEl.children[target] as HTMLElement | undefined;
+		// quick-261125-cascade graft: interlude rows are also .lines children, so the
+		// lyric row for a LINE index is picked from the lyric rows only.
+		const row = linesEl.querySelectorAll<HTMLElement>(':scope > .line:not(.interlude)')[target];
 		if (!row) return;
 		lastScrolled = target;
 		// Scroll the bounded .lines list only (never scrollIntoView — it yanks every ancestor,
@@ -198,6 +218,7 @@
 	function deriveLines() {
 		if (!rawText.trim()) {
 			lines = [];
+			segments = [];
 			estimated = false;
 			return;
 		}
@@ -211,6 +232,7 @@
 			lines = estimateLines(splitPastedText(rawText), duration);
 			estimated = lines.length > 0;
 		}
+		segments = interludesFromEditorLines(lines, duration);
 	}
 
 	function onFile(e: Event) {
@@ -223,15 +245,10 @@
 		(e.currentTarget as HTMLInputElement).value = '';
 	}
 
-	// quick-261123-cascade: the Start/End ±0.1 buttons are CHAIN edits, not pinpoint ones —
-	// the [start][end] chain cascades to the neighbours (services/lyrics-editor.ts
-	// cascadeEditorLines), so an edit can never scramble the line order or open a collision.
-	function cascadeAdjust(i: number, which: 'start' | 'end', delta: number) {
-		lines = cascadeEditorLines(lines, i, which, delta, duration);
-		estimated = false;
-		follow('edit');
-		persistDraft();
-	}
+	// quick-261123-cascade's cascadeAdjust retired by quick-261125-cascade: the ±0.1
+	// Start/End buttons now dispatch through nudgeStart/nudgeEnd by mode (Single =
+	// pinpoint nudgeEditorLine, Ripple = the train, Anchor = the pins); the pure
+	// cascadeEditorLines helper stays in the service for its own tests.
 
 	// Any hand adjustment promotes the draft out of the Estimated class (brief §2.2).
 	function adjust(i: number, next: EditorLine, ev: FollowEvent = 'edit') {
@@ -241,20 +258,104 @@
 		persistDraft();
 	}
 
+	// quick-261125-cascade: mode dispatch for the ±0.1s boundary nudges. The pure
+	// helpers own the maths; the component only routes by mode:
+	//   start nudge — ripple: this line onward rides; anchor: line 1's start is the
+	//     head pin (tail pin fixed, middles scale); otherwise Single.
+	//   end nudge — ripple: the end IS the next line's chain joint, so the FOLLOWING
+	//     lines ride (the pure draft shift chain-pulls this line's end along, or
+	//     resizes the interlude sitting at the joint); anchor: the last line's end
+	//     is the tail pin; otherwise Single.
+	function applyDraft(r: { lines: EditorLine[]; segments: InterludeSegment[] }) {
+		lines = r.lines;
+		segments = r.segments;
+		estimated = false;
+		follow('edit');
+		persistDraft();
+	}
+	function nudgeStart(i: number, delta: number) {
+		const l = lines[i];
+		if (mode === 'ripple') {
+			applyDraft(rippleShiftDraft(lines, segments, i, delta, duration));
+		} else if (mode === 'anchor' && i === 0 && lines.length > 1) {
+			lines = anchorStretchLines(lines, l.start + delta, lines[lines.length - 1].end, duration);
+			estimated = false;
+			follow('edit');
+			persistDraft();
+		} else {
+			adjust(i, nudgeEditorLine(l, 'start', delta, duration));
+		}
+	}
+	function nudgeEnd(i: number, delta: number) {
+		const l = lines[i];
+		if (mode === 'ripple' && i < lines.length - 1) {
+			applyDraft(rippleShiftDraft(lines, segments, i + 1, delta, duration));
+		} else if (mode === 'anchor' && i === lines.length - 1 && lines.length > 1) {
+			lines = anchorStretchLines(lines, lines[0].start, l.end + delta, duration);
+			estimated = false;
+			follow('edit');
+			persistDraft();
+		} else {
+			adjust(i, nudgeEditorLine(l, 'end', delta, duration));
+		}
+	}
+
+	// Interlude (blank-time) segment operations — insert before line `before`
+	// (before == lines.length appends at the tail), resize by its end, delete.
+	function addInterlude(before: number) {
+		applyDraft(insertInterlude(lines, segments, before, DEFAULT_INTERLUDE_SEC, duration));
+	}
+	function resizeSeg(s: InterludeSegment, delta: number) {
+		applyDraft(resizeInterlude(lines, segments, segments.indexOf(s), s.end + delta, duration));
+	}
+	function removeSeg(s: InterludeSegment) {
+		applyDraft(deleteInterlude(lines, segments, segments.indexOf(s)));
+	}
+	/** Segments rendered immediately before line i (their end is the line's start). */
+	function segsBefore(i: number): InterludeSegment[] {
+		return segments.filter((s) => Math.abs(s.end - lines[i].start) < 0.05);
+	}
+	/** Segments after the last line (tail blank time). */
+	const tailSegs = $derived(
+		lines.length
+			? segments.filter((s) => s.start >= lines[lines.length - 1].end - 0.05)
+			: segments
+	);
+
 	// Timeline drag: pointer x → time across the track's duration; the segment moves whole,
 	// snapped to 0.1s by moveEditorLine. Pointer capture keeps the drag alive off-element.
-	let dragState: { i: number; startX: number; orig: EditorLine; width: number } | null = null;
+	let dragState: {
+		i: number;
+		startX: number;
+		orig: EditorLine;
+		origLines: EditorLine[];
+		origSegments: InterludeSegment[];
+		width: number;
+	} | null = null;
 	function segDown(e: PointerEvent, i: number) {
 		if (!(duration > 0)) return;
 		const tl = (e.currentTarget as HTMLElement).closest('.tl') as HTMLElement | null;
 		if (!tl) return;
-		dragState = { i, startX: e.clientX, orig: lines[i], width: tl.clientWidth };
+		dragState = {
+			i,
+			startX: e.clientX,
+			orig: lines[i],
+			origLines: lines,
+			origSegments: segments,
+			width: tl.clientWidth
+		};
 		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 	}
 	function segMove(e: PointerEvent) {
 		if (!dragState || !(duration > 0) || dragState.width <= 0) return;
 		const delta = ((e.clientX - dragState.startX) / dragState.width) * duration;
-		adjust(dragState.i, moveEditorLine(dragState.orig, delta, duration));
+		// Ripple drags ride from the drag-start snapshot (not the live draft), so a
+		// pointer stream applies ONE total delta — never a compounding sum.
+		if (mode === 'ripple') {
+			applyDraft(rippleShiftDraft(dragState.origLines, dragState.origSegments, dragState.i, delta, duration));
+		} else {
+			adjust(dragState.i, moveEditorLine(dragState.orig, delta, duration));
+		}
 	}
 	function segUp() {
 		dragState = null;
@@ -287,7 +388,13 @@
 
 	function stamp(i: number) {
 		if (!isCurrent) return;
-		adjust(i, stampEditorLine(lines[i], player.currentTime, duration), 'stamp');
+		// Ripple stamp = Hector's core case: line 1 tapped at the true singing start
+		// re-aligns the WHOLE song by the same delta.
+		if (mode === 'ripple') {
+			applyDraft(rippleShiftDraft(lines, segments, i, player.currentTime - lines[i].start, duration));
+		} else {
+			adjust(i, stampEditorLine(lines[i], player.currentTime, duration), 'stamp');
+		}
 	}
 
 	// quick-261122-tsfix — DEGENERATE STAMPS + RE-TIME. The predicate runs on the lines however
@@ -332,7 +439,7 @@
 	$effect(() => {
 		void retimeCursor;
 		if (!open || !retime || !linesEl) return;
-		const row = linesEl.children[retimeCursor] as HTMLElement | undefined;
+		const row = linesEl.querySelectorAll<HTMLElement>(':scope > .line:not(.interlude)')[retimeCursor];
 		if (!row) return;
 		linesEl.scrollTo({
 			top: row.offsetTop - linesEl.clientHeight / 2 + row.clientHeight / 2,
@@ -465,6 +572,16 @@
 				{#if isCurrent && lines.length}
 					<button type="button" class="tool" class:on={retime} aria-pressed={retime} aria-label={t('lyricsEditor.retime')} title={t('lyricsEditor.retime')} onclick={toggleRetime} use:tapBounce><Clock size={12} /></button>
 				{/if}
+				<!-- quick-261125-cascade: the cascade mode toggle (chain = Ripple-Train).
+				     Icon + micro-label per the 2026-11-25 dense-controls rule. -->
+				{#if lines.length}
+					<div class="modes" role="group" aria-label={t('lyricsEditor.title')}>
+						<button type="button" class="mode" class:on={mode === 'single'} onclick={() => (mode = 'single')} use:tapBounce><Unlink size={12} /> {t('lyricsEditor.modeSingle')}</button>
+						<button type="button" class="mode" class:on={mode === 'ripple'} onclick={() => (mode = 'ripple')} use:tapBounce><Link size={12} /> {t('lyricsEditor.modeRipple')}</button>
+						<button type="button" class="mode" class:on={mode === 'anchor'} onclick={() => (mode = 'anchor')} use:tapBounce><Anchor size={12} /> {t('lyricsEditor.modeAnchor')}</button>
+					</div>
+					<button type="button" class="tool" onclick={() => addInterlude(0)} use:tapBounce><Plus size={12} /> {t('lyricsEditor.addInterlude')}</button>
+				{/if}
 			</div>
 
 			{#if degenerate && !retime}
@@ -484,8 +601,26 @@
 				</div>
 			{/if}
 
+			<!-- quick-261125-cascade: an interlude row is a SPINNER ONLY in the lyric
+			     position — no word ever sits where a lyric goes (2026-11-23 doctrine).
+			     Times/duration are editor-side info beside it, never lyric text. -->
+			{#snippet segRow(s: InterludeSegment)}
+				<div class="line interlude" data-interlude role="group" aria-label="{t('lyricsEditor.blankTime')} {fmt(s.start)} – {fmt(s.end)}">
+					<div class="segrow">
+						<LoaderCircle size={14} class="spin" />
+						<span class="seginfo">{fmt(s.start)} – {fmt(s.end)} · {(s.end - s.start).toFixed(1)}s</span>
+						<button type="button" class="nb" onclick={() => resizeSeg(s, -0.1)} use:tapBounce>−0.1</button>
+						<button type="button" class="nb" onclick={() => resizeSeg(s, 0.1)} use:tapBounce>+0.1</button>
+						<button type="button" class="nb" aria-label={t('lyricsEditor.removeInterlude')} onclick={() => removeSeg(s)} use:tapBounce><Trash2 size={12} /></button>
+					</div>
+				</div>
+			{/snippet}
+
 			<div class="lines" bind:this={linesEl}>
 				{#each lines as l, i (i)}
+					{#each segsBefore(i) as s (s.start)}
+						{@render segRow(s)}
+					{/each}
 					<div class="line" class:active={i === preview.idx} class:next={retime && i === retimeCursor}>
 						<input class="txt" bind:value={lines[i].text} oninput={(e) => { lines[i].text = e.currentTarget.value; follow('edit'); persistDraft(); }} aria-label={l.text} />
 						{#if duration > 0}
@@ -503,8 +638,14 @@
 									aria-valuenow={Math.round(l.start)}
 									tabindex="0"
 									onkeydown={(e) => {
-										if (e.key === 'ArrowLeft') adjust(i, moveEditorLine(l, -0.1, duration));
-										if (e.key === 'ArrowRight') adjust(i, moveEditorLine(l, 0.1, duration));
+										if (e.key === 'ArrowLeft') {
+											if (mode === 'ripple') applyDraft(rippleShiftDraft(lines, segments, i, -0.1, duration));
+											else adjust(i, moveEditorLine(l, -0.1, duration));
+										}
+										if (e.key === 'ArrowRight') {
+											if (mode === 'ripple') applyDraft(rippleShiftDraft(lines, segments, i, 0.1, duration));
+											else adjust(i, moveEditorLine(l, 0.1, duration));
+										}
 									}}
 								></div>
 							</div>
@@ -512,17 +653,18 @@
 						<div class="times">
 							{#if retime && i === retimeCursor}<span class="badge">{t('lyricsEditor.nextLine')}</span>{/if}
 							<span class="lab">{t('lyricsEditor.start')}</span>
-							<button type="button" class="nb" onclick={() => cascadeAdjust(i, 'start', -0.1)} use:tapBounce>−0.1</button>
+							<button type="button" class="nb" onclick={() => nudgeStart(i, -0.1)} use:tapBounce>−0.1</button>
 							<button type="button" class="tm" onclick={() => seekLine(l)} use:tapBounce>{fmt(l.start)}</button>
-							<button type="button" class="nb" onclick={() => cascadeAdjust(i, 'start', 0.1)} use:tapBounce>+0.1</button>
+							<button type="button" class="nb" onclick={() => nudgeStart(i, 0.1)} use:tapBounce>+0.1</button>
 							<span class="lab">{t('lyricsEditor.end')}</span>
-							<button type="button" class="nb" onclick={() => cascadeAdjust(i, 'end', -0.1)} use:tapBounce>−0.1</button>
+							<button type="button" class="nb" onclick={() => nudgeEnd(i, -0.1)} use:tapBounce>−0.1</button>
 							<span class="tm">{fmt(l.end)}</span>
-							<button type="button" class="nb" onclick={() => cascadeAdjust(i, 'end', 0.1)} use:tapBounce>+0.1</button>
+							<button type="button" class="nb" onclick={() => nudgeEnd(i, 0.1)} use:tapBounce>+0.1</button>
 							{#if isCurrent}
 								<button type="button" class="nb stamp" aria-label={t('lyricsEditor.stamp')} title={t('lyricsEditor.stamp')} onclick={() => stamp(i)} use:tapBounce><Clock size={12} /></button>
 							{/if}
 							<button type="button" class="nb" class:on={charsOpen === i} aria-expanded={charsOpen === i} aria-label={t('lyricsEditor.chars')} title={t('lyricsEditor.chars')} onclick={() => toggleChars(i)} use:tapBounce><Type size={12} /></button>
+							<button type="button" class="nb" aria-label={t('lyricsEditor.addInterlude')} onclick={() => addInterlude(i + 1)} use:tapBounce><Plus size={12} /></button>
 						</div>
 						{#if charsOpen === i}
 							{@const spans = spansOf(l)}
@@ -554,6 +696,9 @@
 							{#if !l.chars}<p class="hint">{t('lyricsEditor.charsHint')}</p>{/if}
 						{/if}
 					</div>
+				{/each}
+				{#each tailSegs as s (s.start)}
+					{@render segRow(s)}
 				{/each}
 			</div>
 
@@ -653,4 +798,13 @@
 	.share input { width: 18px; height: 18px; accent-color: var(--color-primary); }
 	.err { color: var(--color-danger-text); font-size: 0.75rem; margin: 6px 2px 0; }
 	.hint a { color: var(--color-primary); }
+	/* quick-261125-cascade: mode toggle + interlude rows. */
+	.modes { display: inline-flex; gap: 4px; }
+	.mode { display: inline-flex; align-items: center; gap: 3px; background: none; border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-text-muted); font: inherit; font-size: 0.75rem; padding: 4px 9px; min-height: 32px; cursor: pointer; }
+	.mode.on { color: var(--color-primary); border-color: var(--color-primary); }
+	.interlude { border-style: dashed; }
+	.segrow { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--color-text-muted); padding: 2px 0; }
+	.seginfo { font-variant-numeric: tabular-nums; }
+	.segrow :global(.spin) { animation: om-spin 1.2s linear infinite; color: var(--color-primary); flex: none; }
+	@keyframes om-spin { to { transform: rotate(360deg); } }
 </style>

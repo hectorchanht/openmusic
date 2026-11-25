@@ -13,8 +13,18 @@ import {
 	hasDegenerateStamps,
 	stampNextInSequence,
 	cascadeEditorLines,
+	rippleShiftLines,
+	rippleShiftDraft,
+	anchorStretchLines,
+	interludeSegmentsFromSpans,
+	interludesFromEditorLines,
+	insertInterlude,
+	resizeInterlude,
+	deleteInterlude,
+	activeInterludeAt,
 	ESTIMATE_FALLBACK_LINE_SEC,
-	type EditorLine
+	type EditorLine,
+	type InterludeSegment
 } from './lyrics-editor';
 import { parseLRC } from './lrc';
 import { getPinnedLyrics, setPinnedLyrics, removePinnedLyrics } from './lyric-pins';
@@ -379,6 +389,193 @@ describe('stampNextInSequence — tap-to-sync chain stamp (quick-261122-tsfix)',
 		expect(r2.lines[0].chars).toEqual([
 			{ text: 'a', start: 10, end: 11 },
 			{ text: 'b', start: 11, end: 12 }
+		]);
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261125-cascade — Hector 2026-11-23 (02:26 / 04:11 / 04:14 / 16:59),
+// re-flagged 2026-11-25: cascade timing + interlude segments. These tests are
+// the failing-if-broken pins: a regression to single-line-only editing, a torn
+// [start][end] chain, or a lost interlude gap must go red here, never silently.
+const L = (start: number, end: number, text = 'x'): EditorLine => ({ start, end, text });
+const spans = (ls: EditorLine[]) => ls.map((l) => [l.start, l.end]);
+const monotonic = (ls: EditorLine[]) =>
+	ls.every((l, i) => l.start >= 0 && l.end >= l.start + 0.1 && (i === 0 || l.start >= ls[i - 1].start));
+
+describe('rippleShiftLines — the train follows', () => {
+	const song = [L(10, 15, 'a'), L(15, 20, 'b'), L(20, 26, 'c'), L(26, 30, 'd')];
+
+	it('shifting line 1 by +Δ moves ALL later starts+ends by Δ, gaps preserved', () => {
+		const out = rippleShiftLines(song, 0, 2, 60);
+		expect(spans(out)).toEqual([
+			[12, 17],
+			[17, 22],
+			[22, 28],
+			[28, 32]
+		]);
+		expect(monotonic(out)).toBe(true);
+	});
+
+	it('rippling from a middle line moves only that line onward; the chained previous end follows', () => {
+		const out = rippleShiftLines(song, 2, 1.5, 60);
+		// Line b is untouched except its END, which is line c's start (the chain).
+		expect(spans(out)).toEqual([
+			[10, 15],
+			[15, 21.5],
+			[21.5, 27.5],
+			[27.5, 31.5]
+		]);
+		expect(monotonic(out)).toBe(true);
+	});
+
+	it('a negative ripple clamps at 0 — the head line never leaves the song', () => {
+		const out = rippleShiftLines(song, 0, -100, 60);
+		expect(out[0].start).toBe(0);
+		expect(spans(out)).toEqual([
+			[0, 5],
+			[5, 10],
+			[10, 16],
+			[16, 20]
+		]);
+		expect(monotonic(out)).toBe(true);
+	});
+
+	it('a positive ripple clamps at the duration — the last end never passes it', () => {
+		const out = rippleShiftLines(song, 0, 100, 60);
+		expect(out[out.length - 1].end).toBe(60);
+		expect(monotonic(out)).toBe(true);
+	});
+
+	it('a negative ripple from the middle stops at the previous line’s minimum (no collision)', () => {
+		const out = rippleShiftLines(song, 2, -100, 60);
+		// Line c can retreat only until line b would shrink below 0.1s.
+		expect(out[2].start).toBe(15.1);
+		expect(out[1].end).toBe(15.1);
+		expect(monotonic(out)).toBe(true);
+	});
+
+	it('Single mode is untouched: nudgeEditorLine still moves one boundary of one line', () => {
+		const one = nudgeEditorLine(song[0], 'start', 0.1, 60);
+		expect([one.start, one.end]).toEqual([10.1, 15]);
+		expect(song[1]).toEqual(L(15, 20, 'b'));
+	});
+});
+
+describe('anchorStretchLines — pin the ends, scale the middle', () => {
+	it('doubling the span doubles every boundary; pins land exactly', () => {
+		const song = [L(0, 10, 'a'), L(10, 20, 'b'), L(20, 30, 'c'), L(30, 40, 'd')];
+		const out = anchorStretchLines(song, 0, 80, 120);
+		expect(spans(out)).toEqual([
+			[0, 20],
+			[20, 40],
+			[40, 60],
+			[60, 80]
+		]);
+		expect(monotonic(out)).toBe(true);
+	});
+
+	it('moving only the head pin re-scales against the fixed tail pin', () => {
+		const song = [L(10, 20, 'a'), L(20, 30, 'b'), L(30, 40, 'c')];
+		const out = anchorStretchLines(song, 25, 40, 60);
+		expect(out[0].start).toBe(25);
+		expect(out[out.length - 1].end).toBe(40);
+		expect(monotonic(out)).toBe(true);
+	});
+});
+
+describe('interlude segments — blank time is real data', () => {
+	const song = [L(0, 5, 'a'), L(5, 10, 'b'), L(10, 15, 'c')];
+
+	it('derives NO segment from a fully chained draft, and the gap from explicit ends', () => {
+		expect(interludesFromEditorLines(song, 15)).toEqual([]);
+		const gapped = [L(0, 5, 'a'), L(9, 14, 'b')];
+		expect(interludesFromEditorLines(gapped, 14)).toEqual([{ start: 5, end: 9 }]);
+		// Head + tail gaps derive too.
+		expect(interludesFromEditorLines([L(3, 8, 'a')], 20)).toEqual([
+			{ start: 0, end: 3 },
+			{ start: 8, end: 20 }
+		]);
+	});
+
+	it('insert between lines ripples the following lines and records the segment', () => {
+		const r = insertInterlude(song, [], 1, 4, 60);
+		expect(r.segments).toEqual([{ start: 5, end: 9 }]);
+		expect(spans(r.lines)).toEqual([
+			[0, 5],
+			[9, 14],
+			[14, 19]
+		]);
+		expect(monotonic(r.lines)).toBe(true);
+	});
+
+	it('insert before the first line shifts the whole song; after the last moves nothing', () => {
+		const head = insertInterlude(song, [], 0, 3, 60);
+		expect(head.segments).toEqual([{ start: 0, end: 3 }]);
+		expect(spans(head.lines)).toEqual([
+			[3, 8],
+			[8, 13],
+			[13, 18]
+		]);
+		const tail = insertInterlude(song, [], 3, 6, 60);
+		expect(tail.segments).toEqual([{ start: 15, end: 21 }]);
+		expect(spans(tail.lines)).toEqual(spans(song));
+	});
+
+	it('resize moves the following lines by the same delta; delete closes the gap exactly', () => {
+		const ins = insertInterlude(song, [], 1, 4, 60);
+		const big = resizeInterlude(ins.lines, ins.segments, 0, 12, 60);
+		expect(big.segments).toEqual([{ start: 5, end: 12 }]);
+		expect(spans(big.lines)).toEqual([
+			[0, 5],
+			[12, 17],
+			[17, 22]
+		]);
+		const del = deleteInterlude(big.lines, big.segments, 0);
+		expect(del.segments).toEqual([]);
+		expect(spans(del.lines)).toEqual(spans(song));
+	});
+
+	it('the monotonic guard: a resize can never shrink a segment below 0.1s or overlap a line', () => {
+		const ins = insertInterlude(song, [], 1, 4, 60);
+		const shrunk = resizeInterlude(ins.lines, ins.segments, 0, 0, 60);
+		expect(shrunk.segments[0]).toEqual({ start: 5, end: 5.1 });
+		expect(shrunk.lines[1].start).toBe(5.1);
+		expect(monotonic(shrunk.lines)).toBe(true);
+	});
+
+	it('activeInterludeAt reports progress inside a segment and nothing outside', () => {
+		const segs: InterludeSegment[] = [{ start: 5, end: 9 }];
+		expect(activeInterludeAt(segs, 7)?.progress).toBe(0.5);
+		expect(activeInterludeAt(segs, 4.9)).toBeNull();
+		expect(activeInterludeAt(segs, 9)).toBeNull();
+	});
+
+	it('rippleShiftDraft rides segments along and lets the preceding gap absorb the move', () => {
+		const ins = insertInterlude(song, [], 1, 4, 60);
+		const r = rippleShiftDraft(ins.lines, ins.segments, 0, 2, 60);
+		expect(r.segments).toEqual([{ start: 7, end: 11 }]);
+		const r2 = rippleShiftDraft(ins.lines, ins.segments, 1, 2, 60);
+		// Line b starts after the segment: the segment's end follows (gap absorbs).
+		expect(r2.segments).toEqual([{ start: 5, end: 11 }]);
+	});
+});
+
+describe('LRC round-trip with an interlude gap', () => {
+	it('serialize → parse preserves every line timing and recovers the segment', () => {
+		const song = [L(0, 5, 'a'), L(5, 10, 'b'), L(10, 15, 'c')];
+		const ins = insertInterlude(song, [], 1, 4, 60);
+		const lrc = serializeEditorLines(ins.lines);
+		const back = editorLinesFromLrc(lrc, 60);
+		expect(spans(back)).toEqual(spans(ins.lines));
+		expect(back.map((l) => l.text)).toEqual(['a', 'b', 'c']);
+		expect(interludesFromEditorLines(back, 19)).toEqual([{ start: 5, end: 9 }]);
+		// And the parsed LyricLine form carries the same explicit ends.
+		const parsed = parseLRC(lrc);
+		expect(parsed.map((p) => [p.time, p.end])).toEqual([
+			[0, 5],
+			[9, 14],
+			[14, 19]
 		]);
 	});
 });

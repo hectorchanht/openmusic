@@ -365,3 +365,354 @@ export function stampNextInSequence(
  * The component tracks the transitions; this names the classes in one place.
  */
 export type EditorTimingClass = 'empty' | 'estimated' | 'precise';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick-261125-cascade — CASCADE TIMING + INTERLUDE SEGMENTS (Hector 2026-11-23
+// rulings 02:26 / 04:11 / 04:14 / 16:59, re-flagged 2026-11-25 as still unbuilt).
+//
+// CASCADE (the "train" metaphor): editing one line's start in Single mode moves
+// only that line — wrong when an imported LRC is offset by a different intro:
+// the user fixes line 1 and every later line must follow by the same delta,
+// relative gaps preserved. Three modes, one pure implementation each:
+//   · 'single' — the pre-cascade behaviour (nudge/move/stamp above), unchanged.
+//   · 'ripple' — lines from the edited index onward shift by one delta; the
+//     CHAIN rule applies: this format is [start][end] where a line's end is the
+//     next line's start, so the previous line's end follows the shifted start
+//     (it stretches/shrinks — no hole, no overlap is ever created).
+//   · 'anchor' — first start + last end are pinned to new values and every
+//     middle boundary scales proportionally between them.
+//
+// INTERLUDES (blank-time segments): a stretch of instrumental / long-note time
+// between lines is REAL timing data — an InterludeSegment {start,end} — never a
+// fake empty lyric line. ONE model, read by BOTH sides:
+//   · the editor renders a segment as a SPINNER row only (no word ever sits in
+//     a lyric position; duration appears only as editor-side info);
+//   · playback (NpLyrics) derives segments from the same spans via
+//     interludeSegmentsFromSpans and shows a plain progress bar.
+// PERSISTENCE / LRC EXPORT: a segment needs no new syntax — it exports AS the
+// silence between the previous line's explicit [end] tag and the next line's
+// [start] tag (head segment = the first line's start; tail segment = last
+// line's [end] against the known duration). serializeEditorLines therefore
+// carries segments losslessly for line timings, and interludesFromEditorLines
+// recovers the gap as one segment on re-import. A tail segment's end beyond
+// the last line is bounded by the track duration, exactly as lineEndAt does.
+
+/** How a start/end edit propagates. 'single' is the default and the fallback. */
+export type EditorCascadeMode = 'single' | 'ripple' | 'anchor';
+
+/** A blank-time (instrumental / long-note) segment: real timing data, no text. */
+export interface InterludeSegment {
+	start: number;
+	end: number;
+}
+
+/** Default length of a freshly inserted interlude, before the user resizes it. */
+export const DEFAULT_INTERLUDE_SEC = 5;
+
+/** Half a snap step: two stamps closer than this are the same chain joint. */
+const JOINT_EPS = 0.05;
+
+/** Snap a DELTA to the 0.1s grid — unlike snapTenth (absolute times), negatives survive. */
+function snapDelta(v: number): number {
+	if (!Number.isFinite(v)) return 0;
+	return Math.round(v * 10) / 10 || 0;
+}
+
+function shiftLine(l: EditorLine, delta: number): EditorLine {
+	return { start: snapTenth(l.start + delta), end: snapTenth(l.end + delta), text: l.text };
+}
+
+/**
+ * Clamp a ripple delta so the shift can never collide or leave the song:
+ * the first shifted line's start stays ≥ the previous line's chain floor
+ * (its start + 0.1 when chained — the previous line stretches — or its end
+ * when a gap precedes, the gap may close to zero), ≥ 0 at the head, and the
+ * last line's end stays ≤ duration when known. Returns the applied delta.
+ */
+function clampRippleDelta(
+	lines: readonly EditorLine[],
+	fromIndex: number,
+	delta: number,
+	durationSec: number
+): number {
+	let d = snapDelta(delta);
+	if (fromIndex <= 0) {
+		d = Math.max(d, -lines[0].start);
+	} else {
+		const prev = lines[fromIndex - 1];
+		const cur = lines[fromIndex];
+		const chained = prev.end >= cur.start - JOINT_EPS;
+		const floor = chained ? prev.start + 0.1 : prev.end;
+		d = Math.max(d, snapDelta(floor - cur.start));
+	}
+	if (Number.isFinite(durationSec) && durationSec > 0) {
+		d = Math.min(d, snapDelta(durationSec - lines[lines.length - 1].end));
+	}
+	return d;
+}
+
+/**
+ * RIPPLE-TRAIN: shift lines[fromIndex..] (start AND end) by delta, gaps
+ * preserved. The previous line, when chained to the first shifted line
+ * (its end == the shifted start), has its end pulled along to the new start —
+ * the chain never tears. Monotonic non-decreasing by construction + clamping.
+ */
+export function rippleShiftLines(
+	lines: readonly EditorLine[],
+	fromIndex: number,
+	delta: number,
+	durationSec = 0
+): EditorLine[] {
+	if (!lines.length || fromIndex < 0 || fromIndex >= lines.length) return lines.slice();
+	const d = clampRippleDelta(lines, fromIndex, delta, durationSec);
+	if (d === 0) return lines.slice();
+	const out = lines.map((l, i) => (i >= fromIndex ? shiftLine(l, d) : { ...l }));
+	if (fromIndex > 0) {
+		const prev = lines[fromIndex - 1];
+		if (prev.end >= lines[fromIndex].start - JOINT_EPS) {
+			out[fromIndex - 1] = { ...prev, end: out[fromIndex].start };
+		}
+	}
+	return out;
+}
+
+/**
+ * Ripple applied to a whole draft (lines + interlude segments): segments at or
+ * after the shift point ride along; the segment that ENDS at the shift point
+ * (the blank before the first shifted line) resizes — the gap absorbs the move.
+ */
+export function rippleShiftDraft(
+	lines: readonly EditorLine[],
+	segments: readonly InterludeSegment[],
+	fromIndex: number,
+	delta: number,
+	durationSec = 0
+): { lines: EditorLine[]; segments: InterludeSegment[] } {
+	if (!lines.length || fromIndex < 0 || fromIndex >= lines.length)
+		return { lines: lines.slice(), segments: segments.slice() };
+	const fromStart = lines[fromIndex].start;
+	const next = rippleShiftLines(lines, fromIndex, delta, durationSec);
+	const applied = snapDelta(next[fromIndex].start - fromStart);
+	if (applied === 0) return { lines: next, segments: segments.slice() };
+	// When a segment ends exactly at the shift point, the SEGMENT absorbs the
+	// move (it resizes below) — the previous line's end must not be chain-pulled
+	// across it, so restore it.
+	if (fromIndex > 0 && segments.some((s) => Math.abs(s.end - fromStart) < JOINT_EPS)) {
+		next[fromIndex - 1] = { ...next[fromIndex - 1], end: lines[fromIndex - 1].end };
+	}
+	const segs = segments.map((s) => {
+		if (s.start >= fromStart - JOINT_EPS)
+			return { start: snapTenth(s.start + applied), end: snapTenth(s.end + applied) };
+		if (s.end >= fromStart - JOINT_EPS)
+			return { start: s.start, end: snapTenth(s.end + applied) };
+		return { ...s };
+	});
+	return { lines: next, segments: segs };
+}
+
+/**
+ * ANCHOR STRETCH: pin the first line's start to newStart and the last line's
+ * end to newEnd; every boundary scales proportionally between the pins. The
+ * span is floored so every line keeps its 0.1s minimum, pins clamp into
+ * [0, duration], and a repair pass keeps the chain monotonic after snapping.
+ */
+export function anchorStretchLines(
+	lines: readonly EditorLine[],
+	newStart: number,
+	newEnd: number,
+	durationSec = 0
+): EditorLine[] {
+	if (lines.length < 2) return lines.slice();
+	const oldStart = lines[0].start;
+	const oldEnd = lines[lines.length - 1].end;
+	const oldSpan = oldEnd - oldStart;
+	if (!(oldSpan > 0)) return lines.slice();
+	let start = snapTenth(Math.max(0, newStart));
+	let end = snapTenth(newEnd);
+	const minSpan = snapTenth(lines.length * 0.1);
+	if (end < start + minSpan) end = snapTenth(start + minSpan);
+	if (Number.isFinite(durationSec) && durationSec > 0 && end > snapTenth(durationSec)) {
+		end = snapTenth(durationSec);
+		if (end < start + minSpan) start = Math.max(0, snapTenth(end - minSpan));
+	}
+	const factor = (end - start) / oldSpan;
+	const mapped = lines.map((l) => ({
+		start: snapTenth(start + (l.start - oldStart) * factor),
+		end: snapTenth(start + (l.end - oldStart) * factor),
+		text: l.text
+	}));
+	// Repair: snapping must never invert a line or tear the chain's monotonicity.
+	for (let i = 0; i < mapped.length; i++) {
+		if (i > 0 && mapped[i].start < mapped[i - 1].end)
+			mapped[i] = { ...mapped[i], start: mapped[i - 1].end };
+		if (mapped[i].end < mapped[i].start + 0.1)
+			mapped[i] = { ...mapped[i], end: snapTenth(mapped[i].start + 0.1) };
+	}
+	const last = mapped[mapped.length - 1];
+	if (last.end !== end) {
+		mapped[mapped.length - 1] = { ...last, end };
+		if (end < last.start + 0.1)
+			mapped[mapped.length - 1] = { ...last, end, start: snapTenth(end - 0.1) };
+	}
+	return mapped;
+}
+
+/**
+ * THE segment derivation — the one definition both the editor and playback
+ * read. Given timed spans (start/end pairs) in song order, the blank time is
+ * wherever the next span starts after everything before it has ended: the
+ * head gap (0 → first start), every between-gap, and the tail gap against
+ * the known duration. Spans may share timestamps (translation siblings):
+ * the cursor only ever moves forward, so siblings create no phantom gaps.
+ */
+export function interludeSegmentsFromSpans(
+	spans: readonly { start: number; end: number }[],
+	durationSec = 0
+): InterludeSegment[] {
+	const out: InterludeSegment[] = [];
+	let cursor = 0;
+	const sorted = spans.slice().sort((a, b) => a.start - b.start);
+	for (const s of sorted) {
+		if (s.start > cursor + JOINT_EPS) out.push({ start: snapTenth(cursor), end: snapTenth(s.start) });
+		cursor = Math.max(cursor, s.end);
+	}
+	if (Number.isFinite(durationSec) && durationSec > cursor + JOINT_EPS)
+		out.push({ start: snapTenth(cursor), end: snapTenth(durationSec) });
+	return out;
+}
+
+/** Segments of an editor draft, derived from its lines (see header: one model). */
+export function interludesFromEditorLines(
+	lines: readonly EditorLine[],
+	durationSec = 0
+): InterludeSegment[] {
+	return interludeSegmentsFromSpans(lines, durationSec);
+}
+
+/**
+ * Insert a blank-time segment BEFORE lines[beforeIndex] (beforeIndex ==
+ * lines.length inserts after the last line; 0 inserts before the first).
+ * Between lines, the following lines ripple by the segment's length so the
+ * gap is real; at the tail nothing moves — the segment runs from the last
+ * line's end toward the duration. An existing segment touching the insertion
+ * point is extended instead of stacking a second one. Length clamps to the
+ * room available; a segment that cannot fit changes nothing.
+ */
+export function insertInterlude(
+	lines: readonly EditorLine[],
+	segments: readonly InterludeSegment[],
+	beforeIndex: number,
+	lengthSec: number,
+	durationSec = 0
+): { lines: EditorLine[]; segments: InterludeSegment[] } {
+	const len = Math.max(0.1, snapTenth(lengthSec));
+	const at = Math.max(0, Math.min(beforeIndex, lines.length));
+	if (at >= lines.length) {
+		// Tail (or empty draft): no line moves.
+		const start = lines.length ? lines[lines.length - 1].end : 0;
+		let end = snapTenth(start + len);
+		if (Number.isFinite(durationSec) && durationSec > 0) end = Math.min(end, snapTenth(durationSec));
+		if (end < start + 0.1) return { lines: lines.slice(), segments: segments.slice() };
+		const segs = segments.slice();
+		const touch = segs.findIndex((s) => Math.abs(s.start - start) < JOINT_EPS);
+		if (touch >= 0) segs[touch] = { start: segs[touch].start, end };
+		else segs.push({ start, end });
+		return { lines: lines.slice(), segments: segs.sort((a, b) => a.start - b.start) };
+	}
+	const gapStart = lines[at].start;
+	// A segment already ending at the insertion point absorbs the shift inside
+	// rippleShiftDraft (its end rides along) — it must not be duplicated below.
+	const hadTouching = segments.some((s) => Math.abs(s.end - gapStart) < JOINT_EPS);
+	const shifted = rippleShiftDraft(lines, segments, at, len, durationSec);
+	const applied = snapDelta(shifted.lines[at].start - gapStart);
+	if (applied < 0.1) return { lines: lines.slice(), segments: segments.slice() };
+	// The inserted segment is the absorber at this joint: the previous line
+	// keeps its own end (the segment starts there), never chain-pulled across.
+	if (at > 0) shifted.lines[at - 1] = { ...shifted.lines[at - 1], end: lines[at - 1].end };
+	const segs = shifted.segments.slice();
+	if (!hadTouching) segs.push({ start: gapStart, end: snapTenth(gapStart + applied) });
+	return { lines: shifted.lines, segments: segs.sort((a, b) => a.start - b.start) };
+}
+
+/**
+ * Resize a segment by moving its END: every line and segment at or after the
+ * old end rides by the same delta (the chain rule), so the following lyric
+ * keeps its distance from everything after it. The segment keeps a 0.1s
+ * minimum — the monotonic guard: a resize can never push a line before the
+ * segment's own start, nor past the duration.
+ */
+export function resizeInterlude(
+	lines: readonly EditorLine[],
+	segments: readonly InterludeSegment[],
+	segIndex: number,
+	newEnd: number,
+	durationSec = 0
+): { lines: EditorLine[]; segments: InterludeSegment[] } {
+	const seg = segments[segIndex];
+	if (!seg) return { lines: lines.slice(), segments: segments.slice() };
+	let end = snapTenth(newEnd);
+	end = Math.max(end, snapTenth(seg.start + 0.1));
+	if (Number.isFinite(durationSec) && durationSec > 0) end = Math.min(end, snapTenth(durationSec));
+	const delta = snapDelta(end - seg.end);
+	if (delta === 0) return { lines: lines.slice(), segments: segments.slice() };
+	// Clamp the delta against the tail of the song (last affected line's end).
+	if (Number.isFinite(durationSec) && durationSec > 0 && delta > 0) {
+		const tail = lines.filter((l) => l.start >= seg.end - JOINT_EPS);
+		if (tail.length) {
+			const room = snapTenth(durationSec - tail[tail.length - 1].end);
+			if (room <= 0) return { lines: lines.slice(), segments: segments.slice() };
+			if (room < delta) return resizeInterlude(lines, segments, segIndex, seg.end + room, durationSec);
+		}
+	}
+	const outLines = lines.map((l) =>
+		l.start >= seg.end - JOINT_EPS ? shiftLine(l, delta) : { ...l }
+	);
+	const outSegs = segments.map((s, i) => {
+		if (i === segIndex) return { start: s.start, end };
+		if (s.start >= seg.end - JOINT_EPS)
+			return { start: snapTenth(s.start + delta), end: snapTenth(s.end + delta) };
+		return { ...s };
+	});
+	return { lines: outLines, segments: outSegs };
+}
+
+/**
+ * Delete a segment: the lines after it ripple back by its length, closing
+ * the gap — the chain is whole again (the previous line's end meets the
+ * following line's start exactly as before the insert).
+ */
+export function deleteInterlude(
+	lines: readonly EditorLine[],
+	segments: readonly InterludeSegment[],
+	segIndex: number
+): { lines: EditorLine[]; segments: InterludeSegment[] } {
+	const seg = segments[segIndex];
+	if (!seg) return { lines: lines.slice(), segments: segments.slice() };
+	const len = snapTenth(seg.end - seg.start);
+	const outLines = lines.map((l) =>
+		l.start >= seg.end - JOINT_EPS ? shiftLine(l, -len) : { ...l }
+	);
+	const outSegs = segments
+		.filter((_, i) => i !== segIndex)
+		.map((s) =>
+			s.start >= seg.end - JOINT_EPS
+				? { start: snapTenth(s.start - len), end: snapTenth(s.end - len) }
+				: { ...s }
+		);
+	return { lines: outLines, segments: outSegs };
+}
+
+/** The segment playing at `now`, with its 0..1 progress — playback's bar maths. */
+export function activeInterludeAt(
+	segments: readonly InterludeSegment[],
+	now: number
+): { segment: InterludeSegment; progress: number } | null {
+	for (const s of segments) {
+		if (now >= s.start && now < s.end) {
+			const span = s.end - s.start;
+			return { segment: s, progress: span > 0 ? Math.min(1, Math.max(0, (now - s.start) / span)) : 0 };
+		}
+	}
+	return null;
+}
+
